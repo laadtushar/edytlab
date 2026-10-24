@@ -287,6 +287,7 @@ impl AppState {
                 persistence: Arc::new(move || tokens.persistence()),
                 refusal,
                 refresh_models: true,
+                private_dir: Some(app_config_dir.to_path_buf()),
             },
         );
         true

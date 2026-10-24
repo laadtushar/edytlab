@@ -34,18 +34,35 @@
 //! stepped to is read back when its turn ends
 //! ([`ChatGptHandle::end_of_turn`]) and when it is replaced.
 //!
+//! # Account generation
+//!
+//! `ChatGptHandle::account_generation` counts the times the account changed
+//! (a sign-out, a start over, another account, a sign-in whose email
+//! differs). A request that runs beside a turn takes it with its copy of the
+//! provider, and a turn takes it at its start: what a copy learned for an
+//! older generation is thrown away, and a message a turn could not send is
+//! kept only if the generation is still the one it started under and the
+//! session ended (it was not signed out of). Otherwise an in-flight turn could
+//! teach, or hand a message to, the next account.
+//!
 //! # Locks
 //!
-//! Every lock here is a leaf: taken alone, never held across an `.await`, a
-//! call into the session or a notification.
+//! None is held across an `.await`, a call into the session that does I/O, or
+//! a notification. `hooks`, `session` and `published` are leaves, read and
+//! cloned out. The order where two are held is `memory` and then the
+//! provider's own state lock (inside `ai`, itself a leaf), and `pending` and
+//! then a read of the session's in-memory status (no I/O). The agent's lock
+//! (`AppState::agent`) comes before `memory`: `turn_boundary` and the rebuilds
+//! run with it held, and nothing takes the agent's lock while holding
+//! `memory`.
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use ai::chatgpt::provider::ToolRung;
-use ai::chatgpt::store::{RefreshTokenStore, SecretStoreError};
+use ai::chatgpt::store::{RefreshTokenStore, SecretStoreError, StoreError};
 use ai::chatgpt::{
     ChatGptProvider, ChatGptSession, ChatGptStatus, EndReason, ForgetError, PlanUsageError,
     Revocation, SessionState, SignInError, SignInIntent, SignOutReport, TokenStorage,
@@ -480,6 +497,30 @@ pub fn sign_in_error_text(error: &SignInError) -> String {
         SignInError::Loopback(LoopbackError::Authorization { error, .. }) => {
             format!("the sign-in failed: {}", shown(error))
         }
+        // These name the folder edytlab keeps its sign-in files in, and a
+        // local path is not for the window: a fixed sentence, and the detail
+        // in the log.
+        SignInError::Lock(_) => {
+            tracing::warn!(error = %error, "chatgpt: could not lock the sign-in files");
+            "edytlab could not use its saved ChatGPT sign-in files: they are locked or cannot \
+             be written. Close any other edytlab window that is signing in and try again."
+                .to_string()
+        }
+        SignInError::Registration(why) => {
+            tracing::warn!(error = %why, "chatgpt: the saved registration could not be used");
+            match why {
+                StoreError::Corrupt(_) => "edytlab's saved ChatGPT registration is damaged. Use \
+                     Start over to register again."
+                    .to_string(),
+                StoreError::UnsupportedVersion { .. } => "edytlab's saved ChatGPT registration \
+                     was written by a newer edytlab. Update edytlab, or use Start over to \
+                     register again."
+                    .to_string(),
+                StoreError::Io { .. } => "edytlab could not read or write its saved ChatGPT \
+                     registration."
+                    .to_string(),
+            }
+        }
         other => other.to_string(),
     }
 }
@@ -553,6 +594,9 @@ struct Hooks {
     /// built. On in the app; off in a state nothing installed into, so a test
     /// makes no request.
     refresh_models: bool,
+    /// The folder the session keeps its files in. Its path is not for the
+    /// window: anything shown is scrubbed of it.
+    private_dir: Option<String>,
 }
 
 /// What the app remembers of the route, between agents and between turns.
@@ -565,9 +609,17 @@ struct Memory {
     /// The provider the running agent was built with. Nothing but the agent's
     /// turn uses it; see the module documentation.
     agent: Option<Arc<ChatGptProvider>>,
-    /// The account changed: the next agent, and the running one at its next
-    /// turn boundary, start from the first rung with no levels.
-    reset_pending: bool,
+    /// The account generation the running agent's provider has been brought
+    /// to. When it is behind the current one, the account changed since: the
+    /// provider starts again at its next turn boundary.
+    agent_generation: u64,
+}
+
+/// A provider of its own for a request that runs beside a turn, and the
+/// account generation it was made under.
+struct Fork {
+    provider: Arc<ChatGptProvider>,
+    generation: u64,
 }
 
 fn deeper(a: Option<ToolRung>, b: ToolRung) -> Option<ToolRung> {
@@ -585,6 +637,12 @@ struct Inner {
     pending: Mutex<Option<PendingMessage>>,
     published: Mutex<Option<ChatGptStatusDto>>,
     refreshing_models: AtomicBool,
+    /// See "Account generation" in the module documentation.
+    generation: AtomicU64,
+    /// A start over is running: the session counts it as a sign-in in
+    /// progress (it takes the same guard), and the window must not read that
+    /// as a browser being waited for.
+    starting_over: AtomicBool,
 }
 
 /// The ChatGPT sign-in of one app: see the module documentation. Cloning is
@@ -604,6 +662,8 @@ impl Default for ChatGptHandle {
                 pending: Mutex::new(None),
                 published: Mutex::new(None),
                 refreshing_models: AtomicBool::new(false),
+                generation: AtomicU64::new(0),
+                starting_over: AtomicBool::new(false),
             }),
         }
     }
@@ -617,6 +677,9 @@ pub struct Hooking {
     pub refusal: Refusal,
     /// Whether to read the model list after a sign-in and on an agent build.
     pub refresh_models: bool,
+    /// The folder the session keeps its files in (the app config folder), so
+    /// no text shown to the window can carry its path.
+    pub private_dir: Option<std::path::PathBuf>,
 }
 
 impl ChatGptHandle {
@@ -627,6 +690,24 @@ impl ChatGptHandle {
         hooks.persistence = Some(hooking.persistence);
         hooks.refusal = Some(hooking.refusal);
         hooks.refresh_models = hooking.refresh_models;
+        hooks.private_dir = hooking
+            .private_dir
+            .map(|d| d.to_string_lossy().into_owned())
+            .filter(|d| !d.is_empty());
+    }
+
+    /// Text that is going to the window, without the folder the session's
+    /// files are in.
+    fn scrubbed(&self, text: String) -> String {
+        match &lock(&self.inner.hooks).private_dir {
+            Some(dir) => text.replace(dir.as_str(), "the ChatGPT folder"),
+            None => text,
+        }
+    }
+
+    /// How many times the account has changed. See the module documentation.
+    pub fn account_generation(&self) -> u64 {
+        self.inner.generation.load(Ordering::SeqCst)
     }
 
     /// Where status changes are sent: the app's event.
@@ -660,15 +741,16 @@ impl ChatGptHandle {
         let persistence = persistence.and_then(|p| p());
         status_dto(
             &session.status(),
-            session.is_signing_in(),
+            session.is_signing_in() && !self.inner.starting_over.load(Ordering::SeqCst),
             persistence.as_ref(),
             self.refusal(),
             lock(&self.inner.pending).is_some(),
         )
     }
 
-    /// Whether the plan can be used right now: signed in, with plan usage
-    /// granted, and not part-way through another sign-in.
+    /// Whether the session is signed in with plan usage granted. (It does not
+    /// look at whether another sign-in is in progress: the session in use is
+    /// the one that holds until that sign-in replaces it.)
     pub fn is_signed_in(&self) -> bool {
         self.session()
             .is_some_and(|s| s.status().state == SessionState::SignedIn)
@@ -755,7 +837,7 @@ impl ChatGptHandle {
             Err(SignInError::Loopback(LoopbackError::Cancelled)) => Ok(self.publish()),
             Err(e) => {
                 self.publish();
-                Err(sign_in_error_text(&e))
+                Err(self.scrubbed(sign_in_error_text(&e)))
             }
         }
     }
@@ -768,33 +850,38 @@ impl ChatGptHandle {
     }
 
     /// Signs out: the refresh token is revoked and removed, and what was
-    /// learned about the account's route and any kept message go with it.
+    /// learned about the account's route and any kept message go with it (the
+    /// account generation moves on, so a turn that is still running cannot
+    /// keep a message for whoever signs in next).
     pub async fn sign_out(&self) -> Result<ChatGptEndDto, String> {
         let session = self.session().ok_or_else(unavailable_error)?;
         let report = session.sign_out().await;
         self.account_changed();
-        self.clear_pending();
         Ok(ChatGptEndDto {
             status: self.publish(),
             revocation: revocation_word(&report.revocation),
             token_removed: report.removed_from_store.is_ok(),
             registration_forgotten: None,
-            notice: join_notes(sign_out_notes(&report)),
+            notice: self.join_notes(sign_out_notes(&report)),
         })
     }
 
     /// Starts over (G13): signs out, then forgets the registered client, so
     /// the next sign-in registers edytlab again. The old entry may remain in
     /// ChatGPT's settings, which the notice says.
+    ///
+    /// While it runs the status is whatever the session is, not `signing_in`:
+    /// the session takes the sign-in guard to keep a sign-in from starting
+    /// meanwhile, and no browser is being waited for.
     pub async fn forget_registration(&self) -> Result<ChatGptEndDto, String> {
         let session = self.session().ok_or_else(unavailable_error)?;
+        let _starting_over = StartingOver::begin(&self.inner.starting_over);
         let report = session.forget_registration().await.map_err(|e| match e {
             ForgetError::SignInInProgress => {
                 "A ChatGPT sign-in is in progress. Cancel it first, then start over.".to_string()
             }
         })?;
         self.account_changed();
-        self.clear_pending();
         let forgotten = report.registration_removed.is_ok();
         let mut notes = sign_out_notes(&report.sign_out);
         match &report.registration_removed {
@@ -803,26 +890,47 @@ impl ChatGptHandle {
                  again. The old entry may still be listed in {CHATGPT_SETTINGS}; you can \
                  disconnect it there."
             )),
-            Err(why) => notes.push(format!(
-                "edytlab could not forget its registration ({}).",
-                shown(why)
-            )),
+            Err(why) => {
+                // The detail names the folder; the log has it.
+                tracing::warn!(error = %why, "chatgpt: could not forget the registration");
+                notes.push("edytlab could not update its saved ChatGPT registration.".to_string())
+            }
         }
         Ok(ChatGptEndDto {
             status: self.publish(),
             revocation: revocation_word(&report.sign_out.revocation),
             token_removed: report.sign_out.removed_from_store.is_ok(),
             registration_forgotten: Some(forgotten),
-            notice: join_notes(notes),
+            notice: self.join_notes(notes),
         })
+    }
+
+    fn join_notes(&self, notes: Vec<String>) -> Option<String> {
+        join_notes(notes).map(|n| self.scrubbed(n))
     }
 
     // --- The message a dead session could not send (G9) --------------------------------
 
-    /// Keeps `message` for the window to offer to send again.
-    pub fn set_pending(&self, message: PendingMessage) {
-        *lock(&self.inner.pending) = Some(message);
+    /// Keeps `message` for the window to offer to send again, if it still
+    /// can be: the account has not changed since the turn began under
+    /// `generation`, and the session **ended** (it was not signed out of: a
+    /// person who signed out chose to leave). Says whether it was kept.
+    pub fn keep_pending(&self, generation: u64, message: PendingMessage) -> bool {
+        let ended = self
+            .session()
+            .is_some_and(|s| matches!(s.status().state, SessionState::SessionEnded(_)));
+        {
+            let mut pending = lock(&self.inner.pending);
+            // Checked with the lock held: `account_changed` moves the
+            // generation first and clears the message after, so a message
+            // set here is either cleared by it or refused by this.
+            if !ended || generation != self.account_generation() {
+                return false;
+            }
+            *pending = Some(message);
+        }
         self.publish();
+        true
     }
 
     /// Takes the kept message, if there is one, and forgets it.
@@ -834,10 +942,14 @@ impl ChatGptHandle {
         taken
     }
 
-    /// Forgets the kept message without sending a status: a new message
-    /// supersedes it, and the turn that follows publishes.
+    /// Forgets the kept message, and says so on the status if there was one
+    /// (the Continue card has nothing to send any more): a new message
+    /// supersedes it.
     pub fn clear_pending(&self) {
-        lock(&self.inner.pending).take();
+        let had = lock(&self.inner.pending).take().is_some();
+        if had {
+            self.publish();
+        }
     }
 
     // --- What the agent's provider has learned --------------------------------------
@@ -848,15 +960,10 @@ impl ChatGptHandle {
     /// documentation.
     pub fn new_agent_provider(&self) -> Arc<ChatGptProvider> {
         let mut memory = lock(&self.inner.memory);
-        harvest_locked(&mut memory);
-        if memory.reset_pending {
-            memory.rung = None;
-            memory.levels.clear();
-            memory.reset_pending = false;
-        }
-        let provider = provider_from(&memory);
-        let provider = Arc::new(provider);
+        harvest_locked(&mut memory, self.account_generation());
+        let provider = Arc::new(provider_from(&memory));
         memory.agent = Some(Arc::clone(&provider));
+        memory.agent_generation = self.account_generation();
         provider
     }
 
@@ -864,7 +971,7 @@ impl ChatGptHandle {
     /// learned is kept, and it is no longer the agent's provider.
     pub fn agent_replaced_by_another_provider(&self) {
         let mut memory = lock(&self.inner.memory);
-        harvest_locked(&mut memory);
+        harvest_locked(&mut memory, self.account_generation());
         memory.agent = None;
     }
 
@@ -875,25 +982,24 @@ impl ChatGptHandle {
 
     /// The agent's turn has ended: the rung it stepped to is kept.
     pub fn end_of_turn(&self) {
-        harvest_locked(&mut lock(&self.inner.memory));
+        harvest_locked(&mut lock(&self.inner.memory), self.account_generation());
     }
 
     /// A turn is about to start, with the agent's lock held and none running:
     /// the running agent's provider takes on what was learned since (a rung a
-    /// copy found, the reasoning levels), or starts again after an account
-    /// change. This is the only time anything reaches the agent's provider.
+    /// copy found, the reasoning levels), after starting again if the account
+    /// changed since it was built or last brought up to date. This is the
+    /// only time anything reaches the agent's provider.
     pub fn turn_boundary(&self) {
         let mut memory = lock(&self.inner.memory);
         let Some(agent) = memory.agent.clone() else {
             return;
         };
-        if memory.reset_pending {
+        let generation = self.account_generation();
+        if memory.agent_generation != generation {
             agent.reset_adaptations();
             agent.adopt_levels(HashMap::new());
-            memory.rung = None;
-            memory.levels.clear();
-            memory.reset_pending = false;
-            return;
+            memory.agent_generation = generation;
         }
         if let Some(rung) = memory.rung {
             agent.adopt_rung(rung);
@@ -903,12 +1009,17 @@ impl ChatGptHandle {
 
     /// The account is not the one the route was learned on (another account,
     /// a sign-out, a start over): what was learned is dropped, for the next
-    /// agent now and for the running one at its next turn boundary.
+    /// agent now and for the running one at its next turn boundary; copies
+    /// that began under the old account teach nothing; and a kept message
+    /// goes, so it cannot be offered to whoever signs in next.
     pub fn account_changed(&self) {
-        let mut memory = lock(&self.inner.memory);
-        memory.rung = None;
-        memory.levels.clear();
-        memory.reset_pending = true;
+        {
+            let mut memory = lock(&self.inner.memory);
+            self.inner.generation.fetch_add(1, Ordering::SeqCst);
+            memory.rung = None;
+            memory.levels.clear();
+        }
+        self.clear_pending();
     }
 
     /// What the app remembers, for a test.
@@ -917,27 +1028,36 @@ impl ChatGptHandle {
         lock(&self.inner.memory).rung
     }
 
+    /// The provider the running agent was built with, for a test.
+    #[cfg(test)]
+    pub(crate) fn agent_provider(&self) -> Option<Arc<ChatGptProvider>> {
+        lock(&self.inner.memory).agent.clone()
+    }
+
     /// A provider of its own for a request that runs beside a turn (Test, the
     /// model list), made from what the app remembers and nothing the running
-    /// agent's provider holds right now. Returns it as the handle to read
-    /// what it learned and as the config's provider.
-    fn fork(&self) -> Arc<ChatGptProvider> {
+    /// agent's provider holds right now, with the account generation it was
+    /// made under.
+    fn fork(&self) -> Fork {
         let memory = lock(&self.inner.memory);
-        Arc::new(provider_from(&memory))
+        Fork {
+            provider: Arc::new(provider_from(&memory)),
+            // Read with `memory` held, as `account_changed` moves it.
+            generation: self.account_generation(),
+        }
     }
 
     /// Keeps what a copy learned: a deeper rung than the one remembered, and
     /// the reasoning levels it read, if it read any. The running agent has
-    /// them from its next turn boundary on.
-    fn learned(&self, fork: &ChatGptProvider) {
+    /// them from its next turn boundary on. A copy made under an older
+    /// account generation learned that account's route and is dropped.
+    fn learned(&self, fork: &Fork) {
         let mut memory = lock(&self.inner.memory);
-        if memory.reset_pending {
-            // The account changed while the copy ran: it learned the old
-            // account's route.
+        if fork.generation != self.account_generation() {
             return;
         }
-        memory.rung = deeper(memory.rung, fork.tool_rung());
-        let levels = fork.levels_snapshot();
+        memory.rung = deeper(memory.rung, fork.provider.tool_rung());
+        let levels = fork.provider.levels_snapshot();
         if !levels.is_empty() {
             memory.levels = levels;
         }
@@ -957,7 +1077,7 @@ impl ChatGptHandle {
             .ok_or_else(|| self.not_signed_in())?;
         let fork = self.fork();
         let cfg = ai::LlmConfig::with_credential(
-            fork.clone() as Arc<dyn ai::LlmProvider>,
+            fork.provider.clone() as Arc<dyn ai::LlmProvider>,
             ai::Credential::ChatGpt(session),
         );
         let result = read_catalogue(cfg).await;
@@ -965,7 +1085,7 @@ impl ChatGptHandle {
             // The levels each model takes, on the copy. (The real fetch has
             // told it already; this is what makes them reach `learned`
             // whatever `read_catalogue` is.)
-            ai::LlmProvider::note_catalogue(fork.as_ref(), &catalogue.models);
+            ai::LlmProvider::note_catalogue(fork.provider.as_ref(), &catalogue.models);
         }
         self.learned(&fork);
         // A refresh inside the request can end the session.
@@ -989,7 +1109,7 @@ impl ChatGptHandle {
             .ok_or_else(|| self.not_signed_in())?;
         let fork = self.fork();
         let cfg = ai::LlmConfig::with_credential(
-            fork.clone() as Arc<dyn ai::LlmProvider>,
+            fork.provider.clone() as Arc<dyn ai::LlmProvider>,
             ai::Credential::ChatGpt(session),
         );
         let result = probe_with(cfg, model).await;
@@ -1026,6 +1146,22 @@ impl ChatGptHandle {
     }
 }
 
+/// Marks a start over as running, and unmarks it however the call ends.
+struct StartingOver<'a>(&'a AtomicBool);
+
+impl<'a> StartingOver<'a> {
+    fn begin(flag: &'a AtomicBool) -> Self {
+        flag.store(true, Ordering::SeqCst);
+        Self(flag)
+    }
+}
+
+impl Drop for StartingOver<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// A provider made from what is remembered.
 fn provider_from(memory: &Memory) -> ChatGptProvider {
     let provider = ChatGptProvider::default();
@@ -1038,9 +1174,11 @@ fn provider_from(memory: &Memory) -> ChatGptProvider {
 }
 
 /// Reads the running agent's rung into memory (the ladder is walked in one
-/// direction, so what it is on now is never shallower than what was kept).
-fn harvest_locked(memory: &mut Memory) {
-    if memory.reset_pending {
+/// direction, so what it is on now is never shallower than what was kept),
+/// unless the account changed since the agent's provider was brought up to
+/// date: what it learned is the old account's.
+fn harvest_locked(memory: &mut Memory, generation: u64) {
+    if memory.agent_generation != generation {
         return;
     }
     if let Some(agent) = &memory.agent {
@@ -1126,6 +1264,20 @@ pub(crate) mod test_support {
         Arc::new(ChatGptSession::open(SessionConfig::new(dir), store).unwrap())
     }
 
+    /// A handle whose session has **ended**: another window signed out, so
+    /// the token is gone from the store and the next bearer says so (offline).
+    pub fn ended_handle(dir: &Path) -> (ChatGptHandle, Arc<MemoryStore>) {
+        let (handle, store) = signed_in_handle(dir);
+        *lock(&store.token) = None;
+        let session = handle.session().expect("a session");
+        let err = tauri::async_runtime::block_on(session.bearer()).expect_err("it ended");
+        assert!(
+            matches!(err, ai::chatgpt::BearerError::SessionEnded(_)),
+            "{err:?}"
+        );
+        (handle, store)
+    }
+
     /// A handle with a signed-in session installed, as startup leaves it.
     pub fn signed_in_handle(dir: &Path) -> (ChatGptHandle, Arc<MemoryStore>) {
         let store = Arc::new(MemoryStore::default());
@@ -1138,6 +1290,7 @@ pub(crate) mod test_support {
                 persistence: Arc::new(|| None),
                 refusal: Arc::new(|| None),
                 refresh_models: false,
+                private_dir: None,
             },
         );
         (handle, store)
@@ -1425,7 +1578,7 @@ mod tests {
     #[test]
     fn a_status_change_is_sent_once_and_an_unchanged_one_is_not() {
         let dir = tempdir().unwrap();
-        let (handle, _store) = signed_in_handle(dir.path());
+        let (handle, _store) = ended_handle(dir.path());
         let sent: Arc<Mutex<Vec<ChatGptStatusDto>>> = Arc::default();
         let log = sent.clone();
         handle.set_notifier(move |dto| lock(&log).push(dto.clone()));
@@ -1433,15 +1586,10 @@ mod tests {
         handle.publish();
         handle.publish();
         assert_eq!(lock(&sent).len(), 1, "the same status is not sent twice");
-        assert_eq!(lock(&sent)[0].state, "signed_in");
+        assert_eq!(lock(&sent)[0].state, "session_ended");
 
         // A kept message changes what the window reads.
-        handle.set_pending(PendingMessage {
-            text: "cut the intro".into(),
-            resume_text: "cut the intro".into(),
-            disabled_tools: vec![],
-            progressed: false,
-        });
+        assert!(handle.keep_pending(handle.account_generation(), pending("cut the intro")));
         assert_eq!(lock(&sent).len(), 2);
         assert!(lock(&sent)[1].pending_message);
         assert!(handle.take_pending().is_some());
@@ -1479,6 +1627,7 @@ mod tests {
                 persistence: Arc::new(|| None),
                 refusal: Arc::new(move || flag.load(Ordering::SeqCst).then(|| "refused".into())),
                 refresh_models: false,
+                private_dir: None,
             },
         );
         tauri::async_runtime::block_on(handle.restore());
@@ -1675,18 +1824,78 @@ mod tests {
         assert_eq!(handle.remembered_rung(), None);
         // The running agent is not touched until a turn boundary.
         assert_eq!(agent.tool_rung(), ToolRung::Flat);
-        // A copy that ran for the old account teaches nothing.
-        let _ = tauri::async_runtime::block_on(handle.list_models(|cfg| async move {
-            cfg.provider.note_catalogue(&catalogue(&["max"]).models);
-            Ok(catalogue(&["max"]))
-        }));
-        assert_eq!(handle.remembered_rung(), None);
         handle.turn_boundary();
         assert_eq!(agent.tool_rung(), ToolRung::NamespaceFull);
         assert!(agent.reasoning_levels("gpt-x").is_empty());
         // And a new agent starts fresh.
         let fresh = handle.new_agent_provider();
         assert_eq!(fresh.tool_rung(), ToolRung::NamespaceFull);
+    }
+
+    /// The bug: with an agent running, `learned` returned early whenever a
+    /// reset was waiting for the next turn, so the catalogue read **for the
+    /// new account** was thrown away and no effort was ever sent for it.
+    #[test]
+    fn a_catalogue_read_after_an_account_change_reaches_the_running_agent() {
+        let dir = tempdir().unwrap();
+        let (handle, _store) = signed_in_handle(dir.path());
+        let agent = handle.new_agent_provider();
+        agent.adopt_rung(ToolRung::Flat);
+        agent.adopt_levels(HashMap::from([(
+            "gpt-x".to_string(),
+            vec!["low".to_string()],
+        )]));
+        handle.end_of_turn();
+
+        // Another account signs in; its models are read before the next turn.
+        handle.account_changed();
+        let listed = tauri::async_runtime::block_on(
+            handle.list_models(|_| async { Ok(catalogue(&["medium", "max"])) }),
+        );
+        assert!(listed.is_ok());
+
+        handle.turn_boundary();
+        assert_eq!(
+            agent.reasoning_levels("gpt-x"),
+            ["medium", "max"],
+            "the new account's levels, not the old ones and not none"
+        );
+        assert_eq!(
+            agent.tool_rung(),
+            ToolRung::NamespaceFull,
+            "the old rung is gone"
+        );
+        // And an agent built next has them too.
+        assert_eq!(
+            handle.new_agent_provider().reasoning_levels("gpt-x"),
+            ["medium", "max"]
+        );
+    }
+
+    /// The other direction (review finding 6): a request that began for
+    /// account A and ends after B signed in learned A's route, and must not
+    /// teach it to B.
+    #[test]
+    fn a_copy_made_for_the_old_account_teaches_the_new_one_nothing() {
+        let dir = tempdir().unwrap();
+        let (handle, _store) = signed_in_handle(dir.path());
+        let during = handle.clone();
+        let listed = tauri::async_runtime::block_on(handle.list_models(move |cfg| async move {
+            let failure = ProviderFailure::Http {
+                status: 400,
+                body: &tools_refused(),
+                request_id: None,
+            };
+            cfg.provider.adapt_after_refusal(&failure);
+            // B signs in while A's request is in flight.
+            during.account_changed();
+            Ok(catalogue(&["low"]))
+        }));
+        assert!(listed.is_ok(), "the caller still gets its answer");
+        assert_eq!(handle.remembered_rung(), None);
+        let next = handle.new_agent_provider();
+        assert_eq!(next.tool_rung(), ToolRung::NamespaceFull);
+        assert!(next.reasoning_levels("gpt-x").is_empty());
     }
 
     #[test]
@@ -1701,6 +1910,7 @@ mod tests {
                 persistence: Arc::new(|| None),
                 refusal: Arc::new(|| None),
                 refresh_models: false,
+                private_dir: None,
             },
         );
         let err = tauri::async_runtime::block_on(
@@ -1824,29 +2034,13 @@ mod tests {
     #[test]
     fn signing_out_drops_what_the_route_taught_and_the_kept_message() {
         let dir = tempdir().unwrap();
-        // A saved session that has not been read: with no token in the store
-        // there is nothing to revoke, and a test makes no request to OpenAI.
-        let store = Arc::new(MemoryStore::default());
-        let session = open_session(dir.path(), store.clone(), true);
-        *lock(&store.token) = None;
-        let handle = ChatGptHandle::default();
-        handle.install(
-            session,
-            Hooking {
-                persistence: Arc::new(|| None),
-                refusal: Arc::new(|| None),
-                refresh_models: false,
-            },
-        );
+        // An ended session with no token left: nothing to revoke, and a test
+        // makes no request to OpenAI.
+        let (handle, _store) = ended_handle(dir.path());
         let agent = handle.new_agent_provider();
         agent.adopt_rung(ToolRung::Flat);
         handle.end_of_turn();
-        handle.set_pending(PendingMessage {
-            text: "t".into(),
-            resume_text: "t".into(),
-            disabled_tools: vec![],
-            progressed: false,
-        });
+        assert!(handle.keep_pending(handle.account_generation(), pending("t")));
         let end = tauri::async_runtime::block_on(handle.sign_out()).expect("signed out");
         assert_eq!(end.status.state, "signed_out");
         assert!(end.token_removed);
@@ -1855,5 +2049,238 @@ mod tests {
         assert_eq!(handle.remembered_rung(), None);
         assert!(!end.status.pending_message);
         assert!(handle.take_pending().is_none());
+    }
+
+    fn pending(text: &str) -> PendingMessage {
+        PendingMessage {
+            text: text.into(),
+            resume_text: text.into(),
+            disabled_tools: vec![],
+            progressed: false,
+        }
+    }
+
+    /// The bug: a turn still running when the person signed out (or started
+    /// over, or changed account) ended with the session's end and kept its
+    /// message after the sign-out had cleared it, so it was offered to
+    /// whoever signed in next.
+    #[test]
+    fn a_turn_that_ends_after_the_account_changed_keeps_no_message() {
+        let dir = tempdir().unwrap();
+        let (handle, _store) = ended_handle(dir.path());
+        let started_under = handle.account_generation();
+
+        // Under the same account, with the session ended: kept, and taken once.
+        assert!(handle.keep_pending(started_under, pending("cut the intro")));
+        assert_eq!(handle.take_pending().unwrap().text, "cut the intro");
+
+        // The person signs out while the turn runs; the turn then ends.
+        tauri::async_runtime::block_on(handle.sign_out()).expect("signed out");
+        assert!(handle.account_generation() > started_under);
+        assert!(!handle.keep_pending(started_under, pending("late")));
+        assert!(handle.take_pending().is_none());
+        assert!(!handle.status().pending_message);
+    }
+
+    #[test]
+    fn every_way_the_account_changes_moves_the_generation_and_clears_the_message() {
+        let dir = tempdir().unwrap();
+        let (handle, _store) = ended_handle(dir.path());
+        let g0 = handle.account_generation();
+        assert!(handle.keep_pending(g0, pending("one")));
+        handle.account_changed();
+        let g1 = handle.account_generation();
+        assert!(g1 > g0);
+        assert!(handle.take_pending().is_none(), "cleared by the change");
+
+        // A start over.
+        assert!(handle.keep_pending(g1, pending("two")));
+        tauri::async_runtime::block_on(handle.forget_registration()).expect("started over");
+        assert!(handle.account_generation() > g1);
+        assert!(handle.take_pending().is_none());
+    }
+
+    /// A person who signed out chose to leave: the state is signed out, not
+    /// ended, and a message is not kept for it. Nor for a session still signed in.
+    #[test]
+    fn a_message_is_kept_only_for_a_session_that_ended() {
+        let dir = tempdir().unwrap();
+        let (signed_in, _store) = signed_in_handle(dir.path());
+        assert!(!signed_in.keep_pending(signed_in.account_generation(), pending("x")));
+
+        let other = tempdir().unwrap();
+        let out = {
+            let handle = ChatGptHandle::default();
+            let session = open_session(other.path(), Arc::new(MemoryStore::default()), false);
+            handle.install(
+                session,
+                Hooking {
+                    persistence: Arc::new(|| None),
+                    refusal: Arc::new(|| None),
+                    refresh_models: false,
+                    private_dir: None,
+                },
+            );
+            handle
+        };
+        assert_eq!(out.status().state, "signed_out");
+        assert!(!out.keep_pending(out.account_generation(), pending("x")));
+        assert!(out.take_pending().is_none());
+        assert!(!ChatGptHandle::default().keep_pending(0, pending("x")));
+    }
+
+    // ---- No local path reaches the window ----------------------------------------------
+
+    /// A handle over `dir` that knows its files are there, whose saved
+    /// registration has been rewritten by `damage`.
+    fn handle_with_damage(
+        dir: &std::path::Path,
+        damage: impl FnOnce(&std::path::Path),
+    ) -> ChatGptHandle {
+        let store = Arc::new(MemoryStore::default());
+        let session = open_session(dir, store.clone(), true);
+        // No token: nothing to revoke, and a test makes no request to OpenAI.
+        *lock(&store.token) = None;
+        damage(&dir.join("chatgpt"));
+        let handle = ChatGptHandle::default();
+        handle.install(
+            session,
+            Hooking {
+                persistence: Arc::new(|| None),
+                refusal: Arc::new(|| None),
+                refresh_models: false,
+                private_dir: Some(dir.to_path_buf()),
+            },
+        );
+        handle
+    }
+
+    fn registration_from_a_newer_edytlab(folder: &std::path::Path) {
+        let file = folder.join("registration.json");
+        let mut json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        json["version"] = serde_json::json!(999);
+        std::fs::write(file, json.to_string()).unwrap();
+    }
+
+    fn no_path(text: &str, dir: &std::path::Path) {
+        let dir = dir.to_string_lossy();
+        assert!(!text.contains(dir.as_ref()), "the folder is in: {text}");
+    }
+
+    /// The bug: `sign_in_error_text` passed `SignInError::Lock` and
+    /// `Registration(..)` through as they print, and they name the config
+    /// folder, so the window was handed a local path.
+    #[test]
+    fn a_sign_in_that_cannot_use_its_files_does_not_show_where_they_are() {
+        // A registration written by a newer build.
+        let dir = tempdir().unwrap();
+        let handle = handle_with_damage(dir.path(), registration_from_a_newer_edytlab);
+        // The session's own text does name the folder: the test is about
+        // something.
+        let raw = tauri::async_runtime::block_on(
+            handle
+                .session()
+                .unwrap()
+                .sign_in(|_: &str| Ok::<(), String>(()), SignInIntent::SignIn),
+        )
+        .expect_err("refused")
+        .to_string();
+        assert!(raw.contains(dir.path().to_string_lossy().as_ref()), "{raw}");
+        let err = tauri::async_runtime::block_on(handle.sign_in(SignInIntent::SignIn, |_| Ok(())))
+            .expect_err("refused");
+        no_path(&err, dir.path());
+        assert!(err.contains("newer edytlab"), "{err}");
+
+        // A registration that cannot be read at all: the file is a folder.
+        let dir = tempdir().unwrap();
+        let handle = handle_with_damage(dir.path(), |folder| {
+            let file = folder.join("registration.json");
+            std::fs::remove_file(&file).unwrap();
+            std::fs::create_dir(&file).unwrap();
+        });
+        let err = tauri::async_runtime::block_on(handle.sign_in(SignInIntent::SignIn, |_| Ok(())))
+            .expect_err("refused");
+        no_path(&err, dir.path());
+
+        // The lock file cannot be taken.
+        let dir = tempdir().unwrap();
+        let handle = handle_with_damage(dir.path(), |folder| {
+            std::fs::create_dir(folder.join("refresh.lock")).unwrap();
+        });
+        let err = tauri::async_runtime::block_on(handle.sign_in(SignInIntent::SignIn, |_| Ok(())))
+            .expect_err("refused");
+        no_path(&err, dir.path());
+        assert!(err.contains("locked or cannot be written"), "{err}");
+    }
+
+    #[test]
+    fn a_start_over_that_cannot_update_the_registration_does_not_show_where_it_is() {
+        let dir = tempdir().unwrap();
+        let handle = handle_with_damage(dir.path(), registration_from_a_newer_edytlab);
+        // The token is gone already, so there is nothing to revoke and a
+        // test makes no request to OpenAI.
+        let end = tauri::async_runtime::block_on(handle.forget_registration());
+        let end = match end {
+            Ok(end) => end,
+            Err(e) => panic!("{e}"),
+        };
+        assert_eq!(end.registration_forgotten, Some(false));
+        let all = serde_json::to_string(&end).unwrap();
+        no_path(&all, dir.path());
+        let notice = end.notice.expect("it says so");
+        assert!(
+            notice.contains("could not update its saved ChatGPT registration"),
+            "{notice}"
+        );
+
+        // Nothing else the window can ask for carries it either.
+        no_path(
+            &serde_json::to_string(&handle.status()).unwrap(),
+            dir.path(),
+        );
+        let out = tauri::async_runtime::block_on(handle.sign_out()).expect("signed out");
+        no_path(&serde_json::to_string(&out).unwrap(), dir.path());
+    }
+
+    #[test]
+    fn text_for_the_window_is_scrubbed_of_the_folder_whatever_made_it() {
+        let dir = tempdir().unwrap();
+        let handle = handle_with_damage(dir.path(), |_| {});
+        let text = format!("failed at {}/chatgpt/x", dir.path().display());
+        let shown = handle.scrubbed(text);
+        no_path(&shown, dir.path());
+        assert!(shown.contains("the ChatGPT folder"), "{shown}");
+    }
+
+    // ---- A start over is not a browser being waited for -------------------------------
+
+    /// The session takes its sign-in guard for the length of a start over, so
+    /// that none can begin meanwhile, and the status read it as `signing_in`:
+    /// a card would draw "finish signing in in your browser, Cancel".
+    #[test]
+    fn a_start_over_is_not_reported_as_signing_in_while_it_runs() {
+        let dir = tempdir().unwrap();
+        let (handle, _store) = ended_handle(dir.path());
+        let session = handle.session().unwrap();
+        tauri::async_runtime::block_on(async {
+            let mut start_over = std::pin::pin!(handle.forget_registration());
+            // Polled once: the session has taken its guard and the work has
+            // not finished.
+            let first =
+                std::future::poll_fn(|cx| std::task::Poll::Ready(start_over.as_mut().poll(cx)))
+                    .await;
+            assert!(
+                first.is_pending(),
+                "it finished before it could be looked at"
+            );
+            assert!(session.is_signing_in(), "the session holds its guard");
+            assert_ne!(handle.status().state, "signing_in");
+            assert_eq!(handle.status().state, "session_ended");
+            let end = start_over.await.expect("started over");
+            assert_eq!(end.status.state, "signed_out");
+        });
+        // And a real sign-in still reads as one.
+        assert!(!session.is_signing_in());
     }
 }

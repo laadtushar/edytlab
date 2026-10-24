@@ -576,7 +576,7 @@ const commands = [
       {
         name: "chatgptTakePendingMessage()",
         returns: "PendingChatGptMessage | null",
-        desc: "The message a turn could not send because the ChatGPT session ended, taken and forgotten. After signing in, send resumeText with disabledTools. In memory only: it is gone at quit, at the next message, at a sign-out and at this call. null when none is kept.",
+        desc: "The message a turn could not send because the ChatGPT session ended, taken and forgotten. After signing in, send resumeText with disabledTools. Kept only when the session ended (not on a sign-out) and the account has not changed since the turn began. In memory only: it is gone at quit, at the next message, at a sign-out or start over and at this call. null when none is kept.",
       },
     ],
   },

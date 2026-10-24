@@ -335,7 +335,7 @@ Check whether a specific provider has a key.
 
 **Throws:** Error string when the keychain could not be read, as `hasApiKey` does.
 
-For `"chatgpt"` there is no key to look for: it answers `true` while the ChatGPT sign-in is signed in (see [ChatGPT Plan](#chatgpt-plan)), `false` otherwise, and reads no keychain slot.
+For `"chatgpt"` there is no key to look for: it answers `true` while the ChatGPT sign-in is signed in (see [ChatGPT Plan](#chatgpt-plan)), `false` when it is not, and reads no keychain slot. A saved sign-in whose token the keychain could not be asked for (state `unread`) **rejects** with the reason, as an unreadable key does: `false` would send the person to sign in again over a session that may be there. `hasApiKey` does the same when the plan is the active provider.
 
 ### `getKeychainPersistence() → KeychainPersistence`
 
@@ -1433,7 +1433,7 @@ interface ChatGptStatus {
 
 Where the sign-in stands. Holds no token, reads nothing from the keychain and
 makes no request. Pending, like `hasApiKey`, while the launch-time keychain
-reads (which include the saved sign-in's token) are still going. `unread` is a
+reads (which include the saved sign-in's token) are still going. `signing_in` is a browser being waited for: it is not reported while `chatgptForgetRegistration` runs (the session holds the same guard against a sign-in starting meanwhile; the status is then whatever the session is, and the command is pending). `unread` is a
 saved sign-in whose token the keychain was not asked for (it refused access at
 launch, #497; the first save that goes through lifts that).
 
@@ -1449,7 +1449,7 @@ Resolves when the sign-in is over, which can be minutes: the person is in the
 browser. `signing_in` is sent on `onChatGptStatus` once the browser is about to
 open. **A cancel is not an error**: `chatgptCancelSignIn()` ends it and this
 resolves with the status as it then stands. A failure rejects with a sentence:
-the browser came back with an error (its description is included, so
+edytlab's own sign-in files could not be used (a fixed sentence: no local path ever reaches the window, here or in any `chatgpt_*` answer; the detail is in the log), the browser came back with an error (its description is included, so
 "this app is unavailable" or an organisation that has not enabled access reads
 as such), a timeout (five minutes), a different account than the one saved
 (sign in with `another_account` to use it), a code OpenAI refused. A browser that
@@ -1497,8 +1497,11 @@ settings and can be disconnected there. Rejects while a sign-in is in progress.
 
 A turn that ends because the session did (`sendMessage` rejects with
 `[plan-usage code=session_ended]`, G9) keeps the person's message, so the window
-can offer **Continue with ChatGPT** and send it again after the sign-in. This
-takes it, and forgets it: `pendingMessage` goes back to `false`. `null` when
+can offer **Continue with ChatGPT** and send it again after the sign-in. It is
+kept only if the session **ended** (a person who signed out chose to leave) and
+the account is the one the turn began under: a sign-out, a start over or another
+account clears it, and a turn still running at that moment cannot put it back.
+This takes it, and forgets it: `pendingMessage` goes back to `false`. `null` when
 nothing is kept.
 
 ```typescript

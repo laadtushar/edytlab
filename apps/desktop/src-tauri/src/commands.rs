@@ -93,6 +93,16 @@ pub enum CommandError {
     )]
     NoAgentKeychainRefused(String),
 
+    /// No agent, because the ChatGPT plan is the provider and nobody is
+    /// signed in. Starts like [`CommandError::NoAgent`] so the frontend still
+    /// offers Settings for it, and does not tell anyone to set a key: the
+    /// plan has none.
+    #[error(
+        "no agent configured: the ChatGPT plan is not signed in. Choose Continue with ChatGPT \
+         in Settings to sign in."
+    )]
+    NoAgentChatGpt,
+
     #[error("invalid path: {0}")]
     InvalidPath(String),
 
@@ -750,6 +760,8 @@ fn release_replaced_project(state: &AppState, path: &Path) -> bool {
         return false;
     }
     *agent = None;
+    // Not the plan's agent any more: its rung is kept for the next one.
+    state.chatgpt.agent_replaced_by_another_provider();
     drop(agent);
     // The window's mix was of the project just let go, and its hold is
     // released with no other lock held, as that lock is taken alone (#607).
@@ -1184,7 +1196,19 @@ fn provider_is_configured(
     // A provider paid for by a session is configured when its session is
     // signed in, and no key slot is read.
     if is_session_provider(provider_id) {
-        return Ok(state.chatgpt.is_signed_in());
+        let status = state.chatgpt.status();
+        // A saved sign-in the keychain could not be asked for is not "not
+        // signed in": the answer `false` sends the person to sign in again
+        // over a session that may well be there (#394).
+        if status.state == "unread" {
+            return Err(ai::keychain::KeychainError::new(
+                status
+                    .reason
+                    .map(|r| r.message)
+                    .unwrap_or_else(|| "the saved ChatGPT sign-in could not be read".into()),
+            ));
+        }
+        return Ok(status.state == "signed_in");
     }
     if !ai::validate::provider_for(provider_id).requires_api_key() {
         return Ok(true);
@@ -2315,8 +2339,19 @@ fn models_unread_reason(state: &AppState) -> Option<String> {
 fn no_agent_error(state: &AppState) -> CommandError {
     match refusal_note(state) {
         Some(why) => CommandError::NoAgentKeychainRefused(why),
+        None if effective_provider_is_session(state) => CommandError::NoAgentChatGpt,
         None => CommandError::NoAgent,
     }
+}
+
+/// Whether the agent that is missing is the ChatGPT plan's: it is the active
+/// provider, or the active profile pins it. There is no key to set for it.
+fn effective_provider_is_session(state: &AppState) -> bool {
+    let pinned = state
+        .active_profile_overrides()
+        .2
+        .map(|(provider, _)| provider);
+    is_session_provider(&pinned.unwrap_or_else(|| state.active_provider_id()))
 }
 
 /// Why the keychain is not asked, if startup found it refusing access
@@ -3668,6 +3703,9 @@ pub async fn send_message<R: Runtime>(
     // also supersedes one kept for a session that ended (G9).
     state.chatgpt.turn_boundary();
     state.chatgpt.clear_pending();
+    // The account this turn runs for. A message it cannot send is kept only
+    // for this one (see `ChatGptHandle::keep_pending`).
+    let generation = state.chatgpt.account_generation();
     let kept_text = text.clone();
     let history_before = agent.conversation().len();
 
@@ -3693,6 +3731,7 @@ pub async fn send_message<R: Runtime>(
             if error.code() == "session_ended" {
                 keep_message_for_a_new_sign_in(
                     &state,
+                    generation,
                     agent,
                     kept_text,
                     disabled_for_resume,
@@ -3719,6 +3758,7 @@ pub async fn send_message<R: Runtime>(
 /// is not repeated: a line asking the model to carry on is sent instead.
 fn keep_message_for_a_new_sign_in(
     state: &AppState,
+    generation: u64,
     agent: &mut ai::Agent,
     text: String,
     disabled_tools: Vec<String>,
@@ -3726,16 +3766,21 @@ fn keep_message_for_a_new_sign_in(
 ) {
     let withdrawn = agent.withdraw_unanswered_text(&text);
     let progressed = !withdrawn && agent.conversation().len() > history_before;
-    state.chatgpt.set_pending(crate::chatgpt::PendingMessage {
-        resume_text: if progressed {
-            crate::chatgpt::CONTINUE_TEXT.to_string()
-        } else {
-            text.clone()
+    // Not kept if the person signed out, started over or changed account
+    // while the turn ran: it would be offered to whoever signs in next.
+    state.chatgpt.keep_pending(
+        generation,
+        crate::chatgpt::PendingMessage {
+            resume_text: if progressed {
+                crate::chatgpt::CONTINUE_TEXT.to_string()
+            } else {
+                text.clone()
+            },
+            text,
+            disabled_tools,
+            progressed,
         },
-        text,
-        disabled_tools,
-        progressed,
-    });
+    );
 }
 
 /// Forward a single [`ai::AgentEvent`] to the Tauri event bus.
@@ -10061,8 +10106,22 @@ mod tests {
             .expect("select it");
     }
 
+    /// An `AppState` with its ChatGPT session, and the folder the session's
+    /// files are in, which lives as long as the rig does.
+    struct ChatGptRig {
+        state: AppState,
+        _config: tempfile::TempDir,
+    }
+
+    impl std::ops::Deref for ChatGptRig {
+        type Target = AppState;
+        fn deref(&self) -> &AppState {
+            &self.state
+        }
+    }
+
     /// A state whose ChatGPT session is signed in (`true`) or signed out.
-    fn state_with_chatgpt(dir: &std::path::Path, signed_in: bool) -> AppState {
+    fn state_with_chatgpt(dir: &std::path::Path, signed_in: bool) -> ChatGptRig {
         let state = state_with_a_store(dir);
         let config = tempdir().unwrap();
         let (handle, _store) = if signed_in {
@@ -10080,22 +10139,32 @@ mod tests {
                     persistence: Arc::new(|| None),
                     refusal: Arc::new(|| None),
                     refresh_models: false,
+                    private_dir: None,
                 },
             );
             (handle, Arc::default())
         };
-        // The registration is read when the session opens; keep the folder.
-        std::mem::forget(config);
-        AppState {
-            chatgpt: handle,
-            ..state
+        ChatGptRig {
+            state: AppState {
+                chatgpt: handle,
+                ..state
+            },
+            _config: config,
+        }
+    }
+
+    /// A state with no ChatGPT session at all.
+    fn bare_rig() -> ChatGptRig {
+        ChatGptRig {
+            state: AppState::default(),
+            _config: tempdir().unwrap(),
         }
     }
 
     #[test]
     fn the_chatgpt_plan_is_refused_as_the_active_provider_unless_signed_in() {
         for (what, state) in [
-            ("no session at all", AppState::default()),
+            ("no session at all", bare_rig()),
             (
                 "signed out",
                 state_with_chatgpt(tempdir().unwrap().path(), false),
@@ -10312,31 +10381,152 @@ mod tests {
     }
 
     /// The rung a running agent ended on is carried across a rebuild
-    /// (`with_tool_rung`), and an account change starts again.
+    /// (`with_tool_rung`), and an account change starts again. Read from the
+    /// provider the agent in the slot actually holds, which is the handle's.
     #[test]
     fn the_tool_rung_is_carried_across_a_rebuild_and_reset_on_a_new_account() {
+        use ai::chatgpt::provider::ToolRung;
         let dir = tempdir().unwrap();
         let state = state_with_chatgpt(dir.path(), true);
         state.set_active_provider("chatgpt".to_string());
         let mut slot = None;
+
+        // The agent's provider, checked to be the slot's own.
+        let provider_of = |slot: &Option<ai::Agent>| {
+            let agent = slot.as_ref().expect("an agent is built");
+            let held = state.chatgpt.agent_provider().expect("the handle's");
+            assert_eq!(
+                Arc::as_ptr(&agent.llm_config().provider).cast::<()>(),
+                Arc::as_ptr(&held).cast::<()>(),
+                "the agent in the slot runs on the handle's provider"
+            );
+            held
+        };
+
         rebuild_agent_from(&state, &mut slot, |_| None, |_| None, |_| None);
-        assert!(slot.is_some());
-        // The turn's provider is stepped down by the route; the turn ends.
-        let provider = state.chatgpt.new_agent_provider();
-        provider.adopt_rung(ai::chatgpt::provider::ToolRung::AdditionalTools);
-        state.chatgpt.end_of_turn();
+        let first = provider_of(&slot);
+        assert_eq!(first.tool_rung(), ToolRung::NamespaceFull);
+
+        // The route refuses the tools during a turn: the agent's provider
+        // steps down. The agent is rebuilt (a setting changed).
+        first.adopt_rung(ToolRung::AdditionalTools);
         rebuild_agent_from(&state, &mut slot, |_| None, |_| None, |_| None);
-        let next = state.chatgpt.new_agent_provider();
+        let second = provider_of(&slot);
+        assert!(!Arc::ptr_eq(&first, &second), "a new provider was built");
         assert_eq!(
-            next.tool_rung(),
-            ai::chatgpt::provider::ToolRung::AdditionalTools
+            second.tool_rung(),
+            ToolRung::AdditionalTools,
+            "and it starts where the last ended"
         );
 
+        // A new account: the rebuilt agent starts at the top again.
         state.chatgpt.account_changed();
         rebuild_agent_from(&state, &mut slot, |_| None, |_| None, |_| None);
+        assert_eq!(provider_of(&slot).tool_rung(), ToolRung::NamespaceFull);
+    }
+
+    /// A saved sign-in the keychain could not be asked for is not "not
+    /// signed in" (#394): the answer `false` sends the person to sign in
+    /// again over a session that may well be there.
+    #[test]
+    fn a_saved_chatgpt_sign_in_that_could_not_be_read_is_an_error_not_false() {
+        let config = tempdir().unwrap();
+        let session = open_session(
+            config.path(),
+            Arc::new(crate::chatgpt::test_support::MemoryStore::default()),
+            true,
+        );
+        let handle = crate::chatgpt::ChatGptHandle::default();
+        handle.install(
+            session,
+            crate::chatgpt::Hooking {
+                persistence: Arc::new(|| None),
+                refusal: Arc::new(|| Some("the keychain refused access at launch".into())),
+                refresh_models: false,
+                private_dir: None,
+            },
+        );
+        tauri::async_runtime::block_on(handle.restore());
+        assert_eq!(handle.status().state, "unread", "precondition");
+        let state = AppState {
+            chatgpt: handle,
+            ..AppState::default()
+        };
+
+        let err = provider_is_configured(&state, "chatgpt").expect_err("not false");
+        assert!(err.reason().contains("refused access"), "{}", err.reason());
+        // Through the commands' own answer, as `has_api_key` gives it.
+        let answer = has_key_answer(None, || provider_is_configured(&state, "chatgpt"));
+        assert!(answer.is_err(), "{answer:?}");
+
+        // A session that is simply not signed in is still `false`.
+        let out = state_with_chatgpt(tempdir().unwrap().path(), false);
+        assert!(matches!(provider_is_configured(&out, "chatgpt"), Ok(false)));
+    }
+
+    /// There is no key to set for the plan: the missing agent says to sign
+    /// in, in words that still read as "no agent" to the chat, which then
+    /// offers Settings.
+    #[test]
+    fn the_missing_agent_of_the_chatgpt_plan_asks_for_a_sign_in_not_a_key() {
+        let out = state_with_chatgpt(tempdir().unwrap().path(), false);
+        out.set_active_provider("chatgpt".to_string());
+        let text = no_agent_error(&out).to_string();
+        assert!(text.contains("Continue with ChatGPT in Settings"), "{text}");
+        assert!(!text.contains("set_api_key"), "{text}");
+        assert!(text.contains("no agent configured"), "{text}");
+
+        // A profile that pins it, with another provider active.
+        let agents = tempdir().unwrap();
+        let pinned = state_with_chatgpt(tempdir().unwrap().path(), false);
+        pin_profile(&pinned, agents.path(), "chatgpt");
+        assert!(no_agent_error(&pinned)
+            .to_string()
+            .contains("Continue with ChatGPT"));
+
+        // Everyone else is told what they always were.
+        let other = state_with_chatgpt(tempdir().unwrap().path(), false);
+        other.set_active_provider("openai".to_string());
+        assert!(no_agent_error(&other).to_string().contains("set_api_key"));
+    }
+
+    /// Letting the window's project go for a replaced folder drops the agent
+    /// too, and an agent on the plan hands its rung back first.
+    #[test]
+    fn letting_go_of_a_replaced_project_lets_go_of_the_plans_provider() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let config = tempdir().unwrap();
+        let (handle, _store) = signed_in_handle(config.path());
+        let mut state = AppState::new();
+        state.chatgpt = handle;
+        state.set_active_provider("chatgpt".to_string());
+        open_project_for_test(&state, &project).unwrap();
+        {
+            let mut slot = state.agent.try_lock().unwrap();
+            rebuild_agent_from(&state, &mut slot, |_| None, |_| None, |_| None);
+            assert!(slot.is_some(), "precondition");
+        }
+        assert!(state.chatgpt.has_agent(), "precondition");
+        state
+            .chatgpt
+            .agent_provider()
+            .unwrap()
+            .adopt_rung(ai::chatgpt::provider::ToolRung::Flat);
+        replace_project_folder(&project);
+
+        assert!(release_replaced_project(&state, &project));
+
+        assert!(state.agent.try_lock().unwrap().is_none());
+        assert!(
+            !state.chatgpt.has_agent(),
+            "the provider is still the agent's"
+        );
         assert_eq!(
             state.chatgpt.new_agent_provider().tool_rung(),
-            ai::chatgpt::provider::ToolRung::NamespaceFull
+            ai::chatgpt::provider::ToolRung::Flat,
+            "and the rung it found was kept"
         );
     }
 

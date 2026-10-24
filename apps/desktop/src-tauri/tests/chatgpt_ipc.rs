@@ -108,6 +108,7 @@ fn new_rig(signed_in: bool) -> Rig {
             refusal: Arc::new(|| None),
             // No request in a test.
             refresh_models: false,
+            private_dir: None,
         },
     );
     tauri::async_runtime::block_on(state.chatgpt.restore());
@@ -334,18 +335,32 @@ fn a_session_that_ends_in_a_turn_is_a_typed_error_and_keeps_the_message() {
         Ok(Value::Null)
     );
 
-    // A new message supersedes a kept one.
+    // A new message supersedes a kept one: the first is kept and left there,
+    // then another is sent. The status says the kept message went when the
+    // new turn began (the Continue card has nothing to send any more), and
+    // the message kept at the end is the new one.
     let _ = rig.call(
         "send_message",
-        json!({ "text": "again", "disabledTools": [] }),
+        json!({ "text": "first", "disabledTools": [] }),
     );
     assert_eq!(
         rig.call("chatgpt_status", json!({})).unwrap()["pendingMessage"],
         true,
-        "this one ended the same way and is kept in turn"
+        "precondition: the first message is kept"
     );
+    while rig.events.try_recv().is_ok() {}
+    let _ = rig.call(
+        "send_message",
+        json!({ "text": "second", "disabledTools": [] }),
+    );
+    let first_event = rig.next_event();
+    assert_eq!(
+        first_event["pendingMessage"], false,
+        "the new turn began by letting the kept message go: {first_event}"
+    );
+    assert_eq!(rig.next_event()["pendingMessage"], true, "and kept its own");
     let kept = rig.call("chatgpt_take_pending_message", json!({})).unwrap();
-    assert_eq!(kept["text"], "again", "not the first message");
+    assert_eq!(kept["text"], "second", "not the first message");
     drop(rig.app);
 }
 
