@@ -1,0 +1,123 @@
+# Social images
+
+Six themes, each at seven canvas sizes: 42 PNGs in [`out/`](out/), for the
+platforms below, and one caption per platform for each theme in
+[`captions.md`](captions.md). The look is the website's, through the LinkedIn
+kit's pipeline (`../linkedin/tokens.mjs`, `base.css`, `lint.mjs`): violet on
+zinc, Inter, the gradient headline, the aurora wash, the cards.
+
+**Every app frame is a frame of one of the site's own videos**: the real app,
+and where the assistant is in the shot, real Claude. Nothing is scripted or
+staged. The LinkedIn kit's `post-1` and `post-2` use a scripted example
+conversation, so none of their screenshots is used here. Where a frame is shown
+the image carries the videos' own disclosure as a small label: "Real app, real
+Claude" (the assistant is in the shot) or "Real app, recorded live" (it is not).
+
+## The themes
+
+| # | Headline | Frame from |
+|---|---|---|
+| 1 | Describe the edit. | the typed request and its Fade and Gain calls |
+| 2 | A DJ transition in one sentence. | the blend request: Fade, Low-pass filter, Fade |
+| 3 | Extend a club intro. | the request to repeat the first 8 bars: Copy, Paste |
+| 4 | Your audio stays on your computer. | a three-track session with the chat beside it |
+| 5 | Every edit is a version. | the history graph, with its branches |
+| 6 | Free and open source. | the lanes of a large session (MIT, 94 tools, macOS · Windows · Linux, the repo) |
+
+## Sizes and platforms
+
+`out/<theme>__<canvas>.png`, for example `out/2-dj-transition-in-one-sentence__x-1600x900.png`.
+
+| Canvas id | Size (px) | Platforms |
+|---|---|---|
+| `square-1080x1080` | 1080 x 1080 | Instagram, Facebook, Threads (square) |
+| `portrait-1080x1350` | 1080 x 1350 | Instagram, Threads (portrait) |
+| `story-1080x1920` | 1080 x 1920 | Stories, Reels, TikTok cover (no text in the top 260 px or the bottom 350 px) |
+| `x-1600x900` | 1600 x 900 | X, Bluesky |
+| `linkedin-1200x627` | 1200 x 627 | LinkedIn, Facebook link |
+| `youtube-1280x720` | 1280 x 720 | YouTube thumbnail |
+| `pinterest-1000x1500` | 1000 x 1500 | Pinterest |
+
+Each size has its own layout: a stack (brand, headline, line, frame, footer)
+on the square and vertical canvases, and a text column beside the frame on the
+wide ones. The frame is cropped per canvas (`frames/tN-wide|mid|tall.png`) to
+the part of the app that reads at that size; nothing is resized, recoloured or
+drawn on, except theme 4's two small tags. Largest PNG: about 420 KB (no
+`pngquant` on the machine; the aurora is rendered without film grain, as in
+the LinkedIn kit, which keeps the files small).
+
+## Which video and time each frame came from
+
+Videos are in `website/public/videos/` and `website/public/demos/`. Crops are
+in pixels of the video (x, y, width, height); the script is
+[`extract-frames.sh`](extract-frames.sh), which holds every number.
+
+| Theme | Video | At | Why that moment |
+|---|---|---|---|
+| 1 | `videos/whats-new-v070.mp4` (16:9, 1920x1080) | 11 s | the request typed into the chat, then the two tool calls; its own "Describe the edit" moment, 6.8 s to 13 s |
+| 2 | `demos/dj-beatmatched-transition.mp4` (1280x776) | 76 s | the "Blend them" request with Fade, Low-pass filter and Fade; the "Blend" step starts at 59.6 s |
+| 3 | `demos/dj-extended-club-intro.mp4` | 47 s | the request to repeat the drums-only first 8 bars, with Copy and Paste; the "Extend the intro" step starts at 35.4 s |
+| 4 | `demos/dj-mini-mix.mp4` | 40 s | three tracks on the left, the request and its Fade calls on the right ("Sequence with 4-bar overlaps" starts at 24.6 s) |
+| 5 | `videos/whats-new-v070.mp4` | 28.5 s | the history graph, in the graph moment that starts at 25.967 s |
+| 6 | `videos/whats-new-v070.mp4` | 46.5 s | the lanes of the 200-track session, after the strings were lowered (36.6 s to 48.3 s) |
+
+The demo crops stop at y 612 on purpose: the step caption the video burns in
+below the app and the status bar are left out. Theme 1 and 6 crop inside the
+app's panel (x 100, y 151 or so) and so leave out the status bar and its
+version. No image carries a version number.
+
+## What the images claim
+
+Taken from `README.md`, `marketing/press-kit.md`, `website/app/privacy/page.tsx`
+and `CLAUDE.md`.
+
+| Claim on an image | Source |
+|---|---|
+| Free and open source, MIT | `README.md` license badge, `LICENSE` |
+| macOS, Windows and Linux; the installers are unsigned | `README.md` ("The installers are unsigned", #386) |
+| Audio is edited on your computer; only the chat goes to the provider you choose | `website/app/privacy/page.tsx` ("Network traffic": chat requests carry prompt text, agent context and tool results, never raw audio) |
+| Ollama runs fully local, with no key | `website/app/privacy/page.tsx` ("Ollama for a local model, which needs no key") |
+| 94 tools | read at render time from `docs/tools-reference.md` (`toolCount()` in `../linkedin/tokens.mjs`), the same source as the site's tool count |
+| Every edit is a node in a history graph; go back to any version | `README.md`, `docs/architecture.md`; the frame is the real History graph |
+| The DJ steps (beatmatch, crossfade with a low-pass filter on the outgoing track; 8 bars become 16, a high-pass holds the low end until the drop) | the demos' captions in `website/lib/demos.ts` and the videos' own moments in `website/lib/videos.ts` |
+| "Real app, real Claude" / "Real app, recorded live" | the videos' own disclosures (`disclosure` in `website/lib/videos.ts`; `marketing/promo-v0.7.0/claims.md`) |
+
+Said nowhere: a version number, a user count, a testimonial, a benchmark, a
+superlative, another product's name, or anything that has not shipped.
+
+## Re-rendering
+
+```
+node marketing/social-kit/images/render.mjs                    # all 42
+node marketing/social-kit/images/render.mjs --only 4           # one theme (its number)
+node marketing/social-kit/images/render.mjs --only story       # one canvas (id prefix)
+node marketing/social-kit/images/render.mjs --sheets <dir>     # also one contact sheet per theme
+bash marketing/social-kit/images/extract-frames.sh             # retake the frames (needs ffmpeg)
+```
+
+It needs Node 22, Playwright with its Chromium (the repo's, `pnpm install` at
+the root, or any `playwright` Node can resolve), the `@fontsource-variable/geist-mono`
+package that `apps/desktop` depends on, and no network. The frames are
+committed, so a render does not need ffmpeg. Copy lives in
+[`themes.mjs`](themes.mjs) (headlines, lines, labels) and the canvases in the
+same file; layouts are in [`images.css`](images.css) and
+[`templates/image.html`](templates/image.html). The tool count is read at
+render time, so re-render after a tool is added.
+
+Every canvas is checked by the LinkedIn kit's `lint.mjs` before it is written,
+and the render stops with the list if anything fails: text inside the 60 px
+safe area, no text clipped, text no smaller than 24 px, contrast of at least
+4.5:1 measured from the rendered pixels. The Story canvas also fails if any
+text is in the top 260 px or the bottom 350 px. The lint does not judge
+whether an image is any good: look at the output after a change.
+
+## Files
+
+| Path | What it is |
+|---|---|
+| `out/` | the 42 PNGs |
+| `captions.md` | one caption per platform for each theme |
+| `render.mjs` | renders `themes.mjs` x canvases through `templates/image.html` |
+| `themes.mjs`, `images.css`, `templates/image.html` | copy, canvases and layouts |
+| `frames/`, `extract-frames.sh` | the 18 cropped video frames and the script that takes them |
+| `.build/` | composed pages, rewritten on every render, not committed |

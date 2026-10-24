@@ -1,0 +1,191 @@
+/*
+ * Layouts for the social images. The look (colour, type, radius, glow,
+ * aurora) is the website's, through ../linkedin/tokens.mjs and base.css;
+ * this file only places things on canvases of several sizes. Each canvas sets
+ * --w --h --head --sub --pad --gap on `.canvas`.
+ */
+
+.canvas.img {
+  width: var(--w);
+  height: var(--h);
+}
+.canvas.img .frame {
+  padding: var(--pad);
+  padding-top: var(--pad-top, var(--pad));
+  padding-bottom: var(--pad-bottom, var(--pad));
+}
+
+/* brand */
+.canvas.img .wordmark {
+  font-size: max(28px, calc(var(--head) * 0.46));
+  gap: calc(var(--head) * 0.18);
+}
+.canvas.img .logo {
+  width: calc(var(--head) * 0.56);
+  height: calc(var(--head) * 0.56);
+}
+
+/* headline and line */
+.canvas.img .display {
+  font-size: var(--head);
+  line-height: 1.04;
+}
+.canvas.img .lead {
+  font-size: var(--sub);
+  line-height: 1.34;
+}
+
+/* The frame: a real frame of the app, in a card with a soft glow. */
+.fit {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.shot {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid hsl(var(--primary) / 0.35);
+  border-radius: var(--r-card);
+  background: hsl(var(--background));
+  box-shadow: var(--glow), 0 30px 90px -24px hsl(var(--primary) / 0.45);
+  flex: none;
+}
+.shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* "Real app, real Claude": the videos' own disclosure, small. */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px 8px 16px;
+  border: 2px solid hsl(var(--border));
+  border-radius: 9999px;
+  background: hsl(var(--secondary) / 0.6);
+  color: hsl(var(--muted-foreground));
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.label::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+}
+
+.url {
+  font-size: 28px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+.urls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.urls .url.quiet {
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+
+/* tags laid on the frame (theme 4) */
+.tag {
+  position: absolute;
+  padding: 8px 18px;
+  border: 2px solid hsl(var(--border));
+  border-radius: 9999px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+}
+.tag.lit {
+  border-color: hsl(var(--primary) / 0.6);
+  background: hsl(var(--primary) / 0.22);
+}
+.tag.lit { background: hsl(263 40% 18%); }
+
+/* chips (theme 6) */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.chips .pill {
+  font-size: 26px;
+  padding: 8px 22px;
+}
+.note {
+  font-size: 26px;
+  color: hsl(var(--muted-foreground));
+}
+
+/* ---------- stack: brand, headline, line, frame, footer ---------- */
+.stack .col {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--gap);
+}
+.stack .text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.6);
+}
+.stack .foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+/* ---------- side: text column, frame column ---------- */
+.side .row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: calc(var(--pad) * 0.7);
+}
+.side .text-col {
+  width: calc((var(--w) - var(--pad) * 2) * var(--col));
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+.side .text-col .spacer { flex: 1; }
+.side .text-col .foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.side .text-col .urls { align-items: flex-start; }
+.side .fit { justify-content: flex-end; }
+.nw { white-space: nowrap; }
+
+/* tight canvases (LinkedIn, YouTube): smaller chips, so the column holds them */
+.side.tight .chips { gap: 8px; }
+.side.tight .chips .pill { font-size: 24px; padding: 3px 16px; border-width: 2px; }
+.side.tight .note { font-size: 24px; }
+.side.tight .label { padding: 4px 16px 4px 12px; }
+.side.tight .url { font-size: 26px; }
+.side.tight .urls { gap: 2px; }
+.side.tight .text-col .foot { gap: 8px; }

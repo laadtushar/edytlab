@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>{{title}}</title>
+{{tokens}}
+{{base}}
+{{images_css}}
+</head>
+<body>
+{{body}}
+<script>
+  // Fit each frame to its box, keeping the crop's own aspect ratio: nothing is cut or stretched.
+  document.fonts.ready.then(() => {
+    for (const box of document.querySelectorAll(".fit")) {
+      const shot = box.querySelector(".shot");
+      const ratio = Number(shot.dataset.ratio);
+      const border = 4; // 2px each side
+      const cw = box.clientWidth;
+      const ch = box.clientHeight;
+      const innerW = Math.min(cw - border, (ch - border) * ratio);
+      shot.style.width = Math.floor(innerW + border) + "px";
+      shot.style.height = Math.round(innerW / ratio + border) + "px";
+    }
+    document.body.dataset.fitted = "1";
+  });
+</script>
+</body>
+</html>
