@@ -95,11 +95,25 @@ export function Footer() {
             About and how we compare
           </Link>
           <Link
+            href="/compare"
+            data-sweep
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            AI audio editors compared
+          </Link>
+          <Link
             href="/alternatives/audacity"
             data-sweep
             className="text-muted-foreground transition-colors hover:text-foreground"
           >
             Audacity alternative
+          </Link>
+          <Link
+            href="/alternatives/adobe-audition"
+            data-sweep
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Adobe Audition alternative
           </Link>
         </nav>
         <nav

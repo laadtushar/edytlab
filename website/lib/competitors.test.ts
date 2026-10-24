@@ -40,6 +40,9 @@ import { SourcesList } from "../components/compare/sources-list";
 import { Verdict } from "../components/compare/verdict";
 import AboutPage from "../app/about/page";
 import AudacityAlternativePage from "../app/alternatives/audacity/page";
+import AuditionAlternativePage from "../app/alternatives/adobe-audition/page";
+import ComparePage from "../app/compare/page";
+import { CompareMatrix } from "../components/compare/compare-matrix";
 import {
   REFRESH_AFTER_DAYS,
   claimFor,
@@ -50,6 +53,7 @@ import {
   newestCheck,
   type Competitor,
 } from "./competitors";
+import { COLUMNS, isExternal, matrix, matrixCheckedOn, shortDate } from "./compare-matrix";
 import { PAGE_UPDATED, absoluteUrl } from "./seo";
 import { siteConfig } from "./site";
 
@@ -292,6 +296,7 @@ describe("the scanners", () => {
 function comparisonSources(): string[] {
   return [
     "lib/competitors.ts",
+    "lib/compare-matrix.ts",
     ...filesUnder("components/compare").filter((f) => f.endsWith(".tsx")),
     ...filesUnder("app/alternatives").filter((f) => f.endsWith(".tsx")),
     ...filesUnder("app/compare").filter((f) => f.endsWith(".tsx")),
@@ -299,11 +304,11 @@ function comparisonSources(): string[] {
   ];
 }
 
-/** The same, without the data file: it describes other products, so it may name what they can do. */
-const proseSources = () => comparisonSources().filter((f) => f !== "lib/competitors.ts");
+/** The same, without the data files: they describe other products, so they may name what those can do. */
+const proseSources = () => comparisonSources().filter((f) => f !== "lib/competitors.ts" && f !== "lib/compare-matrix.ts");
 
 describe("what the comparison sources say", () => {
-  it("reads the components, the /about page and the Audacity page", () => {
+  it("reads the components, the /about page and the comparison pages", () => {
     const files = comparisonSources();
     for (const f of [
       "lib/competitors.ts",
@@ -315,6 +320,10 @@ describe("what the comparison sources say", () => {
       "components/compare/last-verified.tsx",
       "app/about/page.tsx",
       "app/alternatives/audacity/page.tsx",
+      "app/alternatives/adobe-audition/page.tsx",
+      "app/compare/page.tsx",
+      "lib/compare-matrix.ts",
+      "components/compare/compare-matrix.tsx",
     ]) {
       expect(files, f).toContain(f);
     }
@@ -679,7 +688,7 @@ describe("/alternatives/audacity", () => {
   });
 
   it("is an Article by the founder with a trail from the home page, dated like the sitemap", () => {
-    expect(src).toContain("breadcrumbJsonLd(pageBreadcrumbs(");
+    expect(src).toContain("breadcrumbJsonLd(compareBreadcrumbs(");
     expect(src).toContain("articleJsonLd({ path");
     const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
     expect(blocks.map((b) => b["@type"]).sort()).toEqual(["Article", "BreadcrumbList"]);
@@ -689,12 +698,466 @@ describe("/alternatives/audacity", () => {
     expect(article.datePublished <= article.dateModified).toBe(true);
     expect(article.headline.length).toBeLessThanOrEqual(110);
     const trail = blocks.find((b) => b["@type"] === "BreadcrumbList");
-    expect(trail.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl(path)]);
+    // Home, the hub, then the page (the hub exists since /compare).
+    expect(trail.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl("/compare"), absoluteUrl(path)]);
+    expect(trail.itemListElement.map((i: { name: string }) => i.name)).toEqual(["Home", "Compare", "Audacity alternative"]);
     expect(JSON.stringify(blocks)).not.toMatch(/rating|review|Product/i);
   });
 
   it("shows the video as a link to its own page, not a second player", () => {
     expect(body).not.toMatch(/<video\b/);
     expect(html).toContain('href="/videos/dj-mini-mix"');
+  });
+});
+
+/** The text a visitor reads on a rendered page: no scripts, no tags, entities flattened. */
+function readable(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ");
+}
+
+/** The JSON-LD blocks in a rendered page, parsed. */
+function jsonLd(html: string): any[] {
+  return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
+}
+
+/** Every quotation in `text` (curly quotes), except those a test says are edytlab's own. */
+function quotationsIn(text: string, except: RegExp): string[] {
+  return [...text.matchAll(/“([^”]+)”/g)].map((m) => m[1]).filter((q) => !except.test(q));
+}
+
+/** Quotations that are not in the data files, which is where a product's own words are checked. */
+function quotesNotInData(quotes: string[]): string[] {
+  const norm = (t: string) => t.replace(/\s+/g, " ").replace(/[‘’]/g, "'").toLowerCase();
+  const data = norm(read("lib/competitors.ts") + read("lib/compare-matrix.ts"));
+  // The matrix file writes its curly quotes as escapes.
+  const unescaped = data.replace(/\\u201c|\\u201d/g, '"').replace(/\\u2019/g, "'");
+  return quotes.filter((q) => {
+    const plain = norm(q).replace(/[.,;:!]+$/, "");
+    return !(data.includes(plain) || unescaped.includes(plain));
+  });
+}
+
+describe("the plural disclaimer", () => {
+  it("covers every product on the page, and keeps the report's wording", () => {
+    const html = renderToStaticMarkup(createElement(Disclaimer, { competitor: "the other products", checkedOn: "2026-10-24", plural: true }));
+    const text = readable(html);
+    expect(text).toContain("edytlab is an independent open-source project");
+    expect(text).toContain("not affiliated with, endorsed by or sponsored by any of the other products on this page or their owners");
+    expect(text).toContain("trademarks of their respective owners");
+    expect(text).toContain("only to identify the products being compared");
+    expect(text).toContain("was last checked on 24 October 2026");
+    expect(text).toContain("check each product's site before you decide");
+    expect(text).toContain("Found a mistake?");
+    expect(html).toContain('href="/about#corrections"');
+  });
+});
+
+describe("the matrix data", () => {
+  const rows = matrix.map((r) => ({ ...r, external: r.id !== "edytlab" }));
+
+  it("has the nine rows the hub plan names, with edytlab last", () => {
+    expect(matrix.map((r) => r.id)).toEqual([
+      "audacity",
+      "audacity-mcp",
+      "audionaut",
+      "descript",
+      "adobe-podcast",
+      "auphonic",
+      "cleanvoice",
+      "ocenaudio",
+      "edytlab",
+    ]);
+  });
+
+  it("fills every column of every row, and gives each row a unique kebab-case id", () => {
+    expect(COLUMNS.map((c) => c.key)).toEqual(["runs", "license", "price", "agent", "stems", "transcription", "platforms"]);
+    expect(new Set(matrix.map((r) => r.id)).size).toBe(matrix.length);
+    for (const r of matrix) {
+      expect(r.id).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+      expect(r.name.trim(), r.id).not.toBe("");
+      for (const c of COLUMNS) expect(r.cells[c.key].text.trim().length, `${r.id}.${c.key}`).toBeGreaterThan(3);
+    }
+  });
+
+  it("links a source in every cell outside edytlab's own row: https, a page that is not ours, no tracking, and a date", () => {
+    for (const r of rows.filter((x) => x.external)) {
+      for (const c of COLUMNS) {
+        const cell = r.cells[c.key];
+        const label = `${r.id}.${c.key}`;
+        const url = new URL(cell.href); // throws on a malformed one
+        expect(url.protocol, label).toBe("https:");
+        expect(url.hostname, label).not.toMatch(/edytlab\.com$|github\.com\/laadtushar/);
+        expect(url.pathname.startsWith("/laadtushar/"), label).toBe(false);
+        expect(url.search, `${label} carries a query string`).not.toMatch(/utm_|mtm_|fbclid|gclid/);
+        expect(cell.checkedOn, label).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+    }
+  });
+
+  it("dates every cell, and none is more than 100 days old or in the future", () => {
+    for (const r of rows.filter((x) => x.external)) {
+      for (const c of COLUMNS) {
+        const day = r.cells[c.key].checkedOn as string;
+        const age = daysSince(day);
+        expect(age, `${r.id}.${c.key} is dated in the future`).toBeGreaterThanOrEqual(-1);
+        expect(age, `${r.id}.${c.key} was read on ${day}: read its page again and move the date`).toBeLessThanOrEqual(100);
+      }
+    }
+    expect(matrixCheckedOn()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("marks a cell the page read does not answer, and words it as a statement about the page", () => {
+    const absent = rows.flatMap((r) => COLUMNS.map((c) => ({ id: `${r.id}.${c.key}`, cell: r.cells[c.key] }))).filter((x) => x.cell.absent);
+    expect(absent.length).toBeGreaterThan(10);
+    for (const { id, cell } of absent) {
+      expect(cell.text, id).toMatch(/^(?:Not described|No (?:open-source )?(?:license|price) stated|No open-source license stated)$/);
+      expect(cell.checkedOn, id).toBeTruthy();
+    }
+  });
+
+  it("states edytlab's own limits in its row, in the report's words", () => {
+    const row = matrix[matrix.length - 1].cells;
+    expect(row.stems.text).toMatch(/^Not yet\./);
+    expect(row.stems.href).toBe(`${siteConfig.github}/issues/385`);
+    // Transcription ships (v0.8.0): it works, on this computer, after a download the user starts.
+    expect(row.transcription.text).toMatch(/^Yes, on your computer, after a one-time download of the speech model/);
+    expect(row.transcription.text).toMatch(/about 139 MB/);
+    expect(row.transcription.text).toMatch(/that you start from Settings/);
+    expect(row.transcription.text).not.toMatch(/automatic|downloads? (?:it )?for you|bundled|installed with/i);
+    expect(row.price.text).toMatch(/hosted AI provider bills you for tokens/);
+    expect(row.price.text).toMatch(/Ollama is free/);
+    expect(row.license.text).toBe("MIT.");
+    // Its cells point at edytlab's own docs, which have no read date.
+    for (const c of COLUMNS) expect(matrix[matrix.length - 1].cells[c.key].checkedOn, c.key).toBeUndefined();
+  });
+
+  it("does not credit a competitor with less than its page says, or edytlab with more than it has", () => {
+    const text = JSON.stringify(matrix);
+    expect(text).toMatch(/OpenVINO|Music Separation/);
+    expect(text).toMatch(/Whisper Transcription/);
+    expect(text).toMatch(/GPL v3/);
+    expect(text).toMatch(/Apache License 2\.0/);
+    expect(text).toMatch(/cannot control Audacity 4/);
+    expect(text).toMatch(/25 languages/);
+    // The unshipped, only in the sentence that denies it.
+    const edytlab = JSON.stringify(matrix[matrix.length - 1].cells);
+    expect(unqualifiedNeverClaims(edytlab.replace(/","/g, ". "))).toEqual([]);
+  });
+
+  it("formats a short date the same in every time zone", () => {
+    expect(shortDate("2026-10-24")).toBe("24 Oct 2026");
+    expect(shortDate("2026-01-05")).toBe("5 Jan 2026");
+    expect(isExternal("https://audionaut.app/")).toBe(true);
+    expect(isExternal("/privacy")).toBe(false);
+  });
+});
+
+describe("/alternatives/adobe-audition", () => {
+  const path = "/alternatives/adobe-audition";
+  const src = read("app/alternatives/adobe-audition/page.tsx");
+  const html = renderToStaticMarkup(createElement(AuditionAlternativePage));
+  const body = html.replace(/<script[\s\S]*?<\/script>/g, " ");
+  const text = readable(html);
+  const audition = competitorBySlug("adobe-audition");
+
+  it("sets the title and description, within the limits a result shows", () => {
+    const title = src.match(/const title = "([^"]+)"/)?.[1] ?? "";
+    const description = src.match(/const description =\s*"([^"]+)"/)?.[1] ?? "";
+    expect(title).toBe("Adobe Audition alternative: free and open source");
+    expect(title.length).toBeLessThanOrEqual(50);
+    expect(description.length).toBeGreaterThan(100);
+    expect(description.length).toBeLessThanOrEqual(160);
+    expect(description).toMatch(/what Audition does that edytlab does not/i);
+    expect(src).toContain(`alternates: pageAlternates("${path}")`);
+    expect(src).toContain(`...pageSocial("${path}"`);
+  });
+
+  it("has one h1 that says what edytlab is, and not that it is better", () => {
+    expect(body.match(/<h1\b/g)).toHaveLength(1);
+    expect(body).toContain("An Adobe Audition alternative that is free, open source and runs on Linux");
+  });
+
+  it("answers first, in 40 to 70 words, pairing 'free' with the cost of a hosted provider", () => {
+    const lead = body.match(/<h1[\s\S]*?<\/h1>\s*<p[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    const words = lead.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean);
+    expect(words.length).toBeGreaterThanOrEqual(40);
+    expect(words.length).toBeLessThanOrEqual(70);
+    expect(lead).toMatch(/unless you use Ollama/);
+    expect(lead).toMatch(/Adobe Audition is a paid multitrack audio editor/);
+    expect(lead).toMatch(/third-party plugin support, which edytlab does not have/);
+  });
+
+  it("says where Audition is better before it says where edytlab differs, in the first part of the page", () => {
+    const better = body.indexOf("Where Adobe Audition is better");
+    const differs = body.indexOf("Where edytlab differs");
+    expect(better, "no 'Where Adobe Audition is better' heading").toBeGreaterThan(-1);
+    expect(differs).toBeGreaterThan(better);
+    expect(better / body.length).toBeLessThan(0.45);
+  });
+
+  it("states the price as the page showed it, with the day, and passes no judgement on it", () => {
+    for (const figure of ["US$22.99", "US$69.99", "US$34.99"]) expect(text, figure).toContain(figure);
+    expect(text).toMatch(/free trial is offered/);
+    expect(text).toMatch(/does not say how long it lasts/);
+    expect(text).toMatch(/22 October 2026/);
+    // Rule 6 of the report: state the price and let the reader judge.
+    expect(text).not.toMatch(/\b(?:overpriced|expensive|pricey|cheaper|cheap|bloated|outdated|rip-?off|unsafe)\b/i);
+    expect(audition.pricing.text).toContain("US$22.99");
+  });
+
+  it("names Remix, quotes Adobe's own words, and does not imply edytlab does the same", () => {
+    expect(text).toContain("“Easily and automatically rearrange any song to fit any duration with Remix in Audition.”");
+    expect(text).toMatch(/edytlab has no tool that rearranges a song to a target length by itself/);
+    expect(html).toContain(`href="${claimFor(audition, "remix").sourceUrl}"`);
+  });
+
+  it("says silence removal and loudness matching are in both, and not edytlab's alone", () => {
+    expect(text).toContain("“Remove silences from your audio recordings”");
+    expect(text).toContain("“Matching loudness across multiple audio files”");
+    expect(text).toMatch(/Neither product is the only one to offer these/);
+    expect(text).not.toMatch(/\b(?:only|unique|first)\b[^.]{0,60}\b(?:silence|loudness)\b/i);
+    expect(text).not.toMatch(/\b(?:silence|loudness)\b[^.]{0,60}\b(?:only edytlab|edytlab alone|nobody else)\b/i);
+  });
+
+  it("states the activation requirement from Adobe's page, and nothing about its data beyond it", () => {
+    expect(text).toMatch(/internet connection and registration are necessary for software activation/);
+    expect(text).toMatch(/says nothing about Adobe's handling of data beyond that/);
+    expect(text).not.toMatch(/Adobe (?:collects|tracks|spies|harvests|sells)/i);
+  });
+
+  it("states what the platforms page lists, and that it lists no Linux, as of the day it was read", () => {
+    expect(text).toMatch(/lists Windows 11 and macOS Sonoma or later and no Linux/);
+    expect(text).toMatch(/Audition 26\.5/);
+  });
+
+  it("describes the transcription that ships, with the download the user starts and no claim that it is automatic", () => {
+    expect(text).toMatch(/you download it once from Settings, and nothing downloads it for you/);
+    expect(text).toMatch(/about 139 MB/);
+    expect(text).not.toMatch(/downloads? (?:the )?(?:speech )?model (?:automatically|for you)/i);
+  });
+
+  it("carries the not-built-yet note, the verdict, the sources, the disclaimer and the byline", () => {
+    for (const component of ["NotBuiltYet", "Verdict", "SourcesList", "Disclaimer", "LastVerified", "FactsTable"]) {
+      expect(src, component).toContain(`<${component}`);
+    }
+    expect(text).toMatch(/Not built yet/);
+    expect(text).toContain("Choose Adobe Audition if");
+    expect(text).toContain("Choose edytlab if");
+    expect(text).toContain("is not affiliated with, endorsed by or sponsored by Adobe Audition or its owner");
+    expect(text).toContain("Tushar Laad");
+    expect(text).toMatch(/checked on 22 October 2026/);
+  });
+
+  it("reads its Audition facts from lib/competitors.ts, so they are dated and sourced there", () => {
+    expect(src).toContain('competitorBySlug("adobe-audition")');
+    for (const topic of ["overview", "help-topics", "remix", "activation", "help-silence-loudness"]) {
+      expect(claimFor(audition, topic).checkedOn, topic).toBe("2026-10-22");
+    }
+  });
+
+  it("lists, in its Sources, every Adobe page it links to", () => {
+    const section = body.match(/<section aria-labelledby="sources">[\s\S]*?<\/section>/)?.[0] ?? "";
+    expect(section, "no Sources section").not.toBe("");
+    const linked = new Set([...body.matchAll(/href="(https:\/\/[^"]+)"/g)].map((m) => m[1]).filter((u) => /adobe\.com/.test(u)));
+    expect(linked.size).toBe(2);
+    for (const url of linked) expect(section, `${url} is linked in the text but not listed under Sources`).toContain(`href="${url}"`);
+  });
+
+  it("quotes Adobe only in words that are in lib/competitors.ts, which was checked against its pages", () => {
+    const quotes = quotationsIn(text, /^extend the intro by eight bars/);
+    expect(quotes.length).toBeGreaterThanOrEqual(3);
+    expect(quotesNotInData(quotes)).toEqual([]);
+  });
+
+  it("links the evidence, /about, the hub and the pages it names, all of which exist", () => {
+    for (const href of ["/videos/dj-extended-club-intro", "/about", "/compare", "/alternatives/audacity", "/docs/getting-started", "/use-cases/local-ai-audio-editor", "/privacy"]) {
+      expect(html, href).toContain(`href="${href}`);
+      const route = href.split("#")[0];
+      expect(existsSync(join(ROOT, "app", route.slice(1), "page.tsx")) || route.startsWith("/videos/"), href).toBe(true);
+    }
+    expect(existsSync(join(ROOT, "public/demos/dj-extended-club-intro.jpg"))).toBe(true);
+  });
+
+  it("targets the long tail in plain prose: Linux, macOS, Windows, open source, free", () => {
+    for (const phrase of [
+      /Adobe Audition alternative for Linux/i,
+      /Adobe Audition alternative on (?:macOS|Mac)/i,
+      /Adobe Audition alternative for Windows/i,
+      /open-source Adobe Audition alternative/i,
+      /free Adobe Audition alternative/i,
+    ]) {
+      expect(text, String(phrase)).toMatch(phrase);
+    }
+  });
+
+  it("is at least 800 words of prose", () => {
+    const words = text.split(" ").filter((w) => /[a-z]/i.test(w));
+    expect(words.length).toBeGreaterThanOrEqual(800);
+  });
+
+  it("is an Article by the founder with a trail Home, Compare, this page, dated like the sitemap", () => {
+    expect(src).toContain("breadcrumbJsonLd(compareBreadcrumbs(");
+    expect(src).toContain("articleJsonLd({ path");
+    const blocks = jsonLd(html);
+    expect(blocks.map((b) => b["@type"]).sort()).toEqual(["Article", "BreadcrumbList"]);
+    const article = blocks.find((b) => b["@type"] === "Article");
+    expect(article.author).toEqual({ "@type": "Person", name: "Tushar Laad", url: "https://www.tusharlaad.com" });
+    expect(article.dateModified).toBe(PAGE_UPDATED[path]);
+    expect(article.datePublished <= article.dateModified).toBe(true);
+    expect(article.headline.length).toBeLessThanOrEqual(110);
+    const trail = blocks.find((b) => b["@type"] === "BreadcrumbList");
+    expect(trail.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl("/compare"), absoluteUrl(path)]);
+    expect(JSON.stringify(blocks)).not.toMatch(/rating|review|Product/i);
+  });
+
+  it("shows the video as a link to its own page, not a second player", () => {
+    expect(body).not.toMatch(/<video\b/);
+    expect(html).toContain('href="/videos/dj-extended-club-intro"');
+  });
+});
+
+describe("/compare", () => {
+  const path = "/compare";
+  const src = read("app/compare/page.tsx");
+  const html = renderToStaticMarkup(createElement(ComparePage));
+  const body = html.replace(/<script[\s\S]*?<\/script>/g, " ");
+  const text = readable(html);
+
+  it("sets the title and description, within the limits a result shows", () => {
+    const title = src.match(/const title = "([^"]+)"/)?.[1] ?? "";
+    const description = src.match(/const description =\s*"([^"]+)"/)?.[1] ?? "";
+    expect(title).toBe("AI audio editors compared: local, open and cloud");
+    expect(title.length).toBeLessThanOrEqual(50);
+    expect(description.length).toBeGreaterThan(100);
+    expect(description.length).toBeLessThanOrEqual(160);
+    expect(src).toContain(`alternates: pageAlternates("${path}")`);
+    expect(src).toContain(`...pageSocial("${path}"`);
+  });
+
+  it("has one h1 and one matrix, in one table of nine rows", () => {
+    expect(body.match(/<h1\b/g)).toHaveLength(1);
+    expect(body.match(/role="table"/g)).toHaveLength(1);
+    const bodyRows = [...body.matchAll(/<div role="row"[^>]*>(?:(?!<div role="row")[\s\S])*?<div role="rowheader"/g)];
+    expect(bodyRows).toHaveLength(matrix.length);
+    expect(body.match(/role="columnheader"/g)).toHaveLength(COLUMNS.length + 1);
+  });
+
+  it("puts edytlab's row last and draws it as it draws the others", () => {
+    const rowTags = [...body.matchAll(/<div role="row" class="([^"]*)"/g)].map((m) => m[1]);
+    // The header row has its own classes; the product rows share one string.
+    const productRows = rowTags.slice(1);
+    expect(productRows).toHaveLength(matrix.length);
+    expect(new Set(productRows).size, "edytlab's row is styled differently from the others").toBe(1);
+    const headings = [...body.matchAll(/<a href="#([a-z0-9-]+)" class="[^"]*">/g)].map((m) => m[1]);
+    expect(headings).toEqual(matrix.map((r) => r.id));
+    expect(headings[headings.length - 1]).toBe("edytlab");
+  });
+
+  it("gives edytlab's stem cell 'Not yet' and its transcription cell the download it needs", () => {
+    const stems = /<div role="cell" data-label="Stem separation"[^>]*>((?:(?!<\/div><\/div>)[\s\S])*)<\/div><\/div>/g;
+    const cells = [...body.matchAll(stems)].map((m) => readable(m[1]).trim());
+    expect(cells).toHaveLength(matrix.length);
+    expect(cells[cells.length - 1]).toMatch(/^Not yet\./);
+    expect(text).toMatch(/after a one-time download of the speech model \(about 139 MB\) that you start from Settings/);
+  });
+
+  it("links a source in every cell outside edytlab's row, with the day it was read", () => {
+    const cellRe = /<div role="cell" data-label="([^"]+)"[^>]*>([\s\S]*?)<\/div><\/div>/g;
+    const cells = [...body.matchAll(cellRe)];
+    expect(cells).toHaveLength(matrix.length * COLUMNS.length);
+    const external = cells.slice(0, (matrix.length - 1) * COLUMNS.length);
+    for (const [, label, inner] of external) {
+      expect(inner, label).toMatch(/<a [^>]*href="https:\/\/[^"]+"/);
+      expect(inner, label).toMatch(/<time [^>]*datetime="\d{4}-\d{2}-\d{2}"/i);
+    }
+    // edytlab's own cells link its docs, which have no read date.
+    for (const [, label, inner] of cells.slice(-COLUMNS.length)) {
+      expect(inner, label).toMatch(/<a [^>]*href="(?:\/|https:\/\/github\.com\/laadtushar\/edytlab)/);
+      expect(inner, label).not.toMatch(/<time/);
+    }
+  });
+
+  it("does not make a table wider than a phone", () => {
+    const matrixHtml = renderToStaticMarkup(createElement(CompareMatrix));
+    expect(matrixHtml.match(/\bmin-w-\[[^\]]*\]/g) ?? []).toEqual([]);
+    expect(matrixHtml).not.toMatch(/overflow-x-(?:auto|scroll)/);
+    // Seven columns of prose are a table from xl up, and cards below it.
+    expect(matrixHtml).toMatch(/xl:table-cell/);
+    expect(matrixHtml).toMatch(/data-label="Stem separation"/);
+  });
+
+  it("explains that 'Not described' is about the page read, and not a claim about the product", () => {
+    expect(text).toMatch(/“Not described” means the page we read does not say/);
+    expect(text).toMatch(/not a claim that the product lacks the feature/);
+  });
+
+  it("says in its first paragraph that stem separation has not shipped", () => {
+    const lead = readable(body.match(/<h1[\s\S]*?<\/h1>\s*<p[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "");
+    expect(lead).toMatch(/edytlab has not shipped stem separation, and its row says so/);
+    expect(text).toMatch(/Not built yet/);
+  });
+
+  it("links the two detail pages, the about page and the pages it names, all of which exist", () => {
+    for (const href of ["/alternatives/audacity", "/alternatives/adobe-audition", "/about#how-we-compare", "/use-cases/local-ai-audio-editor", "/docs/tools"]) {
+      expect(html, href).toContain(`href="${href}`);
+      const route = href.split("#")[0];
+      expect(existsSync(join(ROOT, "app", route.slice(1), "page.tsx")), href).toBe(true);
+    }
+  });
+
+  it("lists, in its Sources, every competitor page it links to", () => {
+    const section = body.match(/<section aria-labelledby="sources">[\s\S]*?<\/section>/)?.[0] ?? "";
+    expect(section, "no Sources section").not.toBe("");
+    const linked = new Set(
+      [...body.matchAll(/href="(https:\/\/[^"]+)"/g)]
+        .map((m) => m[1])
+        .filter((u) => /audacityteam\.org|audionaut\.app|descript\.com|adobe\.com|auphonic\.com|cleanvoice\.ai|ocenaudio\.com|xDarkzx/.test(u)),
+    );
+    expect(linked.size).toBeGreaterThanOrEqual(15);
+    for (const url of linked) expect(section, `${url} is linked in the text but not listed under Sources`).toContain(`href="${url}"`);
+  });
+
+  it("quotes a product only in words that are in lib/competitors.ts or lib/compare-matrix.ts", () => {
+    const quotes = quotationsIn(text, /^Not described$/);
+    expect(quotes.length).toBeGreaterThan(6);
+    expect(quotesNotInData(quotes)).toEqual([]);
+  });
+
+  it("carries the disclaimer for several products, the byline and the day the cells were read", () => {
+    expect(src).toContain("<Disclaimer");
+    expect(src).toContain("plural");
+    expect(text).toContain("any of the other products on this page or their owners");
+    expect(text).toContain("Tushar Laad");
+    expect(text).toContain(`checked on ${displayDate(matrixCheckedOn())}`);
+  });
+
+  it("is a CollectionPage of the nine products with a trail Home, Compare, and no rating or review", () => {
+    const blocks = jsonLd(html);
+    expect(blocks.map((b) => b["@type"]).sort()).toEqual(["BreadcrumbList", "CollectionPage"]);
+    const page = blocks.find((b) => b["@type"] === "CollectionPage");
+    expect(page.url).toBe(absoluteUrl(path));
+    expect(page.dateModified).toBe(PAGE_UPDATED[path]);
+    expect(page.mainEntity["@type"]).toBe("ItemList");
+    expect(page.mainEntity.numberOfItems).toBe(matrix.length);
+    expect(page.mainEntity.itemListElement.map((i: { name: string }) => i.name)).toEqual(matrix.map((r) => r.name));
+    for (const item of page.mainEntity.itemListElement) {
+      const anchor = item.url.split("#")[1];
+      expect(body, item.url).toContain(`id="${anchor}"`);
+    }
+    const trail = blocks.find((b) => b["@type"] === "BreadcrumbList");
+    expect(trail.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl(path)]);
+    expect(JSON.stringify(blocks)).not.toMatch(/rating|review|Product/i);
+  });
+
+  it("recommends no single winner: its 'which' list names a use for each, and no product is called best", () => {
+    expect(text).toContain("Which should you pick?");
+    expect(superlatives(text)).toEqual([]);
+    expect(text).not.toMatch(/\b(?:overpriced|expensive|cheaper|bloated|outdated|unsafe)\b/i);
   });
 });

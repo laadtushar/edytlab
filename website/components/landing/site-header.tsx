@@ -24,6 +24,7 @@ const links: { href: string; label: string; fromLg?: boolean }[] = [
   { href: "/#faq", label: "FAQ" },
   { href: "/blog", label: "Blog" },
   { href: "/videos", label: "Videos", fromLg: true },
+  { href: "/compare", label: "Compare", fromLg: true },
   { href: "/docs", label: "Docs" },
 ];
 

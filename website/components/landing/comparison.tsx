@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef } from "react";
 import { Check } from "lucide-react";
 
@@ -188,6 +189,15 @@ export function Comparison() {
               </Stagger>
             </table>
           </div>
+          {/* The table above is about edytlab alone. How it stands beside
+              named products is on the hub, where every cell cites a page. */}
+          <p className="mx-auto mt-6 max-w-4xl text-center text-sm text-muted-foreground">
+            Want it beside other tools?{" "}
+            <Link href="/compare" className="font-medium text-primary underline-offset-4 hover:underline">
+              AI audio editors compared
+            </Link>{" "}
+            sets edytlab next to other AI audio editors, with each cell linked to the page that states it and the day it was read.
+          </p>
         </Reveal>
       </div>
     </section>

@@ -106,8 +106,10 @@ export default function AboutPage() {
         <h2 id="how-we-compare">How comparisons are made</h2>
         <p>
           Pages that compare edytlab with another product, such as the{" "}
-          <Link href="/alternatives/audacity">Audacity alternative</Link> page, follow these rules. The site&apos;s automated
-          checks cover the ones a machine can check.
+          <Link href="/alternatives/audacity">Audacity alternative</Link> and{" "}
+          <Link href="/alternatives/adobe-audition">Adobe Audition alternative</Link> pages, or with several at once, as{" "}
+          <Link href="/compare">the comparison hub</Link> does, follow these rules. The site&apos;s automated checks cover the
+          ones a machine can check.
         </p>
         <ul>
           <li>

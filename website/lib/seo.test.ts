@@ -26,6 +26,8 @@ import {
   articleJsonLd,
   blogPostingJsonLd,
   breadcrumbJsonLd,
+  compareBreadcrumbs,
+  compareHubJsonLd,
   isoDuration,
   organizationJsonLd,
   pageAlternates,
@@ -559,6 +561,58 @@ describe("structured data on the use-case pages", () => {
       expectNoSocialProof(articleJsonLd({ path, headline: title, description, datePublished: published }), "Article");
       expectNoSocialProof(breadcrumbJsonLd(pageBreadcrumbs(name, path)), "BreadcrumbList");
     });
+  });
+});
+
+describe("structured data on the comparison pages", () => {
+  const alternatives = [
+    { path: "/alternatives/audacity", name: "Audacity alternative" },
+    { path: "/alternatives/adobe-audition", name: "Adobe Audition alternative" },
+  ];
+
+  it("covers every comparison page there is", () => {
+    expect(staticRoutes().filter((r) => r.startsWith("/alternatives/"))).toEqual(alternatives.map((a) => a.path).sort());
+    expect(staticRoutes()).toContain("/compare");
+  });
+
+  it.each(alternatives)("$path is dated in the sitemap and in PAGE_UPDATED, and is listed", ({ path }) => {
+    expect(PAGE_UPDATED[path]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const entry = sitemap().find((e) => e.url === absoluteUrl(path));
+    expect((entry?.lastModified as Date).toISOString().slice(0, 10)).toBe(PAGE_UPDATED[path]);
+  });
+
+  it.each(alternatives)("$path has a trail Home, Compare, the page", ({ path, name }) => {
+    const src = readFileSync(join(ROOT, "app", path.slice(1), "page.tsx"), "utf8");
+    expect(src).toContain("breadcrumbJsonLd(compareBreadcrumbs(");
+    const ld = parsed(breadcrumbJsonLd(compareBreadcrumbs(name, path)));
+    expect(ld.itemListElement.map((i: { position: number }) => i.position)).toEqual([1, 2, 3]);
+    expect(ld.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl("/compare"), absoluteUrl(path)]);
+    expect(ld.itemListElement.map((i: { name: string }) => i.name)).toEqual(["Home", "Compare", name]);
+  });
+
+  it("describes the hub as a CollectionPage whose ItemList points at its own sections", () => {
+    const ld = parsed(
+      compareHubJsonLd({
+        path: "/compare",
+        name: "Hub",
+        description: "A hub.",
+        items: [
+          { name: "One", anchor: "one" },
+          { name: "Two", anchor: "two" },
+        ],
+      }),
+    );
+    expect(ld["@type"]).toBe("CollectionPage");
+    expect(ld.url).toBe(absoluteUrl("/compare"));
+    expect(ld.dateModified).toBe(PAGE_UPDATED["/compare"]);
+    expect(ld.isPartOf).toEqual({ "@id": WEBSITE_ID });
+    expect(ld.mainEntity["@type"]).toBe("ItemList");
+    expect(ld.mainEntity.numberOfItems).toBe(2);
+    expect(ld.mainEntity.itemListElement.map((i: { position: number; url: string }) => [i.position, i.url])).toEqual([
+      [1, `${absoluteUrl("/compare")}#one`],
+      [2, `${absoluteUrl("/compare")}#two`],
+    ]);
+    expectNoSocialProof(ld, "CollectionPage");
   });
 });
 

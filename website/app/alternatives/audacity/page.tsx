@@ -14,8 +14,8 @@ import { claimFor, competitorBySlug, newestCheck } from "@/lib/competitors";
 import {
   articleJsonLd,
   breadcrumbJsonLd,
+  compareBreadcrumbs,
   pageAlternates,
-  pageBreadcrumbs,
   pageSocial,
 } from "@/lib/seo";
 import { GA_MEASUREMENT_ID } from "@/lib/consent";
@@ -170,7 +170,7 @@ export default function AudacityAlternativePage() {
       }
     >
       <LastVerified checkedOn={checkedOn} />
-      <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("Audacity alternative", path))} />
+      <JsonLd data={breadcrumbJsonLd(compareBreadcrumbs("Audacity alternative", path))} />
       <JsonLd data={articleJsonLd({ path, headline: title, description, datePublished: published })} />
       <Prose>
         <h2 id="quick-facts">Quick facts</h2>

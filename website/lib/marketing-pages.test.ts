@@ -41,6 +41,9 @@ describe("footer and marketing pages", () => {
     "app/videos/[slug]/page.tsx",
     "app/about/page.tsx",
     "app/alternatives/audacity/page.tsx",
+    "app/alternatives/adobe-audition/page.tsx",
+    "app/compare/page.tsx",
+    "components/compare/compare-matrix.tsx",
     "components/compare/disclaimer.tsx",
     "components/compare/last-verified.tsx",
     "components/landing/page-shell.tsx",
@@ -69,10 +72,17 @@ describe("footer and marketing pages", () => {
     expect(read(join(WEBSITE, "components/landing/footer.tsx"))).toMatch(/href(=|: )"\/videos"/);
   });
 
-  it("links the footer to the about page and the Audacity comparison", () => {
+  it("links the footer to the about page, the comparison hub and both comparison pages", () => {
     const footer = read(join(WEBSITE, "components/landing/footer.tsx"));
     expect(footer).toContain('href="/about"');
+    expect(footer).toContain('href="/compare"');
     expect(footer).toContain('href="/alternatives/audacity"');
+    expect(footer).toContain('href="/alternatives/adobe-audition"');
+  });
+
+  it("links the hub from the header and from the home page's 'What it does' section", () => {
+    expect(read(join(WEBSITE, "components/landing/site-header.tsx"))).toContain('href: "/compare"');
+    expect(read(join(WEBSITE, "components/landing/comparison.tsx"))).toContain('href="/compare"');
   });
 
   it("serves every asset the press page offers for download", () => {
@@ -105,6 +115,8 @@ describe("footer and marketing pages", () => {
   it.each([
     ["app/about/page.tsx", "/about"],
     ["app/alternatives/audacity/page.tsx", "/alternatives/audacity"],
+    ["app/alternatives/adobe-audition/page.tsx", "/alternatives/adobe-audition"],
+    ["app/compare/page.tsx", "/compare"],
   ])("gives %s its own canonical and social card, through the helpers", (file, path) => {
     const source = read(join(WEBSITE, file));
     expect(source).toContain(`alternates: pageAlternates("${path}")`);

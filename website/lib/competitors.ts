@@ -250,6 +250,24 @@ export const competitors: readonly Competitor[] = [
         sourceUrl: "https://helpx.adobe.com/audition/desktop/introduction/system-requirements.html",
         checkedOn: CHECKED,
       },
+      {
+        topic: "remix",
+        text: "Its product page names Remix: “Easily and automatically rearrange any song to fit any duration with Remix in Audition.”",
+        sourceUrl: "https://www.adobe.com/products/audition.html",
+        checkedOn: CHECKED,
+      },
+      {
+        topic: "activation",
+        text: "Its system requirements page says an internet connection and registration are necessary for software activation, validation of subscriptions and access to online services.",
+        sourceUrl: "https://helpx.adobe.com/audition/desktop/introduction/system-requirements.html",
+        checkedOn: CHECKED,
+      },
+      {
+        topic: "help-silence-loudness",
+        text: "Its help site lists the topics “Remove silences from your audio recordings” and “Matching loudness across multiple audio files”.",
+        sourceUrl: "https://helpx.adobe.com/audition/desktop/introduction/system-requirements.html",
+        checkedOn: CHECKED,
+      },
     ],
   },
   {

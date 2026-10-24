@@ -43,7 +43,7 @@ export const SITE_UPDATED = "2026-10-24";
  * signs for helpful-content review.
  */
 export const PAGE_UPDATED: Readonly<Record<string, string>> = {
-  "/": "2026-10-23",
+  "/": "2026-10-24",
   "/docs": "2026-10-23",
   "/docs/getting-started": "2026-10-22",
   "/docs/user-guide": "2026-10-23",
@@ -52,8 +52,10 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/api-reference": "2026-10-24",
   "/use-cases/dj": "2026-10-22",
   "/use-cases/local-ai-audio-editor": "2026-10-24",
-  "/about": "2026-10-23",
+  "/about": "2026-10-24",
   "/alternatives/audacity": "2026-10-24",
+  "/alternatives/adobe-audition": "2026-10-24",
+  "/compare": "2026-10-24",
   "/videos": "2026-10-24",
   "/videos/whats-new-v070": "2026-10-23",
   "/videos/launch-video": "2026-10-24",
@@ -302,4 +304,55 @@ export function pageBreadcrumbs(name: string, path: string): Crumb[] {
     { name: "Home", path: "/" },
     { name, path },
   ];
+}
+
+/**
+ * The trail for a page that sits under the comparison hub: Home, then
+ * Compare (`/compare`), then the page. The Audacity and Audition pages
+ * use it; the hub itself is one level below the home page and uses
+ * `pageBreadcrumbs`.
+ */
+export function compareBreadcrumbs(name: string, path: string): Crumb[] {
+  return [
+    { name: "Home", path: "/" },
+    { name: "Compare", path: "/compare" },
+    { name, path },
+  ];
+}
+
+/**
+ * The `CollectionPage` the comparison hub is: a page whose main content
+ * is a list, here the products compared, each pointing at the hub's own
+ * section for it. No `Review`, `Rating` or `Product` anywhere: the hub
+ * reports what each product's pages say and scores nothing.
+ */
+export function compareHubJsonLd(page: {
+  path: string;
+  name: string;
+  description: string;
+  items: readonly { name: string; anchor: string }[];
+}) {
+  const url = absoluteUrl(page.path);
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: page.name,
+    description: page.description,
+    url,
+    inLanguage: "en",
+    dateModified: pageUpdated(page.path),
+    isPartOf: { "@id": WEBSITE_ID },
+    author: { "@type": "Person", name: FOUNDER.name, url: FOUNDER.url },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: page.items.length,
+      itemListOrder: "https://schema.org/ItemListUnordered",
+      itemListElement: page.items.map((item, i) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        name: item.name,
+        url: `${url}#${item.anchor}`,
+      })),
+    },
+  };
 }
