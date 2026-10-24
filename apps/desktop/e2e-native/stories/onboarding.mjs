@@ -10,7 +10,7 @@ export default [
       await d.waitFor("[data-testid='settings']");
       await sleep(800);
       assert((await d.attr("[data-testid='settings']", "data-mode")) === "blocking", "welcome is blocking");
-      await ctx.shot("The welcome dialog: six providers, a key field, a base URL and a model");
+      await ctx.shot("The welcome dialog: the providers (the ChatGPT plan is a card, the rest a key field), a base URL and a model");
       await d.click("[data-testid='settings-provider-groq']");
       await sleep(400);
       await ctx.shot("Choosing Groq asks for a Groq key");

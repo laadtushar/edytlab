@@ -60,7 +60,15 @@ export type ProviderId =
   | "openai"
   | "groq"
   | "gemini"
-  | "ollama";
+  | "ollama"
+  | ChatGptProviderId;
+
+/**
+ * The providers that are used with a key: every one but the ChatGPT plan,
+ * which is used by signing in and has no key or address to save, read or
+ * clear (the backend refuses them for it, signed in or not).
+ */
+export type KeyProviderId = Exclude<ProviderId, ChatGptProviderId>;
 
 export interface ModelInfo {
   id: string;
@@ -77,11 +85,9 @@ export interface ModelInfo {
 }
 
 /**
- * The ChatGPT plan's provider id (#474). It is not in {@link ProviderId}
- * until Settings offers it (PR 6): that union is the list Settings has a
- * card for, and a test holds it to the registry. The commands below that
- * take a provider take it too, and it is what `get_active_provider` answers
- * once a person has made the plan active.
+ * The ChatGPT plan's provider id (#474). Settings offers it as a card, not a
+ * key field, and it is what `get_active_provider` answers once a person has
+ * made the plan active. A test holds Settings' list to the registry.
  */
 export type ChatGptProviderId = "chatgpt";
 
@@ -102,7 +108,7 @@ export interface ModelCatalogue {
  * uses the key saved for `provider`, which never leaves it.
  */
 export const listModelsFor = (
-  provider: ProviderId | ChatGptProviderId,
+  provider: ProviderId,
   apiKey?: string,
 ): Promise<ModelCatalogue> =>
   invoke<ModelCatalogue>("list_models_for", {
@@ -136,7 +142,7 @@ export const setApiKey = (key: string): Promise<KeychainPersistence> =>
  * write to the keychain answer the same way.
  */
 export const setApiKeyFor = (
-  provider: ProviderId,
+  provider: KeyProviderId,
   key: string,
 ): Promise<KeychainPersistence> =>
   invoke<KeychainPersistence>("set_api_key_for", { provider, key });
@@ -156,7 +162,7 @@ export const hasApiKey = (): Promise<boolean> =>
  * not be read, as {@link hasApiKey} does.
  */
 export const hasApiKeyFor = (
-  provider: ProviderId | ChatGptProviderId,
+  provider: ProviderId,
 ): Promise<boolean> =>
   invoke<boolean>("has_api_key_for", { provider });
 
@@ -311,6 +317,15 @@ export const onChatGptStatus = (
   listen<ChatGptStatus>(CHATGPT_STATUS_EVENT, (e) => cb(e.payload));
 
 /**
+ * Opens ChatGPT's usage page (`https://chatgpt.com/settings/usage`) in the
+ * system browser: the **Manage usage** link (G15). The window has no opener,
+ * so the backend opens it, and it takes no address: the webview cannot ask
+ * for another page. Rejects with a sentence if no browser could be opened.
+ */
+export const openChatGptUsage = (): Promise<void> =>
+  invoke<void>("open_chatgpt_usage");
+
+/**
  * Whether keys and settings saved now survive a reboot, or, as the answer
  * of a save, whether that one did. `persistent: false` is Linux with no
  * Secret Service running: they are kept in the kernel keyring until the
@@ -434,7 +449,7 @@ export const onMlModelProgress = (
 export const clearApiKey = (): Promise<void> =>
   invoke<void>("clear_api_key");
 
-export const clearApiKeyFor = (provider: ProviderId): Promise<void> =>
+export const clearApiKeyFor = (provider: KeyProviderId): Promise<void> =>
   invoke<void>("clear_api_key_for", { provider });
 
 export const testApiKey = (key: string): Promise<void> =>
@@ -464,7 +479,7 @@ export interface ProbeReport {
  * point of the button.
  */
 export const testApiKeyFor = (
-  provider: ProviderId | ChatGptProviderId,
+  provider: ProviderId,
   key: string,
   baseUrl?: string,
   model?: string,
@@ -483,16 +498,16 @@ export const getActiveProvider = (): Promise<ProviderId> =>
   invoke<ProviderId>("get_active_provider");
 
 export const setActiveProvider = (
-  provider: ProviderId | ChatGptProviderId,
+  provider: ProviderId,
 ): Promise<KeychainPersistence> =>
   invoke<KeychainPersistence>("set_active_provider", { provider });
 
 /** A provider's base-URL override, or null when it uses the built-in one. */
-export const getBaseUrlFor = (provider: ProviderId): Promise<string | null> =>
+export const getBaseUrlFor = (provider: KeyProviderId): Promise<string | null> =>
   invoke<string | null>("get_base_url_for", { provider });
 
 /** The URL a provider ships with — shown as the placeholder. */
-export const defaultBaseUrlFor = (provider: ProviderId): Promise<string> =>
+export const defaultBaseUrlFor = (provider: KeyProviderId): Promise<string> =>
   invoke<string>("default_base_url_for", { provider });
 
 /**
@@ -500,7 +515,7 @@ export const defaultBaseUrlFor = (provider: ProviderId): Promise<string> =>
  * writes nothing and so always resolves durable.
  */
 export const setBaseUrlFor = (
-  provider: ProviderId,
+  provider: KeyProviderId,
   baseUrl: string,
 ): Promise<KeychainPersistence> =>
   invoke<KeychainPersistence>("set_base_url_for", { provider, baseUrl });
@@ -520,8 +535,9 @@ export const getEffortFor = (
 
 /**
  * Set a provider's reasoning effort. `null` restores the model's
- * default. Only Anthropic has the setting; the backend refuses a level
- * for any other provider.
+ * default. Only Anthropic and the ChatGPT plan have the setting; the backend
+ * refuses a level for any other provider. On the plan, a level is sent only
+ * for a model whose `reasoning_levels` list it.
  */
 export const setEffortFor = (
   provider: ProviderId,

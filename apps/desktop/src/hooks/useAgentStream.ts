@@ -152,6 +152,9 @@ export interface UseAgentStreamResult {
   /** Stop showing "thinking" without touching the log: for a send that
    * failed, which no agent event will ever answer (#404). */
   stopAwaiting: () => void;
+  /** Show "thinking" without adding a message: for a turn that resumes one
+   * already in the log (the ChatGPT session-ended card's Continue, G9). */
+  startAwaiting: () => void;
   /** Append a user message locally (the caller is responsible for
    * forwarding it through the bridge via `sendMessage`). */
   pushUserMessage: (text: string) => void;
@@ -272,6 +275,7 @@ export function useAgentStream(): UseAgentStreamResult {
   // Any event from the agent ends the "Thinking…" pulse. Centralised so
   // each listener doesn't have to remember to flip it.
   const clearAwaiting = useCallback(() => setAwaiting(false), []);
+  const startAwaiting = useCallback(() => setAwaiting(true), []);
 
   useEffect(() => {
     let unlistenDelta: (() => void) | null = null;
@@ -521,6 +525,7 @@ export function useAgentStream(): UseAgentStreamResult {
     current,
     awaiting,
     stopAwaiting: clearAwaiting,
+    startAwaiting,
     pushUserMessage,
     reset,
     pendingPlan,

@@ -1391,7 +1391,7 @@ the commands answer with.
 ## ChatGPT Plan
 
 Sign in with ChatGPT (#474, preview) lets edytlab run the agent on a ChatGPT
-Plus or Pro plan instead of an API key. These six commands and one event are
+Plus or Pro plan instead of an API key. These seven commands and one event are
 the backend's side of it; there is no key, no address and no token on this
 surface. The sign-in is OAuth with PKCE through the system browser, which **the
 backend opens** (`tauri-plugin-opener`'s `open_url`, used from Rust and never
@@ -1404,8 +1404,8 @@ token is in memory only. The non-secret registration is
 `<app config dir>/chatgpt/registration.json`.
 
 Requests go to `auth.openai.com` (sign-in, refresh, revoke) and `api.openai.com`
-(the agent's requests and the model list, with the session's bearer). Nothing is
-offered in the UI until PR 6.
+(the agent's requests and the model list, with the session's bearer). Settings → Account
+offers it as the **ChatGPT plan** card (PR 6).
 
 ```typescript
 type ChatGptState =
@@ -1519,6 +1519,14 @@ tools had run, the conversation holds the request and its results, and `resumeTe
 is a line asking the model to carry on instead. The agent keeps its history across
 the sign-in (it is not rebuilt). It is held in memory until the next message is
 sent, a sign-out or start over, or this call; it does not survive quitting.
+
+### `openChatGptUsage() → void`
+
+Opens ChatGPT's usage page, `https://chatgpt.com/settings/usage`, in the system
+browser: the **Manage usage** button (G15), on Settings' card and on the usage-limit
+card in Chat. The window has no opener, so the backend opens it (`open_chatgpt_usage`).
+It takes **no argument**: the address is fixed in the backend, so the webview cannot
+ask for another page. Rejects with the sentence `no browser could be opened`.
 
 ### `onChatGptStatus(cb: (status: ChatGptStatus) => void) → Promise<UnlistenFn>`
 
