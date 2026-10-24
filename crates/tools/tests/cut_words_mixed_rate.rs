@@ -189,12 +189,18 @@ fn cut_words_late_in_the_take_keeps_what_follows() {
     );
 }
 
-/// The session's length shrinks by the seconds removed, in session frames.
+/// The session's length is its longest track in session frames (#678), so
+/// cutting a second from the 4-second voice leaves the 6-second bed's length.
 #[test]
-fn cut_words_shortens_the_session_by_the_seconds_removed() {
+fn cut_words_on_the_shorter_track_keeps_the_session_length() {
     let mut s = Session::new();
     s.with_transcript(&words());
     let before = s.state().length_samples;
+    assert_eq!(
+        before,
+        6 * SESSION_RATE as u64,
+        "the bed is the longest track"
+    );
 
     ok(s.call(
         "cut_words",
@@ -203,8 +209,8 @@ fn cut_words_shortens_the_session_by_the_seconds_removed() {
 
     assert_eq!(
         s.state().length_samples,
-        before - SESSION_RATE as u64,
-        "one second, counted at the session's rate"
+        before,
+        "the bed still runs 6 s, counted at the session's rate"
     );
 }
 
