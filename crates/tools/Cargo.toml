@@ -42,3 +42,5 @@ uuid = { version = "1", features = ["serde", "v4"] }
 # The tests open stores the raw way; see `Store::open`. A dev-dependency, so a plain build of this crate has no such open.
 session = { path = "../session", features = ["raw-open"] }
 tempfile = "3"
+# ml_workflow.rs hashes the files it serves to fetch-ml-model.sh; the same crate and version ml-pipeline checks downloads with.
+sha2 = "0.10"

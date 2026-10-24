@@ -307,15 +307,15 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
 #[cfg(unix)]
 fn fake_repo(tmp: &Path, serve: &[(&str, &[u8])]) -> PathBuf {
     use std::fmt::Write as _;
+    // Hashed here, not by spawning sha256sum, which macOS does not have.
     let sha = |bytes: &[u8]| {
-        let mut child = Command::new("sha256sum")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .expect("sha256sum");
-        std::io::Write::write_all(&mut child.stdin.take().unwrap(), bytes).unwrap();
-        let out = child.wait_with_output().unwrap().stdout;
-        String::from_utf8(out).unwrap()[..64].to_string()
+        use sha2::{Digest, Sha256};
+        Sha256::digest(bytes)
+            .iter()
+            .fold(String::new(), |mut hex, b| {
+                let _ = write!(hex, "{b:02x}");
+                hex
+            })
     };
     let root = tmp.join("repo");
     std::fs::create_dir_all(root.join("scripts")).unwrap();
@@ -384,10 +384,15 @@ fn a_damaged_cache_is_downloaded_again_and_checked_not_trusted() {
         std::fs::read(out.join("onnx/encoder_model.onnx")).unwrap(),
         encoder
     );
+    // stdout is the folder and nothing else (compared by identity: macOS's
+    // temp folder is a symlink, and the script prints the path it was given).
     assert_eq!(
-        String::from_utf8_lossy(&run.stdout).trim(),
-        out.canonicalize().unwrap().to_str().unwrap(),
-        "stdout is the folder and nothing else"
+        Path::new(String::from_utf8_lossy(&run.stdout).trim())
+            .canonicalize()
+            .unwrap(),
+        out.canonicalize().unwrap(),
+        "stdout: {}",
+        String::from_utf8_lossy(&run.stdout)
     );
 
     // Warm: nothing is downloaded.
