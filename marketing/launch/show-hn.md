@@ -46,8 +46,7 @@ the request Settings makes to that provider for its model list, which carries
 your key and no prompt or audio. With
 Ollama there is no key and the chat stays on your machine too. The app has no
 telemetry. The website, which is separate, uses Vercel's anonymous analytics
-(page views and page performance, no cookies) and Google Analytics only if
-you accept it in the cookie banner; the privacy page says so.
+(page views and page performance, no cookies); the privacy page says so.
 
 **How it is built.**
 
