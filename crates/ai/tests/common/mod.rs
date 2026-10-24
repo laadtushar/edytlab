@@ -394,3 +394,24 @@ impl Respond for SeqResponder {
         }
     }
 }
+
+/// A whole streamed Responses-API reply of `text`, ending at
+/// `response.completed`, for the ChatGPT plan provider's tests.
+pub fn responses_text(text: &str) -> String {
+    let events = [
+        json!({ "type": "response.created", "response": { "id": "resp_1" } }),
+        json!({
+            "type": "response.output_item.added", "output_index": 0,
+            "item": { "type": "message", "id": "msg_1", "role": "assistant", "content": [] }
+        }),
+        json!({
+            "type": "response.output_text.delta",
+            "item_id": "msg_1", "output_index": 0, "content_index": 0, "delta": text
+        }),
+        json!({ "type": "response.completed", "response": { "id": "resp_1", "status": "completed" } }),
+    ];
+    events
+        .iter()
+        .map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap()))
+        .collect()
+}

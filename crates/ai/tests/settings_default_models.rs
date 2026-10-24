@@ -15,7 +15,23 @@
 use std::path::PathBuf;
 
 use ai::provider::provider_from_id;
-use ai::SUPPORTED_PROVIDER_IDS;
+use std::sync::LazyLock;
+
+/// Providers in the registry that the app does not offer yet, so the screen
+/// and the site copy this test checks do not list them: the ChatGPT plan's
+/// provider exists (#474, PR 4) and Settings gets its card in PR 6 and the
+/// site its copy in PR 7. Each of those PRs removes the name here, which is
+/// what makes this test check the new row.
+const NOT_OFFERED_YET: &[&str] = &["chatgpt"];
+
+/// The registry's ids, less those not offered yet.
+static SUPPORTED_PROVIDER_IDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    ai::SUPPORTED_PROVIDER_IDS
+        .iter()
+        .copied()
+        .filter(|id| !NOT_OFFERED_YET.contains(id))
+        .collect()
+});
 
 fn settings_source() -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -66,7 +82,7 @@ fn settings_names_the_model_the_backend_uses_for_every_provider() {
         SUPPORTED_PROVIDER_IDS.len()
     );
 
-    for id in SUPPORTED_PROVIDER_IDS {
+    for id in SUPPORTED_PROVIDER_IDS.iter() {
         let provider = provider_from_id(id);
         let sent = provider.translate_model(provider.default_model());
         let shown = found

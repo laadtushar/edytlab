@@ -42,6 +42,10 @@ tracing = "0.1"
 ring = "0.17"
 base64 = "0.22"
 url = "2"
+# A response put back together after its body was read (`credential.rs`): a
+# 401 is read to see whether it is worth renewing the credential for. Already
+# in Cargo.lock as a dependency of reqwest.
+http = "1"
 # Constant-time comparison of the callback's `state` and the ID token's `nonce`.
 subtle = "2.6"
 # The ChatGPT session's cross-process refresh lock (`flock`, or `LockFileEx`

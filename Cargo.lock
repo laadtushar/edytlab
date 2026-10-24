@@ -63,6 +63,7 @@ dependencies = [
  "fs4",
  "futures-util",
  "hound",
+ "http",
  "keyring",
  "memory",
  "num-bigint",

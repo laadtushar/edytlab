@@ -995,7 +995,7 @@ fn parse_effort_setting(
     };
     if !ai::validate::provider_for(provider).supports_effort() {
         return Err(format!(
-            "{provider} has no reasoning effort setting; it applies to Anthropic only"
+            "{provider} has no reasoning effort setting; it applies to Anthropic and the ChatGPT plan only"
         ));
     }
     ai::Effort::parse(raw).map(Some).ok_or_else(|| {
@@ -9431,10 +9431,10 @@ mod tests {
     fn a_provider_with_no_such_setting_refuses_a_level() {
         for id in ai::SUPPORTED_PROVIDER_IDS
             .iter()
-            .filter(|id| **id != "anthropic")
+            .filter(|id| !ai::validate::provider_for(id).supports_effort())
         {
             let err = parse_effort_setting(id, Some("high")).unwrap_err();
-            assert!(err.contains("Anthropic only"), "{id}: {err}");
+            assert!(err.contains("no reasoning effort setting"), "{id}: {err}");
         }
     }
 
@@ -9483,6 +9483,7 @@ mod tests {
                 display_name: "Claude Sonnet 5.5 (default)".into(),
                 context_length: Some(1_000_000),
                 provider_hint: None,
+                ..Default::default()
             }],
             source: ai::CatalogueSource::Fallback {
                 reason: "no API key saved".into(),

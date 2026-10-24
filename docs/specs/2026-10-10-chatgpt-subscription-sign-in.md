@@ -445,6 +445,16 @@ Manual, not CI. A PR that checks an item ticks it here and records what it saw.
 - [ ] Disconnect, revocation, and the error a Business workspace gets.
 - [ ] A Linux reboot, with and without a Secret Service.
 
+Added with the provider (PR 4), each a switch or a message in `ChatGptProvider` that only a real account can settle:
+
+- [ ] Whether `function_call` items sent back in `input` with `namespace: "edytlab"` are accepted, and whether the ones the API returns carry a `namespace` of their own (`ToolGrouping::Namespace` adds it to every call it sends back).
+- [ ] Whether a `reasoning` item echoed without its `id` is accepted within a turn (`ReasoningReplay::Echo`, the default; `Off` is the fallback), and whether a turn that calls tools after a dropped reasoning item (the next turn, which strips them) is accepted too.
+- [ ] Whether `strict: false` on every function tool is accepted.
+- [ ] That the default model (`CHATGPT_DEFAULT_MODEL`) is in the account's `/v1/models` list, or what the first listed model is.
+- [ ] Which tool list the account takes: all of it in the namespace (`ToolSet::Full`, the default) or only the slim one (`ChatGptProvider::with_tool_set(ToolSet::Slim)`), and the `subscription_sharing_unsupported_capability` `param` if it refuses.
+- [ ] That a refresh after a gap of more than two hours without a request works or fails (devkit#5, comment of 2026-10-15 says renewals succeed in continuous use and fail after idle gaps).
+- [ ] That error responses carry `x-request-id`, which the agent loop logs with the status and the code.
+
 ---
 
 ## 5. Alternatives for users this does not cover

@@ -41,6 +41,7 @@ pub mod anthropic;
 mod approval;
 pub mod chatgpt;
 mod context_window;
+mod credential;
 pub mod keychain;
 pub mod models;
 pub mod oauth;
@@ -61,6 +62,8 @@ use std::sync::{Arc, Mutex};
 use anthropic::Message;
 
 pub use anthropic::Effort;
+pub use chatgpt::{ChatGptProvider, PlanUsageError};
+pub use credential::Credential;
 pub use models::{
     anthropic_fallback_models, list_models_for, list_models_for_at, Catalogue, CatalogueSource,
     ModelInfo,
@@ -68,8 +71,9 @@ pub use models::{
 pub use plan_gate::PlanGate;
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
-    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, ToolSet, WireFormat,
-    ANTHROPIC_ID, OPENAI_ID, OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
+    AnthropicProvider, CredentialKind, LlmProvider, OpenAIProvider, OpenRouterProvider,
+    ProviderFailure, ToolSet, WireFormat, ANTHROPIC_ID, CHATGPT_ID, OPENAI_ID, OPENROUTER_ID,
+    SUPPORTED_PROVIDER_IDS,
 };
 
 /// Classifier model used for cheap mode detection (M27): the current Haiku,
@@ -85,7 +89,7 @@ pub const CLASSIFIER_MODEL: &str = "claude-haiku-5-5";
 /// Extracted from the original `AnthropicConfig` to support multiple
 /// providers (Anthropic + OpenRouter today, more later). The provider
 /// supplies headers and model translation; the [`LlmConfig`] owns the
-/// per-call data (key, model, optional base URL override).
+/// per-call data (credential, model, optional base URL override).
 ///
 /// `base_url_override` is parameterised so integration tests can point
 /// the agent at a `wiremock` server without monkey-patching DNS or env
@@ -95,8 +99,11 @@ pub struct LlmConfig {
     /// Provider implementation: defines auth headers, default model,
     /// and model id translation.
     pub provider: Arc<dyn LlmProvider>,
-    /// API key, loaded from the OS keychain. Never logged.
-    pub api_key: String,
+    /// What each request authenticates with: an API key loaded from the OS
+    /// keychain, or the signed-in ChatGPT session that hands out a fresh
+    /// bearer token every time. Never logged ([`Credential`]'s `Debug` shows
+    /// neither).
+    pub credential: Credential,
     /// Canonical (Anthropic-shaped) model id. Translated per-provider
     /// before being sent on the wire. Defaults to the provider's
     /// [`LlmProvider::default_model`].
@@ -115,10 +122,15 @@ impl LlmConfig {
     /// Build a config from a provider + key. Uses the provider's default
     /// model and default base URL.
     pub fn new(provider: Arc<dyn LlmProvider>, api_key: impl Into<String>) -> Self {
+        Self::with_credential(provider, Credential::ApiKey(api_key.into()))
+    }
+
+    /// Build a config from a provider + any [`Credential`].
+    pub fn with_credential(provider: Arc<dyn LlmProvider>, credential: Credential) -> Self {
         let model = provider.default_model().to_string();
         Self {
             provider,
-            api_key: api_key.into(),
+            credential,
             model,
             base_url_override: None,
             effort: None,
@@ -155,11 +167,15 @@ impl LlmConfig {
         self.effort.filter(|_| self.provider.supports_effort())
     }
 
-    /// Resolve the base URL: override if set, else the provider default.
+    /// Resolve the base URL: the override if there is one and the provider
+    /// [honours it](LlmProvider::honours_base_url_override), else the
+    /// provider's own. The ChatGPT plan's does not, so its bearer token goes to
+    /// `api.openai.com` whatever was stored or typed.
     pub fn base_url(&self) -> &str {
-        self.base_url_override
-            .as_deref()
-            .unwrap_or_else(|| self.provider.base_url())
+        match self.base_url_override.as_deref() {
+            Some(url) if self.provider.honours_base_url_override() => url,
+            _ => self.provider.base_url(),
+        }
     }
 
     /// Wire-format model id (with the provider's translation applied).
@@ -193,6 +209,21 @@ impl LlmConfig {
     /// Construct an OpenAI-flavoured config from just the API key.
     pub fn new_openai(api_key: impl Into<String>) -> Self {
         Self::new(Arc::new(OpenAIProvider::default()), api_key)
+    }
+
+    /// Construct a ChatGPT-plan config from the signed-in session: no key,
+    /// a bearer token for each request.
+    pub fn new_chatgpt(session: Arc<chatgpt::ChatGptSession>) -> Self {
+        Self::new_chatgpt_with(ChatGptProvider::default(), session)
+    }
+
+    /// [`Self::new_chatgpt`] with a provider that was set up (its tool set,
+    /// its reasoning choice).
+    pub fn new_chatgpt_with(
+        provider: ChatGptProvider,
+        session: Arc<chatgpt::ChatGptSession>,
+    ) -> Self {
+        Self::with_credential(Arc::new(provider), Credential::ChatGpt(session))
     }
 }
 
@@ -440,6 +471,14 @@ pub enum Error {
 
     #[error("the model provider's stream failed: {0}")]
     ApiStream(String),
+
+    /// ChatGPT plan usage failed in a way that has its own recovery (#474):
+    /// the usage limit, an account that is not eligible, plan usage switched
+    /// off, a session that ended, a temporary outage, a request the preview
+    /// refuses. Nothing is retried on another provider. Its text is for the
+    /// person; [`PlanUsageError::code`] is for the window to switch on.
+    #[error("{0}")]
+    PlanUsage(PlanUsageError),
 
     #[error("sse parse error: {0}")]
     Sse(eventsource_stream::EventStreamError<std::io::Error>),

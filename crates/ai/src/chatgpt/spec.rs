@@ -281,18 +281,76 @@ pub fn granted_scopes(response: &TokenResponse) -> Option<Vec<String>> {
     Some(response.scopes().into_iter().map(str::to_string).collect())
 }
 
-/// `earliest_refresh_at` of a token response, read as Unix seconds. OpenAI
-/// returns it without defining it further; the session treats it as the
-/// earliest time to refresh a token that is still valid. A value that is
-/// not a non-negative number is ignored.
+/// `earliest_refresh_at` of a token response. OpenAI returns it without
+/// defining it further; the session treats it as the earliest time to refresh
+/// a token that is still valid. Read as Unix seconds whether it comes as an
+/// integer, a float or a numeric string, and as an ISO-8601 / RFC 3339 date
+/// (`2026-10-24T14:03:00Z`) when it is a string that is not a number: other
+/// clients have seen the date. A value that is none of these (a negative, null,
+/// text) is ignored, and the token is then refreshed in its usual margin.
 pub fn earliest_refresh_at(response: &TokenResponse) -> Option<SystemTime> {
-    let secs = response.extra.get("earliest_refresh_at")?.as_f64()?;
-    if !secs.is_finite() || secs < 0.0 {
+    let value = response.extra.get("earliest_refresh_at")?;
+    let secs = match crate::oauth::token::seconds_of(value) {
+        Some(secs) => secs,
+        None => unix_seconds_of_date(value.as_str()?)?,
+    };
+    // Capped at 2106, so `UNIX_EPOCH + huge` cannot overflow and panic.
+    let secs = secs.min(u64::from(u32::MAX));
+    // Fractions of a second of a plain number are kept, as before.
+    let fraction = value
+        .as_f64()
+        .filter(|f| f.is_finite() && *f >= 0.0)
+        .map_or(0.0, |f| f.fract());
+    UNIX_EPOCH.checked_add(Duration::from_secs(secs) + Duration::from_secs_f64(fraction))
+}
+
+/// Unix seconds of an RFC 3339 date-time: `YYYY-MM-DDTHH:MM:SS`, optional
+/// fraction, then `Z` or `+HH:MM` / `-HH:MM`. `None` for anything else or a
+/// time before 1970.
+fn unix_seconds_of_date(text: &str) -> Option<u64> {
+    let text = text.trim();
+    let (date, rest) = text.split_once(['T', 't', ' '])?;
+    let mut d = date.split('-');
+    let (year, month, day): (i64, i64, i64) = (
+        d.next()?.parse().ok()?,
+        d.next()?.parse().ok()?,
+        d.next()?.parse().ok()?,
+    );
+    if d.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
-    // Capped at 2106, so `UNIX_EPOCH + huge` cannot overflow and panic.
-    let secs = secs.min(u32::MAX as f64);
-    UNIX_EPOCH.checked_add(Duration::from_secs_f64(secs))
+    // The zone: Z, or an offset, at the end.
+    let (clock, offset) = if let Some(clock) = rest.strip_suffix(['Z', 'z']) {
+        (clock, 0i64)
+    } else {
+        let at = rest.rfind(['+', '-'])?;
+        let (clock, zone) = rest.split_at(at);
+        let sign = if zone.starts_with('-') { -1 } else { 1 };
+        let (h, m) = zone[1..].split_once(':')?;
+        (
+            clock,
+            sign * (h.parse::<i64>().ok()? * 3600 + m.parse::<i64>().ok()? * 60),
+        )
+    };
+    let clock = clock.split_once('.').map_or(clock, |(whole, _)| whole);
+    let mut c = clock.split(':');
+    let (h, mi, sec): (i64, i64, i64) = (
+        c.next()?.parse().ok()?,
+        c.next()?.parse().ok()?,
+        c.next()?.parse().ok()?,
+    );
+    if c.next().is_some() || h > 23 || mi > 59 || sec > 60 {
+        return None;
+    }
+    // Days since 1970-01-01 (Howard Hinnant's civil-from-days, inverted).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + h * 3600 + mi * 60 + sec - offset;
+    u64::try_from(secs).ok()
 }
 
 // --- Refresh failures -------------------------------------------------------------
@@ -637,8 +695,12 @@ mod tests {
         );
         for ignored in [
             serde_json::json!(-1),
-            serde_json::json!("2026-10-01T00:00:00Z"),
+            serde_json::json!("-1"),
+            serde_json::json!("soon"),
+            serde_json::json!("2026-13-01T00:00:00Z"),
+            serde_json::json!("2026-10-01T25:00:00Z"),
             serde_json::json!(null),
+            serde_json::json!([1]),
         ] {
             assert_eq!(at(ignored.clone()), None, "{ignored}");
         }
@@ -646,6 +708,34 @@ mod tests {
             at(u64::MAX.into()).is_some(),
             "a huge value is capped, not a panic"
         );
+    }
+
+    /// Other clients see `earliest_refresh_at` as a numeric string or a date,
+    /// and an early refresh is refused upstream (devkit#5), so a date that is
+    /// ignored costs a session.
+    #[test]
+    fn earliest_refresh_at_also_reads_a_numeric_string_and_an_iso_date() {
+        let at = |v: serde_json::Value| {
+            let r: TokenResponse = serde_json::from_value(serde_json::json!({
+                "access_token": "a", "token_type": "Bearer", "earliest_refresh_at": v,
+            }))
+            .unwrap();
+            earliest_refresh_at(&r)
+        };
+        let secs = |n: u64| Some(UNIX_EPOCH + Duration::from_secs(n));
+        assert_eq!(at("1790034332".into()), secs(1_790_034_332));
+        assert_eq!(at(" 1790034332.0 ".into()), secs(1_790_034_332));
+        // 2026-10-24T14:03:00Z, checked against `date -u -d ... +%s`.
+        assert_eq!(at("2026-10-24T14:03:00Z".into()), secs(1_792_850_580));
+        assert_eq!(at("2026-10-24T14:03:00.250Z".into()), secs(1_792_850_580));
+        assert_eq!(at("2026-10-24t14:03:00z".into()), secs(1_792_850_580));
+        // The same instant in another zone.
+        assert_eq!(at("2026-10-24T16:03:00+02:00".into()), secs(1_792_850_580));
+        assert_eq!(at("2026-10-24T09:33:00-04:30".into()), secs(1_792_850_580));
+        // A leap day, and the epoch.
+        assert_eq!(at("2028-02-29T00:00:00Z".into()), secs(1_835_395_200));
+        assert_eq!(at("1970-01-01T00:00:00Z".into()), secs(0));
+        assert_eq!(at("1969-12-31T23:59:59Z".into()), None);
     }
 
     fn oauth(status: u16, code: &str) -> TokenError {

@@ -162,8 +162,10 @@ fn none_of_the_previews_unsupported_fields_is_sent() {
 
 /// The list is the one on the preview page, name for name: fifteen fields
 /// from "Unsupported fields" and `previous_response_id` from "Conversation
-/// state". This is the one deliberate second copy, so that a change to the
-/// constant, or to the page, is a test failure to look at.
+/// state", plus `service_tier`, which the page does not list and the route
+/// refuses all the same (other clients hit it). This is the one deliberate
+/// second copy, so that a change to the constant, or to the page, is a test
+/// failure to look at.
 #[test]
 fn the_unsupported_list_is_the_one_the_preview_page_gives() {
     let page = [
@@ -177,6 +179,7 @@ fn the_unsupported_list_is_the_one_the_preview_page_gives() {
         "prompt",
         "prompt_cache_retention",
         "safety_identifier",
+        "service_tier",
         "temperature",
         "top_logprobs",
         "top_p",

@@ -1,8 +1,10 @@
 //! The Responses wire format end to end, through `Agent::turn` against a
 //! mocked `/v1/responses` (#474).
 //!
-//! No provider speaks this format yet (the ChatGPT one is a later change),
-//! so the provider here is a stand-in that does what that one will: say it is
+//! The ChatGPT plan provider speaks this format, and `tests/chatgpt_provider.rs`
+//! drives it for real. The provider here is a stand-in, so that what is pinned
+//! is the format and not that provider's choices (its namespace, its reasoning
+//! replay, its typed errors): it does what any provider on the format does, say it is
 //! `WireFormat::Responses` and hand its two stream hooks to
 //! [`ai::responses::ResponsesCodec`]. What is pinned is the format's stream
 //! contract with the agent loop:

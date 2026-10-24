@@ -21,8 +21,12 @@
 //!   with single-flight refresh inside the process and a file lock across
 //!   processes, and sign-out with revocation.
 //!
-//! Nothing here depends on Tauri, and nothing calls it yet: the provider
-//! (#474 PR 4) and the desktop commands (PR 5) come next.
+//! - [`provider`]: [`ChatGptProvider`], the `chatgpt` provider that sends the
+//!   agent's requests to the Responses API with the session's bearer, and
+//!   [`errors`]: [`PlanUsageError`], what each way the route can fail is told
+//!   as. The agent loop reads the bearer through [`crate::Credential`].
+//!
+//! Nothing here depends on Tauri. The desktop commands (#474 PR 5) come next.
 //!
 //! # Endpoints
 //!
@@ -43,9 +47,14 @@
 //! own origin ([`spec::same_origin`]), so a discovery document cannot send
 //! the refresh token elsewhere either.
 
+pub mod errors;
+pub mod provider;
 pub mod session;
 pub mod spec;
 pub mod store;
+
+pub use errors::{PlanUsageError, PlanUsageKind};
+pub use provider::{ChatGptProvider, ReasoningReplay, CHATGPT_ID};
 
 pub use session::{
     BearerError, ChatGptSession, ChatGptStatus, Clock, EndReason, Revocation, SessionConfig,

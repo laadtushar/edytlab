@@ -160,6 +160,11 @@ pub struct Knobs {
     /// `earliest_refresh_at`, this many seconds after issue.
     pub earliest_refresh_after: Option<u64>,
     pub expires_in: u64,
+    /// `expires_in` as the server writes it, whatever the type: replaces the
+    /// number when set.
+    pub expires_in_raw: Option<Value>,
+    /// `earliest_refresh_at` as the server writes it, whatever the type.
+    pub earliest_refresh_raw: Option<Value>,
     /// Every refresh answers this.
     pub refresh_error: Option<(u16, Value)>,
     /// Every code exchange answers this.
@@ -188,6 +193,8 @@ impl Default for Knobs {
             refresh_kid: None,
             earliest_refresh_after: None,
             expires_in: 3600,
+            expires_in_raw: None,
+            earliest_refresh_raw: None,
             refresh_error: None,
             exchange_error: None,
             revoke_statuses: Vec::new(),
@@ -388,6 +395,12 @@ impl Fake {
         }
         if let Some(after) = knobs.earliest_refresh_after {
             body["earliest_refresh_at"] = (self.clock.unix() + after).into();
+        }
+        if let Some(raw) = &knobs.expires_in_raw {
+            body["expires_in"] = raw.clone();
+        }
+        if let Some(raw) = &knobs.earliest_refresh_raw {
+            body["earliest_refresh_at"] = raw.clone();
         }
         if let Some(id_token) = id_token {
             body["id_token"] = id_token.into();

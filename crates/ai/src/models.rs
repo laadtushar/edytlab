@@ -23,6 +23,16 @@
 //! * **Groq** — `GET /v1/models` (auth required). No filtering: the
 //!   OpenAI heuristic above would reject every `llama-*` id and leave
 //!   the dropdown empty.
+//! * **ChatGPT plan** — `GET /v1/models` with the signed-in session's bearer,
+//!   not a key: [`list_chatgpt_models`]. The reply is
+//!   `{"models": [{"slug", "display_name", "visibility", "supported_in_api",
+//!   "context_window", "input_modalities", "supported_reasoning_levels"}]}`,
+//!   one account's catalogue, and only entries with `visibility == "list"`
+//!   that are not marked unsupported in the API are kept, in the server's
+//!   order. An empty list stays empty, and a rejected token is an error, never
+//!   a built-in list. It is not cached (the answer is one account's, and the
+//!   token is the account) and `list_models_for` refuses the id, so a key or a
+//!   base URL typed into Settings cannot reach the route.
 //! * **Gemini** — `GET /models` (auth required). The path lacks the
 //!   `/v1` because `GEMINI_DEFAULT_BASE_URL` already ends in
 //!   `/v1beta/openai`, mirroring `GeminiProvider::list_models_path`.
@@ -64,13 +74,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::prompt::DEFAULT_MODEL;
 use crate::provider::{
-    AnthropicProvider, LlmProvider, ANTHROPIC_DEFAULT_BASE_URL, ANTHROPIC_ID,
+    AnthropicProvider, LlmProvider, ANTHROPIC_DEFAULT_BASE_URL, ANTHROPIC_ID, CHATGPT_ID,
     GEMINI_DEFAULT_BASE_URL, GEMINI_ID, GROQ_DEFAULT_BASE_URL, GROQ_ID, OLLAMA_DEFAULT_BASE_URL,
     OLLAMA_ID, OPENAI_DEFAULT_BASE_URL, OPENAI_DEFAULT_MODEL, OPENAI_ID, OPENROUTER_ID,
 };
 
 /// One entry in a provider's model catalogue.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelInfo {
     /// Canonical id the user types into the combo (e.g.
     /// `claude-sonnet-5-5`, `anthropic/claude-sonnet-5.5`,
@@ -84,6 +94,15 @@ pub struct ModelInfo {
     /// For OpenRouter, the namespace before the `/` (e.g. `anthropic`,
     /// `openai`, `google`); for native providers, `None`.
     pub provider_hint: Option<String>,
+    /// What the model takes as input (`text`, `image`, ...), where the
+    /// catalogue says: the ChatGPT plan's does.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_modalities: Vec<String>,
+    /// The reasoning efforts the model takes (`low`, `medium`, `high`, ...),
+    /// where the catalogue says: the ChatGPT plan's does, and an effort the
+    /// model does not list is never sent for it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasoning_levels: Vec<String>,
 }
 
 /// Where a catalogue came from, so Settings can say which list it shows.
@@ -235,6 +254,14 @@ pub(crate) async fn list_models_at(
         GROQ_ID => Catalogue::live(fetch_groq_models(base_url, api_key).await?),
         GEMINI_ID => Catalogue::live(fetch_gemini_models(base_url, api_key).await?),
         OLLAMA_ID => Catalogue::live(fetch_ollama_models(base_url).await?),
+        // The plan's list needs the session's bearer, which this function is
+        // never handed and the webview never holds: see `list_chatgpt_models`.
+        CHATGPT_ID => {
+            return Err(
+                "the ChatGPT plan's models are listed with its signed-in session, not a key"
+                    .to_string(),
+            )
+        }
         other => return Err(format!("unsupported provider id: {other}")),
     };
 
@@ -244,6 +271,97 @@ pub(crate) async fn list_models_at(
         cache_put(cache_key, catalogue.models.clone());
     }
     Ok(catalogue)
+}
+
+/// The models the signed-in ChatGPT account can use: `GET /v1/models` with
+/// the session's bearer (`cfg` is a [`crate::LlmConfig::new_chatgpt`]), the
+/// entries with `visibility == "list"`, in the server's order. "Show
+/// `display_name` in your UI and pass the selected `slug` as `model`"
+/// (<https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference>),
+/// so `slug` is [`ModelInfo::id`].
+///
+/// The bearer comes from the session, renewed once on a `401` like any other
+/// request ([`crate::LlmConfig::send_with`]); nothing about the token or the
+/// URL is an argument. `Err` is the person-facing text of whatever stopped it,
+/// which for a session that ended or an account that cannot use its plan is
+/// the same [`crate::PlanUsageError`] text a turn would show.
+pub async fn list_chatgpt_models(
+    cfg: &crate::LlmConfig,
+    http: &reqwest::Client,
+) -> Result<Catalogue, String> {
+    let url = format!("{}{}", cfg.base_url(), cfg.provider.list_models_path());
+    let resp = cfg
+        .send_with(|| http.get(&url).timeout(ANTHROPIC_MODELS_TIMEOUT))
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let request_id = crate::responses::request_id_of(resp.headers());
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let failure = crate::ProviderFailure::Http {
+            status: status.as_u16(),
+            body: &text,
+            request_id: request_id.as_deref(),
+        };
+        return Err(match cfg.provider.classify_failure(&failure) {
+            Some(error) => error.to_string(),
+            None => format!("the model list request failed ({})", status.as_u16()),
+        });
+    }
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("the model list could not be read: {e}"))?;
+    let models = parse_chatgpt_models(&json);
+    // The provider's requests depend on what each model supports.
+    cfg.provider.note_catalogue(&models);
+    Ok(Catalogue::live(models))
+}
+
+/// The listed models of a `GET /v1/models` reply from the ChatGPT plan route:
+/// the entries with `visibility == "list"` that are `supported_in_api` (an
+/// entry that does not say is kept: the field is read as a filter on a
+/// "false", not as a requirement the preview may not state), in the server's
+/// order. An entry without a `slug` is skipped, and one without a
+/// `display_name` is shown by its slug. `context_window`, `input_modalities`
+/// and `supported_reasoning_levels` are read where they are given and left
+/// empty where they are not or are the wrong type: nothing a catalogue says
+/// wrongly fails it.
+fn parse_chatgpt_models(body: &serde_json::Value) -> Vec<ModelInfo> {
+    use serde_json::Value;
+    let strings = |value: Option<&Value>| -> Vec<String> {
+        value
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
+    };
+    body.get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| m.get("visibility").and_then(Value::as_str) == Some("list"))
+        .filter(|m| m.get("supported_in_api").and_then(Value::as_bool) != Some(false))
+        .filter_map(|m| {
+            let slug = m.get("slug")?.as_str().filter(|s| !s.is_empty())?;
+            let display = m
+                .get("display_name")
+                .and_then(Value::as_str)
+                .filter(|d| !d.is_empty())
+                .unwrap_or(slug);
+            Some(ModelInfo {
+                id: slug.to_string(),
+                display_name: display.to_string(),
+                context_length: m
+                    .get("context_window")
+                    .and_then(Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok()),
+                provider_hint: None,
+                input_modalities: strings(m.get("input_modalities")),
+                reasoning_levels: strings(m.get("supported_reasoning_levels")),
+            })
+        })
+        .collect()
 }
 
 /// The most pages of Anthropic's model list that are read. A request asks for
@@ -302,6 +420,7 @@ pub fn anthropic_fallback_models() -> Vec<ModelInfo> {
         display_name: name.to_string(),
         context_length: Some(1_000_000),
         provider_hint: None,
+        ..Default::default()
     })
     .collect()
 }
@@ -424,6 +543,7 @@ async fn fetch_anthropic_models(base_url: &str, api_key: &str) -> Result<Vec<Mod
             display_name: label,
             provider_hint: None,
             id: m.id,
+            ..Default::default()
         };
         if is_deprecated {
             deprecated.push(info);
@@ -475,6 +595,7 @@ async fn fetch_openrouter_models(api_key: Option<&str>) -> Result<Vec<ModelInfo>
                 context_length: m.context_length,
                 provider_hint: hint,
                 id: m.id,
+                ..Default::default()
             }
         })
         .collect();
@@ -571,6 +692,7 @@ async fn fetch_openai_models(
             context_length: None,
             provider_hint: None,
             id,
+            ..Default::default()
         })
         .collect();
 
@@ -601,6 +723,7 @@ async fn fetch_groq_models(
             context_length: None,
             provider_hint: None,
             id,
+            ..Default::default()
         })
         .collect())
 }
@@ -638,6 +761,7 @@ async fn fetch_ollama_models(base_url: &str) -> Result<Vec<ModelInfo>, String> {
             context_length: None,
             provider_hint: None,
             id,
+            ..Default::default()
         })
         .collect())
 }
@@ -672,6 +796,7 @@ async fn fetch_gemini_models(
                 context_length: None,
                 provider_hint: None,
                 id: bare,
+                ..Default::default()
             }
         })
         .collect())
@@ -1812,6 +1937,7 @@ mod tests {
                 display_name: "x".into(),
                 context_length: None,
                 provider_hint: None,
+                ..Default::default()
             }],
         );
         // No server is running behind this: an answer can only be the cache's.

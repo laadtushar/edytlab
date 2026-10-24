@@ -75,7 +75,9 @@
 //! `SESSION_HEADROOM_BYTES` under the bound, so that the next sentence in the
 //! prompt does not land on whoever writes it.
 
+mod chatgpt_support;
 mod common;
+mod oauth_support;
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -639,6 +641,156 @@ async fn openai_first_request_reports_the_full_chat_completions_size() {
         split.tools,
         split.system
     );
+}
+
+// ---------------------------------------------------------------------
+// The ChatGPT plan: the Responses API (#474)
+// ---------------------------------------------------------------------
+
+/// The first request of a turn on the ChatGPT plan, against a fake OpenAI:
+/// the Responses wire format (`instructions`, `input` items, one namespace of
+/// function tools), with the tool list `tool_set` says.
+async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, Split) {
+    use wiremock::matchers::{method, path};
+
+    let fake = chatgpt_support::Fake::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let session = fake
+        .signed_in(dir.path(), chatgpt_support::MemoryStore::new())
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(SeqResponder::new(vec![ok(common::responses_text("Done."))]))
+        .mount(&fake.server)
+        .await;
+    let provider = ai::ChatGptProvider::loopback_for_tests(&fake.issuer())
+        .expect("a loopback address")
+        .with_tool_set(tool_set);
+    let cfg = LlmConfig::new_chatgpt_with(provider, Arc::new(session));
+
+    let store = session::Store::open(dir.path()).expect("open store");
+    let mut agent = Agent::new(
+        cfg,
+        Arc::new(Mutex::new(dispatcher_with_mcp(0))),
+        Arc::new(Mutex::new(store)),
+        Arc::new(Mutex::new(audio_engine::Engine::new())),
+        ai::PlanGate::new(),
+        Arc::new(Mutex::new(None::<tools::Clipboard>)),
+    );
+    let ctx = native_run_context();
+    agent
+        .turn_with_context(message.to_string(), Some(&ctx), |_| {})
+        .await
+        .expect("the turn succeeds");
+
+    let request = fake
+        .server
+        .received_requests()
+        .await
+        .expect("recording is on")
+        .into_iter()
+        .find(|r| r.url.path() == "/v1/responses")
+        .expect("the turn made its request");
+    let body: Value = serde_json::from_slice(&request.body).expect("a JSON body");
+    let namespace = &body["tools"][0];
+    assert_eq!(
+        body["tools"].as_array().map(Vec::len),
+        Some(1),
+        "one namespace"
+    );
+    assert_eq!(namespace["type"], "namespace");
+    let split = Split {
+        system: len_of(&body["instructions"]),
+        tools: len_of(&body["tools"]),
+        n_tools: namespace["tools"].as_array().map_or(0, Vec::len),
+        messages: len_of(&body["input"]),
+        total: request.body.len(),
+    };
+    (
+        Sent {
+            body,
+            raw_len: request.body.len(),
+        },
+        split,
+    )
+}
+
+// Ratchets on the request the ChatGPT plan gets with the whole tool list: the
+// measured size plus headroom, as for Anthropic's above, and for the same
+// reason (a failure means the system prompt or a tool schema grew: check it
+// was meant to, then raise the constant and say why). It is the Responses
+// JSON (`strict: false` on every function and the namespace wrapper add to
+// what chat completions send), so the numbers are its own. The plan is
+// metered in messages of the person's allowance, not tokens, but a bigger
+// request is a slower, costlier one on every step.
+const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 67_410; // measured 67,183
+
+#[tokio::test]
+async fn chatgpt_first_request_reports_the_full_responses_size() {
+    let (sent, split) = chatgpt_first_request(ai::ToolSet::Full, CANONICAL).await;
+    report("chatgpt (Responses, the whole tool list)", &split);
+
+    assert_eq!(
+        sent.body["tools"][0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect::<BTreeSet<_>>(),
+        registered_tool_names(),
+        "the plan is sent every registered tool, in one namespace"
+    );
+    assert!(
+        !sent.body["instructions"]
+            .as_str()
+            .unwrap()
+            .contains(NAMES_LINE_START),
+        "a provider that is sent every tool has nothing to be told about"
+    );
+    assert!(
+        split.system <= RESPONSES_SYSTEM_MAX_BYTES,
+        "the instructions are {} B, over the ratchet of {RESPONSES_SYSTEM_MAX_BYTES} B. If they \
+         grew on purpose, raise RESPONSES_SYSTEM_MAX_BYTES deliberately.",
+        split.system
+    );
+    assert!(
+        split.tools <= RESPONSES_FULL_TOOLS_MAX_BYTES,
+        "the tool schemas are {} B, over the ratchet of {RESPONSES_FULL_TOOLS_MAX_BYTES} B. If \
+         they grew on purpose, raise RESPONSES_FULL_TOOLS_MAX_BYTES deliberately.",
+        split.tools
+    );
+}
+
+/// The fallback for an account that refuses a namespace of this size: the
+/// same namespace with a core and what the message names, and the line that
+/// names the rest. It is the slim set's own bound that is held here; the
+/// constant is Ollama's, the one that set was written to.
+#[tokio::test]
+async fn chatgpt_slim_first_request_stays_in_the_namespace_and_fits_the_slim_bound() {
+    let (sent, split) = chatgpt_first_request(ai::ToolSet::Slim, CANONICAL).await;
+    report("chatgpt (Responses, slim)", &split);
+
+    assert!(
+        split.n_tools < registered_tool_names().len() / 2,
+        "{} tools are not a slim set",
+        split.n_tools
+    );
+    let offered = sent.body["tools"][0]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect::<BTreeSet<_>>();
+    assert!(offered.contains("gain"), "the core is there: {offered:?}");
+    assert!(
+        sent.body["instructions"]
+            .as_str()
+            .unwrap()
+            .contains(NAMES_LINE_START),
+        "the tools it was not sent are named"
+    );
+    assert_fits("chatgpt slim", &split);
 }
 
 // ---------------------------------------------------------------------

@@ -26,6 +26,8 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
+pub use crate::chatgpt::provider::{ChatGptProvider, ReasoningReplay};
+
 use crate::anthropic::{
     ApiError, ContentBlock, ContentBlockDelta, ContentBlockStart, MessageMeta, MessagesRequest,
     Role, StreamEvent, ToolChoice,
@@ -43,6 +45,8 @@ pub const GROQ_ID: &str = "groq";
 pub const GEMINI_ID: &str = "gemini";
 /// Stable id for the Ollama provider (local models, no API key).
 pub const OLLAMA_ID: &str = "ollama";
+/// Stable id for the ChatGPT plan provider (Sign in with ChatGPT, #474).
+pub use crate::chatgpt::provider::CHATGPT_ID;
 
 /// Default base URL for Anthropic's Messages API.
 pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -220,6 +224,64 @@ pub(crate) fn is_model_unavailable(
     !wire_model.is_empty() && body.contains(wire_model)
 }
 
+/// A failure a provider may know how to name better than the generic errors.
+///
+/// Handed to [`LlmProvider::classify_failure`] at the two places the agent
+/// loop turns a provider's failure into an [`Error`](crate::Error): a request
+/// answered with a non-2xx status, and an `error` inside a stream. Both carry
+/// what the provider said, unaltered, so a provider whose codes call for
+/// different handling (the ChatGPT plan's `subscription_sharing_*` codes) can
+/// tell them apart instead of showing every one as the same text.
+#[derive(Debug, Clone, Copy)]
+pub enum ProviderFailure<'a> {
+    /// The request was answered with `status` and `body`, before any stream.
+    /// `request_id` is the response's `x-request-id` (or `openai-request-id`).
+    Http {
+        status: u16,
+        body: &'a str,
+        request_id: Option<&'a str>,
+    },
+    /// A stream carried an error event: the API's `code` (the error's
+    /// `kind`), its message, and the request field it is about, if it named
+    /// one; and the request ID of the response the stream came on.
+    Stream {
+        kind: &'a str,
+        message: &'a str,
+        param: Option<&'a str>,
+        request_id: Option<&'a str>,
+    },
+}
+
+/// What a provider changed in itself after its server refused a request, so
+/// that the same request, built again, is a different one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Adaptation {
+    /// The way the tools are laid out in the request, or how many of them
+    /// are sent, changed ([`LlmProvider::tool_set`] may answer differently).
+    /// Anything produced under the old layout is not valid under the new:
+    /// the agent loop picks the tools again and drops the model's thinking.
+    ToolLayout,
+    /// The provider stopped asking for, and replaying, the model's
+    /// reasoning.
+    Reasoning,
+}
+
+/// What a provider authenticates with.
+///
+/// The default for a hosted provider is a key; [`Self::None`] is a local
+/// daemon with nothing to be wrong; [`Self::ChatGptOAuth`] is the ChatGPT
+/// plan, whose bearer token is fetched, and refreshed when it is about to
+/// expire, for every request ([`crate::Credential::ChatGpt`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialKind {
+    /// An API key, kept in the keychain slot `<provider id>_api_key`.
+    ApiKey,
+    /// Nothing: a local provider.
+    None,
+    /// Sign in with ChatGPT: an OAuth session ([`crate::chatgpt`]), not a key.
+    ChatGptOAuth,
+}
+
 /// Provider-level error surfaced from `parse_stream_chunk`. We use a
 /// thin `String` wrapper rather than re-exporting `crate::Error` to
 /// avoid making the trait depend on the agent loop's error machinery.
@@ -249,7 +311,7 @@ pub enum WireFormat {
     /// reply a stream of typed events that succeeds only at
     /// `response.completed`. It has no non-streaming mode here, so one-shot
     /// requests (the classifier, the plan) are streamed and read from the
-    /// stream. No provider speaks it yet.
+    /// stream. The ChatGPT plan provider speaks it ([`ChatGptProvider`]).
     Responses,
 }
 
@@ -314,17 +376,105 @@ pub trait LlmProvider: Send + Sync + Debug {
         WireFormat::AnthropicMessages
     }
 
+    /// What this provider authenticates with. [`CredentialKind::ApiKey`]
+    /// unless a provider says otherwise, so a provider added later is
+    /// keyed until someone decides it is not.
+    fn credential_kind(&self) -> CredentialKind {
+        CredentialKind::ApiKey
+    }
+
     /// Whether this provider needs an API key to be usable.
     ///
-    /// Every hosted provider does, so the default is `true` and no
-    /// existing implementation changes. A local daemon does not, and
-    /// before this existed there was no way to say so: the agent was
-    /// only constructed when a key was present, saving a blank key was
-    /// rejected, and first launch blocked behind a key prompt. Those
-    /// checks now ask the provider instead of assuming.
+    /// Derived from [`Self::credential_kind`]: every hosted provider
+    /// takes a key, so no existing implementation changes. A local daemon
+    /// does not, and before this existed there was no way to say so: the
+    /// agent was only constructed when a key was present, saving a blank
+    /// key was rejected, and first launch blocked behind a key prompt.
+    /// Those checks now ask the provider instead of assuming. The ChatGPT
+    /// plan has no key either; it has a session.
     fn requires_api_key(&self) -> bool {
+        self.credential_kind() == CredentialKind::ApiKey
+    }
+
+    /// Whether a base URL the user (or a stored setting) names replaces
+    /// [`Self::base_url`]. Yes, unless the provider holds a credential that
+    /// must reach one host only: the ChatGPT plan's bearer token goes to
+    /// `api.openai.com` and nowhere else, so that provider says no and
+    /// [`crate::LlmConfig::base_url`] then ignores any override.
+    fn honours_base_url_override(&self) -> bool {
         true
     }
+
+    /// Whether the per-turn mode classifier (a model call of its own, before
+    /// the request the user asked for) is skipped, and every request taken
+    /// as [`general`](crate::agent_loop). For a provider where each call is
+    /// spent from the user's own allowance rather than billed per token.
+    fn skips_classifier(&self) -> bool {
+        false
+    }
+
+    /// Whether the model's thinking is kept in the history, within a turn, to
+    /// be replayed with the tool results that follow it.
+    ///
+    /// Whatever the provider issues with effort (Anthropic's `thinking`
+    /// blocks) by default. A provider that returns reasoning without an
+    /// effort setting (the Responses API's `reasoning` items) says so here.
+    /// Either way [`crate::agent_loop`] drops it all at the start of the next
+    /// turn, because it is bound to the `system` and `tools` it was produced
+    /// under.
+    fn replays_thinking(&self) -> bool {
+        self.supports_effort()
+    }
+
+    /// Name a failure better than the generic errors do, or `None` to leave
+    /// it to them. See [`ProviderFailure`]. The default knows nothing.
+    fn classify_failure(&self, _failure: &ProviderFailure<'_>) -> Option<crate::Error> {
+        None
+    }
+
+    /// After the server refused a request: change something in this provider
+    /// so that building the request again gives a different one, and say what.
+    /// `None` leaves the failure to [`Self::classify_failure`]. A provider
+    /// must never answer `Some` twice for what is the same request, or the
+    /// loop would send one body over and over: each answer moves it to a
+    /// state it was not in, and it runs out. The default never adapts.
+    fn adapt_after_refusal(&self, _failure: &ProviderFailure<'_>) -> Option<Adaptation> {
+        None
+    }
+
+    /// Whether a failure that arrives in a stream, before anything of the
+    /// response has been shown, is tried again once with the same request.
+    /// For a provider where each try spends from an allowance: only the codes
+    /// that say the service, not the request, was at fault.
+    fn retries_stream_failure(&self, _code: &str) -> bool {
+        false
+    }
+
+    /// How long to wait before that second try.
+    fn stream_retry_delay(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+
+    /// Whether a `401` with this body is answered by renewing the credential
+    /// and sending the request again (once). Yes unless the body says the
+    /// credential was not the problem.
+    fn renews_on_401(&self, _body: &str) -> bool {
+        true
+    }
+
+    /// The reasoning effort to send for `model`, given the one the person
+    /// chose: the same, unless the provider knows the model does not take it.
+    fn effort_for_model(
+        &self,
+        _model: &str,
+        effort: Option<crate::Effort>,
+    ) -> Option<crate::Effort> {
+        effort
+    }
+
+    /// Told the models a catalogue fetch returned, for a provider whose
+    /// requests depend on what a model supports.
+    fn note_catalogue(&self, _models: &[crate::ModelInfo]) {}
 
     /// Whether the endpoint accepts `output_config.effort`, and so
     /// whether the reasoning-effort setting applies.
@@ -1157,8 +1307,8 @@ impl LlmProvider for OllamaProvider {
         // an absent one.
         req.header("content-type", "application/json")
     }
-    fn requires_api_key(&self) -> bool {
-        false
+    fn credential_kind(&self) -> CredentialKind {
+        CredentialKind::None
     }
     fn tool_set(&self) -> ToolSet {
         // Local models usually run with a 4k to 8k context, and the whole
@@ -1196,6 +1346,7 @@ pub fn provider_from_id(id: &str) -> Arc<dyn LlmProvider> {
         GROQ_ID => Arc::new(GroqProvider::default()),
         GEMINI_ID => Arc::new(GeminiProvider::default()),
         OLLAMA_ID => Arc::new(OllamaProvider::default()),
+        CHATGPT_ID => Arc::new(ChatGptProvider::default()),
         _ => Arc::new(AnthropicProvider),
     }
 }
@@ -1208,6 +1359,7 @@ pub const SUPPORTED_PROVIDER_IDS: &[&str] = &[
     GROQ_ID,
     GEMINI_ID,
     OLLAMA_ID,
+    CHATGPT_ID,
 ];
 
 #[cfg(test)]
@@ -1752,15 +1904,17 @@ mod tests {
         );
     }
 
-    /// Only Anthropic's own endpoint takes the field. OpenRouter shares
-    /// the wire shape but fronts models that may not, and the
-    /// chat-completions servers reject an unknown field outright.
+    /// Only Anthropic's own endpoint and the ChatGPT plan's take an effort.
+    /// OpenRouter shares Anthropic's wire shape but fronts models that may
+    /// not, and the chat-completions servers reject an unknown field
+    /// outright. The plan's is the Responses API's own `reasoning.effort`,
+    /// held to the levels a model lists.
     #[test]
-    fn only_anthropic_supports_effort() {
+    fn only_anthropic_and_the_chatgpt_plan_support_effort() {
         for id in SUPPORTED_PROVIDER_IDS {
             assert_eq!(
                 provider_from_id(id).supports_effort(),
-                *id == ANTHROPIC_ID,
+                *id == ANTHROPIC_ID || *id == CHATGPT_ID,
                 "{id}"
             );
         }
@@ -1785,11 +1939,11 @@ mod tests {
     /// level chosen under Anthropic and left behind after a switch
     /// cannot follow the user to a server that would reject it.
     #[test]
-    fn effective_effort_is_dropped_for_every_provider_but_anthropic() {
+    fn effective_effort_is_dropped_for_every_provider_that_cannot_take_it() {
         use crate::anthropic::Effort;
         for id in SUPPORTED_PROVIDER_IDS {
             let cfg = crate::LlmConfig::new(provider_from_id(id), "k").with_effort(Effort::High);
-            let expected = (*id == ANTHROPIC_ID).then_some(Effort::High);
+            let expected = (*id == ANTHROPIC_ID || *id == CHATGPT_ID).then_some(Effort::High);
             assert_eq!(cfg.effective_effort(), expected, "{id}");
         }
         let unset = crate::LlmConfig::new_anthropic("k");
@@ -2161,13 +2315,15 @@ mod tests {
             (GROQ_ID, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
             (GEMINI_ID, "gemini-3.8-flash", "gemini-3.5-flash-lite"),
             (OLLAMA_ID, "llama3.2", "llama3.2"),
+            // Never asked (the classifier is skipped): the default's id.
+            (CHATGPT_ID, "gpt-6.1-sol", "gpt-6.1-sol"),
         ] {
             let p = provider_from_id(id);
             assert_eq!(p.default_model(), default, "{id} default");
             assert_eq!(p.classifier_model(), classifier, "{id} classifier");
         }
         // Every provider is covered, so a new one cannot skip this.
-        assert_eq!(SUPPORTED_PROVIDER_IDS.len(), 6);
+        assert_eq!(SUPPORTED_PROVIDER_IDS.len(), 7);
     }
 
     /// OpenRouter's ids are already its own, so they go out as they are

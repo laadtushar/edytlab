@@ -151,28 +151,59 @@ impl From<RawOAuthErrorBody> for OAuthErrorBody {
 #[derive(Clone, Deserialize)]
 pub struct TokenResponse {
     pub access_token: SecretString,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub refresh_token: Option<SecretString>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub id_token: Option<SecretString>,
     /// `Bearer`, in some case: a response with any other type, or none, is
     /// refused (RFC 6749 §5.1 requires it, and RFC 6750 bearer use is all
     /// this client does with a token).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub token_type: String,
     /// Seconds from now, at most [`MAX_EXPIRES_IN`]: a larger value is read
     /// as that.
     #[serde(default, deserialize_with = "capped_expires_in")]
     pub expires_in: Option<u64>,
     /// The granted scopes, space-separated.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub scope: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
+/// `expires_in` as an integer, a float, a numeric string or null; anything
+/// else is "not given". A success response is parsed **leniently**: the
+/// server has already rotated the refresh token by the time it answers, so a
+/// malformed optional field that failed the whole response would lose a token
+/// that cannot be had again (the next attempt spends the old one and the
+/// session ends). A field that is wrong is read as absent, and the caller
+/// falls back to the documented default.
 fn capped_expires_in<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
-    Ok(Option::<u64>::deserialize(d)?.map(|secs| secs.min(MAX_EXPIRES_IN)))
+    let value = Value::deserialize(d)?;
+    Ok(seconds_of(&value).map(|secs| secs.min(MAX_EXPIRES_IN)))
+}
+
+/// A non-negative number of seconds in a JSON value: an integer, a float
+/// (truncated), or a string holding either. Not a negative, not `NaN`, not
+/// infinite.
+pub fn seconds_of(value: &Value) -> Option<u64> {
+    let secs = match value {
+        Value::Number(n) => n.as_f64()?,
+        Value::String(s) => s.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    (secs.is_finite() && secs >= 0.0).then_some(secs.min(u64::MAX as f64) as u64)
+}
+
+/// The field if it parses as `T`, else `T::default()`: a field of the wrong
+/// type is read as absent. See [`capped_expires_in`] for why.
+fn lenient<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let value = Value::deserialize(d)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 impl TokenResponse {
@@ -374,5 +405,60 @@ fn failure(status: u16, body: &[u8]) -> TokenError {
     match serde_json::from_slice::<OAuthErrorBody>(body) {
         Ok(body) if !body.error.is_empty() => TokenError::OAuth { status, body },
         _ => TokenError::Status { status },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn parse(extra: Value) -> TokenResponse {
+        let mut body =
+            json!({ "access_token": "a", "token_type": "Bearer", "refresh_token": "rt" });
+        for (k, v) in extra.as_object().unwrap() {
+            body[k] = v.clone();
+        }
+        serde_json::from_value(body).expect("a success response always parses")
+    }
+
+    /// `expires_in` as the integer, float, numeric string, null, or something
+    /// else a server writes. None of it fails the response, which would lose
+    /// the rotated refresh token that came with it.
+    #[test]
+    fn expires_in_is_read_leniently_and_never_fails_the_response() {
+        for (given, wanted) in [
+            (json!(3600), Some(3600)),
+            (json!(3600.9), Some(3600)),
+            (json!("3600"), Some(3600)),
+            (json!(" 1800.0 "), Some(1800)),
+            (json!(1e12), Some(MAX_EXPIRES_IN)),
+            (json!(null), None),
+            (json!("an hour"), None),
+            (json!(-1), None),
+            (json!("-1"), None),
+            (json!({ "secs": 1 }), None),
+            (json!([3600]), None),
+            (json!(true), None),
+        ] {
+            let response = parse(json!({ "expires_in": given }));
+            assert_eq!(response.expires_in, wanted, "{given}");
+            assert_eq!(
+                response.refresh_token.as_ref().map(|t| t.expose_secret()),
+                Some("rt"),
+                "{given}: the rotated token is still there"
+            );
+        }
+        assert_eq!(parse(json!({})).expires_in, None, "absent");
+    }
+
+    /// Fields of the wrong type are absent, not an error.
+    #[test]
+    fn the_other_optional_fields_are_lenient_too() {
+        let response = parse(json!({ "scope": 5, "id_token": ["x"], "token_type": null }));
+        assert_eq!(response.scope, None);
+        assert!(response.id_token.is_none());
+        assert_eq!(response.token_type, "");
+        assert_eq!(response.access_token.expose_secret(), "a");
     }
 }

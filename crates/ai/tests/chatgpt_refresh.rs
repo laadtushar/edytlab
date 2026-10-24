@@ -512,6 +512,90 @@ async fn a_refreshed_id_token_is_checked_against_the_original() {
     assert_eq!(revoked[0]["client_id"], ISSUED_CLIENT);
 }
 
+/// While the preview moves, a refreshed ID token that does not verify
+/// (here an `aud` that is not the client) is not a reason to end a session
+/// and revoke it: the tokens came from the token endpoint for the account the
+/// sign-in verified. The session keeps them, and the next refresh checks
+/// again.
+#[tokio::test]
+async fn a_refreshed_id_token_that_does_not_verify_keeps_the_session() {
+    let fake = Fake::start().await;
+    fake.knobs().refresh_id_token = true;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+
+    fake.knobs().audience = Some("some-other-client".into());
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(
+        bearer(&session).await,
+        "AT-2",
+        "the renewed access token is used"
+    );
+    assert_eq!(session.status().state, SessionState::SignedIn);
+    assert_eq!(
+        store.get().as_deref(),
+        Some("RT-2"),
+        "the rotated token is kept"
+    );
+    assert!(
+        fake.revocations.lock().unwrap().is_empty(),
+        "nothing was revoked"
+    );
+
+    // And the session goes on: the next refresh uses the rotated token.
+    fake.knobs().audience = None;
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-3");
+    assert_eq!(fake.refresh_requests()[1]["refresh_token"], "RT-2");
+}
+
+/// A refresh response whose optional fields are the wrong type still carries
+/// the rotated refresh token, and the server has already spent the old one:
+/// losing it would end the session on the next refresh.
+#[tokio::test]
+async fn a_refresh_200_with_malformed_optional_fields_still_saves_the_rotated_token() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+
+    for (what, expires_in, earliest) in [
+        // The case the research names: `expires_in` as text.
+        ("a string", json!("3600"), None),
+        ("a float", json!(3600.5), None),
+        ("null", json!(null), Some(json!(null))),
+        ("an object", json!({ "secs": 3600 }), Some(json!(["soon"]))),
+        ("a word", json!("an hour"), Some(json!("sometime"))),
+        ("a negative", json!(-5), Some(json!(-1))),
+    ] {
+        {
+            let mut knobs = fake.knobs();
+            knobs.expires_in_raw = Some(expires_in);
+            knobs.earliest_refresh_raw = earliest;
+        }
+        fake.clock.advance(61 * MINUTE);
+        let before = fake.refresh_requests().len();
+        let token = bearer(&session).await;
+        assert_eq!(
+            fake.refresh_requests().len(),
+            before + 1,
+            "{what}: refreshed"
+        );
+        assert_eq!(
+            store.get(),
+            fake.live_refresh_token(),
+            "{what}: the rotated refresh token was saved"
+        );
+        assert_eq!(session.status().state, SessionState::SignedIn, "{what}");
+        // A text, a float or a number is read as the hour it says; the rest
+        // is the documented hour. Either way the token is good half an hour
+        // later.
+        fake.clock.advance(30 * MINUTE);
+        assert_eq!(bearer(&session).await, token, "{what}");
+    }
+}
+
 // --- Restarts ----------------------------------------------------------------------
 
 #[tokio::test]

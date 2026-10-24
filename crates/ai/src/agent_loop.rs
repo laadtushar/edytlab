@@ -71,12 +71,13 @@ use crate::anthropic::{
     Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
 };
 use crate::approval;
+use crate::chatgpt::PlanUsageError;
 use crate::models::clamp_max_tokens;
 use crate::plan_gate::{Answer, PlanGate};
 use crate::prompt::{
     tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
 };
-use crate::provider::ToolSet;
+use crate::provider::{ProviderFailure, ToolSet};
 use crate::responses;
 use crate::session_context::{block_budget, render_block_checked, SessionContext};
 use crate::tool_selection::is_not_implemented;
@@ -253,7 +254,10 @@ fn one_shot_body(
             }
             body
         }
-        WireFormat::Responses => responses::one_shot_body(&model, system, &messages),
+        WireFormat::Responses => {
+            let effort = cfg.provider.effort_for_model(&model, effort);
+            responses::one_shot_body(&model, system, &messages, effort)
+        }
     }
 }
 
@@ -274,12 +278,19 @@ const CLASSIFIER_MAX_TOKENS: u32 = 256;
 /// Falls back to `Mode::General` on any error so classification failures
 /// are never user-visible, and on any answer that is not exactly one label
 /// (see [`parse_mode`]).
+///
+/// A provider that [skips the classifier](crate::LlmProvider::skips_classifier)
+/// (the ChatGPT plan, where each call is spent from the person's allowance) is
+/// not asked: every message is general, and no request is made.
 pub(crate) async fn classify_mode(
     cfg: &LlmConfig,
     http: &reqwest::Client,
     user_message: &str,
     conversation: &[Message],
 ) -> Mode {
+    if cfg.provider.skips_classifier() {
+        return Mode::General;
+    }
     let system_text = "Classify the user's request as one word: mashup, mix, voice, or general. Output only the single word.";
 
     // The last 6 conversation messages for context, then the new user
@@ -298,13 +309,7 @@ pub(crate) async fn classify_mode(
         true,
     );
 
-    let req = http.post(format!(
-        "{}{}",
-        cfg.base_url(),
-        cfg.provider.endpoint_path()
-    ));
-    let req = cfg.provider.apply_auth(req, &cfg.api_key);
-    let resp = match req.json(&request_body).send().await {
+    let resp = match cfg.post_json(http, &request_body).await {
         Ok(r) => r,
         Err(_) => return Mode::General,
     };
@@ -659,6 +664,11 @@ pub(crate) enum PlanUnavailable {
     /// A reply that read cleanly (valid JSON, or a stream that completed)
     /// with no text content where the provider puts it.
     NoResponseText,
+    /// ChatGPT plan usage is stopped in a way that is not temporary: the usage
+    /// limit, an account that cannot use it, a session that ended. The turn
+    /// ends with this error instead of going on without a plan, because the
+    /// request after it would meet the same one.
+    Blocked(PlanUsageError),
     /// Text that carried no well-formed `<plan>` block.
     NoPlanBlock,
     /// A well-formed `<plan>` block listing no steps. Approving it would
@@ -672,6 +682,7 @@ impl std::fmt::Display for PlanUnavailable {
             Self::Transport(e) => write!(f, "the planning request failed: {e}"),
             Self::Status(code) => write!(f, "the planning request returned HTTP {code}"),
             Self::BodyParse(e) => write!(f, "the planning response could not be read: {e}"),
+            Self::Blocked(error) => write!(f, "{error}"),
             Self::NoResponseText => write!(f, "the planning response carried no text"),
             Self::NoPlanBlock => write!(f, "the model did not return a plan"),
             Self::EmptyPlan => write!(f, "the model returned a plan with no steps"),
@@ -712,26 +723,45 @@ async fn fetch_plan(
         false,
     );
 
-    let req = http.post(format!(
-        "{}{}",
-        cfg.base_url(),
-        cfg.provider.endpoint_path()
-    ));
-    let req = cfg.provider.apply_auth(req, &cfg.api_key);
-    let resp = req
-        .json(&request_body)
-        .send()
+    let resp = cfg
+        .post_json(http, &request_body)
         .await
-        .map_err(|e| PlanUnavailable::Transport(e.to_string()))?;
+        .map_err(|e| match e {
+            // The credential could not be had: not a connection problem.
+            Error::PlanUsage(blocked) if !blocked.is_temporary() => {
+                PlanUnavailable::Blocked(blocked)
+            }
+            other => PlanUnavailable::Transport(other.to_string()),
+        })?;
 
     let status = resp.status();
     if !status.is_success() {
-        return Err(PlanUnavailable::Status(status.as_u16()));
+        // A failure the provider names (the ChatGPT plan's usage limit, an
+        // account that cannot use it) is not "the planning request failed":
+        // it stops the turn, as the request after it would.
+        let request_id = responses::request_id_of(resp.headers());
+        let body = resp.text().await.unwrap_or_default();
+        return Err(
+            match blocked_by(
+                cfg,
+                &ProviderFailure::Http {
+                    status: status.as_u16(),
+                    body: &body,
+                    request_id: request_id.as_deref(),
+                },
+            ) {
+                Some(blocked) => PlanUnavailable::Blocked(blocked),
+                None => PlanUnavailable::Status(status.as_u16()),
+            },
+        );
     }
 
     let text = read_one_shot_text(cfg, resp)
         .await
-        .map_err(PlanUnavailable::BodyParse)?
+        .map_err(|failure| match failure.blocked {
+            Some(blocked) => PlanUnavailable::Blocked(blocked),
+            None => PlanUnavailable::BodyParse(failure.message),
+        })?
         .ok_or(PlanUnavailable::NoResponseText)?;
 
     let steps = vet_plan(
@@ -965,6 +995,10 @@ where
             // Only the last two are the model choosing not to plan; the
             // rest are faults. Either way the checkpoint the user asked
             // for is kept, and neither is silent (#267).
+            //
+            // Except a ChatGPT plan failure that waiting will not fix: the
+            // turn ends with it (see `PlanUnavailable::Blocked`).
+            Err(PlanUnavailable::Blocked(blocked)) => return Err(Error::PlanUsage(blocked)),
             Err(reason) => {
                 let first_edit_held = plan_first;
                 tracing::warn!(
@@ -1022,40 +1056,55 @@ where
     // system prompt, from the same selection, so the model knows they
     // exist and can call them by name. Appended here, after the prompt
     // the plan request used, because only now is the selection made.
-    let (tool_schemas, tools_not_sent_note) = match cfg.provider.tool_set() {
-        ToolSet::Full => (tool_schemas, None),
-        ToolSet::Slim => {
-            let selection = tool_selection::slim_tool_schemas(
-                tool_schemas,
-                &mention_text,
-                // Not the memory or session blocks: track names and effect
-                // kinds there would pull in tools nobody asked for.
-                &[
-                    base_prompt.as_str(),
-                    profile_block.as_str(),
-                    skills_block.as_str(),
-                ],
-                conversation,
-                // A block that cut a list names `list_session` to reach the
-                // rest (#618), so the model is sent that tool first.
-                if block_cut {
-                    tool_selection::PINNED_WHEN_BLOCK_CUT
-                } else {
-                    &[]
-                },
-                // The block and the tools share the request: what the
-                // block takes past its allowance comes off the tools.
-                tool_selection::slim_tools_budget(ctx_block.len()),
-            );
-            let note = selection.names_note();
-            (selection.tools, note)
-        }
+    //
+    // A function, not a value, because a provider that learns something from
+    // its server mid-turn can change how many tools it is sent (the ChatGPT
+    // plan's ladder, `LlmProvider::adapt_after_refusal`): the choice is made
+    // again then, from the same permitted list.
+    let permitted_schemas = tool_schemas;
+    let select_tools = |conversation: &[Message]| -> (Value, String) {
+        let (tools, note) = match cfg.provider.tool_set() {
+            ToolSet::Full => (permitted_schemas.clone(), None),
+            ToolSet::Slim => {
+                let selection = tool_selection::slim_tool_schemas(
+                    permitted_schemas.clone(),
+                    &mention_text,
+                    // Not the memory or session blocks: track names and effect
+                    // kinds there would pull in tools nobody asked for.
+                    &[
+                        base_prompt.as_str(),
+                        profile_block.as_str(),
+                        skills_block.as_str(),
+                    ],
+                    conversation,
+                    // A block that cut a list names `list_session` to reach
+                    // the rest (#618), so the model is sent that tool first.
+                    if block_cut {
+                        tool_selection::PINNED_WHEN_BLOCK_CUT
+                    } else {
+                        &[]
+                    },
+                    // The block and the tools share the request: what the
+                    // block takes past its allowance comes off the tools.
+                    tool_selection::slim_tools_budget(ctx_block.len()),
+                );
+                let note = selection.names_note();
+                (selection.tools, note)
+            }
+        };
+        let prompt = match note {
+            Some(note) => format!("{combined_prompt}\n\n{note}"),
+            None => combined_prompt.clone(),
+        };
+        (tools, prompt)
     };
-    let request_prompt = match tools_not_sent_note {
-        Some(note) => format!("{combined_prompt}\n\n{note}"),
-        None => combined_prompt.clone(),
-    };
-    let system_prompt: &str = &request_prompt;
+    let (mut tool_schemas, mut request_prompt) = select_tools(conversation);
+    // How many times a refusal has changed the provider in this turn, and so
+    // the request. Each change is a request that is different from the last,
+    // and a provider has finitely many, so this ends; the bound is for a
+    // provider that does not keep its promise.
+    let mut adaptations = 0usize;
+    const MAX_ADAPTATIONS: usize = 6;
 
     // The same whitelist, as a set, for the dispatch-time check (#238).
     //
@@ -1084,9 +1133,13 @@ where
     // The next request is the last of the turn: tools off, so the model
     // can only say what it did and what is left (#439).
     let mut summarising = false;
+    // Whether the step being sent has already been tried a second time after
+    // a transient failure in its stream. At most once.
+    let mut step_retried = false;
 
     loop {
         // 2. Build and send the streaming request.
+        let system_prompt: &str = &request_prompt;
         let wire_model = cfg.wire_model();
         let tool_choice = if summarising {
             ToolChoice::NONE
@@ -1105,17 +1158,55 @@ where
         // pass `MessagesRequest` through verbatim; OpenAI translates to
         // chat-completions JSON.
         let request_body = cfg.provider.serialize_request(&request_struct);
-        let req = http.post(format!(
-            "{}{}",
-            cfg.base_url(),
-            cfg.provider.endpoint_path()
-        ));
-        let req = cfg.provider.apply_auth(req, &cfg.api_key);
-        let resp = req.json(&request_body).send().await.map_err(Error::Http)?;
+        let resp = cfg.post_json(http, &request_body).await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
+            // The route's errors page asks for the request ID to be kept with
+            // the status and the code: it is what OpenAI is asked about.
+            let request_id = responses::request_id_of(resp.headers());
             let body = resp.text().await.unwrap_or_default();
+            let failure = ProviderFailure::Http {
+                status: status.as_u16(),
+                body: &body,
+                request_id: request_id.as_deref(),
+            };
+            // A provider that can ask for something else (the ChatGPT plan's
+            // ladder of tool layouts, its reasoning) is given the refusal
+            // first. If it changed itself, the same request built again is a
+            // different one: send that, never this body again. What it
+            // changed may be the `system` or the `tools` the thinking so far
+            // was produced under, so it is dropped (CLAUDE.md, the thinking
+            // rule), and the tools are chosen again for what it asks now.
+            if adaptations < MAX_ADAPTATIONS {
+                if let Some(adaptation) = cfg.provider.adapt_after_refusal(&failure) {
+                    adaptations += 1;
+                    tracing::warn!(
+                        status = status.as_u16(),
+                        request_id = request_id.as_deref().unwrap_or("-"),
+                        ?adaptation,
+                        "the provider refused the request; sending a different one"
+                    );
+                    strip_thinking(conversation);
+                    (tool_schemas, request_prompt) = select_tools(conversation);
+                    continue;
+                }
+            }
+            // A failure the provider has its own words and recovery for (the
+            // ChatGPT plan's usage limit, an account that cannot use it, a
+            // session that ended). Nothing is retried on another provider.
+            if let Some(error) = cfg.provider.classify_failure(&failure) {
+                tracing::warn!(
+                    status = status.as_u16(),
+                    request_id = request_id.as_deref().unwrap_or("-"),
+                    code = %match &error {
+                        Error::PlanUsage(e) => e.code(),
+                        _ => "-",
+                    },
+                    "the provider refused the request"
+                );
+                return Err(error);
+            }
             // A model the provider no longer has is its own error, naming
             // the model and the default to switch to (#468).
             if crate::provider::is_model_unavailable(
@@ -1147,10 +1238,15 @@ where
         //    blocks. The Anthropic stream emits one `message_start`
         //    followed by a sequence of `content_block_*` events per
         //    block, then `message_delta` + `message_stop`.
+        let stream_request_id = responses::request_id_of(resp.headers());
         let stream = resp
             .bytes_stream()
             .map(|chunk| chunk.map_err(std::io::Error::other));
         let mut sse = stream.eventsource();
+
+        // Whether the stream failed in a way the provider says to try again
+        // for (see the `Error` arm below).
+        let mut retry_step = false;
 
         // Per-message accumulators, indexed by content-block index.
         let mut blocks: Vec<PartialBlock> = Vec::new();
@@ -1263,20 +1359,48 @@ where
                     }
                     StreamEvent::Ping | StreamEvent::Other => {}
                     StreamEvent::Error { error } => {
-                        // Only the message survives this arm. The error's
-                        // `kind` (on the Responses format, the API's code,
-                        // such as `subscription_sharing_usage_limit_exceeded`)
-                        // and `param` are dropped here, and a provider whose
-                        // codes call for different handling must carry them
-                        // through to a typed `Error` before it ships.
-                        return Err(Error::ApiStream(error_message(&error)));
+                        // A transient failure the provider says is worth one
+                        // more try, before any of the step has been shown or
+                        // run (a retry after text went out would say it
+                        // twice): the same request, once, after a pause. Each
+                        // try spends the person's allowance, so only the
+                        // codes that blame the service qualify.
+                        if !step_retried
+                            && blocks.is_empty()
+                            && cfg.provider.retries_stream_failure(&error.kind)
+                        {
+                            retry_step = true;
+                            break;
+                        }
+                        // The error's `kind` (on the Responses format, the
+                        // API's code, such as
+                        // `subscription_sharing_usage_limit_exceeded`) and
+                        // `param` go to the provider first: one whose codes
+                        // call for different handling names the failure,
+                        // and nothing is tried on another provider. Any
+                        // other keeps only the message.
+                        return Err(cfg
+                            .provider
+                            .classify_failure(&ProviderFailure::Stream {
+                                kind: &error.kind,
+                                message: &error.message,
+                                param: error.param.as_deref(),
+                                request_id: stream_request_id.as_deref(),
+                            })
+                            .unwrap_or_else(|| Error::ApiStream(error_message(&error))));
                     }
                 }
             }
-            if stream_finished {
+            if stream_finished || retry_step {
                 break;
             }
         }
+        if retry_step {
+            step_retried = true;
+            tokio::time::sleep(cfg.provider.stream_retry_delay()).await;
+            continue;
+        }
+        step_retried = false;
         // A stream that ran out without its end marker. The Responses
         // format succeeds only at `response.completed`; a step cut short is
         // an error, not a shorter reply, and nothing of it is kept or run.
@@ -1294,7 +1418,7 @@ where
         //    for a provider whose server issued them, and only a
         //    thinking block that has a signature: without one the
         //    server cannot verify it.
-        let keep_thinking = cfg.provider.supports_effort();
+        let keep_thinking = cfg.provider.replays_thinking();
         let assistant_blocks: Vec<ContentBlock> = blocks
             .iter()
             .filter_map(|b| match b {
@@ -1809,20 +1933,58 @@ fn error_message(err: &ApiError) -> String {
     err.message.clone()
 }
 
+/// Why a one-shot reply could not be read.
+struct OneShotFailure {
+    /// What went wrong, in words.
+    message: String,
+    /// The provider's own name for it, when it has one that waiting will not
+    /// fix (see [`blocked_by`]).
+    blocked: Option<PlanUsageError>,
+}
+
+/// The failure `cfg`'s provider names for `failure`, if it names one that is
+/// not temporary. Today only the ChatGPT plan does, and only [`PlanUsageError`]s.
+fn blocked_by(cfg: &LlmConfig, failure: &ProviderFailure<'_>) -> Option<PlanUsageError> {
+    match cfg.provider.classify_failure(failure) {
+        Some(Error::PlanUsage(error)) if !error.is_temporary() => Some(error),
+        _ => None,
+    }
+}
+
 /// The text of a one-shot reply (`resp` is a success), read the way
 /// `cfg.provider`'s wire format sends it.
 ///
 /// `Ok(None)` is a reply that is there and has no text. `Err` is one that
 /// could not be read: on the first two formats a body that is not JSON, on
-/// Responses a stream that failed or stopped before `response.completed`.
+/// Responses a stream that failed or stopped before `response.completed`
+/// (with the provider's name for it, if it has one).
 async fn read_one_shot_text(
     cfg: &LlmConfig,
     resp: reqwest::Response,
-) -> std::result::Result<Option<String>, String> {
+) -> std::result::Result<Option<String>, OneShotFailure> {
     if cfg.provider.wire_format() == WireFormat::Responses {
-        return responses::collect_text(resp).await;
+        return responses::collect_text(resp).await.map_err(|failure| {
+            let blocked = failure.kind.as_deref().and_then(|kind| {
+                blocked_by(
+                    cfg,
+                    &ProviderFailure::Stream {
+                        kind,
+                        message: &failure.message,
+                        param: failure.param.as_deref(),
+                        request_id: failure.request_id.as_deref(),
+                    },
+                )
+            });
+            OneShotFailure {
+                message: failure.message,
+                blocked,
+            }
+        });
     }
-    let body: Value = resp.json().await.map_err(|e| e.to_string())?;
+    let body: Value = resp.json().await.map_err(|e| OneShotFailure {
+        message: e.to_string(),
+        blocked: None,
+    })?;
     Ok(extract_response_text(cfg, &body))
 }
 
@@ -2038,11 +2200,32 @@ mod tests {
         }
     }
 
-    /// The tests that walk every supported provider match on its wire
-    /// format. None speaks Responses yet; the ChatGPT provider will, and
-    /// each of those matches then needs the assertions for its shape.
-    fn no_provider_speaks_responses_yet(id: &str) -> ! {
-        unreachable!("{id}: a supported provider speaks Responses; give this test its arm")
+    /// A config for `provider_id` that sends to the mock server at `base`.
+    ///
+    /// Every provider takes the address as an override, except the ChatGPT
+    /// plan, whose provider ignores overrides (its bearer goes to one host):
+    /// it is built on the mock through the seam that exists only in test
+    /// builds, with a key standing in for the session's bearer.
+    fn config_against(provider_id: &str, base: String) -> LlmConfig {
+        if provider_id == crate::CHATGPT_ID {
+            let provider = crate::ChatGptProvider::loopback_for_tests(&base).expect("a loopback");
+            return LlmConfig::new(Arc::new(provider), "bearer");
+        }
+        LlmConfig::new(crate::provider::provider_from_id(provider_id), "key").with_base_url(base)
+    }
+
+    /// The providers whose mode classifier runs. The ChatGPT plan's does not
+    /// ([`crate::LlmProvider::skips_classifier`]); its own test says so.
+    fn classifying_ids() -> impl Iterator<Item = &'static &'static str> {
+        crate::SUPPORTED_PROVIDER_IDS
+            .iter()
+            .filter(|id| !crate::provider::provider_from_id(id).skips_classifier())
+    }
+
+    fn provider_from_id_endpoint(provider_id: &str) -> String {
+        crate::provider::provider_from_id(provider_id)
+            .endpoint_path()
+            .to_string()
     }
 
     #[test]
@@ -2051,6 +2234,8 @@ mod tests {
             let declared = crate::provider::provider_from_id(id).wire_format();
             let expected = if speaks_chat_completions(id) {
                 WireFormat::ChatCompletions
+            } else if provider_from_id_endpoint(id) == "/v1/responses" {
+                WireFormat::Responses
             } else {
                 WireFormat::AnthropicMessages
             };
@@ -2072,15 +2257,21 @@ mod tests {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let server = MockServer::start().await;
+        let reply = if crate::provider::provider_from_id(provider_id).wire_format()
+            == WireFormat::Responses
+        {
+            // The route takes only streamed requests, and answers with one.
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(crate::responses::testing::text_stream(&[text]))
+        } else {
+            ResponseTemplate::new(200).set_body_json(reply_in_providers_shape(provider_id, text))
+        };
         Mock::given(method("POST"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(reply_in_providers_shape(provider_id, text)),
-            )
+            .respond_with(reply)
             .mount(&server)
             .await;
-        let cfg = LlmConfig::new(crate::provider::provider_from_id(provider_id), "key")
-            .with_base_url(server.uri());
+        let cfg = config_against(provider_id, server.uri());
         let out = call(cfg, reqwest::Client::new()).await;
         let sent = server.received_requests().await.expect("recorded");
         assert_eq!(sent.len(), 1, "{provider_id}: exactly one request");
@@ -2092,9 +2283,10 @@ mod tests {
     // One-shot calls on the Responses format (#474)
     //
     // The route takes only streamed requests, so the classifier and the plan
-    // ask for a stream and read their text from it. No supported provider
-    // speaks the format yet, so these use the stand-in in
-    // `responses::testing`.
+    // ask for a stream and read their text from it. These use the stand-in
+    // in `responses::testing`; the ChatGPT plan provider, which speaks the
+    // format for real, is walked with every other provider below and tested
+    // end to end in `tests/chatgpt_provider.rs`.
     // ------------------------------------------------------------------
 
     /// A server whose every answer is the event stream `reply`, and a config
@@ -2326,7 +2518,25 @@ mod tests {
                     assert_eq!(body["system"].as_array().map(Vec::len), Some(2), "{id}");
                     assert_eq!(body["messages"][0]["role"], "user", "{id}");
                 }
-                WireFormat::Responses => no_provider_speaks_responses_yet(id),
+                WireFormat::Responses => {
+                    // The system prompt and the plan instruction are the
+                    // `instructions`, in that order; a system item is refused
+                    // by the route, and so is a top-level `system`.
+                    let instructions = body["instructions"].as_str().unwrap_or_default();
+                    assert!(instructions.starts_with("SYSTEM-PROMPT"), "{id}: {body}");
+                    assert!(instructions.contains("<plan>"), "{id}: {body}");
+                    assert!(
+                        body.get("system").is_none() && body.get("messages").is_none(),
+                        "{id}"
+                    );
+                    assert_eq!(body["input"][0]["role"], "user", "{id}");
+                    assert_eq!(
+                        body["input"][0]["content"][0]["text"], "make it louder",
+                        "{id}"
+                    );
+                    assert_eq!(body["store"], json!(false), "{id}");
+                    assert_eq!(body["stream"], json!(true), "{id}");
+                }
             }
         }
     }
@@ -2666,7 +2876,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_classifier_reads_its_answer_for_every_provider() {
-        for id in crate::SUPPORTED_PROVIDER_IDS {
+        for id in classifying_ids() {
             let (mode, body) = serve_one_shot(id, "mashup", |cfg, http| async move {
                 classify_mode(&cfg, &http, "mash these two songs up", &[]).await
             })
@@ -2686,7 +2896,7 @@ mod tests {
     /// on the path. All the mismatches are reported together.
     async fn classify_canned_answers(cases: &[(&str, Mode)]) {
         let mut wrong = Vec::new();
-        for id in crate::SUPPORTED_PROVIDER_IDS {
+        for id in classifying_ids() {
             for &(answer, expected) in cases {
                 let (mode, _) = serve_one_shot(id, answer, |cfg, http| async move {
                     classify_mode(&cfg, &http, "what can you do?", &[]).await
@@ -2907,7 +3117,7 @@ mod tests {
         assert_eq!(body(&anthropic, "gpt-3.5-turbo", 8192)["max_tokens"], 8192);
 
         // And the classifier's own request keeps its 256 for every provider.
-        for id in crate::SUPPORTED_PROVIDER_IDS {
+        for id in classifying_ids() {
             let (mode, sent) = serve_one_shot(id, "mashup", |cfg, http| async move {
                 classify_mode(&cfg, &http, "mash these two songs up", &[]).await
             })
@@ -2959,7 +3169,19 @@ mod tests {
                         .or_else(|| body.get("max_completion_tokens"));
                     assert_eq!(cap, Some(&json!(1024)), "{id}");
                 }
-                WireFormat::Responses => no_provider_speaks_responses_yet(id),
+                WireFormat::Responses => {
+                    // No effort, no cap: the route refuses the cap, and no
+                    // provider on it takes an effort.
+                    let text = body.to_string();
+                    assert!(!text.contains("effort"), "{id}: {text}");
+                    assert!(!text.contains("output_config"), "{id}: {text}");
+                    let object = body.as_object().expect("an object");
+                    for field in crate::responses::UNSUPPORTED_FIELDS {
+                        assert!(!object.contains_key(*field), "{id}: {field}");
+                    }
+                    assert_eq!(body["store"], json!(false), "{id}");
+                    assert_eq!(body["stream"], json!(true), "{id}");
+                }
             }
         }
     }
@@ -3034,7 +3256,7 @@ mod tests {
     /// off without a word.
     #[tokio::test]
     async fn the_classifier_request_never_carries_an_effort() {
-        for id in crate::SUPPORTED_PROVIDER_IDS {
+        for id in classifying_ids() {
             let (mode, body) = serve_one_shot(id, "mashup", |cfg, http| async move {
                 let cfg = cfg.with_effort(Effort::Max);
                 classify_mode(&cfg, &http, "mash these two songs up", &[]).await
@@ -3065,16 +3287,21 @@ mod tests {
     async fn the_one_shot_requests_follow_the_openai_default_models_effort_rule() {
         let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
         for id in crate::SUPPORTED_PROVIDER_IDS {
-            let (_, classified) = serve_one_shot(id, "mashup", |cfg, http| async move {
-                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
-            })
-            .await;
             let (_, planned) = serve_one_shot(id, plan, |cfg, http| async move {
                 let tools = registry(&["set_track_gain"]);
                 fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder", &tools).await
             })
             .await;
-            for (what, body) in [("classifier", classified), ("plan", planned)] {
+            let mut sent = vec![("plan", planned)];
+            // A provider that skips the classifier sends none.
+            if classifying_ids().any(|c| c == id) {
+                let (_, classified) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                    classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+                })
+                .await;
+                sent.push(("classifier", classified));
+            }
+            for (what, body) in sent {
                 if *id == crate::OPENAI_ID {
                     assert_eq!(body["reasoning_effort"], "none", "{what}: {body}");
                 } else {
@@ -3146,6 +3373,13 @@ mod tests {
             let cap = body
                 .get("max_tokens")
                 .or_else(|| body.get("max_completion_tokens"));
+            if crate::provider::provider_from_id(id).wire_format() == WireFormat::Responses {
+                // The route refuses an output cap (`max_output_tokens`), so
+                // the model has the room it has.
+                assert_eq!(cap, None, "{id}: {body}");
+                assert!(body.get("max_output_tokens").is_none(), "{id}: {body}");
+                continue;
+            }
             assert_eq!(cap, Some(&json!(PLAN_MAX_TOKENS)), "{id}");
             // The literal is deliberate: a lowered constant must not pass.
             assert!(
@@ -3183,7 +3417,7 @@ mod tests {
     /// gets the room.
     #[tokio::test]
     async fn the_classifier_turns_thinking_off_and_has_headroom() {
-        for id in crate::SUPPORTED_PROVIDER_IDS {
+        for id in classifying_ids() {
             let (mode, body) = serve_one_shot(id, "mashup", |cfg, http| async move {
                 classify_mode(&cfg, &http, "mash these two songs up", &[]).await
             })
@@ -3193,10 +3427,9 @@ mod tests {
                 WireFormat::AnthropicMessages => {
                     assert_eq!(body["thinking"], json!({ "type": "disabled" }), "{id}");
                 }
-                WireFormat::ChatCompletions => {
+                WireFormat::ChatCompletions | WireFormat::Responses => {
                     assert!(body.get("thinking").is_none(), "{id}: {body}");
                 }
-                WireFormat::Responses => no_provider_speaks_responses_yet(id),
             }
             // Room for a model that thinks before its one word. The
             // literal is deliberate: a lowered constant must not pass.
@@ -3222,8 +3455,9 @@ mod tests {
                 WireFormat::AnthropicMessages => {
                     assert_eq!(off["thinking"], json!({ "type": "disabled" }), "{id}")
                 }
-                WireFormat::ChatCompletions => assert!(off.get("thinking").is_none(), "{id}"),
-                WireFormat::Responses => no_provider_speaks_responses_yet(id),
+                WireFormat::ChatCompletions | WireFormat::Responses => {
+                    assert!(off.get("thinking").is_none(), "{id}")
+                }
             }
         }
     }

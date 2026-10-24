@@ -404,6 +404,15 @@ pub async fn probe_provider_for(
     base_url: Option<&str>,
     model: Option<&str>,
 ) -> Result<ProbeReport, String> {
+    // The ChatGPT plan is tested with its session (`probe_chatgpt`), never
+    // with a key or an address typed into Settings: a bearer must not be
+    // sent where a setting says.
+    if provider_id == crate::provider::CHATGPT_ID {
+        return Err(
+            "the ChatGPT plan is tested with its signed-in session, not with a key or an address"
+                .to_string(),
+        );
+    }
     let provider = crate::provider::provider_from_id(provider_id);
     let base_url = base_url
         .map(str::trim)
@@ -411,6 +420,132 @@ pub async fn probe_provider_for(
         .map(|u| u.trim_end_matches('/').to_string())
         .unwrap_or_else(|| provider.base_url().to_string());
     probe_provider(provider.as_ref(), api_key, &base_url, model).await
+}
+
+/// TEST for the ChatGPT plan: one tool call, and the account's models read on
+/// the way.
+///
+/// `cfg` is a [`crate::LlmConfig::new_chatgpt`] (or its `_with` form), so the
+/// bearer comes from the signed-in session and goes to the provider's one
+/// host. `Err` is "do not rely on this" (the session ended, the account cannot
+/// use its plan, the service is down), carrying the person-facing text of the
+/// failure; `Ok` says whether the model called the tool.
+///
+/// The model list is asked for first, to tell the provider what each model
+/// takes, but **the test does not depend on it**: another client found the
+/// call failing at sign-in for no reason it could isolate and gave up listing
+/// models, so a list that fails (or is empty) is ignored here, and the answer
+/// is the tool call's. What the session cannot do shows there as it would in a
+/// turn.
+///
+/// The tool call cannot be non-streaming, because the route takes nothing
+/// else: it is a streamed Responses request carrying one dummy tool
+/// ([`probe_tools`]) and read to `response.completed`, so a stream that fails
+/// or stops short is reported as it is. It spends a little of the person's
+/// plan, as any request on this route does.
+pub async fn probe_chatgpt(
+    cfg: &crate::LlmConfig,
+    model: Option<&str>,
+) -> Result<ProbeReport, String> {
+    use crate::chatgpt::PlanUsageKind;
+
+    let http = reqwest::Client::new();
+    let _ = crate::models::list_chatgpt_models(cfg, &http).await;
+
+    let model = model
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| cfg.provider.default_model())
+        .to_string();
+    let wire_model = cfg.provider.translate_model(&model);
+    let messages = vec![Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: format!("Call the {PROBE_TOOL} tool with ok set to true. Do not reply in text."),
+        }],
+    }];
+    let req = MessagesRequest {
+        model: &wire_model,
+        max_tokens: 256,
+        system: Vec::new(),
+        messages: &messages,
+        tools: Some(probe_tools()),
+        tool_choice: Some(ToolChoice::AUTO),
+        stream: true,
+        output_config: None,
+    };
+    // The probe is a request like a turn's: a 400 about the tool layout is
+    // answered by the ladder, and the request is built again.
+    let not_ready = |detail: Option<String>| ProbeReport {
+        model: model.clone(),
+        tools_ok: false,
+        detail,
+        model_unavailable: false,
+    };
+    let mut adaptations = 0;
+    loop {
+        let body = cfg.provider.serialize_request(&req);
+        let resp = cfg
+            .post_json(&http, &body)
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = resp.status();
+        if status.is_success() {
+            return match crate::responses::read_stream(resp).await {
+                Ok(read) if !read.tool_calls.is_empty() => Ok(ProbeReport::ready(model)),
+                Ok(read) => {
+                    let text = read.text.trim();
+                    Ok(not_ready((!text.is_empty()).then(|| truncate(text, 200))))
+                }
+                Err(failure) => {
+                    let named = failure.kind.as_deref().and_then(|kind| {
+                        cfg.provider
+                            .classify_failure(&crate::ProviderFailure::Stream {
+                                kind,
+                                message: &failure.message,
+                                param: failure.param.as_deref(),
+                                request_id: failure.request_id.as_deref(),
+                            })
+                    });
+                    match named {
+                        Some(error) => Err(error.to_string()),
+                        None => Ok(not_ready(Some(truncate(&failure.message, 200)))),
+                    }
+                }
+            };
+        }
+        let request_id = crate::responses::request_id_of(resp.headers());
+        let text = resp.text().await.unwrap_or_default();
+        let failure = crate::ProviderFailure::Http {
+            status: status.as_u16(),
+            body: &text,
+            request_id: request_id.as_deref(),
+        };
+        if adaptations < 6 && cfg.provider.adapt_after_refusal(&failure).is_some() {
+            adaptations += 1;
+            continue;
+        }
+        return match cfg.provider.classify_failure(&failure) {
+            // The chosen model is not on this account's list.
+            Some(crate::Error::PlanUsage(error))
+                if matches!(
+                    error.kind(),
+                    PlanUsageKind::UnsupportedRequest { param: Some(param), .. } if param == "model"
+                ) =>
+            {
+                Ok(ProbeReport {
+                    model_unavailable: true,
+                    ..not_ready(None)
+                })
+            }
+            Some(error) => Err(error.to_string()),
+            None => Ok(not_ready(Some(format!(
+                "{} {}",
+                status.as_u16(),
+                truncate(text.trim(), 200)
+            )))),
+        };
+    }
 }
 
 /// Back-compat shim: validate against Anthropic. Kept so the historical

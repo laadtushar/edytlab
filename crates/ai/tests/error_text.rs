@@ -73,3 +73,30 @@ fn a_model_unavailable_error_names_both_models_and_no_provider() {
     // "api key", and no key fixes this.
     assert!(!lower.contains("api key"), "{text}");
 }
+
+/// ChatGPT plan failures are told in their own words (#474): not as a refused
+/// key, which the chat answers by offering Settings to paste one in, and not as
+/// a provider's JSON.
+#[test]
+fn a_plan_usage_error_names_no_provider_and_is_not_a_key_problem() {
+    use ai::chatgpt::{PlanUsageError, PlanUsageKind};
+    for kind in [
+        PlanUsageKind::UsageLimit,
+        PlanUsageKind::NotEligible,
+        PlanUsageKind::PlanDisabled,
+        PlanUsageKind::SessionEnded { detail: None },
+        PlanUsageKind::Unavailable {
+            detail: "HTTP 503".into(),
+        },
+    ] {
+        let error = PlanUsageError::new(kind).with_request_id(Some("req_1"));
+        let text = words(Error::PlanUsage(error));
+        let lower = text.to_lowercase();
+        assert!(!lower.contains("anthropic"), "{text}");
+        assert!(!lower.contains("api key"), "{text}");
+        assert!(!lower.contains("authenticat"), "{text}");
+        assert!(!text.contains('{'), "{text}");
+        assert!(text.contains("ChatGPT"), "{text}");
+        assert!(text.contains("req_1"), "{text}");
+    }
+}
