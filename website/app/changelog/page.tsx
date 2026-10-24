@@ -25,6 +25,15 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.8.1",
+    date: "2026-10",
+    bullets: [
+      "Editing a voice recorded at a different sample rate from the project. With a voice track at another rate than the project (a 16 kHz recording under a 48 kHz bed, say), nine tools turned seconds into the wrong number of frames. time_shift moved the track too far (three times too far for 16 kHz under 48 kHz); split_clip refused split points that were inside the clip; split_by_speaker dropped the later turns; punch_in refused a take at the track's own rate and spliced in one at another rate. cut_range, trim and truncate_silence moved labels and transcript words to the wrong place. With sync-lock on, insert_silence and paste_region opened gaps of the wrong length in the other tracks. They now count in the track's own frames, so the same seconds land in the same place on every track. A track whose clips are at two different rates is refused by the tools that need one number for it, instead of being guessed at.",
+      "A clip's volume envelope follows the clip. On such a clip an envelope, such as a duck under speech, landed at the wrong time, and so did one after a cut or a split. Envelope points are now counted in the clip's own frames, so they stay with the audio they were set on. Projects made by earlier versions play as they did.",
+      "The session length is its longest track's length. With tracks at different rates it could come out as a third of the real length (a voice running past the bed counted as the shorter track), or too long when the lower-rate track loaded first. It is now the length of a full render.",
+    ],
+  },
+  {
     version: "v0.8.0",
     date: "2026-10",
     bullets: [
