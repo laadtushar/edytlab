@@ -26,7 +26,9 @@
 //!   [`errors`]: [`PlanUsageError`], what each way the route can fail is told
 //!   as. The agent loop reads the bearer through [`crate::Credential`].
 //!
-//! Nothing here depends on Tauri. The desktop commands (#474 PR 5) come next.
+//! Nothing here depends on Tauri. The desktop's side of it (the keychain store,
+//! the commands, the status event) is `apps/desktop/src-tauri/src/chatgpt.rs`
+//! (#474 PR 5).
 //!
 //! # Endpoints
 //!
@@ -57,8 +59,9 @@ pub use errors::{PlanUsageError, PlanUsageKind};
 pub use provider::{ChatGptProvider, ReasoningReplay, CHATGPT_ID};
 
 pub use session::{
-    BearerError, ChatGptSession, ChatGptStatus, Clock, EndReason, Revocation, SessionConfig,
-    SessionState, SignInError, SignInIntent, SignOutReport, SystemClock, TokenStorage,
+    BearerError, ChatGptSession, ChatGptStatus, Clock, EndReason, ForgetError, ForgetReport,
+    Revocation, SessionConfig, SessionState, SignInError, SignInIntent, SignOutReport, SystemClock,
+    TokenStorage,
 };
 
 use url::Url;

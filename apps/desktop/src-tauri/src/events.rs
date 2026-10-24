@@ -49,6 +49,14 @@ pub const PLAN_REJECTED: &str = "agent://plan-rejected";
 /// edit for approval (#415) or proceed without a gate.
 pub const PLAN_UNAVAILABLE: &str = "agent://plan-unavailable";
 
+/// `chatgpt://status` — the ChatGPT sign-in changed (#474). The payload is
+/// what `chatgpt_status` answers ([`crate::chatgpt::ChatGptStatusDto`]), sent
+/// when it differs from the last one sent: a sign-in begins, ends, is
+/// cancelled; a sign-out; a session that ended inside a turn or a refresh; a
+/// message kept for, or taken from, the Continue card. It lets a card follow a
+/// sign-in that is happening in the browser. It carries no token and no path.
+pub const CHATGPT_STATUS: &str = "chatgpt://status";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TextDeltaPayload {
     pub text: String,

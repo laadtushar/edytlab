@@ -10,6 +10,65 @@
  * another fixes it.
  */
 
+/**
+ * Why a turn on the ChatGPT plan failed (`PlanUsageError::code`, #474): the
+ * window switches on it. `usage_limit` and `session_ended` have cards of their
+ * own (PR 6); `not_eligible` and `plan_disabled` are the account's, `unavailable`
+ * is temporary, `unsupported_request` and `refused` are OpenAI's refusals.
+ */
+export type PlanUsageCode =
+  | "usage_limit"
+  | "not_eligible"
+  | "plan_disabled"
+  | "session_ended"
+  | "unavailable"
+  | "unsupported_request"
+  | "refused";
+
+const PLAN_USAGE_CODES: readonly PlanUsageCode[] = [
+  "usage_limit",
+  "not_eligible",
+  "plan_disabled",
+  "session_ended",
+  "unavailable",
+  "unsupported_request",
+  "refused",
+];
+
+/**
+ * The marker a failed ChatGPT plan turn's text starts with:
+ * `[plan-usage code=usage_limit request-id=req_abc123] <sentence>`, the
+ * request id left out when the response had none. Written by
+ * `plan_usage_text` in `chatgpt.rs`; this and that change together.
+ */
+const PLAN_USAGE_MARKER = /^\[plan-usage code=([a-z_]+)(?: request-id=([A-Za-z0-9._:-]+))?\] ?/;
+
+export interface PlanUsageFailure {
+  code: PlanUsageCode;
+  /** OpenAI's request id for the response, when it sent one. */
+  requestId: string | null;
+  /** The sentence to show: what happened, and what to do. */
+  message: string;
+}
+
+/**
+ * The ChatGPT plan failure `err` is, or null for any other failure. A code
+ * this build does not know (a newer backend's) reads as `refused`.
+ */
+export function parsePlanUsageError(err: unknown): PlanUsageFailure | null {
+  const raw = String(
+    err instanceof Error ? err.message : (err ?? ""),
+  );
+  const match = PLAN_USAGE_MARKER.exec(raw);
+  if (!match) return null;
+  const known = PLAN_USAGE_CODES.find((c) => c === match[1]);
+  return {
+    code: known ?? "refused",
+    requestId: match[2] ?? null,
+    message: raw.slice(match[0].length),
+  };
+}
+
 /** "no agent configured; call set_api_key first" (`CommandError::NoAgent`). */
 const NO_AGENT = /\bno agent\b|\bset_api_key\b/i;
 
@@ -98,6 +157,10 @@ export function isCredentialError(message: string): boolean {
   // No key was sent, so none was refused — the `set_api_key` in that
   // message is the name of a command.
   if (isNoAgentError(message)) return false;
+  // The ChatGPT plan has no key. Its failures are told apart by code, and
+  // the sentence may carry OpenAI's own words ("unauthorized") that would
+  // otherwise read as a refused key and send the person to paste one.
+  if (parsePlanUsageError(message)) return false;
 
   const status = statedStatus(message);
   if (status === 401 || status === 403) return true;
@@ -128,6 +191,9 @@ export function describeChatError(err: unknown): string {
   const raw = String(
     err instanceof Error ? err.message : (err ?? "unknown error"),
   );
+  // A ChatGPT plan failure is the sentence the backend wrote for it.
+  const plan = parsePlanUsageError(raw);
+  if (plan) return plan.message;
   // In words, with no status and none of the provider's JSON: the person
   // needs the model's name and what to do, and the log has the rest.
   const gone = parseModelUnavailable(raw);
