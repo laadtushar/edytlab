@@ -36,7 +36,7 @@ vi.mock("../lib/tauri-bridge", () => ({
     calls.push("take");
     return m.take();
   },
-  openChatGptUsage: () => m.usage(),
+  openChatgptUsage: () => m.usage(),
   getActiveProvider: () => m.provider(),
   getActiveModel: vi.fn(() => Promise.resolve("")),
   setActiveModel: vi.fn(() => Promise.resolve(undefined)),

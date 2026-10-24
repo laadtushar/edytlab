@@ -1520,7 +1520,7 @@ is a line asking the model to carry on instead. The agent keeps its history acro
 the sign-in (it is not rebuilt). It is held in memory until the next message is
 sent, a sign-out or start over, or this call; it does not survive quitting.
 
-### `openChatGptUsage() → void`
+### `openChatgptUsage() → void`
 
 Opens ChatGPT's usage page, `https://chatgpt.com/settings/usage`, in the system
 browser: the **Manage usage** button (G15), on Settings' card and on the usage-limit

@@ -51,7 +51,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   chatgptCancelSignIn: () => m.cancel(),
   chatgptSignOut: () => m.signOut(),
   chatgptForgetRegistration: () => m.forget(),
-  openChatGptUsage: () => m.usage(),
+  openChatgptUsage: () => m.usage(),
   onChatGptStatus: (cb: (s: ChatGptStatus) => void) => {
     listener = cb;
     return Promise.resolve(() => {
@@ -354,7 +354,7 @@ describe("the ChatGPT plan's card", () => {
     await renderCard(SIGNED_IN);
     await user.click(screen.getByTestId("chatgpt-start-over"));
     const button = screen.getByTestId("chatgpt-start-over");
-    expect(within(button).getByTestId("chatgpt-spinner")).toBeInTheDocument();
+    await waitFor(() => expect(within(button).getByTestId("chatgpt-spinner")).toBeInTheDocument());
     expect(button).toHaveTextContent("Starting over…");
     expect(button).toBeDisabled();
     // The backend keeps the session's own state meanwhile, never signing_in.

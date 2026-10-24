@@ -24,7 +24,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   chatgptCancelSignIn: vi.fn(),
   chatgptSignOut: vi.fn(),
   chatgptForgetRegistration: vi.fn(),
-  openChatGptUsage: vi.fn(),
+  openChatgptUsage: vi.fn(),
   onChatGptStatus: () => Promise.resolve(() => undefined),
   mlRuntimeStatus: vi.fn().mockResolvedValue({ state: "missing", searched: [] }),
   mlModelStatus: vi.fn().mockResolvedValue({ model: "whisper-base", state: "not_downloaded", bytes: 0, size: 1 }),
