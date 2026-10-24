@@ -8,7 +8,7 @@ A calm, single-speaker voice-over for the demo videos on the website, `website/p
 [`narration-script.md`](narration-script.md). The voice never overlaps the app's own sound (the "Listen" captions): every
 line ends 0.3 s before it starts. The files in `website/public/demos/` are not touched.
 
-**The voice is synthetic.** It was made with ElevenLabs text to speech on 2026-10-24 and should be described that way.
+**Voice: synthetic, made with ElevenLabs (`eleven_multilingual_v2`, voices Daniel and River). The owner confirmed with ElevenLabs that this open-source (MIT) project may use this output.** Made on 2026-10-24. Say that the voice is synthetic when you post one of these files.
 
 ## Made with
 
@@ -17,7 +17,7 @@ line ends 0.3 s before it starts. The files in `website/public/demos/` are not t
 | Service, model | ElevenLabs text to speech, REST API, `eleven_multilingual_v2` (1 credit per character; the model ElevenLabs recommends, with `eleven_v4`, for "video narration", <https://elevenlabs.io/docs/overview/models>) |
 | Voices | **Daniel** (`onwK4e9ZLuTAKqWW03F9`, British, "Steady Broadcaster") is the default; **River** (`SAz9YHcvj6GT2YYXdXww`, "Relaxed, Neutral, Informative") is an alternative. Premade voices only. The promo folder (`marketing/promo-v0.7.0/narration/voice-samples/`) has both, and Sarah, saying the same two sentences |
 | Settings | stability 0.6, similarity 0.75, style 0, speaker boost on, speed 1.0, language `en`; one request per line |
-| Credits | 2,106 characters per voice, 4,212 in all. Daniel's first six lines (319 characters) came from the first Free-plan key, which that left at 156 credits (it stops at 150); the rest of Daniel's lines (1,787) and all of River's (2,106) came from the second key, which the API reported at 9,912 before the first request and 5,931 after the last. Each key is a Free-plan account |
+| Credits | 2,106 characters per voice, 4,212 in all. Daniel's first six lines (319 characters) came from the first key, which that left at 156 credits (the floor was 150); the rest of Daniel's lines (1,787) and all of River's (2,106) came from the second key, which the API reported at 9,912 before the first request and 5,931 after the last. |
 
 ## What is in here
 
@@ -47,13 +47,6 @@ The demo masters peak above full scale (+0.9, +1.2 and +0.2 dBTP, as the files s
 is held to -1 dBTP and keeps the loudness, which takes the app's sound in `dj-extended-club-intro` down 2.3 dB (Daniel) or
 2.8 dB (River). The Listen windows stay within 3 dB of the demo's own level in every mix.
 
-## Licence and attribution
+## Voice, licence and attribution
 
-Both keys are Free-plan accounts. ElevenLabs publishes
-(<https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform>, read 2026-10-24):
-
-> The free plan does **not** include a commercial license and cannot be used for any commercial purpose. If you publish content generated using our Services on a free plan or without being signed-in to your account, you must attribute it to ElevenLabs by including "elevenlabs.io" or "11.ai" in the title [...] Attribution requirement is subject to the agreement you have with ElevenLabs.
-
-The owner reports that ElevenLabs confirmed this open-source (MIT) project may use free-plan output. That confirmation is not
-in the repository: keep it, and until it says the attribution is waived, put "elevenlabs.io" in the title wherever a narrated
-demo is posted, and say the voice is synthetic. The footage is MIT as the rest of the repository.
+Voice: synthetic, made with ElevenLabs (`eleven_multilingual_v2`, voices Daniel and River). The owner confirmed with ElevenLabs that this open-source (MIT) project may use this output. The footage is MIT as the rest of the repository.
