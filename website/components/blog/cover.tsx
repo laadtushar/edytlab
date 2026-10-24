@@ -393,23 +393,20 @@ function NoiseProfile() {
   );
 }
 
-/** Samples on a wave whose peak falls between two of them, above a dashed ceiling. */
+/** Samples on a wave whose peaks fall between two of them, above a dashed ceiling the samples stay under. */
 function PeakBetween() {
-  const pts = Array.from({ length: 81 }, (_, i) => {
+  const wave = (x: number) => 190 - 90 * Math.sin(((x - 40) / 240) * Math.PI * 2);
+  const pts = Array.from({ length: 76 }, (_, i) => {
     const x = 40 + i * 7.5;
-    const y = 190 - 92 * Math.sin(((x - 40) / 560) * Math.PI * 4 + 0.35);
-    return `${i === 0 ? "M" : "L"}${n1(x)} ${n1(y)}`;
+    return `${i === 0 ? "M" : "L"}${n1(x)} ${n1(wave(x))}`;
   }).join("");
-  const dots = Array.from({ length: 16 }, (_, i) => {
-    const x = 40 + 35 * i + 22;
-    return [x, 190 - 92 * Math.sin(((x - 40) / 560) * Math.PI * 4 + 0.35)] as const;
-  });
+  const dots = Array.from({ length: 9 }, (_, i) => 70 + 60 * i);
   return (
     <>
       <path d="M40 112H600" className="stroke-muted-foreground" strokeDasharray="4 9" />
       <path d={pts} className="stroke-primary" opacity=".7" />
-      {dots.map(([x, y]) => (
-        <circle key={x} cx={n1(x)} cy={n1(y)} r="5" className="fill-card stroke-primary" />
+      {dots.map((x) => (
+        <circle key={x} cx={x} cy={n1(wave(x))} r="5" className="fill-card stroke-primary" />
       ))}
       <path d="M40 286H600" className="stroke-border" />
     </>

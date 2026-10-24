@@ -13,7 +13,7 @@ export const localOllama: BlogPost = {
   coverAlt:
     "A laptop outline containing a small chip, a waveform and a speech bubble, with a dashed line around all three and nothing crossing it",
   excerpt:
-    "With Ollama there is no key and no account, and the chat stays home as well as the audio. A local model is also a smaller one with a smaller context, and edytlab changes what it sends to suit. This is the setup, what is sent, what it costs in capability, and where the limits are.",
+    "With Ollama there is no key and no account, and the chat stays home as well as the audio. A local model usually runs with a small context, and edytlab changes what it sends to suit. This is the setup, what is sent, what it costs in capability, and where the limits are.",
   readTime: 8,
   tags: ["Ollama", "local AI", "privacy", "tool calling"],
   body: [
