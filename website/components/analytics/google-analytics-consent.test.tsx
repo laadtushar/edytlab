@@ -31,6 +31,7 @@ afterEach(() => {
 
 const banner = () => screen.queryByRole("region", { name: "Cookie settings" });
 const ga = () => screen.queryByTestId("ga");
+const loadedGa = () => screen.findByTestId("ga");
 const stored = () => window.localStorage.getItem(CONSENT_STORAGE_KEY);
 const googleCommands = () =>
   ((window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? []).map((a) =>
@@ -97,12 +98,12 @@ describe("with an ID and no stored choice", () => {
     expect(googleCommands().some((c) => c[2] && (c[2] as Record<string, string>).analytics_storage === "granted")).toBe(false);
   });
 
-  it("Accept stores the choice, hides the banner and loads GA with the ID", () => {
+  it("Accept stores the choice, hides the banner and loads GA with the ID", async () => {
     render(<GoogleAnalyticsConsent measurementId={ID} />);
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     expect(stored()).toBe("granted");
     expect(banner()).toBeNull();
-    expect(ga()?.getAttribute("data-ga-id")).toBe(ID);
+    expect((await loadedGa()).getAttribute("data-ga-id")).toBe(ID);
   });
 
   it("Accept grants analytics_storage only, after the denied defaults", () => {
@@ -116,11 +117,11 @@ describe("with an ID and no stored choice", () => {
 });
 
 describe("with a stored choice", () => {
-  it("a stored Accept loads GA without showing the banner", () => {
+  it("a stored Accept loads GA without showing the banner", async () => {
     window.localStorage.setItem(CONSENT_STORAGE_KEY, "granted");
     render(<GoogleAnalyticsConsent measurementId={ID} />);
     expect(banner()).toBeNull();
-    expect(ga()?.getAttribute("data-ga-id")).toBe(ID);
+    expect((await loadedGa()).getAttribute("data-ga-id")).toBe(ID);
     const commands = googleCommands();
     expect(commands[0][1]).toBe("default");
     expect(commands[1]).toEqual(["consent", "update", { analytics_storage: "granted" }]);
@@ -135,7 +136,7 @@ describe("with a stored choice", () => {
 });
 
 describe("withdrawing", () => {
-  it("the footer link reopens the banner, and Decline stops GA and clears the cookies", () => {
+  it("the footer link reopens the banner, and Decline stops GA and clears the cookies", async () => {
     window.localStorage.setItem(CONSENT_STORAGE_KEY, "granted");
     document.cookie = "_ga=GA1.1.1.1; path=/";
     document.cookie = `_ga_TEST000000=GS2.1.s1; path=/`;
@@ -145,7 +146,7 @@ describe("withdrawing", () => {
         <CookieSettingsLink id={ID} />
       </>,
     );
-    expect(ga()).not.toBeNull();
+    await loadedGa();
     expect(banner()).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Cookie settings" }));
@@ -162,7 +163,7 @@ describe("withdrawing", () => {
     expect((window as unknown as Record<string, unknown>)[`ga-disable-${ID}`]).toBe(true);
   });
 
-  it("a visitor who declined can still change their mind", () => {
+  it("a visitor who declined can still change their mind", async () => {
     window.localStorage.setItem(CONSENT_STORAGE_KEY, "denied");
     render(
       <>
@@ -173,12 +174,12 @@ describe("withdrawing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cookie settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     expect(stored()).toBe("granted");
-    expect(ga()).not.toBeNull();
+    await loadedGa();
   });
 });
 
 describe("storage that throws", () => {
-  it("still asks, and still works for this visit", () => {
+  it("still asks, and still works for this visit", async () => {
     const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("blocked");
     });
@@ -190,7 +191,7 @@ describe("storage that throws", () => {
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     });
-    expect(ga()).not.toBeNull();
+    await loadedGa();
     get.mockRestore();
     set.mockRestore();
   });

@@ -77,6 +77,8 @@ describe("the script", () => {
 
   it("is loaded from one file, behind a granted choice", () => {
     const source = read("components/analytics/google-analytics-consent.tsx");
-    expect(source).toMatch(/choice === "granted" \? <GoogleAnalytics gaId=\{id\} \/> : null/);
+    expect(source).toMatch(/choice === "granted" \? \(\s*<Suspense fallback=\{null\}>\s*<GoogleAnalytics gaId=\{id\} \/>/);
+    // Fetched on demand, never imported at the top of the file.
+    expect(source).not.toMatch(/^import .* from "@next\/third-parties/m);
   });
 });

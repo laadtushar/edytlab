@@ -1,8 +1,7 @@
 "use client";
 
-import { GoogleAnalytics } from "@next/third-parties/google";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 
 import {
   OPEN_SETTINGS_EVENT,
@@ -14,6 +13,15 @@ import {
   writeConsent,
   type ConsentChoice,
 } from "@/lib/consent";
+
+/**
+ * The Google tag's component, fetched only once a visitor has accepted:
+ * a visitor who has not never downloads it, and a build with no
+ * measurement ID ships it as a chunk that no page asks for.
+ */
+const GoogleAnalytics = lazy(() =>
+  import("@next/third-parties/google").then((m) => ({ default: m.GoogleAnalytics })),
+);
 
 /**
  * The cookie banner, and Google Analytics 4 behind it.
@@ -86,7 +94,11 @@ export function GoogleAnalyticsConsent({
 
   return (
     <>
-      {choice === "granted" ? <GoogleAnalytics gaId={id} /> : null}
+      {choice === "granted" ? (
+        <Suspense fallback={null}>
+          <GoogleAnalytics gaId={id} />
+        </Suspense>
+      ) : null}
       {visible ? (
         <section
           ref={banner}
