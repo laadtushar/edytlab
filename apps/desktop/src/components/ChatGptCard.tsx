@@ -75,6 +75,17 @@ import {
   type ReasoningEffort,
 } from "../lib/tauri-bridge";
 
+/** A small turning ring beside a button's label while its action runs. */
+function Spinner() {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="chatgpt-spinner"
+      className="mr-1.5 inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent align-[-2px]"
+    />
+  );
+}
+
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -120,6 +131,8 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
   // What the last sign-out or start over said, for the signed-out card.
   const [ended, setEnded] = useState<ChatGptEnd | null>(null);
   const [busy, setBusy] = useState(false);
+  // Which of the ending actions is running, for the spinner on its own button.
+  const [ending, setEnding] = useState<"sign_out" | "start_over" | null>(null);
 
   const alive = useRef(true);
   // Counts the events heard, so an answer that was overtaken by one is not
@@ -236,9 +249,10 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
   };
 
   const end = useCallback(
-    async (call: () => Promise<ChatGptEnd>) => {
+    async (call: () => Promise<ChatGptEnd>, which: "sign_out" | "start_over") => {
       setProblem(null);
       setBusy(true);
+      setEnding(which);
       try {
         const done = await call();
         if (!alive.current) return;
@@ -248,7 +262,10 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
       } catch (e) {
         if (alive.current) setProblem(messageOf(e));
       } finally {
-        if (alive.current) setBusy(false);
+        if (alive.current) {
+          setBusy(false);
+          setEnding(null);
+        }
       }
     },
     [onSignedOut],
@@ -263,7 +280,7 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
       if (alive.current) setProblem(messageOf(e));
       return;
     }
-    if (confirmed) await end(chatgptForgetRegistration);
+    if (confirmed) await end(chatgptForgetRegistration, "start_over");
   };
 
   const manageUsage = () => {
@@ -401,7 +418,7 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
               type="button"
               data-testid="chatgpt-sign-out"
               disabled={busy}
-              onClick={() => void end(chatgptSignOut)}
+              onClick={() => void end(chatgptSignOut, "sign_out")}
               className="btn-secondary rounded px-3 py-1 text-xs transition"
             >
               Sign out
@@ -468,10 +485,11 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
               type="button"
               data-testid="chatgpt-sign-out"
               disabled={busy}
-              onClick={() => void end(chatgptSignOut)}
+              onClick={() => void end(chatgptSignOut, "sign_out")}
               className="btn-secondary rounded px-3 py-1 text-xs transition"
             >
-              Sign out
+              {ending === "sign_out" ? <Spinner /> : null}
+              {ending === "sign_out" ? "Signing out…" : "Sign out"}
             </button>
             <button
               type="button"
@@ -489,7 +507,8 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
               onClick={() => void startOver()}
               className="btn-secondary rounded px-3 py-1 text-xs transition"
             >
-              Start over
+              {ending === "start_over" ? <Spinner /> : null}
+              {ending === "start_over" ? "Starting over…" : "Start over"}
             </button>
           </div>
         </div>
