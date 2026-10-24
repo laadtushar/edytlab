@@ -2,11 +2,14 @@
 
 One speaker, plain and calm. Every sentence below sits inside one shot of its video, starts after the shot has faded in and
 ends before it fades out, and comes from a row of [`../claims.md`](../claims.md) (the last column). Times are seconds on the
-video's own clock, as laid in the Daniel mix; the River mix lays the same lines at the same start times.
+video's own clock, as laid in the Daniel mix; the River mix lays the same lines at the same start times. Every line was also
+checked against `main` on 2026-10-24 (v0.8.0, which ships transcription): none says or implies that something is unbuilt.
 
 Spoken forms that differ from the screen: "ONNX Runtime" is spoken "Onyx Runtime"; "v0.7.0" is spoken "version zero point
-seven point zero"; "list_session" is spoken "list session". Nothing is said about stem separation or transcription, which
-v0.7.0 does not do.
+seven point zero"; "list_session" is spoken "list session". Nothing is said about stem separation, which is still not built,
+or about the speech model: the S5 line says only that the runtime ships in every installer (an earlier take went on to say
+"Groundwork only, no model yet", which stopped being true when v0.8.0 made the model downloadable; the line was cut at the
+pause between the two sentences, with a 30 ms fade, so no audio was regenerated).
 
 The 1:1 video uses the 16:9 script and track unchanged (the two have one timeline).
 
@@ -25,7 +28,7 @@ The 1:1 video uses the 16:9 script and track unchanged (the two have one timelin
 | 8 | graph (S3) (29.6 to 36.8 s) | Compact the history: twenty nodes become eight. | 33.15 | 36.49 | S3 row 3 (compact_session; 20 bubbles became 8); edit table "Compact the history: nodes leave at once", "20 nodes became 8" |
 | 9 | big sessions (S4) (36.5 to 48.1 s) | Two hundred tracks? Just ask. | 36.95 | 39.02 | S4 row 1 (200 TRACKS in the toolbar); edit table "200 tracks? Just ask." |
 | 10 | big sessions (S4) (36.5 to 48.1 s) | It reads what the summary left out with list session, then lowers twelve strings by six decibels. | 39.60 | 45.95 | S4 row 2 (list_session, #618/#634, then twelve gain calls, db -6 chosen by Claude); S4 row 4 (lanes read -6.0 dB); edit table "list_session reads what the summary left out", "Twelve strings, 6 dB quieter" |
-| 11 | runtime (S5) (47.8 to 53.8 s) | The Onyx Runtime ships in every installer. Groundwork only, no model yet. | 48.15 | 53.40 | S5 row 1 (ONNX Runtime 1.23.2 (bundled); every release installer after v0.6.1, #383/#615); edit table chip "groundwork only: no model yet"; S5 "does not claim" paragraph |
+| 11 | runtime (S5) (47.8 to 53.8 s) | The Onyx Runtime ships in every installer. | 48.15 | 51.15 | S5 row 1 (ONNX Runtime 1.23.2 (bundled); every release installer after v0.6.1, #383/#615) |
 | 12 | skills (S6) (53.5 to 58.9 s) | Bundled skills update when a release changes them, unless edited. | 53.85 | 58.08 | S6 row 1 (SkillsEditor note, #574/#631); edit table "Bundled skills update, unless you edited them" / "Updated when a release changes them" |
 | 13 | mix (S7) (58.6 to 71.4 s) | Switch tabs, press play: it still plays. | 59.10 | 62.08 | S7 row 1 (#607/#635: Play, Graph tab and back, Play again with no error); edit table "Switch tabs, press play: it still plays" |
 | 14 | mix (S7) (58.6 to 71.4 s) | Even when the mix is gone from the cache, the app renders it again. | 66.05 | 70.20 | S7 row 2 (the story deletes the mix file from the preview cache; the app renders it again once); edit table "Even when the mix is gone from the cache" |
@@ -72,18 +75,18 @@ Run by `tools/validate.py` on the finished mp4s; the numbers are in `checks/vali
 
 | Video | Voice | Size, rate, frames, length | Codecs | Loudness (cut to mix) | True peak (cut to mix) |
 |---|---|---|---|---|---|
-| `16x9` | daniel | 1920x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.1 LUFS | -1.2 to -1.2 dBTP |
-| `1x1` | daniel | 1080x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.1 LUFS | -1.2 to -1.2 dBTP |
+| `16x9` | daniel | 1920x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.1 LUFS | -1.2 to -1.1 dBTP |
+| `1x1` | daniel | 1080x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.1 LUFS | -1.2 to -1.1 dBTP |
 | `whats-new-9x16` | daniel | 1080x1920, 30/1 fps, 1184 frames, 39.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -13.9 to -13.9 LUFS | -1.1 to -1.2 dBTP |
 | `describe-the-edit-9x16` | daniel | 1080x1920, 30/1 fps, 782 frames, 26.067 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.0 to -13.9 LUFS | -1.1 to -1.4 dBTP |
 | `200-tracks-9x16` | daniel | 1080x1920, 30/1 fps, 821 frames, 27.367 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.0 to -14.0 LUFS | -2.0 to -1.2 dBTP |
-| `16x9` | river | 1920x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.2 LUFS | -1.2 to -1.4 dBTP |
-| `1x1` | river | 1080x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.2 LUFS | -1.2 to -1.4 dBTP |
+| `16x9` | river | 1920x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.2 LUFS | -1.2 to -1.5 dBTP |
+| `1x1` | river | 1080x1080, 30/1 fps, 2294 frames, 76.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.1 to -14.2 LUFS | -1.2 to -1.5 dBTP |
 | `whats-new-9x16` | river | 1080x1920, 30/1 fps, 1184 frames, 39.467 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -13.9 to -14.1 LUFS | -1.1 to -2.2 dBTP |
 | `describe-the-edit-9x16` | river | 1080x1920, 30/1 fps, 782 frames, 26.067 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.0 to -14.1 LUFS | -1.1 to -1.3 dBTP |
 | `200-tracks-9x16` | river | 1080x1920, 30/1 fps, 821 frames, 27.367 s (identical to the cut: yes) | h264/High + aac 48000 Hz, 2 ch | -14.0 to -14.2 LUFS | -2.0 to -2.0 dBTP |
 
-Every mix is within 0.2 LU of its cut's integrated loudness and at or under -1.2 dBTP (the limit set was -1 dBTP).
+Every mix is within 0.2 LU of its cut's integrated loudness and at or under -1.1 dBTP (the limit set was -1 dBTP).
 The picture of each is the cut's own stream, copied.
 
 ## The cut's own sound under the voice
@@ -94,18 +97,18 @@ the cut before the voice, what is left of it under the voice, and the voice.
 | Video | Voice | Line | Cut alone | Cut under the voice | Voice |
 |---|---|---|---|---|---|
 | `16x9` | daniel | v1-describe-c | -14.8 | -22.5 | -19.5 |
-| `16x9` | daniel | v1-mix-a | -13.5 | -22.3 | -20.1 |
+| `16x9` | daniel | v1-mix-a | -13.5 | -22.4 | -20.1 |
 | `16x9` | daniel | v1-mix-b | -14.0 | -22.0 | -19.6 |
 | `1x1` | daniel | v1-describe-c | -14.8 | -22.5 | -19.5 |
-| `1x1` | daniel | v1-mix-a | -13.5 | -22.3 | -20.1 |
+| `1x1` | daniel | v1-mix-a | -13.5 | -22.4 | -20.1 |
 | `1x1` | daniel | v1-mix-b | -14.0 | -22.0 | -19.6 |
 | `whats-new-9x16` | daniel | r1-mix | -17.9 | -24.5 | -19.7 |
 | `describe-the-edit-9x16` | daniel | r2-play | -18.6 | -24.8 | -20.0 |
 | `16x9` | river | v1-describe-c | -15.8 | -24.3 | -20.6 |
-| `16x9` | river | v1-mix-a | -13.4 | -22.6 | -20.6 |
+| `16x9` | river | v1-mix-a | -13.4 | -22.6 | -20.7 |
 | `16x9` | river | v1-mix-b | -14.0 | -22.8 | -20.4 |
 | `1x1` | river | v1-describe-c | -15.8 | -24.3 | -20.6 |
-| `1x1` | river | v1-mix-a | -13.4 | -22.6 | -20.6 |
+| `1x1` | river | v1-mix-a | -13.4 | -22.6 | -20.7 |
 | `1x1` | river | v1-mix-b | -14.0 | -22.8 | -20.4 |
 | `whats-new-9x16` | river | r1-mix | -17.4 | -25.2 | -20.7 |
 | `describe-the-edit-9x16` | river | r2-play | -23.0 | -27.6 | -21.0 |

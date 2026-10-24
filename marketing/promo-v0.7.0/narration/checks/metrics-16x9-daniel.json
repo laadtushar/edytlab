@@ -6,12 +6,11 @@
  "I_orig": -14.1,
  "TP_orig": -1.2,
  "I": -14.1,
- "TP": -1.2,
+ "TP": -1.1,
  "final_gain_db": 1.3000000000000007,
  "tempos": {
   "v1-open": 1.09,
-  "v1-graph-b": 1.04,
-  "v1-runtime": 1.11
+  "v1-graph-b": 1.04
  },
  "placed": [
   {
@@ -77,7 +76,7 @@
   {
    "id": "v1-runtime",
    "start": 48.15,
-   "end": 53.40079166666666,
+   "end": 51.152625,
    "music": false
   },
   {
@@ -189,18 +188,18 @@
   {
    "id": "v1-runtime",
    "music": false,
-   "orig_rms": -54.56645584106445,
-   "ducked_rms": -63.902774047851565,
-   "voice_rms": -16.7,
+   "orig_rms": -52.13922119140625,
+   "ducked_rms": -61.47553939819336,
+   "voice_rms": -16.700005722045898,
    "duck_db": -10.63631820678711
   },
   {
    "id": "v1-skills",
    "music": false,
    "orig_rms": -32.00483703613281,
-   "ducked_rms": -42.70255584716797,
+   "ducked_rms": -42.68620986938477,
    "voice_rms": -16.7,
-   "duck_db": -11.997718811035156
+   "duck_db": -11.981372833251953
   },
   {
    "id": "v1-mix-a",

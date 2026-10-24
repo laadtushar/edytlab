@@ -95,7 +95,7 @@ practice:**
 
 Other licences: Inter comes from `@fontsource/inter` (SIL Open Font License 1.1, bundled, no network at render time); the sound
 effects are made by `marketing/launch-video/tools/sfx.py` (code, no samples); the footage and the audio in it are synthetic and
-ours. There is no ElevenLabs audio and no stock music anywhere in this folder.
+ours. There is no stock music anywhere in this folder, and the videos in `out/` carry no voice-over. The narrated versions (a synthetic voice made with ElevenLabs) are in [`narration/`](narration/README.md).
 
 ## Re-rendering
 
