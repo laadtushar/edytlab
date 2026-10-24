@@ -2203,15 +2203,22 @@ mod tests {
             .expect_err("refused");
         no_path(&err, dir.path());
 
-        // The lock file cannot be taken.
-        let dir = tempdir().unwrap();
-        let handle = handle_with_damage(dir.path(), |folder| {
-            std::fs::create_dir(folder.join("refresh.lock")).unwrap();
-        });
-        let err = tauri::async_runtime::block_on(handle.sign_in(SignInIntent::SignIn, |_| Ok(())))
-            .expect_err("refused");
-        no_path(&err, dir.path());
-        assert!(err.contains("locked or cannot be written"), "{err}");
+        // The lock file cannot be taken. A folder in its place stops the
+        // lock on unix; Windows opens a folder for locking and goes on to
+        // wait for the browser, so this case is not reachable that way there.
+        // The scrubbing it checks is the same code on every platform.
+        #[cfg(unix)]
+        {
+            let dir = tempdir().unwrap();
+            let handle = handle_with_damage(dir.path(), |folder| {
+                std::fs::create_dir(folder.join("refresh.lock")).unwrap();
+            });
+            let err =
+                tauri::async_runtime::block_on(handle.sign_in(SignInIntent::SignIn, |_| Ok(())))
+                    .expect_err("refused");
+            no_path(&err, dir.path());
+            assert!(err.contains("locked or cannot be written"), "{err}");
+        }
     }
 
     #[test]
