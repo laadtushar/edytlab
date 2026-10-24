@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.8.0 today (published 2026-10-23). (The website's own buttons point at the
+non-prerelease, which is v0.8.1 today (published 2026-10-24). (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -100,7 +100,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.8.0 | GitHub release v0.8.0 (six installers, checked 2026-10-24), `LICENSE` |
+| macOS universal, Windows, Linux builds; MIT; v0.8.1 | GitHub release v0.8.1 (six installers, checked 2026-10-24), `LICENSE` |
 
 ## Known rough edges to be ready for
 
