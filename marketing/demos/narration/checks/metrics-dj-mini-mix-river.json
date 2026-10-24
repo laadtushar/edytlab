@@ -1,0 +1,128 @@
+{
+ "cut": "MM",
+ "voice": "river",
+ "tag": "river",
+ "out": "dj-mini-mix-narrated-river.mp4",
+ "I_orig": -14.4,
+ "TP_orig": 0.2,
+ "I": -14.6,
+ "TP": -1.4,
+ "final_gain_db": 0.09999999999999964,
+ "tempos": {},
+ "placed": [
+  {
+   "id": "mm01",
+   "start": 0.4,
+   "end": 1.5619375,
+   "music": false
+  },
+  {
+   "id": "mm02",
+   "start": 2.8,
+   "end": 4.2102916666666665,
+   "music": false
+  },
+  {
+   "id": "mm03",
+   "start": 11.0,
+   "end": 19.137791666666665,
+   "music": false
+  },
+  {
+   "id": "mm04",
+   "start": 25.2,
+   "end": 37.77910416666667,
+   "music": false
+  },
+  {
+   "id": "mm05",
+   "start": 47.2,
+   "end": 55.591,
+   "music": false
+  },
+  {
+   "id": "mm06",
+   "start": 65.9,
+   "end": 66.77464583333334,
+   "music": false
+  },
+  {
+   "id": "mm07",
+   "start": 83.8,
+   "end": 84.53789583333334,
+   "music": false
+  },
+  {
+   "id": "mm08",
+   "start": 101.2,
+   "end": 103.92314583333334,
+   "music": false
+  }
+ ],
+ "own_sound": [
+  {
+   "id": "mm01",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.900005722045897,
+   "duck_db": 0.0
+  },
+  {
+   "id": "mm02",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.90000190734863,
+   "duck_db": 0.0
+  },
+  {
+   "id": "mm03",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.8999885559082,
+   "duck_db": 0.0
+  },
+  {
+   "id": "mm04",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.9,
+   "duck_db": 0.0
+  },
+  {
+   "id": "mm05",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.90000190734863,
+   "duck_db": 0.0
+  },
+  {
+   "id": "mm06",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.900003814697264,
+   "duck_db": 0.0
+  },
+  {
+   "id": "mm07",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.9,
+   "duck_db": 0.0
+  },
+  {
+   "id": "mm08",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -119.90000762939454,
+   "voice_rms": -17.9,
+   "duck_db": 0.0
+  }
+ ]
+}

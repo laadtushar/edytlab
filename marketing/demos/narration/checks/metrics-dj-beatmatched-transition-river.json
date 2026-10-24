@@ -1,0 +1,184 @@
+{
+ "cut": "BT",
+ "voice": "river",
+ "tag": "river",
+ "out": "dj-beatmatched-transition-narrated-river.mp4",
+ "I_orig": -15.2,
+ "TP_orig": 0.9,
+ "I": -15.3,
+ "TP": -1.4,
+ "final_gain_db": -0.20000000000000107,
+ "tempos": {},
+ "placed": [
+  {
+   "id": "bt01",
+   "start": 0.4,
+   "end": 1.4946666666666668,
+   "music": false
+  },
+  {
+   "id": "bt02",
+   "start": 2.8,
+   "end": 5.623645833333333,
+   "music": false
+  },
+  {
+   "id": "bt03",
+   "start": 10.4,
+   "end": 12.033000000000001,
+   "music": false
+  },
+  {
+   "id": "bt04",
+   "start": 22.5,
+   "end": 28.729458333333334,
+   "music": false
+  },
+  {
+   "id": "bt05",
+   "start": 35.2,
+   "end": 39.55297916666667,
+   "music": false
+  },
+  {
+   "id": "bt06",
+   "start": 47.65,
+   "end": 56.27408333333333,
+   "music": false
+  },
+  {
+   "id": "bt07",
+   "start": 60.0,
+   "end": 64.56920833333334,
+   "music": false
+  },
+  {
+   "id": "bt08",
+   "start": 82.45,
+   "end": 83.12554166666666,
+   "music": false
+  },
+  {
+   "id": "bt09",
+   "start": 104.7,
+   "end": 112.13722916666667,
+   "music": false
+  },
+  {
+   "id": "bt10",
+   "start": 132.4,
+   "end": 134.3995625,
+   "music": false
+  },
+  {
+   "id": "bt11",
+   "start": 145.25,
+   "end": 146.24047916666666,
+   "music": false
+  },
+  {
+   "id": "bt12",
+   "start": 161.5,
+   "end": 163.22570833333333,
+   "music": false
+  }
+ ],
+ "own_sound": [
+  {
+   "id": "bt01",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.200001907348636,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt02",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.20000381469727,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt03",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.20827789306641,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt04",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.20000381469727,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt05",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.200000000000003,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt06",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.200000000000003,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt07",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.200001907348636,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt08",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.200015258789065,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt09",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.200000000000003,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt10",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.20000381469727,
+   "duck_db": 0.0
+  },
+  {
+   "id": "bt11",
+   "music": false,
+   "orig_rms": -13.585091590881348,
+   "ducked_rms": -25.679785919189456,
+   "voice_rms": -18.20000381469727,
+   "duck_db": -11.894694328308105
+  },
+  {
+   "id": "bt12",
+   "music": false,
+   "orig_rms": -120.00000762939453,
+   "ducked_rms": -120.20000762939453,
+   "voice_rms": -18.200001907348636,
+   "duck_db": 0.0
+  }
+ ]
+}

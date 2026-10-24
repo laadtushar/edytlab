@@ -1,0 +1,1560 @@
+[
+ {
+  "cut": "BT",
+  "slug": "dj-beatmatched-transition",
+  "probe_src": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2480",
+   "vdur": 165.333333,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 165.333333
+  },
+  "probe_out": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2480",
+   "vdur": 165.333333,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 165.333333
+  },
+  "same_video": true,
+  "I_orig": -15.2,
+  "TP_orig": 0.9,
+  "I": -15.3,
+  "TP": -1.3,
+  "timing": [
+   {
+    "id": "bt01",
+    "shot": "BT01 title",
+    "shot_start": 0.0,
+    "shot_end": 2.467,
+    "start": 0.4,
+    "end": 1.5988125000000002,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt02",
+    "shot": "BT02 open the tracks",
+    "shot_start": 2.467,
+    "shot_end": 10.067,
+    "start": 2.8,
+    "end": 6.908291666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt03",
+    "shot": "BT03 before (120 vs 128 BPM)",
+    "shot_start": 10.067,
+    "shot_end": 14.84,
+    "start": 10.4,
+    "end": 12.701958333333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt04",
+    "shot": "BT04 what am I working with",
+    "shot_start": 21.933,
+    "shot_end": 34.867,
+    "start": 22.5,
+    "end": 30.0456875,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt05",
+    "shot": "BT05 beatmatch",
+    "shot_start": 34.867,
+    "shot_end": 47.333,
+    "start": 35.2,
+    "end": 40.63210416666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt06",
+    "shot": "BT06 line up the overlap",
+    "shot_start": 47.333,
+    "shot_end": 59.6,
+    "start": 47.65,
+    "end": 58.2426875,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt07",
+    "shot": "BT07 blend",
+    "shot_start": 59.6,
+    "shot_end": 82.133,
+    "start": 60.0,
+    "end": 65.93291666666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt08",
+    "shot": "BT08 listen (transition)",
+    "shot_start": 82.133,
+    "shot_end": 86.33,
+    "start": 82.45,
+    "end": 83.1721875,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt09",
+    "shot": "BT09 master",
+    "shot_start": 104.4,
+    "shot_end": 132.067,
+    "start": 104.7,
+    "end": 115.589625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt10",
+    "shot": "BT10 export",
+    "shot_start": 132.067,
+    "shot_end": 144.933,
+    "start": 132.4,
+    "end": 134.55545833333335,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt11",
+    "shot": "BT11 listen (mastered mix)",
+    "shot_start": 144.933,
+    "shot_end": 149.03,
+    "start": 145.25,
+    "end": 146.33504166666665,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt12",
+    "shot": "BT12 done",
+    "shot_start": 161.2,
+    "shot_end": 165.333,
+    "start": 161.5,
+    "end": 163.41422916666667,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "bt01",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -26.022435188293457,
+    "voice_rms": -18.366929054260254,
+    "drop_db": 93.97757244110107
+   },
+   {
+    "id": "bt02",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.968944549560547,
+    "voice_rms": -20.313432693481445,
+    "drop_db": 92.03106307983398
+   },
+   {
+    "id": "bt03",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.895217895507812,
+    "voice_rms": -20.239702224731445,
+    "drop_db": 92.10478973388672
+   },
+   {
+    "id": "bt04",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.808040618896484,
+    "voice_rms": -21.152524948120117,
+    "drop_db": 91.19196701049805
+   },
+   {
+    "id": "bt05",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.610485076904297,
+    "voice_rms": -20.954978942871094,
+    "drop_db": 91.38952255249023
+   },
+   {
+    "id": "bt06",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.489768981933594,
+    "voice_rms": -20.834253311157227,
+    "drop_db": 91.51023864746094
+   },
+   {
+    "id": "bt07",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.40867805480957,
+    "voice_rms": -20.7531681060791,
+    "drop_db": 91.59132957458496
+   },
+   {
+    "id": "bt08",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.727128982543945,
+    "voice_rms": -21.07162857055664,
+    "drop_db": 91.27287864685059
+   },
+   {
+    "id": "bt09",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.102218627929688,
+    "voice_rms": -20.44670295715332,
+    "drop_db": 91.89778900146484
+   },
+   {
+    "id": "bt10",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.283903121948242,
+    "voice_rms": -20.628385543823242,
+    "drop_db": 91.71610450744629
+   },
+   {
+    "id": "bt11",
+    "music": false,
+    "orig_rms": -13.714381217956543,
+    "own_in_mix_rms": -23.16730308532715,
+    "voice_rms": -20.336759567260742,
+    "drop_db": -9.452921867370605
+   },
+   {
+    "id": "bt12",
+    "music": false,
+    "orig_rms": NaN,
+    "own_in_mix_rms": NaN,
+    "voice_rms": -20.34706687927246,
+    "drop_db": NaN
+   }
+  ],
+  "app_audio_windows": [
+   {
+    "cue": "BT03",
+    "window": [
+     14.84,
+     20.39
+    ],
+    "orig_rms": -12.688565254211426,
+    "final_rms": -13.341218948364258,
+    "delta_db": -0.652653694152832
+   },
+   {
+    "cue": "BT08",
+    "window": [
+     86.33,
+     102.9
+    ],
+    "orig_rms": -15.850059509277344,
+    "final_rms": -15.5421781539917,
+    "delta_db": 0.30788135528564453
+   },
+   {
+    "cue": "BT11",
+    "window": [
+     149.03,
+     159.66
+    ],
+    "orig_rms": -15.756780624389648,
+    "final_rms": -15.941665649414062,
+    "delta_db": -0.18488502502441406
+   }
+  ],
+  "narration_overlaps_app_audio": [],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true,
+   "no_overlap_with_app_audio": true,
+   "app_audio_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "EI",
+  "slug": "dj-extended-club-intro",
+  "probe_src": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1723",
+   "vdur": 114.866667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 114.866667
+  },
+  "probe_out": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1723",
+   "vdur": 114.866667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 114.866667
+  },
+  "same_video": true,
+  "I_orig": -18.2,
+  "TP_orig": 1.2,
+  "I": -18.2,
+  "TP": -1.5,
+  "timing": [
+   {
+    "id": "ei01",
+    "shot": "EI01 title",
+    "shot_start": 0.0,
+    "shot_end": 2.4,
+    "start": 0.4,
+    "end": 1.5879166666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei02",
+    "shot": "EI02 open the track",
+    "shot_start": 2.4,
+    "shot_end": 9.733,
+    "start": 2.8,
+    "end": 5.5519791666666665,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei03",
+    "shot": "EI03 before (original intro)",
+    "shot_start": 9.733,
+    "shot_end": 14.53,
+    "start": 10.1,
+    "end": 11.682958333333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei04",
+    "shot": "EI04 tempo and bar length",
+    "shot_start": 22.733,
+    "shot_end": 35.4,
+    "start": 23.05,
+    "end": 34.92266666666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei05",
+    "shot": "EI05 extend the intro",
+    "shot_start": 35.4,
+    "shot_end": 51.6,
+    "start": 38.5,
+    "end": 50.98972916666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei06",
+    "shot": "EI06 filter into the drop",
+    "shot_start": 51.6,
+    "shot_end": 66.333,
+    "start": 52.2,
+    "end": 65.79083333333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei07",
+    "shot": "EI07 fade in and export",
+    "shot_start": 66.333,
+    "shot_end": 80.467,
+    "start": 66.9,
+    "end": 75.22754166666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei08",
+    "shot": "EI08 listen (intro fades in)",
+    "shot_start": 80.467,
+    "shot_end": 85.13,
+    "start": 80.9,
+    "end": 82.17675000000001,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei09",
+    "shot": "EI09 listen (the drop, 0:31)",
+    "shot_start": 94.2,
+    "shot_end": 98.48,
+    "start": 94.6,
+    "end": 95.63477083333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei10",
+    "shot": "EI10 done",
+    "shot_start": 110.733,
+    "shot_end": 114.867,
+    "start": 111.1,
+    "end": 113.22702083333333,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "ei01",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.93804359436035,
+    "voice_rms": -23.282541275024414,
+    "drop_db": 89.06196403503418
+   },
+   {
+    "id": "ei02",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.92677116394043,
+    "voice_rms": -23.27125358581543,
+    "drop_db": 89.0732364654541
+   },
+   {
+    "id": "ei03",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.91843032836914,
+    "voice_rms": -23.262920379638672,
+    "drop_db": 89.08157730102539
+   },
+   {
+    "id": "ei04",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.924171447753906,
+    "voice_rms": -23.268659591674805,
+    "drop_db": 89.07583618164062
+   },
+   {
+    "id": "ei05",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.926834106445312,
+    "voice_rms": -23.271326065063477,
+    "drop_db": 89.07317352294922
+   },
+   {
+    "id": "ei06",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.92715835571289,
+    "voice_rms": -23.271642684936523,
+    "drop_db": 89.07284927368164
+   },
+   {
+    "id": "ei07",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.93996810913086,
+    "voice_rms": -23.284461975097656,
+    "drop_db": 89.06003952026367
+   },
+   {
+    "id": "ei08",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.922576904296875,
+    "voice_rms": -23.267070770263672,
+    "drop_db": 89.07743072509766
+   },
+   {
+    "id": "ei09",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.912221908569336,
+    "voice_rms": -23.256685256958008,
+    "drop_db": 89.0877857208252
+   },
+   {
+    "id": "ei10",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.30417823791504,
+    "voice_rms": -23.276575088500977,
+    "drop_db": 89.69582939147949
+   }
+  ],
+  "app_audio_windows": [
+   {
+    "cue": "EI03",
+    "window": [
+     14.53,
+     21.12
+    ],
+    "orig_rms": -15.415651321411133,
+    "final_rms": -17.67214012145996,
+    "delta_db": -2.256488800048828
+   },
+   {
+    "cue": "EI08",
+    "window": [
+     85.13,
+     92.66
+    ],
+    "orig_rms": -30.7619571685791,
+    "final_rms": -33.079498291015625,
+    "delta_db": -2.3175411224365234
+   },
+   {
+    "cue": "EI09",
+    "window": [
+     98.48,
+     109.08
+    ],
+    "orig_rms": -17.43239974975586,
+    "final_rms": -19.70246124267578,
+    "delta_db": -2.270061492919922
+   }
+  ],
+  "narration_overlaps_app_audio": [],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true,
+   "no_overlap_with_app_audio": true,
+   "app_audio_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "MM",
+  "slug": "dj-mini-mix",
+  "probe_src": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1770",
+   "vdur": 118.0,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 118.0
+  },
+  "probe_out": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1770",
+   "vdur": 118.0,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 118.0
+  },
+  "same_video": true,
+  "I_orig": -14.4,
+  "TP_orig": 0.2,
+  "I": -14.5,
+  "TP": -1.3,
+  "timing": [
+   {
+    "id": "mm01",
+    "shot": "MM01 title",
+    "shot_start": 0.0,
+    "shot_end": 2.467,
+    "start": 0.4,
+    "end": 1.8607916666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm02",
+    "shot": "MM02 open the tracks",
+    "shot_start": 2.467,
+    "shot_end": 10.267,
+    "start": 2.8,
+    "end": 4.686833333333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm03",
+    "shot": "MM03 match to 124 BPM",
+    "shot_start": 10.267,
+    "shot_end": 24.6,
+    "start": 11.0,
+    "end": 21.656208333333332,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm04",
+    "shot": "MM04 sequence with 4-bar overlaps",
+    "shot_start": 24.6,
+    "shot_end": 46.667,
+    "start": 25.2,
+    "end": 41.8925,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm05",
+    "shot": "MM05 loudness and limiter",
+    "shot_start": 46.667,
+    "shot_end": 65.467,
+    "start": 47.2,
+    "end": 58.694895833333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm06",
+    "shot": "MM06 listen (first blend)",
+    "shot_start": 65.467,
+    "shot_end": 70.25,
+    "start": 65.9,
+    "end": 66.91870833333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm07",
+    "shot": "MM07 listen (second blend)",
+    "shot_start": 83.4,
+    "shot_end": 87.68,
+    "start": 83.8,
+    "end": 84.60425,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm08",
+    "shot": "MM08 export",
+    "shot_start": 100.8,
+    "shot_end": 114.0,
+    "start": 101.2,
+    "end": 104.85433333333333,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "mm01",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -26.049123764038086,
+    "voice_rms": -18.393619537353516,
+    "drop_db": 93.95088386535645
+   },
+   {
+    "id": "mm02",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.720104217529297,
+    "voice_rms": -20.064577102661133,
+    "drop_db": 92.27990341186523
+   },
+   {
+    "id": "mm03",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.280441284179688,
+    "voice_rms": -19.624923706054688,
+    "drop_db": 92.71956634521484
+   },
+   {
+    "id": "mm04",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.413528442382812,
+    "voice_rms": -19.75801658630371,
+    "drop_db": 92.58647918701172
+   },
+   {
+    "id": "mm05",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.417957305908203,
+    "voice_rms": -19.762439727783203,
+    "drop_db": 92.58205032348633
+   },
+   {
+    "id": "mm06",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.332006454467773,
+    "voice_rms": -19.676485061645508,
+    "drop_db": 92.66800117492676
+   },
+   {
+    "id": "mm07",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.96051597595215,
+    "voice_rms": -20.30501937866211,
+    "drop_db": 92.03949165344238
+   },
+   {
+    "id": "mm08",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.662961959838867,
+    "voice_rms": -20.0074405670166,
+    "drop_db": 92.33704566955566
+   }
+  ],
+  "app_audio_windows": [
+   {
+    "cue": "MM06",
+    "window": [
+     70.25,
+     81.85
+    ],
+    "orig_rms": -14.524942398071289,
+    "final_rms": -15.103757858276367,
+    "delta_db": -0.5788154602050781
+   },
+   {
+    "cue": "MM07",
+    "window": [
+     87.68,
+     99.24
+    ],
+    "orig_rms": -13.914752960205078,
+    "final_rms": -14.345277786254883,
+    "delta_db": -0.4305248260498047
+   }
+  ],
+  "narration_overlaps_app_audio": [],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true,
+   "no_overlap_with_app_audio": true,
+   "app_audio_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "BT",
+  "slug": "dj-beatmatched-transition",
+  "probe_src": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2480",
+   "vdur": 165.333333,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 165.333333
+  },
+  "probe_out": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2480",
+   "vdur": 165.333333,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 165.333333
+  },
+  "same_video": true,
+  "I_orig": -15.2,
+  "TP_orig": 0.9,
+  "I": -15.3,
+  "TP": -1.4,
+  "timing": [
+   {
+    "id": "bt01",
+    "shot": "BT01 title",
+    "shot_start": 0.0,
+    "shot_end": 2.467,
+    "start": 0.4,
+    "end": 1.4946666666666668,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt02",
+    "shot": "BT02 open the tracks",
+    "shot_start": 2.467,
+    "shot_end": 10.067,
+    "start": 2.8,
+    "end": 5.623645833333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt03",
+    "shot": "BT03 before (120 vs 128 BPM)",
+    "shot_start": 10.067,
+    "shot_end": 14.84,
+    "start": 10.4,
+    "end": 12.033000000000001,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt04",
+    "shot": "BT04 what am I working with",
+    "shot_start": 21.933,
+    "shot_end": 34.867,
+    "start": 22.5,
+    "end": 28.729458333333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt05",
+    "shot": "BT05 beatmatch",
+    "shot_start": 34.867,
+    "shot_end": 47.333,
+    "start": 35.2,
+    "end": 39.55297916666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt06",
+    "shot": "BT06 line up the overlap",
+    "shot_start": 47.333,
+    "shot_end": 59.6,
+    "start": 47.65,
+    "end": 56.27408333333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt07",
+    "shot": "BT07 blend",
+    "shot_start": 59.6,
+    "shot_end": 82.133,
+    "start": 60.0,
+    "end": 64.56920833333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt08",
+    "shot": "BT08 listen (transition)",
+    "shot_start": 82.133,
+    "shot_end": 86.33,
+    "start": 82.45,
+    "end": 83.12554166666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt09",
+    "shot": "BT09 master",
+    "shot_start": 104.4,
+    "shot_end": 132.067,
+    "start": 104.7,
+    "end": 112.13722916666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt10",
+    "shot": "BT10 export",
+    "shot_start": 132.067,
+    "shot_end": 144.933,
+    "start": 132.4,
+    "end": 134.3995625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt11",
+    "shot": "BT11 listen (mastered mix)",
+    "shot_start": 144.933,
+    "shot_end": 149.03,
+    "start": 145.25,
+    "end": 146.24047916666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "bt12",
+    "shot": "BT12 done",
+    "shot_start": 161.2,
+    "shot_end": 165.333,
+    "start": 161.5,
+    "end": 163.22570833333333,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "bt01",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.129976272583008,
+    "voice_rms": -20.474472045898438,
+    "drop_db": 91.87003135681152
+   },
+   {
+    "id": "bt02",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.86264991760254,
+    "voice_rms": -21.20713996887207,
+    "drop_db": 91.13735771179199
+   },
+   {
+    "id": "bt03",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.279621124267578,
+    "voice_rms": -20.62410545349121,
+    "drop_db": 91.72038650512695
+   },
+   {
+    "id": "bt04",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -29.35968780517578,
+    "voice_rms": -21.70419692993164,
+    "drop_db": 90.64031982421875
+   },
+   {
+    "id": "bt05",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.964176177978516,
+    "voice_rms": -21.308666229248047,
+    "drop_db": 91.03583145141602
+   },
+   {
+    "id": "bt06",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -29.477872848510742,
+    "voice_rms": -21.822370529174805,
+    "drop_db": 90.52213478088379
+   },
+   {
+    "id": "bt07",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.88378143310547,
+    "voice_rms": -21.2282657623291,
+    "drop_db": 91.11622619628906
+   },
+   {
+    "id": "bt08",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -29.28063201904297,
+    "voice_rms": -21.625133514404297,
+    "drop_db": 90.71937561035156
+   },
+   {
+    "id": "bt09",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.63309097290039,
+    "voice_rms": -20.97757911682129,
+    "drop_db": 91.36691665649414
+   },
+   {
+    "id": "bt10",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.84269142150879,
+    "voice_rms": -21.187179565429688,
+    "drop_db": 91.15731620788574
+   },
+   {
+    "id": "bt11",
+    "music": false,
+    "orig_rms": -13.585091590881348,
+    "own_in_mix_rms": -24.641246795654297,
+    "voice_rms": -21.917503356933594,
+    "drop_db": -11.05615520477295
+   },
+   {
+    "id": "bt12",
+    "music": false,
+    "orig_rms": NaN,
+    "own_in_mix_rms": NaN,
+    "voice_rms": -20.860471725463867,
+    "drop_db": NaN
+   }
+  ],
+  "app_audio_windows": [
+   {
+    "cue": "BT03",
+    "window": [
+     14.84,
+     20.39
+    ],
+    "orig_rms": -12.688565254211426,
+    "final_rms": -13.211508750915527,
+    "delta_db": -0.5229434967041016
+   },
+   {
+    "cue": "BT08",
+    "window": [
+     86.33,
+     102.9
+    ],
+    "orig_rms": -15.850059509277344,
+    "final_rms": -15.547861099243164,
+    "delta_db": 0.3021984100341797
+   },
+   {
+    "cue": "BT11",
+    "window": [
+     149.03,
+     159.66
+    ],
+    "orig_rms": -15.756780624389648,
+    "final_rms": -15.733888626098633,
+    "delta_db": 0.022891998291015625
+   }
+  ],
+  "narration_overlaps_app_audio": [],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true,
+   "no_overlap_with_app_audio": true,
+   "app_audio_audible": true
+  },
+  "voice": "river"
+ },
+ {
+  "cut": "EI",
+  "slug": "dj-extended-club-intro",
+  "probe_src": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1723",
+   "vdur": 114.866667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 114.866667
+  },
+  "probe_out": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1723",
+   "vdur": 114.866667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 114.866667
+  },
+  "same_video": true,
+  "I_orig": -18.2,
+  "TP_orig": 1.2,
+  "I": -18.2,
+  "TP": -2.2,
+  "timing": [
+   {
+    "id": "ei01",
+    "shot": "EI01 title",
+    "shot_start": 0.0,
+    "shot_end": 2.4,
+    "start": 0.4,
+    "end": 1.3897916666666665,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei02",
+    "shot": "EI02 open the track",
+    "shot_start": 2.4,
+    "shot_end": 9.733,
+    "start": 2.8,
+    "end": 4.707333333333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei03",
+    "shot": "EI03 before (original intro)",
+    "shot_start": 9.733,
+    "shot_end": 14.53,
+    "start": 10.1,
+    "end": 11.245999999999999,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei04",
+    "shot": "EI04 tempo and bar length",
+    "shot_start": 22.733,
+    "shot_end": 35.4,
+    "start": 23.05,
+    "end": 34.443937500000004,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei05",
+    "shot": "EI05 extend the intro",
+    "shot_start": 35.4,
+    "shot_end": 51.6,
+    "start": 38.5,
+    "end": 48.3834375,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei06",
+    "shot": "EI06 filter into the drop",
+    "shot_start": 51.6,
+    "shot_end": 66.333,
+    "start": 52.2,
+    "end": 62.9590625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei07",
+    "shot": "EI07 fade in and export",
+    "shot_start": 66.333,
+    "shot_end": 80.467,
+    "start": 66.9,
+    "end": 73.05685416666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei08",
+    "shot": "EI08 listen (intro fades in)",
+    "shot_start": 80.467,
+    "shot_end": 85.13,
+    "start": 80.9,
+    "end": 82.02458333333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei09",
+    "shot": "EI09 listen (the drop, 0:31)",
+    "shot_start": 94.2,
+    "shot_end": 98.48,
+    "start": 94.6,
+    "end": 95.52425,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "ei10",
+    "shot": "EI10 done",
+    "shot_start": 110.733,
+    "shot_end": 114.867,
+    "start": 111.1,
+    "end": 112.85829166666666,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "ei01",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.527036666870117,
+    "voice_rms": -23.871530532836914,
+    "drop_db": 88.47297096252441
+   },
+   {
+    "id": "ei02",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.483863830566406,
+    "voice_rms": -23.828350067138672,
+    "drop_db": 88.51614379882812
+   },
+   {
+    "id": "ei03",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.470561981201172,
+    "voice_rms": -23.81504249572754,
+    "drop_db": 88.52944564819336
+   },
+   {
+    "id": "ei04",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.493003845214844,
+    "voice_rms": -23.837493896484375,
+    "drop_db": 88.50700378417969
+   },
+   {
+    "id": "ei05",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.47593116760254,
+    "voice_rms": -23.820417404174805,
+    "drop_db": 88.52407646179199
+   },
+   {
+    "id": "ei06",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.488529205322266,
+    "voice_rms": -23.8330135345459,
+    "drop_db": 88.51147842407227
+   },
+   {
+    "id": "ei07",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.484310150146484,
+    "voice_rms": -23.82880401611328,
+    "drop_db": 88.51569747924805
+   },
+   {
+    "id": "ei08",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.47079849243164,
+    "voice_rms": -23.81528091430664,
+    "drop_db": 88.52920913696289
+   },
+   {
+    "id": "ei09",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -31.481557846069336,
+    "voice_rms": -23.8260498046875,
+    "drop_db": 88.5184497833252
+   },
+   {
+    "id": "ei10",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -30.209365844726562,
+    "voice_rms": -23.836490631103516,
+    "drop_db": 89.79064178466797
+   }
+  ],
+  "app_audio_windows": [
+   {
+    "cue": "EI03",
+    "window": [
+     14.53,
+     21.12
+    ],
+    "orig_rms": -15.415651321411133,
+    "final_rms": -18.240848541259766,
+    "delta_db": -2.825197219848633
+   },
+   {
+    "cue": "EI08",
+    "window": [
+     85.13,
+     92.66
+    ],
+    "orig_rms": -30.7619571685791,
+    "final_rms": -33.621673583984375,
+    "delta_db": -2.8597164154052734
+   },
+   {
+    "cue": "EI09",
+    "window": [
+     98.48,
+     109.08
+    ],
+    "orig_rms": -17.43239974975586,
+    "final_rms": -20.233577728271484,
+    "delta_db": -2.801177978515625
+   }
+  ],
+  "narration_overlaps_app_audio": [],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true,
+   "no_overlap_with_app_audio": true,
+   "app_audio_audible": true
+  },
+  "voice": "river"
+ },
+ {
+  "cut": "MM",
+  "slug": "dj-mini-mix",
+  "probe_src": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1770",
+   "vdur": 118.0,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 118.0
+  },
+  "probe_out": {
+   "w": 1280,
+   "h": 776,
+   "fps": "15/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1770",
+   "vdur": 118.0,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 118.0
+  },
+  "same_video": true,
+  "I_orig": -14.4,
+  "TP_orig": 0.2,
+  "I": -14.6,
+  "TP": -1.4,
+  "timing": [
+   {
+    "id": "mm01",
+    "shot": "MM01 title",
+    "shot_start": 0.0,
+    "shot_end": 2.467,
+    "start": 0.4,
+    "end": 1.5619375,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm02",
+    "shot": "MM02 open the tracks",
+    "shot_start": 2.467,
+    "shot_end": 10.267,
+    "start": 2.8,
+    "end": 4.2102916666666665,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm03",
+    "shot": "MM03 match to 124 BPM",
+    "shot_start": 10.267,
+    "shot_end": 24.6,
+    "start": 11.0,
+    "end": 19.137791666666665,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm04",
+    "shot": "MM04 sequence with 4-bar overlaps",
+    "shot_start": 24.6,
+    "shot_end": 46.667,
+    "start": 25.2,
+    "end": 37.77910416666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm05",
+    "shot": "MM05 loudness and limiter",
+    "shot_start": 46.667,
+    "shot_end": 65.467,
+    "start": 47.2,
+    "end": 55.591,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm06",
+    "shot": "MM06 listen (first blend)",
+    "shot_start": 65.467,
+    "shot_end": 70.25,
+    "start": 65.9,
+    "end": 66.77464583333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm07",
+    "shot": "MM07 listen (second blend)",
+    "shot_start": 83.4,
+    "shot_end": 87.68,
+    "start": 83.8,
+    "end": 84.53789583333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "mm08",
+    "shot": "MM08 export",
+    "shot_start": 100.8,
+    "shot_end": 114.0,
+    "start": 101.2,
+    "end": 103.92314583333334,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "mm01",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.99142074584961,
+    "voice_rms": -20.335927963256836,
+    "drop_db": 92.00858688354492
+   },
+   {
+    "id": "mm02",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.57833480834961,
+    "voice_rms": -20.92281723022461,
+    "drop_db": 91.42167282104492
+   },
+   {
+    "id": "mm03",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.594572067260742,
+    "voice_rms": -20.939062118530273,
+    "drop_db": 91.40543556213379
+   },
+   {
+    "id": "mm04",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.03350257873535,
+    "voice_rms": -20.37799072265625,
+    "drop_db": 91.96650505065918
+   },
+   {
+    "id": "mm05",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.464441299438477,
+    "voice_rms": -20.808927536010742,
+    "drop_db": 91.53556632995605
+   },
+   {
+    "id": "mm06",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.685609817504883,
+    "voice_rms": -21.03010368347168,
+    "drop_db": 91.31439781188965
+   },
+   {
+    "id": "mm07",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -29.06401824951172,
+    "voice_rms": -21.408536911010742,
+    "drop_db": 90.93598937988281
+   },
+   {
+    "id": "mm08",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.62176513671875,
+    "voice_rms": -19.96623992919922,
+    "drop_db": 92.37824249267578
+   }
+  ],
+  "app_audio_windows": [
+   {
+    "cue": "MM06",
+    "window": [
+     70.25,
+     81.85
+    ],
+    "orig_rms": -14.524942398071289,
+    "final_rms": -14.612401962280273,
+    "delta_db": -0.08745956420898438
+   },
+   {
+    "cue": "MM07",
+    "window": [
+     87.68,
+     99.24
+    ],
+    "orig_rms": -13.914752960205078,
+    "final_rms": -13.744706153869629,
+    "delta_db": 0.17004680633544922
+   }
+  ],
+  "narration_overlaps_app_audio": [],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true,
+   "no_overlap_with_app_audio": true,
+   "app_audio_audible": true
+  },
+  "voice": "river"
+ }
+]
