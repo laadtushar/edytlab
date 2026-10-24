@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
 
+import { GoogleAnalyticsDisclosure } from "@/components/analytics/ga-disclosure";
 import { LegalShell } from "@/components/landing/legal-shell";
+import { GA_MEASUREMENT_ID } from "@/lib/consent";
 import { pageSocial } from "@/lib/seo";
 
 const title = "Privacy policy: your audio stays on your machine";
-const description =
-  "How edytlab handles your data: audio stays local, LLM keys live in the OS keychain, the app sends no telemetry, and this site uses anonymous Vercel analytics.";
+// Google Analytics is described only in a build that has it
+// (`NEXT_PUBLIC_GA_MEASUREMENT_ID`), so the page never names a service
+// the site is not running.
+const description = GA_MEASUREMENT_ID
+  ? "How edytlab handles your data: audio stays local, LLM keys live in the OS keychain, the app sends no telemetry, and this site uses anonymous Vercel analytics and, only if you accept, Google Analytics."
+  : "How edytlab handles your data: audio stays local, LLM keys live in the OS keychain, the app sends no telemetry, and this site uses anonymous Vercel analytics.";
 
 export const metadata: Metadata = {
   title,
@@ -16,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy" path="/privacy" updated="2026-10-22">
+    <LegalShell title="Privacy" path="/privacy" updated="2026-10-24">
       <p>
         edytlab is a local-first desktop application. This page describes what
         data the app handles and how it handles it, and what the website you
@@ -115,7 +121,7 @@ export default function PrivacyPage() {
         provider, do not ask the assistant to transcribe it, or use Ollama.
       </p>
 
-      <h2>Telemetry and analytics</h2>
+      <h2 id="telemetry-and-analytics">Telemetry and analytics</h2>
       <p>
         <strong>The desktop app</strong> does not send telemetry or usage
         analytics.
@@ -157,9 +163,10 @@ export default function PrivacyPage() {
         end user. It states that Speed Insights does not collect or store
         information that would enable reconstructing a browsing session across
         pages or identifying a user. We see the results only as aggregated
-        statistics in the Vercel dashboard for this website. We do not run
-        Google Analytics, Plausible, Mixpanel, Segment, or any other analytics
-        provider.
+        statistics in the Vercel dashboard for this website.{" "}
+        {GA_MEASUREMENT_ID
+          ? "Apart from those two and the Google Analytics described below, we do not run Plausible, Mixpanel, Segment, or any other analytics provider."
+          : "We do not run Google Analytics, Plausible, Mixpanel, Segment, or any other analytics provider."}
       </p>
       <p>
         See Vercel&apos;s{" "}
@@ -174,6 +181,7 @@ export default function PrivacyPage() {
         <a href="https://vercel.com/legal/privacy-notice">Privacy Notice</a>,
         for the details.
       </p>
+      {GA_MEASUREMENT_ID ? <GoogleAnalyticsDisclosure /> : null}
 
       <h2>Crash reports</h2>
       <p>

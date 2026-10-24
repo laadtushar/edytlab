@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Github } from "lucide-react";
 
+import { CookieSettingsLink } from "@/components/analytics/cookie-settings-link";
 import { LineDraw, Reveal, Stagger } from "@/components/motion";
 import { Logo } from "@/components/motion/logo";
 import { FOUNDER, LABYNATOR, otherApps } from "@/lib/family";
@@ -144,9 +145,12 @@ export function Footer() {
           className="my-8 h-px w-full bg-border"
         />
 
-        <p className="text-xs text-muted-foreground" suppressHydrationWarning>
-          © {new Date().getFullYear()} edytlab. Audio stays on your machine.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <p className="text-xs text-muted-foreground" suppressHydrationWarning>
+            © {new Date().getFullYear()} edytlab. Audio stays on your machine.
+          </p>
+          <CookieSettingsLink />
+        </div>
       </div>
     </footer>
   );

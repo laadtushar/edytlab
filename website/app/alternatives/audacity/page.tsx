@@ -18,6 +18,7 @@ import {
   pageBreadcrumbs,
   pageSocial,
 } from "@/lib/seo";
+import { GA_MEASUREMENT_ID } from "@/lib/consent";
 import { siteConfig } from "@/lib/site";
 import { formatDuration, getVideo } from "@/lib/videos";
 
@@ -346,7 +347,7 @@ export default function AudacityAlternativePage() {
         <p>
           edytlab keeps your audio on your computer. The chat, with the results of the tools the agent calls, goes to the AI
           provider you pick, or stays on your machine with Ollama. The app has no update check and sends no telemetry. This
-          website does record visits with anonymous Vercel analytics; the <Link href="/privacy">privacy page</Link> says what.
+          website does record visits with anonymous Vercel analytics{GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}; the <Link href="/privacy">privacy page</Link> says what.
         </p>
 
         <h2 id="platforms-and-cost">An Audacity alternative for Linux, macOS and Windows, and what each costs</h2>

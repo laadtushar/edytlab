@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { JsonLd } from "@/components/json-ld";
 import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
+import { GA_MEASUREMENT_ID } from "@/lib/consent";
 import { DEFAULT_OG_IMAGE, breadcrumbJsonLd, pageAlternates, pageBreadcrumbs } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -142,7 +143,8 @@ export default function PressPage() {
               <th scope="row">Telemetry</th>
               <td>
                 None in the app. This website uses anonymous Vercel analytics
-                (Web Analytics and Speed Insights); see{" "}
+                (Web Analytics and Speed Insights)
+                {GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}; see{" "}
                 <Link href="/privacy">Privacy</Link>.
               </td>
             </tr>

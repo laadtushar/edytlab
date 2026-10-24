@@ -3,7 +3,9 @@ import { Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
+import { GoogleAnalyticsConsent } from "@/components/analytics/google-analytics-consent";
 import { SiteMotion } from "@/components/motion/site-motion";
+import { GA_MEASUREMENT_ID } from "@/lib/consent";
 import { siteConfig } from "@/lib/site";
 
 import "./globals.css";
@@ -79,6 +81,7 @@ export default function RootLayout({
         {children}
         <Analytics />
         <SpeedInsights />
+        <GoogleAnalyticsConsent measurementId={GA_MEASUREMENT_ID} />
       </body>
     </html>
   );

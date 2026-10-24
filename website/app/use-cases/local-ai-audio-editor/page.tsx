@@ -10,6 +10,7 @@ import {
   pageAlternates,
   pageBreadcrumbs,
 } from "@/lib/seo";
+import { GA_MEASUREMENT_ID } from "@/lib/consent";
 import { siteConfig } from "@/lib/site";
 
 const title = "Local-first AI audio editor: audio stays local";
@@ -103,8 +104,8 @@ export default function LocalAiUseCasePage() {
               <td>Visits to this website</td>
               <td>
                 Recorded by anonymous Vercel analytics (Web Analytics and
-                Speed Insights), which the website loads and the app does not.
-                See the <Link href="/privacy">privacy page</Link>.
+                Speed Insights){GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}, which the
+                website loads and the app does not. See the <Link href="/privacy">privacy page</Link>.
               </td>
             </tr>
           </tbody>

@@ -47,7 +47,7 @@ Every line below was checked against the repository or the GitHub release on
 | Tools | 94 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
 | AI providers | Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key) |
 | Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider; that includes the words a transcription finds (text, a bounded amount per call, never audio), which stay on the computer with Ollama. |
-| Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) |
+| Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) and, when enabled, Google Analytics 4 only after a visitor accepts it in the cookie banner (it sets cookies; the footer's Cookie settings link withdraws it) |
 | Other network requests | Besides the AI provider and the hosts you configure (plugins, MCP servers), one download you start: from 0.8.0 (0.7.0 has no Download button), the speech model (Whisper base, about 139 MB) is downloaded from Hugging Face (huggingface.co) when the user clicks Download in Settings. Hugging Face sees the IP address, the file requested and that edytlab (and which version) is asking, never audio. Nothing downloads at launch or from the agent. Transcribing makes no request. |
 | Keys | Stored in the operating system's credential store |
 | History | Branchable graph of edits with fork, A/B compare and undo |
