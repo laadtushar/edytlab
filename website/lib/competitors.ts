@@ -265,8 +265,8 @@ export const competitors: readonly Competitor[] = [
       {
         topic: "help-silence-loudness",
         text: "Its help site lists the topics “Remove silences from your audio recordings” and “Matching loudness across multiple audio files”.",
-        sourceUrl: "https://helpx.adobe.com/audition/desktop/introduction/system-requirements.html",
-        checkedOn: CHECKED,
+        sourceUrl: "https://helpx.adobe.com/audition/desktop.html",
+        checkedOn: "2026-10-24",
       },
     ],
   },
@@ -544,8 +544,8 @@ export function claimFor(c: Competitor, topic: string): Claim {
 }
 
 /** The newest `checkedOn` among a product's facts: "last verified" on its pages. */
-export function newestCheck(c: Competitor): string {
-  const days = [
+function checkDays(c: Competitor): string[] {
+  return [
     c.platforms.checkedOn,
     c.pricing.checkedOn,
     c.openSource.checkedOn,
@@ -553,7 +553,15 @@ export function newestCheck(c: Competitor): string {
     c.aiFeatures.checkedOn,
     ...c.claims.map((claim) => claim.checkedOn),
   ];
-  return days.reduce((a, b) => (a > b ? a : b));
+}
+
+export function newestCheck(c: Competitor): string {
+  return checkDays(c).reduce((a, b) => (a > b ? a : b));
+}
+
+/** The day the least recently checked fact was read: what a "checked on" line can promise for every fact. */
+export function oldestCheck(c: Competitor): string {
+  return checkDays(c).reduce((a, b) => (a < b ? a : b));
 }
 
 const MONTHS = [

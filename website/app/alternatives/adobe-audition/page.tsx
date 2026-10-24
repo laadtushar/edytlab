@@ -10,7 +10,7 @@ import { Verdict } from "@/components/compare/verdict";
 import { JsonLd } from "@/components/json-ld";
 import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
 import { VideoLinkCard } from "@/components/landing/site-video";
-import { claimFor, competitorBySlug, newestCheck } from "@/lib/competitors";
+import { claimFor, competitorBySlug, oldestCheck } from "@/lib/competitors";
 import {
   articleJsonLd,
   breadcrumbJsonLd,
@@ -57,7 +57,8 @@ const href = (topic: string) => claimFor(audition, topic).sourceUrl;
 const SOURCE_LABELS: Record<string, string> = {
   "https://www.adobe.com/products/audition.html": "Adobe Audition product page",
   "https://helpx.adobe.com/audition/desktop/introduction/system-requirements.html":
-    "Adobe Audition help: system requirements, and the help site’s topic list",
+    "Adobe Audition help: system requirements",
+  "https://helpx.adobe.com/audition/desktop.html": "Adobe Audition help: topic list",
 };
 
 /** Each fact the page states, as the page it was read on and the day. */
@@ -137,7 +138,7 @@ const demo = (() => {
 })();
 
 export default function AuditionAlternativePage() {
-  const checkedOn = newestCheck(audition);
+  const checkedOn = oldestCheck(audition);
   return (
     <PageShell
       eyebrow="Alternatives"

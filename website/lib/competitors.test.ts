@@ -956,16 +956,19 @@ describe("/alternatives/adobe-audition", () => {
 
   it("reads its Audition facts from lib/competitors.ts, so they are dated and sourced there", () => {
     expect(src).toContain('competitorBySlug("adobe-audition")');
-    for (const topic of ["overview", "help-topics", "remix", "activation", "help-silence-loudness"]) {
+    for (const topic of ["overview", "help-topics", "remix", "activation"]) {
       expect(claimFor(audition, topic).checkedOn, topic).toBe("2026-10-22");
     }
+    // The help index that lists the silence and loudness topics was read on its own day.
+    expect(claimFor(audition, "help-silence-loudness").sourceUrl).toBe("https://helpx.adobe.com/audition/desktop.html");
+    expect(claimFor(audition, "help-silence-loudness").checkedOn).toBe("2026-10-24");
   });
 
   it("lists, in its Sources, every Adobe page it links to", () => {
     const section = body.match(/<section aria-labelledby="sources">[\s\S]*?<\/section>/)?.[0] ?? "";
     expect(section, "no Sources section").not.toBe("");
     const linked = new Set([...body.matchAll(/href="(https:\/\/[^"]+)"/g)].map((m) => m[1]).filter((u) => /adobe\.com/.test(u)));
-    expect(linked.size).toBe(2);
+    expect(linked.size).toBe(3);
     for (const url of linked) expect(section, `${url} is linked in the text but not listed under Sources`).toContain(`href="${url}"`);
   });
 
