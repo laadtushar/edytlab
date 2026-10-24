@@ -55,20 +55,40 @@ use crate::decode::{DecodeError, DecoderStep, EncoderStates, Logits};
 use crate::export::ExportLayout;
 use crate::timing::{Matrix, TimingError};
 
+/// One tensor of the cache, as its runner holds it.
+///
+/// The decoder never reads a cache tensor: it keeps what a step returned and
+/// hands it to the next step. So the runner picks the type. The fake in the
+/// tests holds `Vec<f32>`s it can compare; the ONNX Runtime one holds the
+/// runtime's own values ([`crate::ort_io::OrtTensor`]), which are never copied
+/// into Rust, because copying the self-attention cache out after every step
+/// made a window's cost grow with the square of its length (#657). `Default`
+/// is the empty tensor of the first step, whose `past_key_values.*` are not read.
+pub(crate) trait CacheTensor: Default {
+    /// How many `f32`s it holds, to check what a step returned against the layout.
+    fn elements(&self) -> usize;
+}
+
+impl CacheTensor for Vec<f32> {
+    fn elements(&self) -> usize {
+        self.len()
+    }
+}
+
 /// One layer's cache: the self-attention half grows by a position per step,
 /// the cross-attention half is set by the first step and never changes.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct LayerKv {
+pub(crate) struct LayerKv<T = Vec<f32>> {
     /// `[1, heads, decoder_len, head_dim]`.
-    pub dec_key: Vec<f32>,
-    pub dec_value: Vec<f32>,
+    pub dec_key: T,
+    pub dec_value: T,
     /// `[1, heads, encoder_len, head_dim]`.
-    pub enc_key: Vec<f32>,
-    pub enc_value: Vec<f32>,
+    pub enc_key: T,
+    pub enc_value: T,
 }
 
 /// What one decoder step is fed.
-pub(crate) struct Feed<'a> {
+pub(crate) struct Feed<'a, T = Vec<f32>> {
     /// `[1, seq]`.
     pub input_ids: &'a [i64],
     /// `[1, frames, width]`.
@@ -76,7 +96,7 @@ pub(crate) struct Feed<'a> {
     /// `use_cache_branch`.
     pub use_cache: bool,
     /// One entry per layer. Empty tensors (length 0) when `use_cache` is false.
-    pub past: &'a [LayerKv],
+    pub past: &'a [LayerKv<T>],
     /// Length of the sequence axis of each `past` decoder tensor.
     pub past_decoder_len: usize,
     /// Length of the sequence axis of each `past` encoder tensor.
@@ -92,16 +112,17 @@ pub(crate) struct Want<'a> {
     pub cross_layers: &'a [usize],
 }
 
-/// What a step returned, copied out of the session.
-pub(crate) struct Fetched {
+/// What a step returned: the logits and the attention rows copied out of the
+/// session, and the cache tensors as the runner holds them.
+pub(crate) struct Fetched<T = Vec<f32>> {
     /// `[seq, vocab]`.
     pub logits: Vec<f32>,
     /// Per layer, `present.{i}.decoder.key|value`, `[1, heads, decoder_len, head_dim]`.
-    pub decoder: Vec<(Vec<f32>, Vec<f32>)>,
+    pub decoder: Vec<(T, T)>,
     /// The sequence axis of those tensors.
     pub decoder_len: usize,
     /// Per layer, `present.{i}.encoder.key|value`; `Some` when asked for.
-    pub encoder: Option<Vec<(Vec<f32>, Vec<f32>)>>,
+    pub encoder: Option<Vec<(T, T)>>,
     /// The sequence axis of those tensors.
     pub encoder_len: usize,
     /// For each of [`Want::cross_layers`], `[heads, seq, frames]`.
@@ -111,7 +132,14 @@ pub(crate) struct Fetched {
 /// Runs the decoder graph once. The ONNX Runtime implementation is
 /// `ort_io::OrtDecoder`; the tests have a fake.
 pub(crate) trait DecoderRun {
-    fn run(&mut self, feed: &Feed<'_>, want: &Want<'_>) -> Result<Fetched, DecodeError>;
+    /// The cache tensors, kept and handed back by [`CachedDecoder`] untouched.
+    type Tensor: CacheTensor;
+
+    fn run(
+        &mut self,
+        feed: &Feed<'_, Self::Tensor>,
+        want: &Want<'_>,
+    ) -> Result<Fetched<Self::Tensor>, DecodeError>;
 }
 
 /// The model's decoder, with its cache, as a [`DecoderStep`].
@@ -125,7 +153,7 @@ pub(crate) struct CachedDecoder<'c, R: DecoderRun> {
     /// For each of `heads`, where its layer is in `cross_layers`.
     head_slots: Vec<usize>,
     cancel: &'c dyn Fn() -> bool,
-    cache: Vec<LayerKv>,
+    cache: Vec<LayerKv<R::Tensor>>,
     decoder_len: usize,
     encoder_len: usize,
     /// Per alignment head, `rows x frames`, row-major, rows in position order.
@@ -172,7 +200,9 @@ impl<'c, R: DecoderRun> CachedDecoder<'c, R> {
     }
 
     fn reset(&mut self) {
-        self.cache = vec![LayerKv::default(); self.layout.layers];
+        self.cache = (0..self.layout.layers)
+            .map(|_| LayerKv::default())
+            .collect();
         self.decoder_len = 0;
         self.encoder_len = 0;
         for rows in &mut self.attention {
@@ -323,11 +353,9 @@ impl<R: DecoderRun> DecoderStep for CachedDecoder<'_, R> {
                 layout.layers
             ));
         }
-        if fetched
-            .decoder
-            .iter()
-            .any(|(k, v)| k.len() != kv_len(new_decoder_len) || v.len() != kv_len(new_decoder_len))
-        {
+        if fetched.decoder.iter().any(|(k, v)| {
+            k.elements() != kv_len(new_decoder_len) || v.elements() != kv_len(new_decoder_len)
+        }) {
             return bad(format!(
                 "a self-attention cache is not [1, {}, {new_decoder_len}, {}]",
                 layout.heads, layout.head_dim
@@ -339,7 +367,8 @@ impl<R: DecoderRun> DecoderStep for CachedDecoder<'_, R> {
                     if enc.len() == layout.layers
                         && fetched.encoder_len == layout.frames
                         && enc.iter().all(|(k, v)| {
-                            k.len() == kv_len(layout.frames) && v.len() == kv_len(layout.frames)
+                            k.elements() == kv_len(layout.frames)
+                                && v.elements() == kv_len(layout.frames)
                         }) => {}
                 _ => {
                     return bad(format!(
@@ -500,6 +529,8 @@ mod tests {
     }
 
     impl DecoderRun for Fake {
+        type Tensor = Vec<f32>;
+
         fn run(&mut self, feed: &Feed<'_>, want: &Want<'_>) -> Result<Fetched, DecodeError> {
             if !feed.use_cache {
                 self.calls_in_sequence = 0;
@@ -671,6 +702,129 @@ mod tests {
         assert_eq!(dec.fed(), 6);
     }
 
+    /// A cache tensor the decoder cannot read or copy: it has a serial number
+    /// and a size, and is neither `Clone` nor `Copy`, as the runtime's values
+    /// are not copied into Rust either (#657). Serial 0 is the empty tensor.
+    #[derive(Debug, Default, PartialEq)]
+    struct Tagged {
+        serial: u32,
+        elements: usize,
+    }
+
+    impl CacheTensor for Tagged {
+        fn elements(&self) -> usize {
+            self.elements
+        }
+    }
+
+    /// Hands out tensors with fresh serial numbers and records which it was fed.
+    #[derive(Default)]
+    struct Tagging {
+        next: u32,
+        /// Per call, per layer: the serials of `dec_key, dec_value, enc_key, enc_value` fed.
+        fed: Vec<Vec<[u32; 4]>>,
+        /// The same for what the call returned (`0` for what it did not).
+        returned: Vec<Vec<[u32; 4]>>,
+    }
+
+    impl Tagging {
+        fn tagged(&mut self, elements: usize) -> Tagged {
+            self.next += 1;
+            Tagged {
+                serial: self.next,
+                elements,
+            }
+        }
+    }
+
+    impl DecoderRun for Tagging {
+        type Tensor = Tagged;
+
+        fn run(
+            &mut self,
+            feed: &Feed<'_, Tagged>,
+            want: &Want<'_>,
+        ) -> Result<Fetched<Tagged>, DecodeError> {
+            let l = &LAYOUT;
+            let seq = feed.input_ids.len();
+            let decoder_len = feed.past_decoder_len + seq;
+            self.fed.push(
+                feed.past
+                    .iter()
+                    .map(|k| {
+                        [
+                            k.dec_key.serial,
+                            k.dec_value.serial,
+                            k.enc_key.serial,
+                            k.enc_value.serial,
+                        ]
+                    })
+                    .collect(),
+            );
+            let kv = |len: usize| l.heads * len * l.head_dim;
+            let mut returned = vec![[0; 4]; l.layers];
+            let decoder = (0..l.layers)
+                .map(|layer| {
+                    let (k, v) = (self.tagged(kv(decoder_len)), self.tagged(kv(decoder_len)));
+                    (returned[layer][0], returned[layer][1]) = (k.serial, v.serial);
+                    (k, v)
+                })
+                .collect();
+            let encoder = want.encoder_present.then(|| {
+                (0..l.layers)
+                    .map(|layer| {
+                        let (k, v) = (self.tagged(kv(l.frames)), self.tagged(kv(l.frames)));
+                        (returned[layer][2], returned[layer][3]) = (k.serial, v.serial);
+                        (k, v)
+                    })
+                    .collect()
+            });
+            self.returned.push(returned);
+            Ok(Fetched {
+                logits: vec![0.0; seq * l.vocab],
+                decoder,
+                decoder_len,
+                encoder,
+                encoder_len: if want.encoder_present { l.frames } else { 0 },
+                cross: want
+                    .cross_layers
+                    .iter()
+                    .map(|_| vec![0.0; l.heads * seq * l.frames])
+                    .collect(),
+            })
+        }
+    }
+
+    #[test]
+    fn the_cache_tensors_are_handed_back_untouched_and_never_copied() {
+        let mut dec = CachedDecoder::new(Tagging::default(), LAYOUT, &HEADS, &no_cancel);
+        let enc = encoder();
+        dec.step(&[SOT, EN, TRANSCRIBE, NO_TIMESTAMPS], 0, &enc)
+            .unwrap();
+        dec.step(&[3], 4, &enc).unwrap();
+        dec.step(&[4], 5, &enc).unwrap();
+        // A new sequence starts from empty tensors again.
+        dec.step(&[SOT], 0, &enc).unwrap();
+
+        let run = &dec.run;
+        assert_eq!(
+            run.fed[0],
+            vec![[0; 4]; LAYOUT.layers],
+            "empty on the first step"
+        );
+        // Step 1 is fed what step 0 returned, all four tensors of each layer.
+        assert_eq!(run.fed[1], run.returned[0]);
+        // Step 2: the self-attention cache of step 1, the cross-attention cache of step 0.
+        for layer in 0..LAYOUT.layers {
+            let [dk, dv, ..] = run.returned[1][layer];
+            let [_, _, ek, ev] = run.returned[0][layer];
+            assert_ne!([dk, dv, ek, ev], [0; 4]);
+            assert_eq!(run.fed[2][layer], [dk, dv, ek, ev], "layer {layer}");
+            assert_eq!(run.returned[1][layer][2..], [0, 0], "not asked for");
+        }
+        assert_eq!(run.fed[3], vec![[0; 4]; LAYOUT.layers], "a new sequence");
+    }
+
     #[test]
     fn a_step_from_nothing_starts_a_new_sequence() {
         // Language detection feeds [SOT] and the prompt then starts over.
@@ -775,6 +929,8 @@ mod tests {
     fn a_runner_that_returns_the_wrong_shapes_is_caught_and_leaves_the_cache_alone() {
         struct Short;
         impl DecoderRun for Short {
+            type Tensor = Vec<f32>;
+
             fn run(&mut self, feed: &Feed<'_>, _: &Want<'_>) -> Result<Fetched, DecodeError> {
                 let seq = feed.input_ids.len();
                 let l = &LAYOUT;
