@@ -886,7 +886,7 @@ describe("the videos hub", () => {
     expect(page).toMatch(/const description =\s*"[^"]{60,160}"/);
   });
 
-  it("features the launch video, then lists the three demos, the latest release and the reels", () => {
+  it("features the launch video, then lists the three demos, the release video and the reels", () => {
     const at = (needle: string) => page.indexOf(needle);
     expect(page).toContain("const featured = launchVideo");
     expect(at("<FeaturedVideo")).toBeGreaterThan(-1);

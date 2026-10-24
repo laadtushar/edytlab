@@ -105,7 +105,7 @@ export default function VideosPage() {
         </div>
       </VideoSection>
 
-      <VideoSection id="videos-latest" title="The latest release" lead="The one-minute overview of what changed.">
+      <VideoSection id="videos-latest" title="Release videos" lead="The one-minute overview of what changed in v0.7.0.">
         <VideoLinkCard video={releaseVideo} row />
       </VideoSection>
 

@@ -126,7 +126,7 @@ export const videos: readonly SiteVideo[] = [
     slug: "whats-new-v070",
     kind: "release",
     title: "What's new in edytlab v0.7.0",
-    blurb: "From a typed request to a 200-track session: what changed in the latest release, shown in the app.",
+    blurb: "From a typed request to a 200-track session: what changed in v0.7.0, shown in the app.",
     disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
     caption:
       "What's new in v0.7.0, shown in the real app, filmed live. It starts with a request typed in plain English that Claude turns into a fade and a gain change, which you then hear. Then six changes: faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted, each by asking (#602); a 200-track session where list_session reads what the summary leaves out and twelve string tracks come down 6 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, real Claude (Sonnet 5.5): every shot is the released v0.7.0 app recorded live, the assistant's replies and tool calls are the model's, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
@@ -191,7 +191,7 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-v070-whats-new",
     kind: "reel",
     title: "What's new in v0.7.0 (short reel)",
-    blurb: "Five changes in the latest release, in thirty seconds.",
+    blurb: "Five changes in v0.7.0, in thirty seconds.",
     disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
     caption:
       "Five changes you can see in v0.7.0, in under 40 seconds: faders that stay where you put them (#596), the history graph keeping up (#602), a 200-track session where list_session reads what the summary leaves out (#618), playback that survives switching tabs (#607), and bundled skills that stay current (#574). Real app, real Claude (Sonnet 5.5): filmed live, the assistant's replies and tool calls are the model's, as the note on every shot says.",
