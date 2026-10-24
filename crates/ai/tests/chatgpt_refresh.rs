@@ -596,6 +596,98 @@ async fn a_refresh_200_with_malformed_optional_fields_still_saves_the_rotated_to
     }
 }
 
+/// The server has rotated the refresh token by the time it answers, so a
+/// success that is odd in a field it need not have must not lose the new
+/// token: a missing, null, empty or wrong-typed `token_type` on a refresh.
+#[tokio::test]
+async fn a_refresh_200_without_a_usable_token_type_still_saves_the_rotated_token() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+
+    for (what, raw) in [
+        ("missing", Some(None)),
+        ("null", Some(Some(json!(null)))),
+        ("a number", Some(Some(json!(5)))),
+        ("empty", Some(Some(json!("")))),
+    ] {
+        fake.knobs().token_type_raw = raw;
+        fake.clock.advance(61 * MINUTE);
+        let before = fake.refresh_requests().len();
+        let token = bearer(&session).await;
+        assert_eq!(
+            fake.refresh_requests().len(),
+            before + 1,
+            "{what}: refreshed"
+        );
+        assert_eq!(
+            store.get(),
+            fake.live_refresh_token(),
+            "{what}: the rotated refresh token was saved"
+        );
+        assert_eq!(session.status().state, SessionState::SignedIn, "{what}");
+        assert!(token.starts_with("AT-"), "{what}: {token}");
+    }
+}
+
+/// An `expires_in` of a second or less is a server saying nothing useful, not
+/// a token that expires at once (which would refresh on every request).
+#[tokio::test]
+async fn a_tiny_expires_in_is_read_as_absent_and_does_not_refresh_on_every_request() {
+    for (what, raw) in [
+        ("zero", json!(0)),
+        ("zero as text", json!("0")),
+        ("a fraction", json!(0.4)),
+        ("59", json!(59)),
+    ] {
+        let fake = Fake::start().await;
+        let dir = tempfile::tempdir().unwrap();
+        let session = fake.signed_in(dir.path(), MemoryStore::new()).await;
+        fake.knobs().expires_in_raw = Some(raw);
+        fake.clock.advance(61 * MINUTE);
+
+        let token = bearer(&session).await;
+        for _ in 0..3 {
+            assert_eq!(bearer(&session).await, token, "{what}");
+        }
+        assert_eq!(
+            fake.refresh_requests().len(),
+            1,
+            "{what}: one refresh, not one per request"
+        );
+    }
+}
+
+/// A 401 on a token that has not reached `earliest_refresh_at` cannot be
+/// answered by refreshing: an early refresh is refused upstream (devkit#5)
+/// and would spend the refresh token for nothing.
+#[tokio::test]
+async fn a_401_before_earliest_refresh_at_does_not_spend_the_refresh_token() {
+    let fake = Fake::start().await;
+    fake.knobs().earliest_refresh_after = Some(1800);
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    let rejected = session.bearer().await.unwrap();
+
+    let err = session.refresh_rejected(&rejected).await.unwrap_err();
+
+    assert!(matches!(err, BearerError::Unavailable { .. }), "{err:?}");
+    assert!(
+        fake.refresh_requests().is_empty(),
+        "the refresh token was spent before it may be"
+    );
+    assert_eq!(store.get().as_deref(), Some("RT-1"));
+    assert_eq!(session.status().state, SessionState::SignedIn);
+
+    // Once it may be refreshed, the same call does.
+    fake.clock.advance(31 * MINUTE);
+    let fresh = session.refresh_rejected(&rejected).await.unwrap();
+    assert_eq!(fresh.expose_secret(), "AT-2");
+    assert_eq!(fake.refresh_requests().len(), 1);
+}
+
 // --- Restarts ----------------------------------------------------------------------
 
 #[tokio::test]
@@ -1234,9 +1326,11 @@ async fn a_refresh_that_drops_the_plan_scope_hands_out_no_bearer() {
 }
 
 #[tokio::test]
-async fn an_unknown_signing_key_on_a_refreshed_id_token_is_temporary() {
-    // A key OpenAI has just rotated in is not a bad token: the session keeps
-    // the rotated refresh token and tries again later.
+async fn an_unknown_signing_key_on_a_refreshed_id_token_keeps_the_new_tokens() {
+    // A key OpenAI has just rotated in is not a bad token, and the grant that
+    // came with it is as good as any: the session keeps the rotated refresh
+    // token AND the new access token (an ID token it cannot check yet is
+    // logged and ignored), and does not go back to the old access token.
     let fake = Fake::start().await;
     {
         let mut knobs = fake.knobs();
@@ -1247,22 +1341,59 @@ async fn an_unknown_signing_key_on_a_refreshed_id_token_is_temporary() {
     let store = MemoryStore::new();
     let session = fake.signed_in(dir.path(), store.clone()).await;
     fake.clock.advance(56 * MINUTE);
-    assert_eq!(
-        bearer(&session).await,
-        "AT-1",
-        "the token in hand, still valid"
-    );
+    assert_eq!(bearer(&session).await, "AT-2", "the new access token");
     assert_eq!(
         store.get().as_deref(),
         Some("RT-2"),
         "the rotated token is kept"
     );
     assert_eq!(session.status().state, SessionState::SignedIn);
+    assert_eq!(fake.refresh_requests().len(), 1);
 
     fake.knobs().refresh_kid = None;
-    fake.clock.advance(MINUTE);
+    fake.clock.advance(56 * MINUTE);
     assert_eq!(bearer(&session).await, "AT-3");
     assert_eq!(fake.refresh_requests()[1]["refresh_token"], "RT-2");
+}
+
+/// A transient fault in checking a refreshed ID token (here the JWKS answering
+/// 500) must not throw the access token that came with it away, nor its
+/// `earliest_refresh_at`: the session goes on with the new token and does not
+/// refresh before it may.
+#[tokio::test]
+async fn a_refreshed_id_token_that_cannot_be_checked_for_now_keeps_the_access_token_and_its_earliest_refresh(
+) {
+    let fake = Fake::start().await;
+    {
+        let mut knobs = fake.knobs();
+        knobs.refresh_id_token = true;
+        // A key the cache does not hold, so the JWKS is asked for.
+        knobs.refresh_kid = Some("k2".into());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+
+    {
+        let mut knobs = fake.knobs();
+        knobs.jwks_status = Some(500);
+        // The renewed token may be refreshed again 3,500 s after it is issued.
+        knobs.earliest_refresh_after = Some(3500);
+    }
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(store.get().as_deref(), Some("RT-2"));
+    assert_eq!(session.status().state, SessionState::SignedIn);
+
+    // Inside the five-minute margin of the new token (it expires at 116
+    // minutes) and before its `earliest_refresh_at` (114.3): not refreshed.
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(
+        fake.refresh_requests().len(),
+        1,
+        "refreshed before earliest_refresh_at: it was lost"
+    );
 }
 
 #[tokio::test]

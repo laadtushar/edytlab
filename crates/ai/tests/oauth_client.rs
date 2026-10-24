@@ -310,6 +310,18 @@ fn token_client(server: &MockServer) -> TokenClient {
     .unwrap()
 }
 
+/// A code exchange against `server`, with nothing special about it.
+async fn exchange(server: &MockServer) -> Result<ai::oauth::token::TokenResponse, TokenError> {
+    token_client(server)
+        .exchange_code(
+            &SecretString::new("the-code"),
+            &PkceVerifier::generate().unwrap(),
+            "http://127.0.0.1:1455/auth/callback",
+            &[],
+        )
+        .await
+}
+
 #[tokio::test]
 async fn exchanges_a_code_with_the_verifier_and_reads_a_typed_response() {
     let server = token_server(200, token_body()).await;
@@ -548,19 +560,10 @@ async fn the_token_type_must_be_bearer() {
             .await
             .unwrap_or_else(|e| panic!("{token_type}: {e:?}"));
     }
-    for token_type in [
-        json!("DPoP"),
-        json!("mac"),
-        json!(""),
-        json!("Bearer "),
-        Value::Null,
-    ] {
+    // Another kind of token is refused by both grants.
+    for token_type in [json!("DPoP"), json!("mac"), json!("Bearer ")] {
         let mut body = token_body();
-        if token_type.is_null() {
-            body.as_object_mut().unwrap().remove("token_type");
-        } else {
-            body["token_type"] = token_type.clone();
-        }
+        body["token_type"] = token_type.clone();
         let server = token_server(200, body).await;
         let err = token_client(&server)
             .refresh(&SecretString::new("RT"), &[])
@@ -569,6 +572,48 @@ async fn the_token_type_must_be_bearer() {
         assert!(
             matches!(err, TokenError::InvalidResponse(_)),
             "{token_type}: {err:?}"
+        );
+    }
+    // A code exchange needs the field: nothing is rotated yet that a refusal
+    // could lose.
+    for token_type in [json!(""), Value::Null] {
+        let mut body = token_body();
+        if token_type.is_null() {
+            body.as_object_mut().unwrap().remove("token_type");
+        } else {
+            body["token_type"] = token_type.clone();
+        }
+        let server = token_server(200, body).await;
+        let err = exchange(&server).await.unwrap_err();
+        assert!(
+            matches!(err, TokenError::InvalidResponse(_)),
+            "{token_type}: {err:?}"
+        );
+    }
+}
+
+/// A refresh response is different: the server has already rotated the
+/// refresh token, so a missing, null or empty `token_type` (which can only
+/// mean Bearer, the one kind this client uses) must not fail it and lose the
+/// new token.
+#[tokio::test]
+async fn a_refresh_response_without_a_token_type_is_accepted_and_keeps_the_rotated_token() {
+    for token_type in [json!(""), Value::Null, json!(7)] {
+        let mut body = token_body();
+        if token_type.is_null() {
+            body.as_object_mut().unwrap().remove("token_type");
+        } else {
+            body["token_type"] = token_type.clone();
+        }
+        let server = token_server(200, body).await;
+        let tokens = token_client(&server)
+            .refresh(&SecretString::new("RT"), &[])
+            .await
+            .unwrap_or_else(|e| panic!("{token_type}: {e:?}"));
+        assert_eq!(
+            tokens.refresh_token.as_ref().map(|t| t.expose_secret()),
+            Some("RT-secret-value"),
+            "{token_type}"
         );
     }
 }
@@ -591,6 +636,31 @@ async fn expires_in_is_capped_at_a_day() {
             .await
             .unwrap();
         assert_eq!(tokens.expires_in, Some(kept), "{sent}");
+    }
+}
+
+/// A lifetime under a minute is a server saying nothing useful (a token that
+/// expires at once would be refreshed on every request): it is absent, and the
+/// caller uses the documented hour.
+#[tokio::test]
+async fn an_expires_in_under_a_minute_is_absent() {
+    for (sent, kept) in [
+        (json!(0), None),
+        (json!("0"), None),
+        (json!(0.4), None),
+        (json!(59), None),
+        (json!(59.9), None),
+        (json!(60), Some(60)),
+        (json!("120"), Some(120)),
+    ] {
+        let mut body = token_body();
+        body["expires_in"] = sent.clone();
+        let server = token_server(200, body).await;
+        let tokens = token_client(&server)
+            .refresh(&SecretString::new("RT"), &[])
+            .await
+            .unwrap();
+        assert_eq!(tokens.expires_in, kept, "{sent}");
     }
 }
 
@@ -651,10 +721,12 @@ async fn a_success_without_an_access_token_is_an_error() {
 
 #[tokio::test]
 async fn an_unreadable_response_does_not_echo_its_contents() {
-    // A token where a number belongs: serde's message would quote it.
+    // A number where the access token belongs (a field that is not read
+    // leniently): serde's message would quote it. The optional fields are
+    // read leniently, so a wrong-typed `expires_in` is no longer unreadable.
     let server = token_server(
         200,
-        json!({ "access_token": "AT-secret-value", "expires_in": "AT-secret-value" }),
+        json!({ "access_token": 4242424242u64, "token_type": "Bearer" }),
     )
     .await;
     let err = token_client(&server)
@@ -662,8 +734,8 @@ async fn an_unreadable_response_does_not_echo_its_contents() {
         .await
         .unwrap_err();
     assert!(matches!(err, TokenError::InvalidResponse(_)), "{err:?}");
-    assert!(!err.to_string().contains("AT-secret-value"), "{err}");
-    assert!(!format!("{err:?}").contains("AT-secret-value"), "{err:?}");
+    assert!(!err.to_string().contains("4242424242"), "{err}");
+    assert!(!format!("{err:?}").contains("4242424242"), "{err:?}");
 }
 
 #[tokio::test]

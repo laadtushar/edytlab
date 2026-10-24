@@ -929,6 +929,10 @@ async fn set_base_url_for_with(
     base_url: &str,
     keychain: &impl KeychainWrites,
 ) -> CmdResult<KeychainPersistenceDto> {
+    if !ai::SUPPORTED_PROVIDER_IDS.contains(&provider) {
+        return Err(format!("unsupported provider id: {provider}"));
+    }
+    refuse_session_provider(provider)?;
     let trimmed = base_url.trim();
     let landed = if trimmed.is_empty() {
         keychain
@@ -1047,12 +1051,35 @@ async fn set_effort_for_with(
     Ok(landed)
 }
 
+/// Whether `provider_id` is paid for by a sign-in session and not a key (the
+/// ChatGPT plan). Until the commands that sign in exist (#474, PR 5) there is
+/// no session to hold, so nothing may build an agent for one, or save a key or
+/// an address for it: a saved key would be sent as the "plan" bearer, and bill
+/// the API under a label that says plan.
+fn is_session_provider(provider_id: &str) -> bool {
+    ai::validate::provider_for(provider_id).credential_kind() == ai::CredentialKind::ChatGptOAuth
+}
+
+/// The refusal for a command that saves a key, an address or the active
+/// choice for a session provider.
+fn refuse_session_provider(provider_id: &str) -> CmdResult<()> {
+    if is_session_provider(provider_id) {
+        return Err(
+            "the ChatGPT plan is used by signing in with a ChatGPT account, which this build \
+             cannot do yet; no key or address can be saved for it"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 async fn set_api_key_for_inner(
     state: &AppState,
     provider_id: &str,
     key: &str,
     keychain: &impl KeychainWrites,
 ) -> CmdResult<KeychainPersistenceDto> {
+    refuse_session_provider(provider_id)?;
     // Startup's reads fill the cache this writes over, and would write
     // over this in turn if they finished after it.
     state.startup_reads_settled().await;
@@ -1136,6 +1163,11 @@ fn has_key_answer(
 ///
 /// An unreadable keychain is an error rather than `false`.
 fn provider_is_configured(provider_id: &str) -> Result<bool, ai::keychain::KeychainError> {
+    // A provider paid for by a session is configured when it has one, and
+    // nothing here can hold one yet: false, and no key slot is read.
+    if is_session_provider(provider_id) {
+        return Ok(false);
+    }
     if !ai::validate::provider_for(provider_id).requires_api_key() {
         return Ok(true);
     }
@@ -1785,6 +1817,7 @@ async fn set_active_provider_with(
     if !ai::SUPPORTED_PROVIDER_IDS.contains(&provider) {
         return Err(format!("unsupported provider id: {provider}"));
     }
+    refuse_session_provider(provider)?;
     state.startup_reads_settled().await;
     let at = keychain
         .save_active_provider(provider)
@@ -1819,7 +1852,7 @@ fn key_for_switch(
     provider: &str,
     load: impl FnOnce(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
 ) -> Result<Option<String>, ai::keychain::KeychainError> {
-    if !ai::validate::provider_for(provider).requires_api_key() {
+    if is_session_provider(provider) || !ai::validate::provider_for(provider).requires_api_key() {
         return Ok(None);
     }
     load(provider)
@@ -5241,8 +5274,24 @@ fn rebuild_agent_from(
         state.api_key_snapshot(),
         global_chosen_model,
         profile_model,
-        load_key,
+        // A provider paid for by a session has no key slot to read.
+        |provider| {
+            if is_session_provider(provider) {
+                None
+            } else {
+                load_key(provider)
+            }
+        },
     );
+    // No agent for a provider paid for by a session until the commands that
+    // sign in exist (#474, PR 5): not a keyless one, not one with a key a
+    // hand edit or an older build left in a slot. Whether the provider is
+    // the active one or a profile pins it, the cached key is another
+    // provider's or none at all.
+    if is_session_provider(&effective_provider_id) {
+        *slot = None;
+        return;
+    }
     let provider = ai::validate::provider_for(&effective_provider_id);
 
     // A provider that needs no key (a local Ollama daemon) still has to
@@ -9650,6 +9699,135 @@ mod tests {
         let (asked, built) = rebuild_and_record(&state);
         assert_eq!(asked, ["base_url:ollama", "effort:ollama"]);
         assert!(built);
+    }
+
+    // ---- The ChatGPT plan has a session, not a key (#474, review of #695) --
+    //
+    // Until the sign-in commands exist (PR 5) nothing here can hold a session,
+    // so nothing may build an agent for `chatgpt`, or store a key or an
+    // address for it: a stored key would be sent as the "plan" bearer and
+    // bill the API.
+
+    fn pin_profile(state: &AppState, dir: &std::path::Path, provider: &str) {
+        std::fs::write(
+            dir.join("pinned.md"),
+            format!(
+                "---\ndescription: pins a provider\nmodel:\n  provider: {provider}\n  id: some-model\n---\nbody\n"
+            ),
+        )
+        .expect("profile");
+        state.install_agent_profile_library(dir.to_path_buf());
+        state
+            .set_active_agent_profile(Some("pinned".to_string()))
+            .expect("select it");
+    }
+
+    #[test]
+    fn the_chatgpt_plan_cannot_be_made_the_active_provider_yet() {
+        let state = AppState::default();
+        state.set_active_provider("anthropic".to_string());
+        let keychain = FakeKeychain::default();
+        let err = tauri::async_runtime::block_on(set_active_provider_with(
+            &state,
+            "chatgpt",
+            &keychain,
+            |_| panic!("no key is read for it"),
+        ))
+        .expect_err("refused");
+        assert!(err.contains("ChatGPT"), "{err}");
+        assert!(keychain.wrote().is_empty(), "wrote {:?}", keychain.wrote());
+        assert_eq!(state.active_provider_id(), "anthropic");
+    }
+
+    #[test]
+    fn no_key_or_address_is_stored_for_the_chatgpt_plan() {
+        let state = AppState::default();
+        let keychain = FakeKeychain::default();
+        let err = tauri::async_runtime::block_on(set_api_key_for_inner(
+            &state,
+            "chatgpt",
+            "sk-would-be-the-bearer",
+            &keychain,
+        ))
+        .expect_err("refused");
+        assert!(err.contains("ChatGPT"), "{err}");
+        assert!(keychain.wrote().is_empty(), "wrote {:?}", keychain.wrote());
+        assert_eq!(state.api_key_snapshot(), None);
+
+        for url in ["http://evil.example/v1", ""] {
+            let err = tauri::async_runtime::block_on(set_base_url_for_with(
+                &state, "chatgpt", url, &keychain,
+            ))
+            .expect_err("refused");
+            assert!(err.contains("ChatGPT"), "{url:?}: {err}");
+        }
+        assert!(keychain.wrote().is_empty(), "wrote {:?}", keychain.wrote());
+    }
+
+    /// `set_base_url_for` did not look at the provider id at all.
+    #[test]
+    fn a_base_url_is_not_stored_for_a_provider_that_does_not_exist() {
+        let state = AppState::default();
+        let keychain = FakeKeychain::default();
+        let err = tauri::async_runtime::block_on(set_base_url_for_with(
+            &state,
+            "nonsense",
+            "http://localhost:1/v1",
+            &keychain,
+        ))
+        .expect_err("refused");
+        assert!(err.contains("unsupported provider id"), "{err}");
+        assert!(keychain.wrote().is_empty());
+    }
+
+    #[test]
+    fn the_chatgpt_plan_is_not_configured_without_a_session_and_reads_no_key() {
+        assert!(matches!(provider_is_configured("chatgpt"), Ok(false)));
+        let read = key_for_switch("chatgpt", |_| panic!("a session provider has no key slot"));
+        assert!(matches!(read, Ok(None)));
+        // The ones that do take a key still ask for it.
+        assert!(matches!(
+            key_for_switch("openai", |_| Ok(Some("k".into()))),
+            Ok(Some(k)) if k == "k"
+        ));
+        assert!(matches!(provider_is_configured("ollama"), Ok(true)));
+    }
+
+    #[test]
+    fn no_agent_is_built_for_the_chatgpt_plan_whatever_else_is_stored() {
+        let dir = tempdir().unwrap();
+        // Active, with a key that a hand-edited keychain or an older build
+        // left behind.
+        let state = state_with_a_store(dir.path());
+        state.set_active_provider("chatgpt".to_string());
+        state.set_api_key_cache(Some("sk-left-behind".to_string()));
+        let (_, built) = rebuild_and_record(&state);
+        assert!(!built, "a keyed agent was built for the ChatGPT plan");
+
+        // Active with no key at all: not a keyless agent either.
+        let state = state_with_a_store(dir.path());
+        state.set_active_provider("chatgpt".to_string());
+        let (_, built) = rebuild_and_record(&state);
+        assert!(!built, "a keyless agent was built for the ChatGPT plan");
+
+        // A profile that pins it.
+        let agents = tempdir().unwrap();
+        let state = state_with_a_store(dir.path());
+        state.set_api_key_cache(Some("anthropic-key".to_string()));
+        pin_profile(&state, agents.path(), "chatgpt");
+        let (asked, built) = rebuild_and_record(&state);
+        assert!(!built, "a profile built an agent for the ChatGPT plan");
+        assert!(
+            !asked.iter().any(|a| a.starts_with("key:")),
+            "its key slot was read: {asked:?}"
+        );
+
+        // And a profile that pins another provider still builds, so the
+        // above is the provider's doing and not the profile's.
+        let agents = tempdir().unwrap();
+        let state = state_with_a_store(dir.path());
+        pin_profile(&state, agents.path(), "openai");
+        assert!(rebuild_and_record(&state).1);
     }
 
     // ---- Plan first across a restart (#569) -----------------------------

@@ -34,6 +34,9 @@ use super::{
 /// A token endpoint's reply is read up to this size.
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
+/// The shortest `expires_in` believed, in seconds. See [`capped_expires_in`].
+pub const MIN_EXPIRES_IN: u64 = 60;
+
 /// The longest `expires_in` kept, in seconds: one day. Access tokens live
 /// for minutes or hours; a larger value is read as this, so a caller's
 /// `Instant::now() + Duration::from_secs(expires_in)` cannot overflow (with
@@ -160,8 +163,9 @@ pub struct TokenResponse {
     /// this client does with a token).
     #[serde(default, deserialize_with = "lenient")]
     pub token_type: String,
-    /// Seconds from now, at most [`MAX_EXPIRES_IN`]: a larger value is read
-    /// as that.
+    /// Seconds from now, at least [`MIN_EXPIRES_IN`] (a smaller one is read
+    /// as absent) and at most [`MAX_EXPIRES_IN`]: a larger value is read as
+    /// that.
     #[serde(default, deserialize_with = "capped_expires_in")]
     pub expires_in: Option<u64>,
     /// The granted scopes, space-separated.
@@ -180,7 +184,12 @@ pub struct TokenResponse {
 /// falls back to the documented default.
 fn capped_expires_in<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
     let value = Value::deserialize(d)?;
-    Ok(seconds_of(&value).map(|secs| secs.min(MAX_EXPIRES_IN)))
+    // Under a minute is a server saying nothing useful, not a token that
+    // lives that long: "0", `0` and `0.4` would have the caller refresh on
+    // every request. Absent, the caller uses the documented lifetime.
+    Ok(seconds_of(&value)
+        .filter(|secs| *secs >= MIN_EXPIRES_IN)
+        .map(|secs| secs.min(MAX_EXPIRES_IN)))
 }
 
 /// A non-negative number of seconds in a JSON value: an integer, a float
@@ -307,7 +316,7 @@ impl TokenClient {
             ("redirect_uri", redirect_uri),
         ];
         form.extend_from_slice(extra);
-        self.token_request(&form).await
+        self.token_request(&form, true).await
     }
 
     /// Uses a refresh token. No `scope` is sent, so the grant is kept as it
@@ -325,7 +334,9 @@ impl TokenClient {
             ("refresh_token", refresh_token.expose_secret()),
         ];
         form.extend_from_slice(extra);
-        self.token_request(&form).await
+        // The server has rotated the refresh token by the time it answers:
+        // see `validate` for why a missing `token_type` does not fail this.
+        self.token_request(&form, false).await
     }
 
     /// Revokes `token` at `revocation_endpoint` (RFC 7009 §2.1). Any 2xx is
@@ -350,7 +361,11 @@ impl TokenClient {
         }
     }
 
-    async fn token_request(&self, form: &[(&str, &str)]) -> Result<TokenResponse, TokenError> {
+    async fn token_request(
+        &self,
+        form: &[(&str, &str)],
+        require_token_type: bool,
+    ) -> Result<TokenResponse, TokenError> {
         let (status, body) = self.post(&self.token_endpoint, form).await?;
         if !(200..300).contains(&status) {
             return Err(failure(status, &body));
@@ -365,18 +380,7 @@ impl TokenClient {
                 e.column()
             ))
         })?;
-        if response.access_token.is_empty() {
-            return Err(TokenError::InvalidResponse(
-                "the access token is empty".into(),
-            ));
-        }
-        if !response.token_type.eq_ignore_ascii_case("bearer") {
-            return Err(TokenError::InvalidResponse(format!(
-                "the token type is {:?}, not Bearer",
-                printable(&response.token_type, 32)
-            )));
-        }
-        Ok(response)
+        validate(response, require_token_type)
     }
 
     async fn post(&self, url: &Url, form: &[(&str, &str)]) -> Result<(u16, Vec<u8>), TokenError> {
@@ -397,6 +401,34 @@ impl TokenClient {
             })?;
         Ok((status, body))
     }
+}
+
+/// The checks a parsed success response must pass.
+///
+/// `require_token_type` is whether the `token_type` field must be there:
+/// RFC 6749 §5.1 requires it, so a code exchange does. A refresh response is
+/// the case where it is not worth failing for: the server has already rotated
+/// the refresh token by the time it answers, so refusing the response loses a
+/// token that cannot be had again, and a missing or unreadable type can only
+/// mean the one kind this client uses. A type that is there and is not Bearer
+/// is refused either way.
+fn validate(
+    response: TokenResponse,
+    require_token_type: bool,
+) -> Result<TokenResponse, TokenError> {
+    if response.access_token.is_empty() {
+        return Err(TokenError::InvalidResponse(
+            "the access token is empty".into(),
+        ));
+    }
+    let typeless = response.token_type.is_empty() && !require_token_type;
+    if !typeless && !response.token_type.eq_ignore_ascii_case("bearer") {
+        return Err(TokenError::InvalidResponse(format!(
+            "the token type is {:?}, not Bearer",
+            printable(&response.token_type, 32)
+        )));
+    }
+    Ok(response)
 }
 
 /// A non-2xx reply: its RFC 6749 §5.2 body (in either shape
@@ -433,6 +465,13 @@ mod tests {
             (json!("3600"), Some(3600)),
             (json!(" 1800.0 "), Some(1800)),
             (json!(1e12), Some(MAX_EXPIRES_IN)),
+            // Under a minute is not a lifetime: it would refresh on every
+            // request.
+            (json!(0), None),
+            (json!("0"), None),
+            (json!(0.4), None),
+            (json!(59), None),
+            (json!(60), Some(60)),
             (json!(null), None),
             (json!("an hour"), None),
             (json!(-1), None),
@@ -452,7 +491,10 @@ mod tests {
         assert_eq!(parse(json!({})).expires_in, None, "absent");
     }
 
-    /// Fields of the wrong type are absent, not an error.
+    /// Fields of the wrong type are absent, not an error, and the response
+    /// then goes through the same checks a received one does: a refresh
+    /// accepts one with no usable `token_type` (the rotated refresh token
+    /// must not be lost), a code exchange does not.
     #[test]
     fn the_other_optional_fields_are_lenient_too() {
         let response = parse(json!({ "scope": 5, "id_token": ["x"], "token_type": null }));
@@ -460,5 +502,20 @@ mod tests {
         assert!(response.id_token.is_none());
         assert_eq!(response.token_type, "");
         assert_eq!(response.access_token.expose_secret(), "a");
+
+        let kept = validate(response.clone(), false).expect("a refresh keeps it");
+        assert_eq!(
+            kept.refresh_token.as_ref().map(|t| t.expose_secret()),
+            Some("rt"),
+            "the rotated refresh token is still there"
+        );
+        assert!(
+            validate(response, true).is_err(),
+            "a code exchange needs the type"
+        );
+        // A type that is there and is not Bearer is refused by both.
+        let mac = parse(json!({ "token_type": "mac" }));
+        assert!(validate(mac.clone(), false).is_err());
+        assert!(validate(mac, true).is_err());
     }
 }

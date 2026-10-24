@@ -615,6 +615,15 @@ fn check_claims(
     if raw.iss != issuer {
         return Err(OidcError::WrongIssuer);
     }
+    // The token is signed by the issuer and names it. Whose account it is
+    // comes before anything else about it: another account's token is that
+    // whatever else is wrong with it (an `aud`, an expiry), because a caller
+    // ends the session on it and ignores every other fault.
+    if let IdTokenExpectations::Refresh { original, .. } = expected {
+        if raw.sub != original.subject {
+            return Err(OidcError::SubjectChanged);
+        }
+    }
     let audience_ok = match &raw.aud {
         Audience::One(aud) => aud == client_id,
         Audience::Many(auds) => matches!(auds.as_slice(), [aud] if aud == client_id),

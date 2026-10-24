@@ -67,9 +67,24 @@ enum CliEvent {
     Done,
 }
 
+/// The CLI has no sign-in, and a provider that is paid for by one takes no key:
+/// handed `--api-key`, the agent would send it as the plan's bearer.
+fn refuse_session_provider(provider_id: &str) -> anyhow::Result<()> {
+    if ai::validate::provider_for(provider_id).credential_kind() == ai::CredentialKind::ChatGptOAuth
+    {
+        anyhow::bail!(
+            "the `{provider_id}` provider is used by signing in with a ChatGPT account, which \
+             the CLI cannot do, and it takes no API key; use another provider"
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    // Before anything is opened or sent.
+    refuse_session_provider(&args.provider)?;
 
     // Hold the TempDir for the process lifetime so the store directory
     // doesn't get nuked mid-turn.

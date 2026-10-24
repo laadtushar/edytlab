@@ -344,7 +344,9 @@ impl LlmProvider for ChatGptProvider {
     }
 
     fn apply_auth(&self, req: reqwest::RequestBuilder, bearer: &str) -> reqwest::RequestBuilder {
-        req.header("authorization", format!("Bearer {bearer}"))
+        // `bearer_auth` marks the header sensitive: a debug print of the
+        // request or its headers shows no token.
+        req.bearer_auth(bearer)
             .header("content-type", "application/json")
     }
 
@@ -616,6 +618,10 @@ mod tests {
         let req = reqwest::Client::new().post("https://api.openai.com/v1/responses");
         let built = p.apply_auth(req, "AT-1").build().expect("builds");
         assert_eq!(built.headers()["authorization"], "Bearer AT-1");
+        // Marked sensitive, so a debug print of the request or its headers
+        // shows no token.
+        assert!(built.headers()["authorization"].is_sensitive());
+        assert!(!format!("{:?}", built.headers()).contains("AT-1"));
         for other in ["x-api-key", "openai-organization", "openai-project"] {
             assert!(built.headers().get(other).is_none(), "{other}");
         }
@@ -667,7 +673,9 @@ mod tests {
             .all(|i| i["type"] != "additional_tools"));
         assert_eq!(flat["tool_choice"], "auto");
 
-        // All four bodies differ, so no step repeats another's.
+        // The three layouts are three bodies. (The slim namespace is the same
+        // body for the same tools: whether it differs depends on the tool
+        // list, which the agent loop knows and the provider does not.)
         let all = [ns, additional, flat];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {

@@ -31,7 +31,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::chatgpt::{ChatGptSession, PlanUsageError};
+use crate::chatgpt::{ChatGptSession, PlanUsageError, PlanUsageKind};
 use crate::provider::CredentialKind;
 use crate::{Error, LlmConfig, Result};
 
@@ -42,6 +42,13 @@ pub enum Credential {
     ApiKey(String),
     /// The signed-in ChatGPT session: a fresh bearer for every request.
     ChatGpt(Arc<ChatGptSession>),
+    /// A fixed bearer token standing in for a session, **for tests only**:
+    /// the ChatGPT provider refuses an API key (see
+    /// [`LlmConfig::send_with`]), and a test of the loop that is not about
+    /// sign-in has no session to hand. It exists in this crate's test builds
+    /// and with the `test-endpoints` feature, which no build of the app has.
+    #[cfg(any(test, feature = "test-endpoints"))]
+    TestBearer(String),
 }
 
 impl fmt::Debug for Credential {
@@ -51,6 +58,8 @@ impl fmt::Debug for Credential {
         match self {
             Self::ApiKey(_) => f.write_str("Credential::ApiKey(<redacted>)"),
             Self::ChatGpt(_) => f.write_str("Credential::ChatGpt(<session>)"),
+            #[cfg(any(test, feature = "test-endpoints"))]
+            Self::TestBearer(_) => f.write_str("Credential::TestBearer(<redacted>)"),
         }
     }
 }
@@ -65,12 +74,30 @@ impl LlmConfig {
         build: impl Fn() -> reqwest::RequestBuilder,
     ) -> Result<reqwest::Response> {
         match &self.credential {
-            Credential::ApiKey(key) => self
-                .provider
-                .apply_auth(build(), key)
-                .send()
-                .await
-                .map_err(Error::Http),
+            Credential::ApiKey(key) => {
+                // The ChatGPT plan is paid for by a session, never by a key.
+                // A key here (a keychain slot a hand edit or an older build
+                // left, or a keyless build of the agent) would go out as the
+                // "plan" bearer and be billed to the API under a label that
+                // says plan.
+                if self.provider.credential_kind() == CredentialKind::ChatGptOAuth {
+                    return Err(Error::PlanUsage(PlanUsageError::new(
+                        PlanUsageKind::SessionEnded {
+                            detail: Some("not signed in".to_string()),
+                        },
+                    )));
+                }
+                self.provider
+                    .apply_auth(build(), key)
+                    .send()
+                    .await
+                    .map_err(Error::Http)
+            }
+            #[cfg(any(test, feature = "test-endpoints"))]
+            Credential::TestBearer(token) => {
+                self.send_to_own_origin(self.provider.apply_auth(build(), token))
+                    .await
+            }
             Credential::ChatGpt(session) => {
                 // A session's token is for the provider made for it, which
                 // is sent to one host. Anything else is a wiring mistake, and
@@ -84,11 +111,8 @@ impl LlmConfig {
                 }
                 let bearer = session.bearer().await.map_err(plan_usage)?;
                 let resp = self
-                    .provider
-                    .apply_auth(build(), bearer.expose_secret())
-                    .send()
-                    .await
-                    .map_err(Error::Http)?;
+                    .send_to_own_origin(self.provider.apply_auth(build(), bearer.expose_secret()))
+                    .await?;
                 if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
                     return Ok(resp);
                 }
@@ -109,13 +133,41 @@ impl LlmConfig {
                     .refresh_rejected(&bearer)
                     .await
                     .map_err(plan_usage)?;
-                self.provider
-                    .apply_auth(build(), fresh.expose_secret())
-                    .send()
+                self.send_to_own_origin(self.provider.apply_auth(build(), fresh.expose_secret()))
                     .await
-                    .map_err(Error::Http)
             }
         }
+    }
+
+    /// Sends a request that carries a bearer, after checking that it is for
+    /// the provider's own origin (scheme, host and port). The URL comes from
+    /// [`Self::base_url`] on every path in this crate, which already ignores
+    /// overrides for this provider; this is the check that makes that a fact
+    /// about the request and not about its callers.
+    async fn send_to_own_origin(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response> {
+        let (client, request) = request.build_split();
+        let request = request.map_err(Error::Http)?;
+        let own = url::Url::parse(self.provider.base_url())
+            .map_err(|_| Error::Protocol("the provider's address is not a URL".into()))?;
+        if request.url().origin() != own.origin() {
+            return Err(Error::Protocol(
+                "a ChatGPT bearer is only sent to the provider's own address".into(),
+            ));
+        }
+        client.execute(request).await.map_err(Error::Http)
+    }
+
+    /// [`Self::send_with`], for tests that need to ask for a URL of their own.
+    /// Exists with the `test-endpoints` feature only.
+    #[cfg(feature = "test-endpoints")]
+    pub async fn send_with_for_tests(
+        &self,
+        build: impl Fn() -> reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response> {
+        self.send_with(build).await
     }
 
     /// `POST` `body` to the provider's endpoint.

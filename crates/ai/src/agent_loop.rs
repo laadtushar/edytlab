@@ -795,6 +795,16 @@ enum Gate {
     HoldFirstEdit,
 }
 
+/// The names in a list of tool schemas, in order.
+fn tool_names(schemas: &Value) -> Vec<&str> {
+    schemas
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t.get("name").and_then(Value::as_str))
+        .collect()
+}
+
 /// Remove every `thinking` and `redacted_thinking` block from
 /// `conversation`; text, `tool_use` and `tool_result` blocks stay, in order.
 ///
@@ -1180,16 +1190,48 @@ where
             // rule), and the tools are chosen again for what it asks now.
             if adaptations < MAX_ADAPTATIONS {
                 if let Some(adaptation) = cfg.provider.adapt_after_refusal(&failure) {
-                    adaptations += 1;
-                    tracing::warn!(
-                        status = status.as_u16(),
-                        request_id = request_id.as_deref().unwrap_or("-"),
-                        ?adaptation,
-                        "the provider refused the request; sending a different one"
-                    );
-                    strip_thinking(conversation);
-                    (tool_schemas, request_prompt) = select_tools(conversation);
-                    continue;
+                    let mut adaptation = adaptation;
+                    // What the provider changed may leave the request as it
+                    // was (the slim tool list of a registry of one tool is the
+                    // full one). That is the body just refused, and it is not
+                    // sent again: the provider is asked to step further, until
+                    // the body differs or it has no step left.
+                    let different = loop {
+                        adaptations += 1;
+                        tracing::warn!(
+                            status = status.as_u16(),
+                            request_id = request_id.as_deref().unwrap_or("-"),
+                            ?adaptation,
+                            "the provider refused the request; sending a different one"
+                        );
+                        strip_thinking(conversation);
+                        (tool_schemas, request_prompt) = select_tools(conversation);
+                        let next = cfg.provider.serialize_request(&build_request(
+                            &wire_model,
+                            &request_prompt,
+                            &tool_schemas,
+                            conversation,
+                            tool_choice,
+                            cfg.effective_effort(),
+                        ));
+                        // Slim with every tool in it is the full list with
+                        // shorter words: the same offer, not a smaller one.
+                        let slim_of_everything = cfg.provider.tool_set() == ToolSet::Slim
+                            && tool_names(&tool_schemas) == tool_names(&permitted_schemas);
+                        if next != request_body && !slim_of_everything {
+                            break true;
+                        }
+                        match adaptations < MAX_ADAPTATIONS {
+                            true => match cfg.provider.adapt_after_refusal(&failure) {
+                                Some(further) => adaptation = further,
+                                None => break false,
+                            },
+                            false => break false,
+                        }
+                    };
+                    if different {
+                        continue;
+                    }
                 }
             }
             // A failure the provider has its own words and recovery for (the
@@ -2209,7 +2251,10 @@ mod tests {
     fn config_against(provider_id: &str, base: String) -> LlmConfig {
         if provider_id == crate::CHATGPT_ID {
             let provider = crate::ChatGptProvider::loopback_for_tests(&base).expect("a loopback");
-            return LlmConfig::new(Arc::new(provider), "bearer");
+            return LlmConfig::with_credential(
+                Arc::new(provider),
+                crate::Credential::TestBearer("bearer".into()),
+            );
         }
         LlmConfig::new(crate::provider::provider_from_id(provider_id), "key").with_base_url(base)
     }

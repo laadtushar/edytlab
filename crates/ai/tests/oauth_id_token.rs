@@ -650,6 +650,42 @@ async fn verifies_a_refreshed_id_token_against_the_original() {
             refreshed(&iss, |c| c["sub"] = json!("user-subject-2")),
             |e| matches!(e, OidcError::SubjectChanged),
         ),
+        // A validly signed token for another account is that, whatever else
+        // is wrong with it: the session ends on it, so it must never be read
+        // as a claim the preview words differently (and ignored).
+        (
+            "another account and another client",
+            refreshed(&iss, |c| {
+                c["sub"] = json!("user-subject-2");
+                c["aud"] = json!("someone-else");
+            }),
+            |e| matches!(e, OidcError::SubjectChanged),
+        ),
+        (
+            "another account and an expired token",
+            refreshed(&iss, |c| {
+                c["sub"] = json!("user-subject-2");
+                c["exp"] = json!(now() - 3600);
+            }),
+            |e| matches!(e, OidcError::SubjectChanged),
+        ),
+        (
+            "another account and a foreign nonce and azp",
+            refreshed(&iss, |c| {
+                c["sub"] = json!("user-subject-2");
+                c["nonce"] = json!(other_nonce.as_str());
+                c["azp"] = json!("someone-else");
+            }),
+            |e| matches!(e, OidcError::SubjectChanged),
+        ),
+        (
+            "another account from another issuer",
+            refreshed(&iss, |c| {
+                c["sub"] = json!("user-subject-2");
+                c["iss"] = json!("https://evil.example");
+            }),
+            |e| matches!(e, OidcError::WrongIssuer),
+        ),
         (
             "another client",
             refreshed(&iss, |c| c["aud"] = json!("someone-else")),

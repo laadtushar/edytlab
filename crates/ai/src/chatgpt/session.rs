@@ -959,6 +959,17 @@ impl Core {
                     if now < t.expires_at && !same_secret(&t.token, rejected) {
                         return Ok(t.token.clone());
                     }
+                    // The API refused the token we hold, before the issuer
+                    // lets it be renewed. An early refresh is refused
+                    // upstream (devkit#5) and would only spend the refresh
+                    // token, so nothing is sent: the caller is told to try
+                    // again, and the token stays as it is.
+                    if now < t.expires_at && t.earliest_refresh_at.is_some_and(|at| now < at) {
+                        return Err(BearerError::Unavailable {
+                            reason: "OpenAI refused the access token before it can be renewed"
+                                .to_string(),
+                        });
+                    }
                 }
                 if let Some(r) = a.retry.as_ref().filter(|r| now < r.not_before) {
                     return Err(r.error.clone());
@@ -1220,11 +1231,6 @@ impl Core {
                 .await;
             match checked {
                 Ok(_) => {}
-                Err(e) if oidc_error_is_transient(&e) => {
-                    return Err(self.failed(BearerError::Unavailable {
-                        reason: e.to_string(),
-                    }));
-                }
                 // The ID token is a validly signed one for another account:
                 // that is an identity problem, whatever the preview is doing.
                 Err(OidcError::SubjectChanged) => {
@@ -1237,7 +1243,9 @@ impl Core {
                     self.end(reason.clone(), Some(&refresh_token)).await;
                     return Err(BearerError::SessionEnded(reason));
                 }
-                // Any other fault in the refreshed ID token (a claim the
+                // Any other fault in the refreshed ID token, a transient one
+                // (the JWKS cannot be fetched, a key the cache does not hold
+                // yet) as much as a claim the
                 // preview now words differently, an `aud` or `azp` that
                 // changed, a missing `auth_time`) does not make the grant
                 // any less the user's: the refresh token and the access

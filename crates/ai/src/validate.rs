@@ -213,6 +213,14 @@ pub async fn probe_provider(
     base_url: &str,
     model: Option<&str>,
 ) -> Result<ProbeReport, String> {
+    // A provider paid for by a session is tested with it (`probe_chatgpt`),
+    // never with a key and an address from the caller.
+    if provider.credential_kind() == crate::provider::CredentialKind::ChatGptOAuth {
+        return Err(
+            "the ChatGPT plan is tested with its signed-in session, not with a key or an address"
+                .to_string(),
+        );
+    }
     reachability_probe(provider, api_key, base_url).await?;
 
     let model = model
@@ -483,8 +491,8 @@ pub async fn probe_chatgpt(
         model_unavailable: false,
     };
     let mut adaptations = 0;
+    let mut body = cfg.provider.serialize_request(&req);
     loop {
-        let body = cfg.provider.serialize_request(&req);
         let resp = cfg
             .post_json(&http, &body)
             .await
@@ -523,7 +531,24 @@ pub async fn probe_chatgpt(
         };
         if adaptations < 6 && cfg.provider.adapt_after_refusal(&failure).is_some() {
             adaptations += 1;
-            continue;
+            // The body just refused: a step the ladder takes is never one
+            // that sends it again.
+            let refused = body.clone();
+            body = cfg.provider.serialize_request(&req);
+            // A rung that sends the body just refused (the probe offers one
+            // tool, so the slim list is the full one) is stepped past.
+            let mut exhausted = false;
+            while refused == body {
+                if adaptations >= 6 || cfg.provider.adapt_after_refusal(&failure).is_none() {
+                    exhausted = true;
+                    break;
+                }
+                adaptations += 1;
+                body = cfg.provider.serialize_request(&req);
+            }
+            if !exhausted {
+                continue;
+            }
         }
         return match cfg.provider.classify_failure(&failure) {
             // The chosen model is not on this account's list.

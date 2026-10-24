@@ -1667,5 +1667,148 @@ async fn test_steps_down_the_ladder_like_a_turn() {
 
     assert!(report.tools_ok);
     let layouts: Vec<String> = rig.bodies().await.iter().map(layout).collect();
-    assert_eq!(layouts, ["namespace", "namespace"]);
+    // The probe offers one tool, so the slim list is that tool and the body of
+    // the slim rung is the one just refused: it is stepped past, not sent.
+    assert_eq!(layouts, ["namespace", "additional_tools"]);
+    let bodies = rig.bodies().await;
+    assert_ne!(bodies[0], bodies[1]);
+}
+
+// ---------------------------------------------------------------------
+// Review fixes on #695
+// ---------------------------------------------------------------------
+
+/// Finding 1: a key, from a keychain slot or a keyless build, is never the
+/// ChatGPT bearer. It would bill the API under a label that says "plan".
+#[tokio::test]
+async fn a_key_is_never_the_chatgpt_bearer() {
+    let rig = Rig::new().await;
+    rig.answers(vec![
+        ok(text_stream("billed to the API")),
+        ok(text_stream("again")),
+    ])
+    .await;
+    mount_models(&rig, 200, json!({ "models": [] })).await;
+    for key in ["sk-a-stored-api-key", ""] {
+        let cfg = LlmConfig::new(Arc::new(rig.provider()), key);
+
+        let mut agent = rig.agent_with(cfg.clone(), echo_dispatcher());
+        let (result, _) = turn(&mut agent, "hi").await;
+        let error = plan_usage(result);
+        assert_eq!(error.code(), "session_ended", "{key:?}: {error}");
+
+        let listed = ai::models::list_chatgpt_models(&cfg, &reqwest::Client::new()).await;
+        assert!(
+            listed.unwrap_err().contains("Continue with ChatGPT"),
+            "{key:?}"
+        );
+        let probed = ai::validate::probe_chatgpt(&cfg, None).await;
+        assert!(probed.is_err(), "{key:?}: {probed:?}");
+    }
+    let sent = rig.fake.server.received_requests().await.unwrap();
+    assert!(
+        sent.iter()
+            .all(|r| r.headers.get("authorization").is_none()),
+        "something went out with a bearer: {:?}",
+        sent.iter()
+            .map(|r| r.url.path().to_string())
+            .collect::<Vec<_>>()
+    );
+    assert!(rig.received("/v1/responses").await.is_empty());
+    assert!(rig.received("/v1/models").await.is_empty());
+}
+
+/// Finding 8: a request that is not for the provider's own origin never
+/// carries the bearer, whatever built it.
+#[tokio::test]
+async fn a_request_for_another_origin_never_carries_the_bearer() {
+    use wiremock::matchers::any;
+    use wiremock::MockServer;
+
+    let rig = Rig::new().await;
+    let elsewhere = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&elsewhere)
+        .await;
+    mount_models(&rig, 200, json!({ "models": [] })).await;
+    let cfg = rig.config();
+    let http = reqwest::Client::new();
+
+    let url = format!("{}/v1/models", elsewhere.uri());
+    let error = cfg
+        .send_with_for_tests(|| http.get(&url))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, Error::Protocol(_)), "{error:?}");
+    assert!(elsewhere.received_requests().await.unwrap().is_empty());
+
+    // Another port of the same host is another origin.
+    let own = rig.fake.issuer();
+    let port: u16 = own.rsplit(':').next().unwrap().parse().unwrap();
+    let neighbour = own.replace(&port.to_string(), &(port.wrapping_add(1)).to_string());
+    let error = cfg
+        .send_with_for_tests(|| http.get(format!("{neighbour}/v1/models")))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, Error::Protocol(_)), "{error:?}");
+
+    // Its own origin is sent to.
+    let resp = cfg
+        .send_with_for_tests(|| http.get(format!("{own}/v1/models")))
+        .await
+        .expect("the provider's own origin");
+    assert!(resp.status().is_success());
+    assert_eq!(rig.received("/v1/models").await.len(), 1);
+}
+
+/// Finding 6: with one tool the slim list is the full list, so the slim rung
+/// would send the body that was just refused. It is stepped past.
+#[tokio::test]
+async fn a_rung_whose_body_is_the_refused_one_is_stepped_past() {
+    let rig = Rig::new().await;
+    let (status, body) = refused("tools");
+    rig.scripted(vec![
+        (status, body, None),
+        (200, text_stream("Done."), None),
+    ])
+    .await;
+    let mut agent = rig.agent();
+
+    let (result, _) = turn(&mut agent, "hi").await;
+
+    result.expect("the turn succeeds");
+    let bodies = rig.bodies().await;
+    let layouts: Vec<String> = bodies.iter().map(layout).collect();
+    assert_eq!(layouts, ["namespace", "additional_tools"]);
+    assert_ne!(bodies[0], bodies[1]);
+}
+
+/// And at the end of the ladder the same holds: no request repeats another,
+/// with the small registry, and the last refusal is the answer.
+#[tokio::test]
+async fn no_body_is_sent_twice_on_the_whole_ladder() {
+    let rig = Rig::new().await;
+    let (status, body) = refused("tools");
+    rig.scripted(vec![
+        (status, body.clone(), None),
+        (status, body.clone(), None),
+        (status, body.clone(), None),
+        (status, body, None),
+        (200, text_stream("never"), None),
+    ])
+    .await;
+    let mut agent = rig.agent();
+
+    let (result, _) = turn(&mut agent, "hi").await;
+
+    assert_eq!(plan_usage(result).code(), "unsupported_request");
+    let bodies = rig.bodies().await;
+    for (i, a) in bodies.iter().enumerate() {
+        for b in &bodies[i + 1..] {
+            assert_ne!(a, b, "one body was sent twice");
+        }
+    }
+    let layouts: Vec<String> = bodies.iter().map(layout).collect();
+    assert_eq!(layouts, ["namespace", "additional_tools", "flat"]);
 }
