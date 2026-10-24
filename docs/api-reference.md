@@ -1682,7 +1682,7 @@ interface SessionNode {
 interface SessionState {
   tracks: Track[];
   sample_rate: number;
-  length_samples: number;
+  length_samples: number; // in session frames (sample_rate), whatever rate each track's files are at
   transcript: Transcript | null;
 }
 

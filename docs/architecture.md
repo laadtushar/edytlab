@@ -803,7 +803,7 @@ pub struct SessionState {
     pub key_map:        Option<KeyMap>,
     pub transcript:     Option<Transcript>,
     pub sample_rate:    u32,
-    pub length_samples: u64,
+    pub length_samples: u64,        // session frames (sample_rate), not clip frames (#678)
     pub annotations:    Vec<Annotation>,
     pub sync_lock:      bool,
 }

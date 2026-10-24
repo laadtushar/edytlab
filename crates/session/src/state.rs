@@ -36,6 +36,23 @@ pub struct SessionState {
     pub key_map: Option<KeyMap>,
     pub transcript: Option<Transcript>,
     pub sample_rate: u32,
+    /// The length of the arrangement in **session frames**: the frames of
+    /// [`SessionState::sample_rate`], whichever rate each track's own files
+    /// are at (#678).
+    ///
+    /// A [`Clip`]'s `start_in_track` and `length` are in the frames of its
+    /// source file (#234), so tracks at different rates count the same second
+    /// in different numbers, and a bare maximum over clip ends compares
+    /// 16 000-a-second against 48 000-a-second. This is the one number that
+    /// can be held across them: the furthest any clip reaches, each end
+    /// converted from its clip's rate to the session's, then the maximum. The
+    /// renderer sizes its output the same way and reads no stored length, so
+    /// a stale value never changes a render. `tools` recomputes it in one
+    /// place (`set_session_length`) and nothing else writes it; a value
+    /// stored before #678 was a maximum in clip frames, which is the same
+    /// number on a session whose tracks share a rate and is replaced by the
+    /// next edit otherwise. It is part of the hashed state and serialises
+    /// as it always did.
     pub length_samples: u64,
     /// Marker / region annotations attached to the rendered audio at
     /// this head. `#[serde(default, skip_serializing_if = …)]` keeps

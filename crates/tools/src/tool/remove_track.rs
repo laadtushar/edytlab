@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, check_track_index, load_head_state, set_session_length};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -46,16 +46,8 @@ impl Tool for RemoveTrackTool {
         }
 
         let removed = state.tracks.remove(args.track);
-        // Rebuild `length_samples` as the maximum clip end across all
-        // remaining tracks. Flatten across tracks since the per-track
-        // grouping doesn't matter to the max.
-        state.length_samples = state
-            .tracks
-            .iter()
-            .flat_map(|t| &t.clips)
-            .map(|c| c.start_in_track + c.length)
-            .max()
-            .unwrap_or(0);
+        // Rebuild `length_samples` from the tracks that are left.
+        set_session_length(&mut state);
 
         let track_count = state.tracks.len();
         let label = format!("remove_track {} ({})", args.track, removed.name);

@@ -68,7 +68,8 @@ use session::state::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_track_index, load_head_state, timeline_end, track_clip_rate,
+    append_state, check_track_index, load_head_state, set_session_length, timeline_end,
+    track_clip_rate,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -434,12 +435,7 @@ impl Tool for SplitBySpeakerTool {
         // the rest of the arrangement keeps its indices.
         state.tracks.splice(args.track..=args.track, new_tracks);
 
-        state.length_samples = state
-            .tracks
-            .iter()
-            .map(|t| timeline_end(&t.clips))
-            .max()
-            .unwrap_or(0);
+        set_session_length(&mut state);
 
         let new_id = match append_state(
             ctx,

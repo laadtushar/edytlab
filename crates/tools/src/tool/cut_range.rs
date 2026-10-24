@@ -13,8 +13,8 @@ use serde_json::{json, Value};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, check_track_index, cut_timeline, load_head_state,
-    remap_after_cut, seconds_to_frames, sync_other_tracks, timeline_end, track_clip_rate,
-    track_clip_rates,
+    remap_after_cut, seconds_to_frames, set_session_length, sync_other_tracks, timeline_end,
+    track_clip_rate, track_clip_rates,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -123,12 +123,7 @@ impl Tool for CutRangeTool {
         // edit delete audio elsewhere while naming the right word.
         let dropped = remap_after_cut(&mut state, start_sec, end_sec);
 
-        state.length_samples = state
-            .tracks
-            .iter()
-            .map(|t| timeline_end(&t.clips))
-            .max()
-            .unwrap_or(0);
+        set_session_length(&mut state);
 
         let new_id = match append_state(
             ctx,

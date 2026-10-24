@@ -384,6 +384,49 @@ pub(crate) fn timeline_end(clips: &[Clip]) -> u64 {
         .unwrap_or(0)
 }
 
+/// How far the arrangement reaches, in session frames (#678): each clip's
+/// end converted from the frames of its own file to the frames of the
+/// session's rate, then the maximum over every clip on every track.
+///
+/// A clip's `start_in_track` and `length` are counted in its source's frames
+/// (#234), so a bare maximum over them compares numbers in different units
+/// when a 16 kHz voice sits under a 48 kHz bed. The conversion is the
+/// renderer's own (start and length each scaled and truncated, then added),
+/// so the number equals the length of a full render. A clip whose file's
+/// header cannot be read counts at the session's rate, which is what every
+/// caller did for every clip before.
+pub(crate) fn session_length_frames(state: &SessionState) -> u64 {
+    let session_rate = u64::from(state.sample_rate.max(1));
+    let mut rates: std::collections::HashMap<&std::path::Path, u64> =
+        std::collections::HashMap::new();
+    let mut longest = 0u64;
+    for clip in state.tracks.iter().flat_map(|t| &t.clips) {
+        let rate = *rates.entry(clip.source_path.as_path()).or_insert_with(|| {
+            audio_decoder::probe_sample_rate(&clip.source_path)
+                .map(|r| u64::from(r.max(1)))
+                .unwrap_or(session_rate)
+        });
+        let to_session = |frames: u64| -> u64 {
+            if rate == session_rate {
+                frames
+            } else {
+                (u128::from(frames) * u128::from(session_rate) / u128::from(rate))
+                    .min(u128::from(u64::MAX)) as u64
+            }
+        };
+        let end = to_session(clip.start_in_track).saturating_add(to_session(clip.length));
+        longest = longest.max(end);
+    }
+    longest
+}
+
+/// Set `SessionState::length_samples` from the clips. The one way it is
+/// written (#678): a tool that changes a clip, a track or the rate calls
+/// this last and never adds to or subtracts from the stored number.
+pub(crate) fn set_session_length(state: &mut SessionState) {
+    state.length_samples = session_length_frames(state);
+}
+
 /// The part of `clip` lying inside the timeline window `[from, to)`, moved
 /// so the window's origin sits at `new_origin`.
 ///
@@ -1303,12 +1346,7 @@ where
     // length. This matches the convention used elsewhere in the
     // dispatcher (cut_range tracks length deltas; gain leaves it alone;
     // here the clip itself changes length, so a fresh max is safest).
-    state.length_samples = state
-        .tracks
-        .iter()
-        .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-        .max()
-        .unwrap_or(0);
+    set_session_length(&mut state);
 
     let new_id = match append_state(ctx, state, label.clone()) {
         Ok(id) => id,

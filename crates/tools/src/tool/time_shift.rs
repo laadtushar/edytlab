@@ -1,5 +1,7 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state, track_clip_rate};
+use crate::tool::util::{
+    append_state, check_track_index, load_head_state, set_session_length, track_clip_rate,
+};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -88,12 +90,7 @@ impl Tool for TimeShiftTool {
             clip.start_in_track = apply_time_shift_signed(clip.start_in_track, delta);
         }
         // Recompute session length
-        state.length_samples = state
-            .tracks
-            .iter()
-            .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-            .max()
-            .unwrap_or(0);
+        set_session_length(&mut state);
         let new_id = match append_state(
             ctx,
             state,

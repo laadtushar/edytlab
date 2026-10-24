@@ -8,7 +8,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state, seconds_to_clip_frames};
+use crate::tool::util::{
+    append_state, check_track_index, load_head_state, seconds_to_clip_frames, set_session_length,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -25,12 +27,7 @@ struct Args {
 /// a render pad the end with silence that the arrangement no longer
 /// has.
 pub(crate) fn recompute_length(state: &mut session::SessionState) {
-    state.length_samples = state
-        .tracks
-        .iter()
-        .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-        .max()
-        .unwrap_or(0);
+    set_session_length(state);
 }
 
 pub struct MoveClipTool;

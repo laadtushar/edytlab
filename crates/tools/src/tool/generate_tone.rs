@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use session::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state};
+use crate::tool::util::{append_state, load_head_state, set_session_length};
 use crate::{Tool, ToolContext, ToolResult};
 
 pub(crate) fn synthesize_tone(
@@ -132,7 +132,7 @@ impl Tool for GenerateToneTool {
             effects: vec![],
             sends: Vec::new(),
         });
-        state.length_samples = state.length_samples.max(n_frames);
+        set_session_length(&mut state);
         let new_id = match append_state(
             ctx,
             state,

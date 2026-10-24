@@ -33,8 +33,8 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, cut_annotations, cut_timeline, load_head_state, track_clip_rate,
-    transcript_edit_track,
+    append_state, cut_annotations, cut_timeline, load_head_state, set_session_length,
+    track_clip_rate, transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -135,9 +135,8 @@ impl Tool for CutWordsTool {
 
         // The cut is made in the clips' own frames, which are the source
         // file's rate and not the session's (#234): a 16 kHz voice under a
-        // 48 kHz bed is cut at 16 000 frames a second. The session's rate is
-        // only for its length, below.
-        let session_rate = state.sample_rate.max(1) as f64;
+        // 48 kHz bed is cut at 16 000 frames a second. The session's length is
+        // worked out from the clips afterwards (#678).
         let clip_rate = match track_clip_rate(&state.tracks[track_index], state.sample_rate) {
             Ok(r) => r,
             Err(msg) => return Ok(ToolResult::Error(msg)),
@@ -152,8 +151,6 @@ impl Tool for CutWordsTool {
         track.clips = cut_timeline(&track.clips, start_frame, end_frame);
 
         let removed_s = end_s - start_s;
-        let removed_frames = ((end_s * session_rate).round() as u64)
-            .saturating_sub((start_s * session_rate).round() as u64);
 
         // The labels. Cutting words is cutting audio, so a chapter mark
         // after the removed span is now earlier by the same amount
@@ -190,7 +187,7 @@ impl Tool for CutWordsTool {
             source: transcript.source.clone(),
         });
 
-        state.length_samples = state.length_samples.saturating_sub(removed_frames);
+        set_session_length(&mut state);
 
         let new_id = match append_state(
             ctx,

@@ -36,7 +36,7 @@ use audio_decoder::{DecodedAudio, WavStreamReader};
 
 use crate::provenance::{CLIPBOARD_DIR, DERIVED_DIR};
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{copy_cas_wav, write_cas_wav};
+use crate::tool::util::{copy_cas_wav, set_session_length, write_cas_wav};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -140,13 +140,12 @@ impl Tool for LoadTool {
                     let mut s = node.state;
                     let new_index = s.tracks.len();
                     s.tracks.push(track);
-                    // The session's `length_samples` tracks the longest track
-                    // so renders know the project's overall bound. Project
-                    // sample rate is whatever the first load established —
-                    // mismatched sources are resampled at render time.
-                    if length_samples > s.length_samples {
-                        s.length_samples = length_samples;
-                    }
+                    // The session's `length_samples` is the furthest any
+                    // clip reaches in session frames (#678). Project sample
+                    // rate is whatever the first load established —
+                    // mismatched sources are resampled at render time, so
+                    // this track's frames are converted, not compared.
+                    set_session_length(&mut s);
                     (s, new_index)
                 }
                 Err(e) => return Ok(ToolResult::Error(format!("failed to read head node: {e}"))),

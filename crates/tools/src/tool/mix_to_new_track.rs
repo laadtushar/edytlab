@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     append_state, attach_render_warnings, load_head_state, render_warnings_for_tracks,
+    set_session_length,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -184,7 +185,7 @@ impl Tool for MixToNewTrackTool {
             effects: vec![],
             sends: Vec::new(),
         });
-        new_state.length_samples = new_state.length_samples.max(n_frames);
+        set_session_length(&mut new_state);
 
         let indices_str: Vec<String> = args.track_indices.iter().map(|i| i.to_string()).collect();
         let label = format!(
