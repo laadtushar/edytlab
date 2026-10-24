@@ -1,0 +1,86 @@
+{
+ "cut": "R3",
+ "voice": "river",
+ "tag": "river",
+ "out": "edytlab-v0.7.0-200-tracks-9x16-narrated-river.mp4",
+ "I_orig": -14.0,
+ "TP_orig": -2.0,
+ "I": -14.2,
+ "TP": -2.0,
+ "final_gain_db": 0.3000000000000007,
+ "tempos": {},
+ "placed": [
+  {
+   "id": "r3-hook",
+   "start": 0.4,
+   "end": 1.8050208333333333,
+   "music": false
+  },
+  {
+   "id": "r3-ask",
+   "start": 3.6,
+   "end": 4.967145833333333,
+   "music": false
+  },
+  {
+   "id": "r3-pages",
+   "start": 7.05,
+   "end": 12.718499999999999,
+   "music": false
+  },
+  {
+   "id": "r3-result",
+   "start": 16.25,
+   "end": 21.149458333333335,
+   "music": false
+  },
+  {
+   "id": "r3-end",
+   "start": 23.6,
+   "end": 25.349708333333336,
+   "music": false
+  }
+ ],
+ "own_sound": [
+  {
+   "id": "r3-hook",
+   "music": false,
+   "orig_rms": -37.530887603759766,
+   "ducked_rms": -47.93223495483399,
+   "voice_rms": -17.700076293945312,
+   "duck_db": -10.701347351074219
+  },
+  {
+   "id": "r3-ask",
+   "music": false,
+   "orig_rms": -51.38839340209961,
+   "ducked_rms": -61.695655059814456,
+   "voice_rms": -17.700076293945312,
+   "duck_db": -10.607261657714844
+  },
+  {
+   "id": "r3-pages",
+   "music": false,
+   "orig_rms": -21.993953704833984,
+   "ducked_rms": -33.69392700195313,
+   "voice_rms": -17.700022888183593,
+   "duck_db": -11.99997329711914
+  },
+  {
+   "id": "r3-result",
+   "music": false,
+   "orig_rms": -31.0106258392334,
+   "ducked_rms": -42.69825286865235,
+   "voice_rms": -17.7,
+   "duck_db": -11.987627029418945
+  },
+  {
+   "id": "r3-end",
+   "music": false,
+   "orig_rms": -17.667617797851562,
+   "ducked_rms": -29.07995147705078,
+   "voice_rms": -17.7,
+   "duck_db": -11.712333679199219
+  }
+ ]
+}

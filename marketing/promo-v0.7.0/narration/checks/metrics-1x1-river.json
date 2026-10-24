@@ -1,0 +1,226 @@
+{
+ "cut": "V1sq",
+ "voice": "river",
+ "tag": "river",
+ "out": "edytlab-v0.7.0-1x1-narrated-river.mp4",
+ "I_orig": -14.1,
+ "TP_orig": -1.2,
+ "I": -14.2,
+ "TP": -1.4,
+ "final_gain_db": 0.40000000000000036,
+ "tempos": {},
+ "placed": [
+  {
+   "id": "v1-open",
+   "start": 0.4,
+   "end": 2.836875,
+   "music": false
+  },
+  {
+   "id": "v1-describe-a",
+   "start": 3.9,
+   "end": 5.790041666666666,
+   "music": false
+  },
+  {
+   "id": "v1-describe-b",
+   "start": 8.2,
+   "end": 11.178541666666666,
+   "music": false
+  },
+  {
+   "id": "v1-describe-c",
+   "start": 13.5,
+   "end": 16.555708333333335,
+   "music": true
+  },
+  {
+   "id": "v1-faders",
+   "start": 21.6,
+   "end": 24.57560416666667,
+   "music": false
+  },
+  {
+   "id": "v1-graph-intro",
+   "start": 26.25,
+   "end": 28.045416666666668,
+   "music": false
+  },
+  {
+   "id": "v1-graph-a",
+   "start": 29.95,
+   "end": 31.695520833333333,
+   "music": false
+  },
+  {
+   "id": "v1-graph-b",
+   "start": 33.15,
+   "end": 35.457791666666665,
+   "music": false
+  },
+  {
+   "id": "v1-big-a",
+   "start": 36.95,
+   "end": 38.396458333333335,
+   "music": false
+  },
+  {
+   "id": "v1-big-b",
+   "start": 39.6,
+   "end": 44.900666666666666,
+   "music": false
+  },
+  {
+   "id": "v1-runtime",
+   "start": 48.15,
+   "end": 52.305,
+   "music": false
+  },
+  {
+   "id": "v1-skills",
+   "start": 53.85,
+   "end": 56.797312500000004,
+   "music": false
+  },
+  {
+   "id": "v1-mix-a",
+   "start": 59.1,
+   "end": 61.46425,
+   "music": true
+  },
+  {
+   "id": "v1-mix-b",
+   "start": 66.05,
+   "end": 69.330375,
+   "music": true
+  },
+  {
+   "id": "v1-end",
+   "start": 71.65,
+   "end": 74.10852083333334,
+   "music": false
+  }
+ ],
+ "own_sound": [
+  {
+   "id": "v1-open",
+   "music": false,
+   "orig_rms": -51.089622497558594,
+   "ducked_rms": -61.35788116455078,
+   "voice_rms": -17.600001907348634,
+   "duck_db": -10.668258666992188
+  },
+  {
+   "id": "v1-describe-a",
+   "music": false,
+   "orig_rms": -57.29705047607422,
+   "ducked_rms": -67.6867919921875,
+   "voice_rms": -17.600001907348634,
+   "duck_db": -10.789741516113281
+  },
+  {
+   "id": "v1-describe-b",
+   "music": false,
+   "orig_rms": -29.623994827270508,
+   "ducked_rms": -41.22399673461914,
+   "voice_rms": -17.60003242492676,
+   "duck_db": -12.000001907348633
+  },
+  {
+   "id": "v1-describe-c",
+   "music": true,
+   "orig_rms": -15.788512229919434,
+   "ducked_rms": -26.38851127624512,
+   "voice_rms": -17.600007629394533,
+   "duck_db": -10.999999046325684
+  },
+  {
+   "id": "v1-faders",
+   "music": false,
+   "orig_rms": -25.62973403930664,
+   "ducked_rms": -37.20694122314453,
+   "voice_rms": -17.600003814697267,
+   "duck_db": -11.97720718383789
+  },
+  {
+   "id": "v1-graph-intro",
+   "music": false,
+   "orig_rms": -50.068885803222656,
+   "ducked_rms": -60.333230590820314,
+   "voice_rms": -17.60001907348633,
+   "duck_db": -10.664344787597656
+  },
+  {
+   "id": "v1-graph-a",
+   "music": false,
+   "orig_rms": -48.3234977722168,
+   "ducked_rms": -58.57014617919922,
+   "voice_rms": -17.6,
+   "duck_db": -10.646648406982422
+  },
+  {
+   "id": "v1-graph-b",
+   "music": false,
+   "orig_rms": -29.118968963623047,
+   "ducked_rms": -40.71896896362305,
+   "voice_rms": -17.600001907348634,
+   "duck_db": -12.0
+  },
+  {
+   "id": "v1-big-a",
+   "music": false,
+   "orig_rms": -58.78742980957031,
+   "ducked_rms": -68.9984146118164,
+   "voice_rms": -17.600116348266603,
+   "duck_db": -10.610984802246094
+  },
+  {
+   "id": "v1-big-b",
+   "music": false,
+   "orig_rms": -25.927440643310547,
+   "ducked_rms": -37.527417755126955,
+   "voice_rms": -17.600001907348634,
+   "duck_db": -11.999977111816406
+  },
+  {
+   "id": "v1-runtime",
+   "music": false,
+   "orig_rms": -53.54991912841797,
+   "ducked_rms": -63.778604125976564,
+   "voice_rms": -17.600001907348634,
+   "duck_db": -10.628684997558594
+  },
+  {
+   "id": "v1-skills",
+   "music": false,
+   "orig_rms": -30.436786651611328,
+   "ducked_rms": -42.01889572143555,
+   "voice_rms": -17.600009536743165,
+   "duck_db": -11.982109069824219
+  },
+  {
+   "id": "v1-mix-a",
+   "music": true,
+   "orig_rms": -13.37454605102539,
+   "ducked_rms": -23.912400817871095,
+   "voice_rms": -17.600003814697267,
+   "duck_db": -10.937854766845703
+  },
+  {
+   "id": "v1-mix-b",
+   "music": true,
+   "orig_rms": -14.003015518188477,
+   "ducked_rms": -24.574081039428712,
+   "voice_rms": -17.600003814697267,
+   "duck_db": -10.971065521240234
+  },
+  {
+   "id": "v1-end",
+   "music": false,
+   "orig_rms": -25.274188995361328,
+   "ducked_rms": -36.476617431640626,
+   "voice_rms": -17.600003814697267,
+   "duck_db": -11.602428436279297
+  }
+ ]
+}

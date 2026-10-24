@@ -1,0 +1,88 @@
+{
+ "cut": "R3",
+ "voice": "daniel",
+ "tag": "daniel",
+ "out": "edytlab-v0.7.0-200-tracks-9x16-narrated-daniel.mp4",
+ "I_orig": -14.0,
+ "TP_orig": -2.0,
+ "I": -14.0,
+ "TP": -1.2,
+ "final_gain_db": 1.1999999999999993,
+ "tempos": {
+  "r3-result": 1.04
+ },
+ "placed": [
+  {
+   "id": "r3-hook",
+   "start": 0.4,
+   "end": 2.4515208333333334,
+   "music": false
+  },
+  {
+   "id": "r3-ask",
+   "start": 3.6,
+   "end": 5.308895833333334,
+   "music": false
+  },
+  {
+   "id": "r3-pages",
+   "start": 7.05,
+   "end": 14.682375,
+   "music": false
+  },
+  {
+   "id": "r3-result",
+   "start": 16.25,
+   "end": 23.068458333333332,
+   "music": false
+  },
+  {
+   "id": "r3-end",
+   "start": 23.6,
+   "end": 25.529645833333333,
+   "music": false
+  }
+ ],
+ "own_sound": [
+  {
+   "id": "r3-hook",
+   "music": false,
+   "orig_rms": -39.17481994628906,
+   "ducked_rms": -48.67616729736328,
+   "voice_rms": -16.800009536743165,
+   "duck_db": -10.701347351074219
+  },
+  {
+   "id": "r3-ask",
+   "music": false,
+   "orig_rms": -52.35740280151367,
+   "ducked_rms": -61.90538864135742,
+   "voice_rms": -16.8,
+   "duck_db": -10.74798583984375
+  },
+  {
+   "id": "r3-pages",
+   "music": false,
+   "orig_rms": -22.39556312561035,
+   "ducked_rms": -33.19554595947265,
+   "voice_rms": -16.8000057220459,
+   "duck_db": -11.999982833862305
+  },
+  {
+   "id": "r3-result",
+   "music": false,
+   "orig_rms": -32.446006774902344,
+   "ducked_rms": -43.234135437011716,
+   "voice_rms": -16.8,
+   "duck_db": -11.988128662109375
+  },
+  {
+   "id": "r3-end",
+   "music": false,
+   "orig_rms": -18.092735290527344,
+   "ducked_rms": -28.80176239013672,
+   "voice_rms": -16.800009536743165,
+   "duck_db": -11.909027099609375
+  }
+ ]
+}

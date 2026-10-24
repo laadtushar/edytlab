@@ -1,0 +1,116 @@
+{
+ "cut": "R1",
+ "voice": "daniel",
+ "tag": "daniel",
+ "out": "edytlab-v0.7.0-whats-new-9x16-narrated-daniel.mp4",
+ "I_orig": -13.9,
+ "TP_orig": -1.1,
+ "I": -13.9,
+ "TP": -1.2,
+ "final_gain_db": 1.4000000000000004,
+ "tempos": {
+  "r1-faders": 1.06
+ },
+ "placed": [
+  {
+   "id": "r1-hook",
+   "start": 0.35,
+   "end": 1.8282916666666664,
+   "music": false
+  },
+  {
+   "id": "r1-faders",
+   "start": 2.5,
+   "end": 6.567166666666667,
+   "music": false
+  },
+  {
+   "id": "r1-graph",
+   "start": 7.0,
+   "end": 13.469666666666667,
+   "music": false
+  },
+  {
+   "id": "r1-big",
+   "start": 13.95,
+   "end": 22.939,
+   "music": false
+  },
+  {
+   "id": "r1-mix",
+   "start": 23.45,
+   "end": 28.306041666666665,
+   "music": true
+  },
+  {
+   "id": "r1-skills",
+   "start": 30.75,
+   "end": 34.3295625,
+   "music": false
+  },
+  {
+   "id": "r1-end",
+   "start": 35.1,
+   "end": 38.7560625,
+   "music": false
+  }
+ ],
+ "own_sound": [
+  {
+   "id": "r1-hook",
+   "music": false,
+   "orig_rms": -33.83966064453125,
+   "ducked_rms": -43.234910583496095,
+   "voice_rms": -16.59993896484375,
+   "duck_db": -10.795249938964844
+  },
+  {
+   "id": "r1-faders",
+   "music": false,
+   "orig_rms": -23.8051700592041,
+   "ducked_rms": -34.39392623901367,
+   "voice_rms": -16.600003814697267,
+   "duck_db": -11.98875617980957
+  },
+  {
+   "id": "r1-graph",
+   "music": false,
+   "orig_rms": -28.355846405029297,
+   "ducked_rms": -38.955701446533205,
+   "voice_rms": -16.600007629394533,
+   "duck_db": -11.999855041503906
+  },
+  {
+   "id": "r1-big",
+   "music": false,
+   "orig_rms": -24.174833297729492,
+   "ducked_rms": -34.77461395263672,
+   "voice_rms": -16.6,
+   "duck_db": -11.999780654907227
+  },
+  {
+   "id": "r1-mix",
+   "music": true,
+   "orig_rms": -17.864883422851562,
+   "ducked_rms": -27.45597610473633,
+   "voice_rms": -16.600001907348634,
+   "duck_db": -10.991092681884766
+  },
+  {
+   "id": "r1-skills",
+   "music": false,
+   "orig_rms": -34.46417236328125,
+   "ducked_rms": -45.045823669433595,
+   "voice_rms": -16.60001335144043,
+   "duck_db": -11.981651306152344
+  },
+  {
+   "id": "r1-end",
+   "music": false,
+   "orig_rms": -24.310001373291016,
+   "ducked_rms": -34.66250381469727,
+   "voice_rms": -16.600001907348634,
+   "duck_db": -11.75250244140625
+  }
+ ]
+}

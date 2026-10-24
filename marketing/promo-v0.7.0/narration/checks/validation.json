@@ -1,0 +1,2174 @@
+[
+ {
+  "cut": "V1",
+  "slug": "16x9",
+  "probe_src": {
+   "w": 1920,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "probe_out": {
+   "w": 1920,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "same_video": true,
+  "I_orig": -14.1,
+  "TP_orig": -1.2,
+  "I": -14.1,
+  "TP": -1.2,
+  "timing": [
+   {
+    "id": "v1-open",
+    "shot": "open (S8a b-roll)",
+    "shot_start": 0.0,
+    "shot_end": 3.8,
+    "start": 0.4,
+    "end": 3.4549374999999998,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-a",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 3.9,
+    "end": 6.19775,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-b",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 8.2,
+    "end": 12.4705,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-c",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 13.5,
+    "end": 17.9159375,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-faders",
+    "shot": "faders (S2)",
+    "shot_start": 21.167,
+    "shot_end": 26.167,
+    "start": 21.6,
+    "end": 25.7254375,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-intro",
+    "shot": "graph intro (S8b)",
+    "shot_start": 25.867,
+    "shot_end": 29.867,
+    "start": 26.25,
+    "end": 29.0100625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-a",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 29.95,
+    "end": 32.1340625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-b",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 33.15,
+    "end": 36.48552083333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-a",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 36.95,
+    "end": 39.02047916666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-b",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 39.6,
+    "end": 45.95441666666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-runtime",
+    "shot": "runtime (S5)",
+    "shot_start": 47.767,
+    "shot_end": 53.767,
+    "start": 48.15,
+    "end": 53.40079166666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-skills",
+    "shot": "skills (S6)",
+    "shot_start": 53.467,
+    "shot_end": 58.867,
+    "start": 53.85,
+    "end": 58.0789375,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-mix-a",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 59.1,
+    "end": 62.080375000000004,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-mix-b",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 66.05,
+    "end": 70.19624999999999,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-end",
+    "shot": "end card",
+    "shot_start": 71.067,
+    "shot_end": 76.467,
+    "start": 71.65,
+    "end": 75.30606250000001,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "v1-open",
+    "music": false,
+    "orig_rms": -52.071311950683594,
+    "own_in_mix_rms": -27.021116256713867,
+    "voice_rms": -19.36678695678711,
+    "drop_db": 25.050195693969727
+   },
+   {
+    "id": "v1-describe-a",
+    "music": false,
+    "orig_rms": -58.145362854003906,
+    "own_in_mix_rms": -26.842676162719727,
+    "voice_rms": -19.1874942779541,
+    "drop_db": 31.30268669128418
+   },
+   {
+    "id": "v1-describe-b",
+    "music": false,
+    "orig_rms": -31.188737869262695,
+    "own_in_mix_rms": -26.745126724243164,
+    "voice_rms": -19.239850997924805,
+    "drop_db": 4.443611145019531
+   },
+   {
+    "id": "v1-describe-c",
+    "music": true,
+    "orig_rms": -14.836945533752441,
+    "own_in_mix_rms": -22.474365234375,
+    "voice_rms": -19.483089447021484,
+    "drop_db": -7.637419700622559
+   },
+   {
+    "id": "v1-faders",
+    "music": false,
+    "orig_rms": -26.92232322692871,
+    "own_in_mix_rms": -27.51998519897461,
+    "voice_rms": -20.258432388305664,
+    "drop_db": -0.5976619720458984
+   },
+   {
+    "id": "v1-graph-intro",
+    "music": false,
+    "orig_rms": -51.93641662597656,
+    "own_in_mix_rms": -27.44751739501953,
+    "voice_rms": -19.793176651000977,
+    "drop_db": 24.48889923095703
+   },
+   {
+    "id": "v1-graph-a",
+    "music": false,
+    "orig_rms": -49.296897888183594,
+    "own_in_mix_rms": -27.320514678955078,
+    "voice_rms": -19.667449951171875,
+    "drop_db": 21.976383209228516
+   },
+   {
+    "id": "v1-graph-b",
+    "music": false,
+    "orig_rms": -30.718639373779297,
+    "own_in_mix_rms": -27.55410385131836,
+    "voice_rms": -20.065616607666016,
+    "drop_db": 3.1645355224609375
+   },
+   {
+    "id": "v1-big-a",
+    "music": false,
+    "orig_rms": -60.34507751464844,
+    "own_in_mix_rms": -27.51130485534668,
+    "voice_rms": -19.85598373413086,
+    "drop_db": 32.83377265930176
+   },
+   {
+    "id": "v1-big-b",
+    "music": false,
+    "orig_rms": -26.714895248413086,
+    "own_in_mix_rms": -26.804269790649414,
+    "voice_rms": -19.559280395507812,
+    "drop_db": -0.08937454223632812
+   },
+   {
+    "id": "v1-runtime",
+    "music": false,
+    "orig_rms": -54.56645584106445,
+    "own_in_mix_rms": -27.183061599731445,
+    "voice_rms": -19.528207778930664,
+    "drop_db": 27.383394241333008
+   },
+   {
+    "id": "v1-skills",
+    "music": false,
+    "orig_rms": -32.00483703613281,
+    "own_in_mix_rms": -27.120113372802734,
+    "voice_rms": -19.590011596679688,
+    "drop_db": 4.884723663330078
+   },
+   {
+    "id": "v1-mix-a",
+    "music": true,
+    "orig_rms": -13.490978240966797,
+    "own_in_mix_rms": -22.340723037719727,
+    "voice_rms": -20.112403869628906,
+    "drop_db": -8.84974479675293
+   },
+   {
+    "id": "v1-mix-b",
+    "music": true,
+    "orig_rms": -14.023795127868652,
+    "own_in_mix_rms": -21.961700439453125,
+    "voice_rms": -19.568912506103516,
+    "drop_db": -7.937905311584473
+   },
+   {
+    "id": "v1-end",
+    "music": false,
+    "orig_rms": -26.99758529663086,
+    "own_in_mix_rms": -26.849258422851562,
+    "voice_rms": -19.609451293945312,
+    "drop_db": 0.14832687377929688
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "V1sq",
+  "slug": "1x1",
+  "probe_src": {
+   "w": 1080,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "same_video": true,
+  "I_orig": -14.1,
+  "TP_orig": -1.2,
+  "I": -14.1,
+  "TP": -1.2,
+  "timing": [
+   {
+    "id": "v1-open",
+    "shot": "open (S8a b-roll)",
+    "shot_start": 0.0,
+    "shot_end": 3.8,
+    "start": 0.4,
+    "end": 3.4549374999999998,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-a",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 3.9,
+    "end": 6.19775,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-b",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 8.2,
+    "end": 12.4705,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-c",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 13.5,
+    "end": 17.9159375,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-faders",
+    "shot": "faders (S2)",
+    "shot_start": 21.167,
+    "shot_end": 26.167,
+    "start": 21.6,
+    "end": 25.7254375,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-intro",
+    "shot": "graph intro (S8b)",
+    "shot_start": 25.867,
+    "shot_end": 29.867,
+    "start": 26.25,
+    "end": 29.0100625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-a",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 29.95,
+    "end": 32.1340625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-b",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 33.15,
+    "end": 36.48552083333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-a",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 36.95,
+    "end": 39.02047916666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-b",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 39.6,
+    "end": 45.95441666666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-runtime",
+    "shot": "runtime (S5)",
+    "shot_start": 47.767,
+    "shot_end": 53.767,
+    "start": 48.15,
+    "end": 53.40079166666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-skills",
+    "shot": "skills (S6)",
+    "shot_start": 53.467,
+    "shot_end": 58.867,
+    "start": 53.85,
+    "end": 58.0789375,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-mix-a",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 59.1,
+    "end": 62.080375000000004,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-mix-b",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 66.05,
+    "end": 70.19624999999999,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-end",
+    "shot": "end card",
+    "shot_start": 71.067,
+    "shot_end": 76.467,
+    "start": 71.65,
+    "end": 75.30606250000001,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "v1-open",
+    "music": false,
+    "orig_rms": -52.071311950683594,
+    "own_in_mix_rms": -27.021116256713867,
+    "voice_rms": -19.36678695678711,
+    "drop_db": 25.050195693969727
+   },
+   {
+    "id": "v1-describe-a",
+    "music": false,
+    "orig_rms": -58.145362854003906,
+    "own_in_mix_rms": -26.842676162719727,
+    "voice_rms": -19.1874942779541,
+    "drop_db": 31.30268669128418
+   },
+   {
+    "id": "v1-describe-b",
+    "music": false,
+    "orig_rms": -31.188737869262695,
+    "own_in_mix_rms": -26.745126724243164,
+    "voice_rms": -19.239850997924805,
+    "drop_db": 4.443611145019531
+   },
+   {
+    "id": "v1-describe-c",
+    "music": true,
+    "orig_rms": -14.836945533752441,
+    "own_in_mix_rms": -22.474365234375,
+    "voice_rms": -19.483089447021484,
+    "drop_db": -7.637419700622559
+   },
+   {
+    "id": "v1-faders",
+    "music": false,
+    "orig_rms": -26.92232322692871,
+    "own_in_mix_rms": -27.51998519897461,
+    "voice_rms": -20.258432388305664,
+    "drop_db": -0.5976619720458984
+   },
+   {
+    "id": "v1-graph-intro",
+    "music": false,
+    "orig_rms": -51.93641662597656,
+    "own_in_mix_rms": -27.44751739501953,
+    "voice_rms": -19.793176651000977,
+    "drop_db": 24.48889923095703
+   },
+   {
+    "id": "v1-graph-a",
+    "music": false,
+    "orig_rms": -49.296897888183594,
+    "own_in_mix_rms": -27.320514678955078,
+    "voice_rms": -19.667449951171875,
+    "drop_db": 21.976383209228516
+   },
+   {
+    "id": "v1-graph-b",
+    "music": false,
+    "orig_rms": -30.718639373779297,
+    "own_in_mix_rms": -27.55410385131836,
+    "voice_rms": -20.065616607666016,
+    "drop_db": 3.1645355224609375
+   },
+   {
+    "id": "v1-big-a",
+    "music": false,
+    "orig_rms": -60.34507751464844,
+    "own_in_mix_rms": -27.51130485534668,
+    "voice_rms": -19.85598373413086,
+    "drop_db": 32.83377265930176
+   },
+   {
+    "id": "v1-big-b",
+    "music": false,
+    "orig_rms": -26.714895248413086,
+    "own_in_mix_rms": -26.804269790649414,
+    "voice_rms": -19.559280395507812,
+    "drop_db": -0.08937454223632812
+   },
+   {
+    "id": "v1-runtime",
+    "music": false,
+    "orig_rms": -54.56645584106445,
+    "own_in_mix_rms": -27.183061599731445,
+    "voice_rms": -19.528207778930664,
+    "drop_db": 27.383394241333008
+   },
+   {
+    "id": "v1-skills",
+    "music": false,
+    "orig_rms": -32.00483703613281,
+    "own_in_mix_rms": -27.120113372802734,
+    "voice_rms": -19.590011596679688,
+    "drop_db": 4.884723663330078
+   },
+   {
+    "id": "v1-mix-a",
+    "music": true,
+    "orig_rms": -13.490978240966797,
+    "own_in_mix_rms": -22.340723037719727,
+    "voice_rms": -20.112403869628906,
+    "drop_db": -8.84974479675293
+   },
+   {
+    "id": "v1-mix-b",
+    "music": true,
+    "orig_rms": -14.023795127868652,
+    "own_in_mix_rms": -21.961700439453125,
+    "voice_rms": -19.568912506103516,
+    "drop_db": -7.937905311584473
+   },
+   {
+    "id": "v1-end",
+    "music": false,
+    "orig_rms": -26.99758529663086,
+    "own_in_mix_rms": -26.849258422851562,
+    "voice_rms": -19.609451293945312,
+    "drop_db": 0.14832687377929688
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "R1",
+  "slug": "whats-new-9x16",
+  "probe_src": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1184",
+   "vdur": 39.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 39.466667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1184",
+   "vdur": 39.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 39.466667
+  },
+  "same_video": true,
+  "I_orig": -13.9,
+  "TP_orig": -1.1,
+  "I": -13.9,
+  "TP": -1.2,
+  "timing": [
+   {
+    "id": "r1-hook",
+    "shot": "hook (S8a)",
+    "shot_start": 0.0,
+    "shot_end": 2.4,
+    "start": 0.35,
+    "end": 1.8282916666666664,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-faders",
+    "shot": "faders (S2)",
+    "shot_start": 2.1,
+    "shot_end": 6.9,
+    "start": 2.5,
+    "end": 6.567166666666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-graph",
+    "shot": "graph (S3)",
+    "shot_start": 6.6,
+    "shot_end": 13.85,
+    "start": 7.0,
+    "end": 13.469666666666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-big",
+    "shot": "big sessions (S4)",
+    "shot_start": 13.567,
+    "shot_end": 23.35,
+    "start": 13.95,
+    "end": 22.939,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-mix",
+    "shot": "mix (S7)",
+    "shot_start": 23.067,
+    "shot_end": 30.667,
+    "start": 23.45,
+    "end": 28.306041666666665,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "r1-skills",
+    "shot": "skills (S6)",
+    "shot_start": 30.367,
+    "shot_end": 34.967,
+    "start": 30.75,
+    "end": 34.3295625,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-end",
+    "shot": "end card",
+    "shot_start": 34.667,
+    "shot_end": 39.467,
+    "start": 35.1,
+    "end": 38.7560625,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "r1-hook",
+    "music": false,
+    "orig_rms": -33.83966064453125,
+    "own_in_mix_rms": -26.653606414794922,
+    "voice_rms": -19.106952667236328,
+    "drop_db": 7.186054229736328
+   },
+   {
+    "id": "r1-faders",
+    "music": false,
+    "orig_rms": -23.8051700592041,
+    "own_in_mix_rms": -26.443737030029297,
+    "voice_rms": -19.55698013305664,
+    "drop_db": -2.6385669708251953
+   },
+   {
+    "id": "r1-graph",
+    "music": false,
+    "orig_rms": -28.355846405029297,
+    "own_in_mix_rms": -27.057315826416016,
+    "voice_rms": -19.68805503845215,
+    "drop_db": 1.2985305786132812
+   },
+   {
+    "id": "r1-big",
+    "music": false,
+    "orig_rms": -24.174833297729492,
+    "own_in_mix_rms": -26.703401565551758,
+    "voice_rms": -19.758716583251953,
+    "drop_db": -2.5285682678222656
+   },
+   {
+    "id": "r1-mix",
+    "music": true,
+    "orig_rms": -17.864883422851562,
+    "own_in_mix_rms": -24.46122169494629,
+    "voice_rms": -19.671144485473633,
+    "drop_db": -6.596338272094727
+   },
+   {
+    "id": "r1-skills",
+    "music": false,
+    "orig_rms": -34.46417236328125,
+    "own_in_mix_rms": -27.338375091552734,
+    "voice_rms": -19.75408363342285,
+    "drop_db": 7.125797271728516
+   },
+   {
+    "id": "r1-end",
+    "music": false,
+    "orig_rms": -24.310001373291016,
+    "own_in_mix_rms": -26.517946243286133,
+    "voice_rms": -19.58868980407715,
+    "drop_db": -2.207944869995117
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "R2",
+  "slug": "describe-the-edit-9x16",
+  "probe_src": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "782",
+   "vdur": 26.066667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 26.066667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "782",
+   "vdur": 26.066667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 26.066667
+  },
+  "same_video": true,
+  "I_orig": -14.0,
+  "TP_orig": -1.1,
+  "I": -13.9,
+  "TP": -1.4,
+  "timing": [
+   {
+    "id": "r2-hook",
+    "shot": "hook (S1)",
+    "shot_start": 0.0,
+    "shot_end": 1.8,
+    "start": 0.35,
+    "end": 1.4345208333333335,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r2-type",
+    "shot": "type (S1)",
+    "shot_start": 1.8,
+    "shot_end": 5.356,
+    "start": 2.2,
+    "end": 3.502854166666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r2-tools",
+    "shot": "tools (S1)",
+    "shot_start": 5.367,
+    "shot_end": 11.367,
+    "start": 6.2,
+    "end": 10.32775,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r2-play",
+    "shot": "play (S1)",
+    "shot_start": 11.367,
+    "shot_end": 22.567,
+    "start": 12.0,
+    "end": 16.90597916666667,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "r2-end",
+    "shot": "end card",
+    "shot_start": 22.267,
+    "shot_end": 26.067,
+    "start": 22.7,
+    "end": 25.0895625,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "r2-hook",
+    "music": false,
+    "orig_rms": -40.60369110107422,
+    "own_in_mix_rms": -26.36501407623291,
+    "voice_rms": -18.728188514709473,
+    "drop_db": 14.238677024841309
+   },
+   {
+    "id": "r2-type",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -27.222152709960938,
+    "voice_rms": -19.566648483276367,
+    "drop_db": 92.7778549194336
+   },
+   {
+    "id": "r2-tools",
+    "music": false,
+    "orig_rms": -33.460994720458984,
+    "own_in_mix_rms": -27.29099464416504,
+    "voice_rms": -19.72238540649414,
+    "drop_db": 6.170000076293945
+   },
+   {
+    "id": "r2-play",
+    "music": true,
+    "orig_rms": -18.560688018798828,
+    "own_in_mix_rms": -24.81416130065918,
+    "voice_rms": -20.005308151245117,
+    "drop_db": -6.253473281860352
+   },
+   {
+    "id": "r2-end",
+    "music": false,
+    "orig_rms": -24.09060287475586,
+    "own_in_mix_rms": -27.834564208984375,
+    "voice_rms": -20.95149803161621,
+    "drop_db": -3.7439613342285156
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "R3",
+  "slug": "200-tracks-9x16",
+  "probe_src": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "821",
+   "vdur": 27.366667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 27.366667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "821",
+   "vdur": 27.366667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 27.366667
+  },
+  "same_video": true,
+  "I_orig": -14.0,
+  "TP_orig": -2.0,
+  "I": -14.0,
+  "TP": -1.2,
+  "timing": [
+   {
+    "id": "r3-hook",
+    "shot": "hook (S4)",
+    "shot_start": 0.0,
+    "shot_end": 3.5,
+    "start": 0.4,
+    "end": 2.4515208333333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-ask",
+    "shot": "ask (S4)",
+    "shot_start": 3.2,
+    "shot_end": 6.671,
+    "start": 3.6,
+    "end": 5.308895833333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-pages",
+    "shot": "pages (S4)",
+    "shot_start": 6.667,
+    "shot_end": 16.167,
+    "start": 7.05,
+    "end": 14.682375,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-result",
+    "shot": "result (S4)",
+    "shot_start": 15.867,
+    "shot_end": 23.467,
+    "start": 16.25,
+    "end": 23.068458333333332,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-end",
+    "shot": "end card",
+    "shot_start": 23.167,
+    "shot_end": 27.367,
+    "start": 23.6,
+    "end": 25.529645833333333,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "r3-hook",
+    "music": false,
+    "orig_rms": -39.17481994628906,
+    "own_in_mix_rms": -27.388408660888672,
+    "voice_rms": -19.766265869140625,
+    "drop_db": 11.78641128540039
+   },
+   {
+    "id": "r3-ask",
+    "music": false,
+    "orig_rms": -52.35740280151367,
+    "own_in_mix_rms": -27.70465850830078,
+    "voice_rms": -20.050561904907227,
+    "drop_db": 24.65274429321289
+   },
+   {
+    "id": "r3-pages",
+    "music": false,
+    "orig_rms": -22.39556312561035,
+    "own_in_mix_rms": -26.30098533630371,
+    "voice_rms": -19.678712844848633,
+    "drop_db": -3.9054222106933594
+   },
+   {
+    "id": "r3-result",
+    "music": false,
+    "orig_rms": -32.446006774902344,
+    "own_in_mix_rms": -27.296606063842773,
+    "voice_rms": -19.75452995300293,
+    "drop_db": 5.14940071105957
+   },
+   {
+    "id": "r3-end",
+    "music": false,
+    "orig_rms": -18.092735290527344,
+    "own_in_mix_rms": -25.043134689331055,
+    "voice_rms": -19.773263931274414,
+    "drop_db": -6.950399398803711
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "daniel"
+ },
+ {
+  "cut": "V1",
+  "slug": "16x9",
+  "probe_src": {
+   "w": 1920,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "probe_out": {
+   "w": 1920,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "same_video": true,
+  "I_orig": -14.1,
+  "TP_orig": -1.2,
+  "I": -14.2,
+  "TP": -1.4,
+  "timing": [
+   {
+    "id": "v1-open",
+    "shot": "open (S8a b-roll)",
+    "shot_start": 0.0,
+    "shot_end": 3.8,
+    "start": 0.4,
+    "end": 2.836875,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-a",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 3.9,
+    "end": 5.790041666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-b",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 8.2,
+    "end": 11.178541666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-c",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 13.5,
+    "end": 16.555708333333335,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-faders",
+    "shot": "faders (S2)",
+    "shot_start": 21.167,
+    "shot_end": 26.167,
+    "start": 21.6,
+    "end": 24.57560416666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-intro",
+    "shot": "graph intro (S8b)",
+    "shot_start": 25.867,
+    "shot_end": 29.867,
+    "start": 26.25,
+    "end": 28.045416666666668,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-a",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 29.95,
+    "end": 31.695520833333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-b",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 33.15,
+    "end": 35.457791666666665,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-a",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 36.95,
+    "end": 38.396458333333335,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-b",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 39.6,
+    "end": 44.900666666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-runtime",
+    "shot": "runtime (S5)",
+    "shot_start": 47.767,
+    "shot_end": 53.767,
+    "start": 48.15,
+    "end": 52.305,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-skills",
+    "shot": "skills (S6)",
+    "shot_start": 53.467,
+    "shot_end": 58.867,
+    "start": 53.85,
+    "end": 56.797312500000004,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-mix-a",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 59.1,
+    "end": 61.46425,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-mix-b",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 66.05,
+    "end": 69.330375,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-end",
+    "shot": "end card",
+    "shot_start": 71.067,
+    "shot_end": 76.467,
+    "start": 71.65,
+    "end": 74.10852083333334,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "v1-open",
+    "music": false,
+    "orig_rms": -51.089622497558594,
+    "own_in_mix_rms": -27.71438980102539,
+    "voice_rms": -20.06169319152832,
+    "drop_db": 23.375232696533203
+   },
+   {
+    "id": "v1-describe-a",
+    "music": false,
+    "orig_rms": -57.29705047607422,
+    "own_in_mix_rms": -27.991947174072266,
+    "voice_rms": -20.336915969848633,
+    "drop_db": 29.305103302001953
+   },
+   {
+    "id": "v1-describe-b",
+    "music": false,
+    "orig_rms": -29.623994827270508,
+    "own_in_mix_rms": -27.584619522094727,
+    "voice_rms": -20.147220611572266,
+    "drop_db": 2.0393753051757812
+   },
+   {
+    "id": "v1-describe-c",
+    "music": true,
+    "orig_rms": -15.788512229919434,
+    "own_in_mix_rms": -24.276123046875,
+    "voice_rms": -20.62839698791504,
+    "drop_db": -8.487610816955566
+   },
+   {
+    "id": "v1-faders",
+    "music": false,
+    "orig_rms": -25.62973403930664,
+    "own_in_mix_rms": -28.11155891418457,
+    "voice_rms": -20.963287353515625,
+    "drop_db": -2.4818248748779297
+   },
+   {
+    "id": "v1-graph-intro",
+    "music": false,
+    "orig_rms": -50.068885803222656,
+    "own_in_mix_rms": -28.78095245361328,
+    "voice_rms": -21.128551483154297,
+    "drop_db": 21.287933349609375
+   },
+   {
+    "id": "v1-graph-a",
+    "music": false,
+    "orig_rms": -48.3234977722168,
+    "own_in_mix_rms": -28.48885154724121,
+    "voice_rms": -20.83666229248047,
+    "drop_db": 19.834646224975586
+   },
+   {
+    "id": "v1-graph-b",
+    "music": false,
+    "orig_rms": -29.118968963623047,
+    "own_in_mix_rms": -28.464244842529297,
+    "voice_rms": -21.050430297851562,
+    "drop_db": 0.65472412109375
+   },
+   {
+    "id": "v1-big-a",
+    "music": false,
+    "orig_rms": -58.78742980957031,
+    "own_in_mix_rms": -28.58667755126953,
+    "voice_rms": -20.931522369384766,
+    "drop_db": 30.20075225830078
+   },
+   {
+    "id": "v1-big-b",
+    "music": false,
+    "orig_rms": -25.927440643310547,
+    "own_in_mix_rms": -28.108217239379883,
+    "voice_rms": -20.939722061157227,
+    "drop_db": -2.180776596069336
+   },
+   {
+    "id": "v1-runtime",
+    "music": false,
+    "orig_rms": -53.54991912841797,
+    "own_in_mix_rms": -28.29821014404297,
+    "voice_rms": -20.64406394958496,
+    "drop_db": 25.251708984375
+   },
+   {
+    "id": "v1-skills",
+    "music": false,
+    "orig_rms": -30.436786651611328,
+    "own_in_mix_rms": -28.499534606933594,
+    "voice_rms": -21.02011489868164,
+    "drop_db": 1.9372520446777344
+   },
+   {
+    "id": "v1-mix-a",
+    "music": true,
+    "orig_rms": -13.37454605102539,
+    "own_in_mix_rms": -22.596174240112305,
+    "voice_rms": -20.635604858398438,
+    "drop_db": -9.221628189086914
+   },
+   {
+    "id": "v1-mix-b",
+    "music": true,
+    "orig_rms": -14.003015518188477,
+    "own_in_mix_rms": -22.787586212158203,
+    "voice_rms": -20.371379852294922,
+    "drop_db": -8.784570693969727
+   },
+   {
+    "id": "v1-end",
+    "music": false,
+    "orig_rms": -25.274188995361328,
+    "own_in_mix_rms": -27.52284812927246,
+    "voice_rms": -20.473222732543945,
+    "drop_db": -2.248659133911133
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "river"
+ },
+ {
+  "cut": "V1sq",
+  "slug": "1x1",
+  "probe_src": {
+   "w": 1080,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1080,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "2294",
+   "vdur": 76.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 76.466667
+  },
+  "same_video": true,
+  "I_orig": -14.1,
+  "TP_orig": -1.2,
+  "I": -14.2,
+  "TP": -1.4,
+  "timing": [
+   {
+    "id": "v1-open",
+    "shot": "open (S8a b-roll)",
+    "shot_start": 0.0,
+    "shot_end": 3.8,
+    "start": 0.4,
+    "end": 2.836875,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-a",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 3.9,
+    "end": 5.790041666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-b",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 8.2,
+    "end": 11.178541666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-describe-c",
+    "shot": "describe (S1)",
+    "shot_start": 3.5,
+    "shot_end": 21.482,
+    "start": 13.5,
+    "end": 16.555708333333335,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-faders",
+    "shot": "faders (S2)",
+    "shot_start": 21.167,
+    "shot_end": 26.167,
+    "start": 21.6,
+    "end": 24.57560416666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-intro",
+    "shot": "graph intro (S8b)",
+    "shot_start": 25.867,
+    "shot_end": 29.867,
+    "start": 26.25,
+    "end": 28.045416666666668,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-a",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 29.95,
+    "end": 31.695520833333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-graph-b",
+    "shot": "graph (S3)",
+    "shot_start": 29.567,
+    "shot_end": 36.817,
+    "start": 33.15,
+    "end": 35.457791666666665,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-a",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 36.95,
+    "end": 38.396458333333335,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-big-b",
+    "shot": "big sessions (S4)",
+    "shot_start": 36.533,
+    "shot_end": 48.067,
+    "start": 39.6,
+    "end": 44.900666666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-runtime",
+    "shot": "runtime (S5)",
+    "shot_start": 47.767,
+    "shot_end": 53.767,
+    "start": 48.15,
+    "end": 52.305,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-skills",
+    "shot": "skills (S6)",
+    "shot_start": 53.467,
+    "shot_end": 58.867,
+    "start": 53.85,
+    "end": 56.797312500000004,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "v1-mix-a",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 59.1,
+    "end": 61.46425,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-mix-b",
+    "shot": "mix (S7)",
+    "shot_start": 58.567,
+    "shot_end": 71.367,
+    "start": 66.05,
+    "end": 69.330375,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "v1-end",
+    "shot": "end card",
+    "shot_start": 71.067,
+    "shot_end": 76.467,
+    "start": 71.65,
+    "end": 74.10852083333334,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "v1-open",
+    "music": false,
+    "orig_rms": -51.089622497558594,
+    "own_in_mix_rms": -27.71438980102539,
+    "voice_rms": -20.06169319152832,
+    "drop_db": 23.375232696533203
+   },
+   {
+    "id": "v1-describe-a",
+    "music": false,
+    "orig_rms": -57.29705047607422,
+    "own_in_mix_rms": -27.991947174072266,
+    "voice_rms": -20.336915969848633,
+    "drop_db": 29.305103302001953
+   },
+   {
+    "id": "v1-describe-b",
+    "music": false,
+    "orig_rms": -29.623994827270508,
+    "own_in_mix_rms": -27.584619522094727,
+    "voice_rms": -20.147220611572266,
+    "drop_db": 2.0393753051757812
+   },
+   {
+    "id": "v1-describe-c",
+    "music": true,
+    "orig_rms": -15.788512229919434,
+    "own_in_mix_rms": -24.276123046875,
+    "voice_rms": -20.62839698791504,
+    "drop_db": -8.487610816955566
+   },
+   {
+    "id": "v1-faders",
+    "music": false,
+    "orig_rms": -25.62973403930664,
+    "own_in_mix_rms": -28.11155891418457,
+    "voice_rms": -20.963287353515625,
+    "drop_db": -2.4818248748779297
+   },
+   {
+    "id": "v1-graph-intro",
+    "music": false,
+    "orig_rms": -50.068885803222656,
+    "own_in_mix_rms": -28.78095245361328,
+    "voice_rms": -21.128551483154297,
+    "drop_db": 21.287933349609375
+   },
+   {
+    "id": "v1-graph-a",
+    "music": false,
+    "orig_rms": -48.3234977722168,
+    "own_in_mix_rms": -28.48885154724121,
+    "voice_rms": -20.83666229248047,
+    "drop_db": 19.834646224975586
+   },
+   {
+    "id": "v1-graph-b",
+    "music": false,
+    "orig_rms": -29.118968963623047,
+    "own_in_mix_rms": -28.464244842529297,
+    "voice_rms": -21.050430297851562,
+    "drop_db": 0.65472412109375
+   },
+   {
+    "id": "v1-big-a",
+    "music": false,
+    "orig_rms": -58.78742980957031,
+    "own_in_mix_rms": -28.58667755126953,
+    "voice_rms": -20.931522369384766,
+    "drop_db": 30.20075225830078
+   },
+   {
+    "id": "v1-big-b",
+    "music": false,
+    "orig_rms": -25.927440643310547,
+    "own_in_mix_rms": -28.108217239379883,
+    "voice_rms": -20.939722061157227,
+    "drop_db": -2.180776596069336
+   },
+   {
+    "id": "v1-runtime",
+    "music": false,
+    "orig_rms": -53.54991912841797,
+    "own_in_mix_rms": -28.29821014404297,
+    "voice_rms": -20.64406394958496,
+    "drop_db": 25.251708984375
+   },
+   {
+    "id": "v1-skills",
+    "music": false,
+    "orig_rms": -30.436786651611328,
+    "own_in_mix_rms": -28.499534606933594,
+    "voice_rms": -21.02011489868164,
+    "drop_db": 1.9372520446777344
+   },
+   {
+    "id": "v1-mix-a",
+    "music": true,
+    "orig_rms": -13.37454605102539,
+    "own_in_mix_rms": -22.596174240112305,
+    "voice_rms": -20.635604858398438,
+    "drop_db": -9.221628189086914
+   },
+   {
+    "id": "v1-mix-b",
+    "music": true,
+    "orig_rms": -14.003015518188477,
+    "own_in_mix_rms": -22.787586212158203,
+    "voice_rms": -20.371379852294922,
+    "drop_db": -8.784570693969727
+   },
+   {
+    "id": "v1-end",
+    "music": false,
+    "orig_rms": -25.274188995361328,
+    "own_in_mix_rms": -27.52284812927246,
+    "voice_rms": -20.473222732543945,
+    "drop_db": -2.248659133911133
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "river"
+ },
+ {
+  "cut": "R1",
+  "slug": "whats-new-9x16",
+  "probe_src": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1184",
+   "vdur": 39.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 39.466667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "1184",
+   "vdur": 39.466667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 39.466667
+  },
+  "same_video": true,
+  "I_orig": -13.9,
+  "TP_orig": -1.1,
+  "I": -14.1,
+  "TP": -2.2,
+  "timing": [
+   {
+    "id": "r1-hook",
+    "shot": "hook (S8a)",
+    "shot_start": 0.0,
+    "shot_end": 2.4,
+    "start": 0.35,
+    "end": 1.5081041666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-faders",
+    "shot": "faders (S2)",
+    "shot_start": 2.1,
+    "shot_end": 6.9,
+    "start": 2.5,
+    "end": 5.505020833333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-graph",
+    "shot": "graph (S3)",
+    "shot_start": 6.6,
+    "shot_end": 13.85,
+    "start": 7.0,
+    "end": 11.587770833333334,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-big",
+    "shot": "big sessions (S4)",
+    "shot_start": 13.567,
+    "shot_end": 23.35,
+    "start": 13.95,
+    "end": 20.606041666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-mix",
+    "shot": "mix (S7)",
+    "shot_start": 23.067,
+    "shot_end": 30.667,
+    "start": 23.45,
+    "end": 27.471395833333332,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "r1-skills",
+    "shot": "skills (S6)",
+    "shot_start": 30.367,
+    "shot_end": 34.967,
+    "start": 30.75,
+    "end": 32.991104166666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r1-end",
+    "shot": "end card",
+    "shot_start": 34.667,
+    "shot_end": 39.467,
+    "start": 35.1,
+    "end": 37.55852083333333,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "r1-hook",
+    "music": false,
+    "orig_rms": -32.77959442138672,
+    "own_in_mix_rms": -28.702707290649414,
+    "voice_rms": -21.188766479492188,
+    "drop_db": 4.076887130737305
+   },
+   {
+    "id": "r1-faders",
+    "music": false,
+    "orig_rms": -22.612516403198242,
+    "own_in_mix_rms": -27.224706649780273,
+    "voice_rms": -20.56293296813965,
+    "drop_db": -4.612190246582031
+   },
+   {
+    "id": "r1-graph",
+    "music": false,
+    "orig_rms": -29.85574722290039,
+    "own_in_mix_rms": -28.469728469848633,
+    "voice_rms": -21.020946502685547,
+    "drop_db": 1.3860187530517578
+   },
+   {
+    "id": "r1-big",
+    "music": false,
+    "orig_rms": -22.86988067626953,
+    "own_in_mix_rms": -27.71758460998535,
+    "voice_rms": -20.99794578552246,
+    "drop_db": -4.84770393371582
+   },
+   {
+    "id": "r1-mix",
+    "music": true,
+    "orig_rms": -17.43536376953125,
+    "own_in_mix_rms": -25.20977210998535,
+    "voice_rms": -20.67438507080078,
+    "drop_db": -7.774408340454102
+   },
+   {
+    "id": "r1-skills",
+    "music": false,
+    "orig_rms": -32.43049621582031,
+    "own_in_mix_rms": -28.46063232421875,
+    "voice_rms": -20.920896530151367,
+    "drop_db": 3.9698638916015625
+   },
+   {
+    "id": "r1-end",
+    "music": false,
+    "orig_rms": -22.586605072021484,
+    "own_in_mix_rms": -27.19563865661621,
+    "voice_rms": -20.6099853515625,
+    "drop_db": -4.609033584594727
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "river"
+ },
+ {
+  "cut": "R2",
+  "slug": "describe-the-edit-9x16",
+  "probe_src": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "782",
+   "vdur": 26.066667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 26.066667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "782",
+   "vdur": 26.066667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 26.066667
+  },
+  "same_video": true,
+  "I_orig": -14.0,
+  "TP_orig": -1.1,
+  "I": -14.1,
+  "TP": -1.3,
+  "timing": [
+   {
+    "id": "r2-hook",
+    "shot": "hook (S1)",
+    "shot_start": 0.0,
+    "shot_end": 1.8,
+    "start": 0.35,
+    "end": 1.2045416666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r2-type",
+    "shot": "type (S1)",
+    "shot_start": 1.8,
+    "shot_end": 5.356,
+    "start": 2.2,
+    "end": 3.350604166666667,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r2-tools",
+    "shot": "tools (S1)",
+    "shot_start": 5.367,
+    "shot_end": 11.367,
+    "start": 6.2,
+    "end": 9.284666666666666,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r2-play",
+    "shot": "play (S1)",
+    "shot_start": 11.367,
+    "shot_end": 22.567,
+    "start": 12.0,
+    "end": 14.88825,
+    "ok": true,
+    "music": true
+   },
+   {
+    "id": "r2-end",
+    "shot": "end card",
+    "shot_start": 22.267,
+    "shot_end": 26.067,
+    "start": 22.7,
+    "end": 24.43125,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "r2-hook",
+    "music": false,
+    "orig_rms": -39.568641662597656,
+    "own_in_mix_rms": -27.022687911987305,
+    "voice_rms": -19.394317626953125,
+    "drop_db": 12.545953750610352
+   },
+   {
+    "id": "r2-type",
+    "music": false,
+    "orig_rms": -120.00000762939453,
+    "own_in_mix_rms": -28.008054733276367,
+    "voice_rms": -20.3525390625,
+    "drop_db": 91.99195289611816
+   },
+   {
+    "id": "r2-tools",
+    "music": false,
+    "orig_rms": -32.195945739746094,
+    "own_in_mix_rms": -28.23554039001465,
+    "voice_rms": -20.712106704711914,
+    "drop_db": 3.9604053497314453
+   },
+   {
+    "id": "r2-play",
+    "music": true,
+    "orig_rms": -23.04281234741211,
+    "own_in_mix_rms": -27.591787338256836,
+    "voice_rms": -21.025983810424805,
+    "drop_db": -4.548974990844727
+   },
+   {
+    "id": "r2-end",
+    "music": false,
+    "orig_rms": -22.691017150878906,
+    "own_in_mix_rms": -28.06928062438965,
+    "voice_rms": -21.53485870361328,
+    "drop_db": -5.378263473510742
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "river"
+ },
+ {
+  "cut": "R3",
+  "slug": "200-tracks-9x16",
+  "probe_src": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "821",
+   "vdur": 27.366667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 27.366667
+  },
+  "probe_out": {
+   "w": 1080,
+   "h": 1920,
+   "fps": "30/1",
+   "vcodec": "h264/High",
+   "pix": "yuv420p",
+   "nb": "821",
+   "vdur": 27.366667,
+   "acodec": "aac",
+   "sr": "48000",
+   "ch": 2,
+   "fdur": 27.366667
+  },
+  "same_video": true,
+  "I_orig": -14.0,
+  "TP_orig": -2.0,
+  "I": -14.2,
+  "TP": -2.0,
+  "timing": [
+   {
+    "id": "r3-hook",
+    "shot": "hook (S4)",
+    "shot_start": 0.0,
+    "shot_end": 3.5,
+    "start": 0.4,
+    "end": 1.8050208333333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-ask",
+    "shot": "ask (S4)",
+    "shot_start": 3.2,
+    "shot_end": 6.671,
+    "start": 3.6,
+    "end": 4.967145833333333,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-pages",
+    "shot": "pages (S4)",
+    "shot_start": 6.667,
+    "shot_end": 16.167,
+    "start": 7.05,
+    "end": 12.718499999999999,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-result",
+    "shot": "result (S4)",
+    "shot_start": 15.867,
+    "shot_end": 23.467,
+    "start": 16.25,
+    "end": 21.149458333333335,
+    "ok": true,
+    "music": false
+   },
+   {
+    "id": "r3-end",
+    "shot": "end card",
+    "shot_start": 23.167,
+    "shot_end": 27.367,
+    "start": 23.6,
+    "end": 25.349708333333336,
+    "ok": true,
+    "music": false
+   }
+  ],
+  "own": [
+   {
+    "id": "r3-hook",
+    "music": false,
+    "orig_rms": -37.530887603759766,
+    "own_in_mix_rms": -28.38280487060547,
+    "voice_rms": -20.775291442871094,
+    "drop_db": 9.148082733154297
+   },
+   {
+    "id": "r3-ask",
+    "music": false,
+    "orig_rms": -51.38839340209961,
+    "own_in_mix_rms": -28.239999771118164,
+    "voice_rms": -20.586572647094727,
+    "drop_db": 23.148393630981445
+   },
+   {
+    "id": "r3-pages",
+    "music": false,
+    "orig_rms": -21.993953704833984,
+    "own_in_mix_rms": -27.234338760375977,
+    "voice_rms": -20.708141326904297,
+    "drop_db": -5.240385055541992
+   },
+   {
+    "id": "r3-result",
+    "music": false,
+    "orig_rms": -31.0106258392334,
+    "own_in_mix_rms": -28.37291717529297,
+    "voice_rms": -20.874460220336914,
+    "drop_db": 2.6377086639404297
+   },
+   {
+    "id": "r3-end",
+    "music": false,
+    "orig_rms": -17.667617797851562,
+    "own_in_mix_rms": -25.684364318847656,
+    "voice_rms": -20.881343841552734,
+    "drop_db": -8.016746520996094
+   }
+  ],
+  "pass": {
+   "timing": true,
+   "peak": true,
+   "loud": true,
+   "video": true,
+   "codecs": true,
+   "own_audible": true
+  },
+  "voice": "river"
+ }
+]
