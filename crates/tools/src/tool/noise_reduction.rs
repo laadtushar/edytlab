@@ -88,21 +88,32 @@ pub(crate) fn process_channel(
     }
 
     // --- Overlap-add output buffers -----------------------------------------
-    let out_len = n + FFT_SIZE; // generous; we truncate to n at the end
-    let mut output = vec![0.0f32; out_len];
-    let mut norm = vec![0.0f32; out_len];
+    //
+    // The signal is read as if one frame of it were reflected beyond each end,
+    // and the result trimmed back to `n`. Without that, the first and last
+    // samples are covered by one frame at the tail of its window, where the
+    // window squared is near zero, and the division below multiplies the
+    // spectral-subtraction error (which the window does not scale) by up to
+    // 1/w^2: a full-scale click in the first few milliseconds (#692). With a
+    // frame of margin every real sample sits under the full overlap, whose
+    // window-squared sum is a constant 1.5. Reflecting, not zero-filling, keeps
+    // the frames that straddle an end from being half silence, which the
+    // subtraction would take for a quieter signal. The frame grid moves by
+    // FFT_SIZE, a multiple of HOP_SIZE, so interior frames are unchanged, and
+    // the noise profile above reads `mono` itself, not the margin.
+    let padded_len = n + 2 * FFT_SIZE;
+    let mut output = vec![0.0f32; padded_len];
+    let mut norm = vec![0.0f32; padded_len];
 
     // --- STFT subtraction loop ----------------------------------------------
     let mut ifft_buf = vec![0.0f32; FFT_SIZE];
 
     pos = 0;
-    loop {
-        if pos >= n {
-            break;
-        }
-        // Fill frame with zero-padding at the end of the signal.
+    // A frame starting at or before the last real sample covers it; later
+    // frames hold only the margin.
+    while pos < FFT_SIZE + n {
         for (i, fb) in frame_buf.iter_mut().enumerate() {
-            *fb = if pos + i < n { mono[pos + i] } else { 0.0 } * window[i];
+            *fb = reflected(mono, (pos + i) as isize - FFT_SIZE as isize) * window[i];
         }
 
         // Forward FFT.
@@ -129,25 +140,31 @@ pub(crate) fn process_channel(
         // Normalise by FFT_SIZE (realfft does not normalise inverse).
         let scale = 1.0 / FFT_SIZE as f32;
         for (i, v) in ifft_buf.iter().enumerate() {
-            let idx = pos + i;
-            if idx < out_len {
-                output[idx] += v * scale * window[i];
-                norm[idx] += window[i] * window[i];
-            }
+            output[pos + i] += v * scale * window[i];
+            norm[pos + i] += window[i] * window[i];
         }
 
         pos += HOP_SIZE;
     }
 
-    // --- Divide by overlap-add normalisation factor -------------------------
-    for (o, nm) in output.iter_mut().zip(norm.iter()) {
-        if *nm > 1e-10 {
-            *o /= nm;
-        }
-    }
+    // --- Divide by overlap-add normalisation factor, drop the margin --------
+    output[FFT_SIZE..FFT_SIZE + n]
+        .iter()
+        .zip(&norm[FFT_SIZE..FFT_SIZE + n])
+        .map(|(o, nm)| if *nm > 1e-10 { o / nm } else { *o })
+        .collect()
+}
 
-    output.truncate(n);
-    output
+/// `mono[i]`, with `i` outside the clip read as the clip reflected about its
+/// first and last samples (period `2 * (n - 1)`); a one-sample clip repeats.
+fn reflected(mono: &[f32], i: isize) -> f32 {
+    let n = mono.len() as isize;
+    if n == 1 {
+        return mono[0];
+    }
+    let period = 2 * (n - 1);
+    let m = i.rem_euclid(period);
+    mono[if m < n { m } else { period - m } as usize]
 }
 
 // ---------------------------------------------------------------------------
@@ -366,5 +383,27 @@ mod tests {
             tone_region_rms > noise_region_rms * 5.0,
             "expected tone region RMS ({tone_region_rms:.4}) >> noise region RMS ({noise_region_rms:.4})"
         );
+    }
+
+    #[test]
+    fn short_inputs_keep_their_length_and_stay_finite() {
+        let sr = 44100u32;
+        for n in [1usize, 2, 3, 100, FFT_SIZE - 1, FFT_SIZE, FFT_SIZE + 1] {
+            let input: Vec<f32> = (0..n).map(|i| 0.1 * ((i * 7 % 13) as f32 - 6.0)).collect();
+            let output = process_channel(&input, 0.01, 0.85, 0.05, sr);
+            assert_eq!(output.len(), n);
+            assert!(output.iter().all(|s| s.is_finite()), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn reflection_mirrors_about_the_end_samples() {
+        let x = [1.0f32, 2.0, 3.0, 4.0];
+        let read: Vec<f32> = (-4..8).map(|i| reflected(&x, i)).collect();
+        assert_eq!(
+            read,
+            [3.0, 4.0, 3.0, 2.0, 1.0, 2.0, 3.0, 4.0, 3.0, 2.0, 1.0, 2.0]
+        );
+        assert_eq!(reflected(&[5.0], -9), 5.0);
     }
 }
