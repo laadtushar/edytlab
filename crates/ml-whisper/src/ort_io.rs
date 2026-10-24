@@ -13,9 +13,10 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use ml_pipeline::SharedSession;
 use ort::session::Session;
-use ort::value::{Outlet, Tensor, TensorElementType, TensorRef};
+use ort::session::SessionInputValue;
+use ort::value::{DynValue, Outlet, Tensor, TensorElementType, TensorRef};
 
-use crate::cached::{DecoderRun, Feed, Fetched, Want};
+use crate::cached::{CacheTensor, DecoderRun, Feed, Fetched, Want};
 use crate::decode::{DecodeError, EncoderStates};
 use crate::export::{cache_name, cross_name, Cache, Elem, ExportLayout, Part, Side, TensorSpec};
 use crate::mel::{N_FRAMES, N_MELS};
@@ -130,15 +131,80 @@ fn backend(what: &str, e: impl std::fmt::Display) -> DecodeError {
     DecodeError::Backend(format!("{what}: {e}"))
 }
 
+/// One tensor of the decoder's cache, as ONNX Runtime allocated it.
+///
+/// A step's `present.*` outputs are kept as the runtime's own values and
+/// handed back as the next step's `past_key_values.*` inputs, so the cache
+/// never goes through a Rust `Vec`. Copying all of it out after every step
+/// made a window's work grow with the square of its length (#657). `None` is
+/// the empty tensor of a sequence's first step, which the graph does not read.
+#[derive(Default)]
+pub(crate) struct OrtTensor(Option<DynValue>);
+
+impl OrtTensor {
+    /// The sequence axis of a `[1, heads, len, head_dim]` tensor.
+    fn sequence_len(&self) -> usize {
+        self.0
+            .as_ref()
+            .and_then(|v| v.dtype().tensor_shape())
+            .and_then(|s| s.get(2).copied())
+            .unwrap_or(0)
+            .max(0) as usize
+    }
+}
+
+impl CacheTensor for OrtTensor {
+    fn elements(&self) -> usize {
+        self.0
+            .as_ref()
+            .and_then(|v| v.dtype().tensor_shape())
+            .map_or(0, |s| s.num_elements())
+    }
+}
+
+/// Copy a tensor the runtime owns into a `Vec`. Tests count the bytes that go
+/// through here, per thread, to show what a decoder step moves out of ONNX
+/// Runtime (`model::tests::a_decoder_step_copies_a_cost_that_does_not_grow`).
+fn copy_out(data: &[f32]) -> Vec<f32> {
+    #[cfg(test)]
+    copied::add(std::mem::size_of_val(data));
+    data.to_vec()
+}
+
+/// The counter behind [`copy_out`]. Per thread, so tests that run in parallel
+/// do not count each other's copies.
+#[cfg(test)]
+pub(crate) mod copied {
+    use std::cell::Cell;
+
+    thread_local! {
+        static BYTES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn add(bytes: usize) {
+        BYTES.with(|b| b.set(b.get() + bytes as u64));
+    }
+
+    /// Bytes copied out of the runtime on this thread so far.
+    pub(crate) fn total() -> u64 {
+        BYTES.with(Cell::get)
+    }
+}
+
 impl DecoderRun for OrtDecoder<'_> {
-    fn run(&mut self, feed: &Feed<'_>, want: &Want<'_>) -> Result<Fetched, DecodeError> {
+    type Tensor = OrtTensor;
+
+    fn run(
+        &mut self,
+        feed: &Feed<'_, OrtTensor>,
+        want: &Want<'_>,
+    ) -> Result<Fetched<OrtTensor>, DecodeError> {
         let l = self.layout;
         let seq = feed.input_ids.len();
         let dec_shape = [1usize, l.heads, feed.past_decoder_len, l.head_dim];
         let enc_shape = [1usize, l.heads, feed.past_encoder_len, l.head_dim];
 
-        let mut inputs: Vec<(String, ort::session::SessionInputValue<'_>)> =
-            Vec::with_capacity(3 + 4 * l.layers);
+        let mut inputs: Vec<(String, SessionInputValue<'_>)> = Vec::with_capacity(3 + 4 * l.layers);
         inputs.push((
             "input_ids".into(),
             Tensor::from_array(([1usize, seq], feed.input_ids.to_vec()))
@@ -155,18 +221,21 @@ impl DecoderRun for OrtDecoder<'_> {
             .into(),
         ));
         for (names, layer) in self.past.iter().zip(feed.past) {
-            for (name, shape, data) in [
+            for (name, shape, tensor) in [
                 (&names[0], dec_shape, &layer.dec_key),
                 (&names[1], dec_shape, &layer.dec_value),
                 (&names[2], enc_shape, &layer.enc_key),
                 (&names[3], enc_shape, &layer.enc_value),
             ] {
-                inputs.push((
-                    name.clone(),
-                    TensorRef::from_array_view((shape, &data[..]))
+                let value: SessionInputValue<'_> = match &tensor.0 {
+                    // The runtime's own value from an earlier step, lent back.
+                    Some(held) => held.into(),
+                    // The first step of a sequence: `shape` has a 0 in it.
+                    None => TensorRef::from_array_view((shape, &[] as &[f32]))
                         .map_err(|e| backend(name, e))?
                         .into(),
-                ));
+                };
+                inputs.push((name.clone(), value));
             }
         }
         inputs.push((
@@ -176,45 +245,57 @@ impl DecoderRun for OrtDecoder<'_> {
                 .into(),
         ));
 
-        let outputs = self
+        let mut outputs = self
             .session
             .run(inputs)
             .map_err(|e| backend("decoder run", e))?;
 
-        let extract = |name: &str| -> Result<(&[i64], &[f32]), DecodeError> {
+        let extract = |name: &str| -> Result<&[f32], DecodeError> {
             let value = outputs
                 .get(name)
                 .ok_or_else(|| DecodeError::Backend(format!("the decoder returned no `{name}`")))?;
-            let (shape, data) = value
+            let (_, data) = value
                 .try_extract_tensor::<f32>()
                 .map_err(|e| backend(name, e))?;
-            Ok((&shape[..], data))
+            Ok(data)
         };
-        // The sequence axis of a `[1, heads, len, head_dim]` tensor.
-        let len_of = |dims: &[i64]| dims.get(2).copied().unwrap_or(0).max(0) as usize;
 
-        let logits = extract("logits")?.1.to_vec();
+        // The rows this step is for: the logits, and the alignment heads'
+        // attention. Small, and not fed back, so they are copied.
+        let logits = copy_out(extract("logits")?);
+        let mut cross = Vec::with_capacity(want.cross_layers.len());
+        for &layer in want.cross_layers {
+            cross.push(copy_out(extract(&cross_name(layer))?));
+        }
 
+        // The cache is not: it stays the runtime's own value.
+        let mut take = |name: &str| -> Result<OrtTensor, DecodeError> {
+            let value = outputs
+                .remove(name)
+                .ok_or_else(|| DecodeError::Backend(format!("the decoder returned no `{name}`")))?;
+            match value.dtype().tensor_type() {
+                Some(TensorElementType::Float32) => Ok(OrtTensor(Some(value))),
+                other => Err(DecodeError::Backend(format!(
+                    "{name} is {other:?}, expected a float32 tensor"
+                ))),
+            }
+        };
         let mut decoder = Vec::with_capacity(l.layers);
         let mut decoder_len = 0;
         for names in &self.present {
-            let (dims, key) = extract(&names[0])?;
-            decoder_len = len_of(dims);
-            decoder.push((key.to_vec(), extract(&names[1])?.1.to_vec()));
+            let key = take(&names[0])?;
+            decoder_len = key.sequence_len();
+            decoder.push((key, take(&names[1])?));
         }
         let (mut encoder, mut encoder_len) = (None, 0);
         if want.encoder_present {
             let mut all = Vec::with_capacity(l.layers);
             for names in &self.present {
-                let (dims, key) = extract(&names[2])?;
-                encoder_len = len_of(dims);
-                all.push((key.to_vec(), extract(&names[3])?.1.to_vec()));
+                let key = take(&names[2])?;
+                encoder_len = key.sequence_len();
+                all.push((key, take(&names[3])?));
             }
             encoder = Some(all);
-        }
-        let mut cross = Vec::with_capacity(want.cross_layers.len());
-        for &layer in want.cross_layers {
-            cross.push(extract(&cross_name(layer))?.1.to_vec());
         }
         Ok(Fetched {
             logits,

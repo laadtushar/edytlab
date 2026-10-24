@@ -17,6 +17,10 @@ name: ML
 #     pinned ONNX Runtime, over a committed speech fixture. Asserts the words
 #     and when they start, and prints the realtime factor;
 #   - ml-whisper `transcribe_smoke`: the two of its tests that load the model;
+#   - ml-whisper `a_decoder_step_copies_a_cost_that_does_not_grow` (#657), in
+#     the crate's own source because it needs the decoder's private types: a
+#     cap-length decode on the real model copies no more out of the runtime
+#     at its last step than at its twentieth;
 #   - tools `transcribe_end_to_end` (#668): the `transcribe` tool on the real
 #     model, through a session, and the edits that work from its transcript;
 #   - tools `transcribe_load_errors`: the tool's answers for a model that is
@@ -131,6 +135,15 @@ jobs:
           ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
           WHISPER_MODEL_PATH: ${{ github.workspace }}/ml-models/whisper-base
         run: cargo test -p ml-whisper --release --test transcribe_smoke -- --ignored --nocapture --test-threads=1
+
+      # Inside the crate, not a test file: it drives the decoder's private
+      # types. Its one ignored test prints the bytes each step copies out of
+      # the runtime and the wall time, and fails if the cache is copied.
+      - name: The decoder does not copy its cache
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          WHISPER_MODEL_PATH: ${{ github.workspace }}/ml-models/whisper-base
+        run: cargo test -p ml-whisper --release --lib -- --ignored --nocapture --test-threads=1
 
       # The tool on the real model (#384, #668). The folder is named
       # `whisper-base`, which the test's "found the way the app finds it"

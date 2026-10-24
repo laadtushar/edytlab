@@ -43,6 +43,31 @@ fn workflow() -> String {
     read(".github/workflows/ml.yml")
 }
 
+/// Every `.rs` file under `relative` (a folder of the repository), joined.
+fn read_rust_sources(relative: &str) -> String {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()))
+            .flatten()
+        {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&repo_root().join(relative), &mut files);
+    files.sort();
+    files
+        .iter()
+        .map(|f| lf(&std::fs::read_to_string(f).expect("a source file reads")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Lines that are YAML, not comments.
 fn code_lines(text: &str) -> Vec<&str> {
     text.lines()
@@ -181,7 +206,18 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
                 .unwrap_or_else(|| panic!("{line:?} has no {flag}"))
                 .to_string()
         };
-        let (package, target) = (value_after("-p"), value_after("--test"));
+        let package = value_after("-p");
+        // `--lib` runs the ignored tests inside the crate's own source (the ones
+        // that need a crate-private type, such as the decoder's cache); the
+        // rest name an integration test file with `--test`.
+        let (path, source) = if words.contains(&"--lib") {
+            let dir = format!("crates/{package}/src");
+            (format!("{dir} (--lib)"), read_rust_sources(&dir))
+        } else {
+            let path = format!("crates/{package}/tests/{}.rs", value_after("--test"));
+            let source = read(&path);
+            (path, source)
+        };
         let after_dashes = words
             .iter()
             .position(|w| *w == "--")
@@ -191,8 +227,6 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
             "{line:?} must pass --ignored to the test binary: the tests it names are ignored"
         );
 
-        let path = format!("crates/{package}/tests/{target}.rs");
-        let source = read(&path);
         let lines: Vec<&str> = source.lines().collect();
         let mut ignored = 0;
         for (i, l) in lines.iter().enumerate() {
@@ -225,12 +259,13 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
         checked,
         vec![
             "crates/ml-pipeline/tests/model_real_download.rs".to_string(),
+            "crates/ml-whisper/src (--lib)".to_string(),
             "crates/ml-whisper/tests/transcribe_known_words.rs".to_string(),
             "crates/ml-whisper/tests/transcribe_smoke.rs".to_string(),
             "crates/tools/tests/transcribe_end_to_end.rs".to_string(),
             "crates/tools/tests/transcribe_load_errors.rs".to_string(),
         ],
-        "the workflow is meant to run exactly these five test files"
+        "the workflow is meant to run exactly these five test files and the ignored tests in ml-whisper's source"
     );
 }
 
