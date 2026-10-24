@@ -64,7 +64,7 @@ import {
   getEffortFor,
   listModelsFor,
   onChatGptStatus,
-  openChatGptUsage,
+  openChatgptUsage,
   setActiveModel,
   setEffortFor,
   type ChatGptEnd,
@@ -285,7 +285,7 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
 
   const manageUsage = () => {
     setProblem(null);
-    openChatGptUsage().catch((e: unknown) => {
+    openChatgptUsage().catch((e: unknown) => {
       if (alive.current) setProblem(messageOf(e));
     });
   };

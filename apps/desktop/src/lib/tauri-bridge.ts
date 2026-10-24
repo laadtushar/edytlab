@@ -322,7 +322,7 @@ export const onChatGptStatus = (
  * so the backend opens it, and it takes no address: the webview cannot ask
  * for another page. Rejects with a sentence if no browser could be opened.
  */
-export const openChatGptUsage = (): Promise<void> =>
+export const openChatgptUsage = (): Promise<void> =>
   invoke<void>("open_chatgpt_usage");
 
 /**

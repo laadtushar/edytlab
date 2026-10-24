@@ -36,7 +36,7 @@ import {
   USAGE_LIMIT_TITLE,
   adminRequestText,
 } from "../lib/chatgptCopy";
-import { openChatGptUsage } from "../lib/tauri-bridge";
+import { openChatgptUsage } from "../lib/tauri-bridge";
 
 const CARD_CLASS =
   "banner-in rounded-md border border-[var(--warning-border)] bg-[var(--warning-soft)] px-3 py-2 text-xs text-[var(--text-dim)]";
@@ -113,7 +113,7 @@ function ManageUsageButton() {
         data-testid="plan-manage-usage"
         onClick={() => {
           setProblem(null);
-          openChatGptUsage().catch((e: unknown) => setProblem(messageOf(e)));
+          openChatgptUsage().catch((e: unknown) => setProblem(messageOf(e)));
         }}
         className="btn-primary px-3 py-1 text-xs"
       >
