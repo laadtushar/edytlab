@@ -1,23 +1,32 @@
-//! Beat tracking — given a tempo estimate, place a periodic beat grid
-//! and snap each predicted beat to the nearest detected onset within a
-//! ±50 ms window.
+//! Beat tracking: lay the beat grid at the chosen tempo, on the strongest
+//! onsets of the curve the tempo was read from.
 //!
-//! Downbeat detection is a Phase-2 stub: every Nth beat starting at
-//! beat 0 (assume 4/4 unless told otherwise).
+//! [`crate::bpm`] finds the pulse (tempo and phase) on the 30–150 Hz curve
+//! when the track has a kick, so the grid lands on the kicks and not on the
+//! hats between them (#696). Here each beat of that grid is then nudged to the
+//! strongest onset of the same curve within a short window, and the grid
+//! follows the nudge a little (a phase-locked loop), so a drummer who pushes
+//! the beat by 20 ms is followed and a missed beat does not throw the grid.
+//!
+//! Downbeat detection is a Phase-2 stub: every Nth beat starting at beat 0
+//! (assume 4/4 unless told otherwise).
 
-use crate::bpm::{pick_onsets, spectral_flux};
+use crate::bpm::{prepare, pulse_at, Basis, Prepared, Pulse};
+use crate::onset::{novelty, Novelty};
 use crate::{Error, Result};
 
+/// How far a beat may be pulled from the grid, seconds.
+const SNAP_WINDOW_S: f32 = 0.060;
+/// ...and as a share of the beat period, whichever is less.
+const SNAP_WINDOW_PERIOD: f32 = 0.2;
+/// How much of a beat's offset the next predicted beat takes up.
+const LOOP_GAIN: f32 = 0.3;
+/// A beat is only pulled to an onset at least this strong (the curve is
+/// scaled so a strong onset is 1.0).
+const SNAP_MIN_STRENGTH: f32 = 0.15;
+
 /// Detect beat times (in seconds) for `samples_mono` given an estimated
-/// `bpm`. Returns a monotonically increasing sequence covering most of
-/// the audio.
-///
-/// Algorithm:
-/// 1. Recompute onsets via spectral flux (cheap; `bpm.rs` would compute
-///    them anyway and Phase 2 doesn't yet share the intermediate).
-/// 2. Anchor on the strongest onset in the first 4 seconds.
-/// 3. Step forward in 60/bpm increments, snapping each predicted beat
-///    to the nearest onset within ±50 ms.
+/// `bpm`. Returns a monotonically increasing sequence covering the audio.
 pub fn detect_beats(samples_mono: &[f32], sample_rate: u32, bpm: f32) -> Result<Vec<f32>> {
     if !(20.0..=400.0).contains(&bpm) {
         return Err(Error::Analysis(format!(
@@ -31,90 +40,74 @@ pub fn detect_beats(samples_mono: &[f32], sample_rate: u32, bpm: f32) -> Result<
     if duration_s < 0.5 {
         return Ok(Vec::new());
     }
+    let nov = novelty(samples_mono, sample_rate)?;
+    let pulse = pulse_at(&nov, bpm);
+    Ok(track(&nov, &pulse, duration_s))
+}
 
-    let flux = spectral_flux(samples_mono, sample_rate)?;
-    let onsets = pick_onsets(&flux, sample_rate);
-    if onsets.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Anchor: strongest onset in the first 4 seconds. Strength = flux
-    // value at the onset's frame.
-    let hop_seconds = crate::bpm::HOP as f32 / sample_rate as f32;
-    let early = onsets
-        .iter()
-        .copied()
-        .filter(|t| *t < 4.0)
-        .collect::<Vec<_>>();
-    let pool = if early.is_empty() {
-        &onsets[..]
-    } else {
-        &early
+/// The beat grid for a pulse already found.
+pub(crate) fn track(nov: &Novelty, pulse: &Pulse, duration_s: f32) -> Vec<f32> {
+    let prep: Prepared = match pulse.basis {
+        Basis::Low => prepare(&nov.low),
+        Basis::Full => prepare(&nov.full),
     };
-    let mut anchor = pool[0];
-    let mut anchor_flux = 0.0f32;
-    for &t in pool {
-        let frame = (t / hop_seconds) as usize;
-        let v = *flux.get(frame).unwrap_or(&0.0);
-        if v > anchor_flux {
-            anchor_flux = v;
-            anchor = t;
+    let n = prep.env.len();
+    let period = pulse.period_frames;
+    let window = ((SNAP_WINDOW_S / nov.hop_s).min(period * SNAP_WINDOW_PERIOD)).max(1.0);
+
+    let mut beats: Vec<f32> = Vec::new();
+    let mut nominal = pulse.phase_frames;
+    // Back up to the first grid point at or after time zero (that can be a
+    // frame before the first window: a kick on the very first sample).
+    while nov.time_of(nominal - period) >= 0.0 {
+        nominal -= period;
+    }
+    while nov.time_of(nominal) <= duration_s {
+        let (frame, shift) = snap(&prep.env, n, nominal, window);
+        let t = nov.time_of(frame);
+        if t >= 0.0 && beats.last().is_none_or(|&last| t > last) {
+            beats.push(t);
+        }
+        nominal += period + LOOP_GAIN * shift;
+    }
+    beats
+}
+
+/// The strongest onset within `window` frames of `nominal`, with the peak
+/// refined to a fraction of a frame, and its offset from `nominal`. If there
+/// is none strong enough the grid point stands.
+fn snap(env: &[f32], n: usize, nominal: f32, window: f32) -> (f32, f32) {
+    let lo = (nominal - window).ceil().max(0.0) as usize;
+    let hi = ((nominal + window).floor() as isize).min(n as isize - 1);
+    if hi < lo as isize {
+        return (nominal, 0.0);
+    }
+    let hi = hi as usize;
+    let mut best = lo;
+    for i in lo..=hi {
+        // Prefer the stronger onset; between equals, the closer to the grid.
+        let better = env[i] > env[best]
+            || (env[i] == env[best] && (i as f32 - nominal).abs() < (best as f32 - nominal).abs());
+        if better {
+            best = i;
         }
     }
-
-    let beat_period = 60.0 / bpm;
-    let snap_window = 0.050f32; // ±50 ms
-
-    let mut beats = Vec::new();
-    let mut predicted = anchor;
-    while predicted <= duration_s + snap_window {
-        // Find the onset closest to `predicted` within the snap window.
-        let snapped = onsets
-            .iter()
-            .copied()
-            .filter(|t| (t - predicted).abs() <= snap_window)
-            .min_by(|a, b| {
-                (a - predicted)
-                    .abs()
-                    .partial_cmp(&(b - predicted).abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap_or(predicted);
-        // Guard monotonic order.
-        if let Some(&last) = beats.last() {
-            if snapped <= last {
-                predicted += beat_period;
-                continue;
-            }
-        }
-        beats.push(snapped);
-        predicted = snapped + beat_period;
+    if env[best] < SNAP_MIN_STRENGTH {
+        return (nominal, 0.0);
     }
-
-    // Also extend backward toward zero so a later anchor still gives
-    // beats covering the start.
-    let mut prefix = Vec::new();
-    let mut t = anchor - beat_period;
-    while t > 0.0 {
-        let snapped = onsets
-            .iter()
-            .copied()
-            .filter(|tt| (tt - t).abs() <= snap_window)
-            .min_by(|a, b| {
-                (a - t)
-                    .abs()
-                    .partial_cmp(&(b - t).abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap_or(t);
-        if snapped > 0.0 {
-            prefix.push(snapped);
+    // Parabolic interpolation of the peak.
+    let frame = if best > 0 && best + 1 < n {
+        let (a, b, c) = (env[best - 1], env[best], env[best + 1]);
+        let denom = a - 2.0 * b + c;
+        if denom.abs() > 1e-6 {
+            best as f32 + (0.5 * (a - c) / denom).clamp(-0.5, 0.5)
+        } else {
+            best as f32
         }
-        t -= beat_period;
-    }
-    prefix.reverse();
-    prefix.extend(beats);
-    Ok(prefix)
+    } else {
+        best as f32
+    };
+    (frame, frame - nominal)
 }
 
 /// Pick downbeats from a beat grid. Phase-2 stub: every `time_signature`

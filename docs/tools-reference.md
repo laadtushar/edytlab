@@ -157,7 +157,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `analyze_track`
 
-Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. `sections` is one whole-track section, not detected sections; `downbeats` are assumed every 4th beat from the first beat (4/4), not detected. BPM can come out at double or half the true tempo: check it by ear. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.
+Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. `sections` is one whole-track section, not detected sections; `downbeats` are assumed every 4th beat from the first beat (4/4), not detected. `bpm_alternatives` gives the half and double of `bpm` with confidences (low `bpm_confidence`: check by ear); `bpm` is null with no steady beat. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure Rust, no models. Music features use a mono downmix; LUFS uses the original channels.
 
 _Read-only — never held for approval._
 

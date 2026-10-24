@@ -122,15 +122,16 @@ impl Drop for EnvGuard {
 
 /// Verify that `analyze_track` round-trips BPM and key on synthetic fixtures.
 ///
-/// BPM detection relies on spectral-flux onset picking; we therefore write
-/// click tracks (short impulses) rather than plain sine waves. Key detection
-/// uses chroma + Krumhansl–Kessler profiles; we write chord progressions
-/// that strongly imply their respective keys.
+/// BPM detection relies on onset strength (spectral flux, whole spectrum and
+/// the kick band); we therefore write click tracks (short impulses) rather
+/// than plain sine waves. Key detection uses peak-picked chroma + Temperley
+/// key profiles; we write chord progressions that strongly imply their
+/// respective keys.
 ///
 /// Ranges are widened to 80–160 / 70–130 compared to the theoretical ±10
-/// because the histogram BPM estimator can occasionally prefer a half-time
-/// or double-time candidate on a short synthetic track. The important
-/// property is that the two BPMs are distinguishable from each other.
+/// so a short synthetic track cannot fail on a half-time or double-time
+/// reading. The important property is that the two BPMs are distinguishable
+/// from each other. (`crates/audio-analysis/tests/tempo.rs` pins the octave.)
 #[test]
 fn analyze_track_returns_sensible_bpm_and_key() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();

@@ -2,12 +2,13 @@
 //!
 //! Pure-Rust analysis of an already-decoded audio buffer:
 //!
-//! * BPM via spectral-flux onset detection + inter-onset-interval
-//!   histogram ([`bpm`]).
-//! * Beat tracking by snapping a metronome at the estimated BPM to the
-//!   strongest nearby onsets ([`beats`]).
-//! * Key estimation via 12-bin chroma + Krumhansl–Kessler key profiles
-//!   ([`key`]).
+//! * BPM by comb-filtering two onset-strength curves, the whole spectrum
+//!   and the 30–150 Hz kick band, over 50–220 BPM, with the half and
+//!   double of the answer reported alongside ([`bpm`], [`onset`]).
+//! * Beat tracking: the grid at that tempo, on the strongest onsets of the
+//!   curve the tempo was read from ([`beats`]).
+//! * Key estimation via peak-picked 12-bin chroma with the bass counted
+//!   twice, correlated with Temperley (Kostka–Payne) key profiles ([`key`]).
 //! * Section segmentation — Phase-2 stub returning a single section
 //!   spanning the whole audio ([`sections`]).
 //! * EBU R128 integrated loudness via the `ebur128` crate ([`loudness`]).
@@ -41,8 +42,10 @@ pub mod beats;
 pub mod bpm;
 pub mod key;
 pub mod loudness;
+mod onset;
 pub mod sections;
 
+pub use bpm::{Tempo, TempoAlternative, TempoRelation};
 pub use sections::Section;
 
 /// All errors raised by this crate.
@@ -66,10 +69,25 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Output of [`analyze`]. Mirrors the `analyze_track` tool's wire shape.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AnalyzeReport {
-    /// Estimated tempo in beats per minute.
-    pub bpm: f32,
+    /// Estimated tempo in beats per minute, or `None` when the audio has no
+    /// steady pulse to find one in (a drone, a pad): `beats` is then empty.
+    pub bpm: Option<f32>,
+    /// `0..=1`: how sure the tempo is of being the beat and not its half or
+    /// double (see [`Tempo::confidence`]).
+    pub bpm_confidence: f32,
+    /// The half and double of `bpm` that are in range, with their
+    /// confidences, so a caller can offer them.
+    pub bpm_alternatives: Vec<TempoAlternative>,
     /// Estimated key as `"<root> <mode>"`, e.g. `"F minor"`.
     pub key: String,
+    /// Correlation of the chroma with that key's profile, `-1..=1`; 0.7–0.95
+    /// is a clear key.
+    pub key_score: f32,
+    /// The second-best key, and its correlation. A runner-up within about
+    /// 0.05 of `key_score` means the call is close (a relative major, or the
+    /// key a fifth away).
+    pub key_runner_up: String,
+    pub key_runner_up_score: f32,
     /// Beat times in seconds, monotonically increasing.
     pub beats: Vec<f32>,
     /// Downbeat times in seconds (subset of `beats`). 4/4 stub.
@@ -102,18 +120,31 @@ pub fn analyze(audio: &DecodedAudio) -> Result<AnalyzeReport> {
 
     let mono = downmix_to_mono(&audio.samples, audio.channels);
 
-    let bpm = bpm::estimate_bpm(&mono, audio.sample_rate)?;
-    let beats_arr = beats::detect_beats(&mono, audio.sample_rate, bpm)?;
+    bpm::check_length(&mono, audio.sample_rate)?;
+    let nov = onset::novelty(&mono, audio.sample_rate)?;
+    let duration_s = mono.len() as f32 / audio.sample_rate as f32;
+    let (tempo, beats_arr) = match bpm::estimate(&nov)? {
+        Some(pulse) => {
+            let beats = beats::track(&nov, &pulse, duration_s);
+            (Some(pulse.tempo), beats)
+        }
+        None => (None, Vec::new()),
+    };
     let downbeats_arr = beats::detect_downbeats(&beats_arr, 4);
-    let key = key::estimate_key(&mono, audio.sample_rate)?;
+    let key = key::estimate_key_detailed(&mono, audio.sample_rate)?;
     let sections_arr = sections::segment_sections(&mono, audio.sample_rate);
     let rms_curve = compute_rms_curve(&mono, audio.sample_rate);
     let lufs_integrated =
         loudness::integrated_lufs(&audio.samples, audio.sample_rate, audio.channels)?;
 
     Ok(AnalyzeReport {
-        bpm,
-        key,
+        bpm: tempo.as_ref().map(|t| t.bpm),
+        bpm_confidence: tempo.as_ref().map_or(0.0, |t| t.confidence),
+        bpm_alternatives: tempo.map(|t| t.alternatives).unwrap_or_default(),
+        key: key.key,
+        key_score: key.score,
+        key_runner_up: key.runner_up,
+        key_runner_up_score: key.runner_up_score,
         beats: beats_arr,
         downbeats: downbeats_arr,
         sections: sections_arr,

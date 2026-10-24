@@ -37,6 +37,10 @@ const SECTIONS_SOURCE: &str = "whole_track";
 
 pub struct AnalyzeTrackTool;
 
+fn round2(x: f32) -> f32 {
+    (x * 100.0).round() / 100.0
+}
+
 impl Tool for AnalyzeTrackTool {
     fn name(&self) -> &'static str {
         "analyze_track"
@@ -45,7 +49,7 @@ impl Tool for AnalyzeTrackTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "analyze_track",
-            "Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. `sections` is one whole-track section, not detected sections; `downbeats` are assumed every 4th beat from the first beat (4/4), not detected. BPM can come out at double or half the true tempo: check it by ear. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.",
+            "Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. `sections` is one whole-track section, not detected sections; `downbeats` are assumed every 4th beat from the first beat (4/4), not detected. `bpm_alternatives` gives the half and double of `bpm` with confidences (low `bpm_confidence`: check by ear); `bpm` is null with no steady beat. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure Rust, no models. Music features use a mono downmix; LUFS uses the original channels.",
             json!({
                 "type": "object",
                 "properties": {
@@ -119,9 +123,28 @@ impl Tool for AnalyzeTrackTool {
             Err(e) => return Ok(ToolResult::Error(format!("analysis failed: {e}"))),
         };
 
+        let tempo_text = match report.bpm {
+            Some(bpm) => format!("{bpm:.1} BPM (confidence {:.2})", report.bpm_confidence),
+            None => "no steady beat".to_string(),
+        };
+
         Ok(ToolResult::Ok(json!({
+            // null when the audio has no steady pulse (a pad, a drone).
             "bpm": report.bpm,
+            "bpm_confidence": report.bpm_confidence,
+            "bpm_alternatives": report
+                .bpm_alternatives
+                .iter()
+                .map(|a| json!({
+                    "bpm": a.bpm,
+                    "relation": a.relation.as_str(),
+                    "confidence": a.confidence,
+                }))
+                .collect::<Vec<_>>(),
             "key": report.key,
+            "key_score": round2(report.key_score),
+            "key_runner_up": report.key_runner_up,
+            "key_runner_up_score": round2(report.key_runner_up_score),
             "beats": report.beats,
             "downbeats": report.downbeats,
             "downbeats_source": DOWNBEATS_SOURCE,
@@ -138,10 +161,13 @@ impl Tool for AnalyzeTrackTool {
             "rms_curve": report.rms_curve,
             "lufs_integrated": report.lufs_integrated,
             "summary": format!(
-                "{}: {:.1} BPM, {}, {} beats, integrated loudness {:.1} LUFS",
+                "{}: {}, {} ({:.2}; next {} {:.2}), {} beats, integrated loudness {:.1} LUFS",
                 audio_path.display(),
-                report.bpm,
+                tempo_text,
                 report.key,
+                report.key_score,
+                report.key_runner_up,
+                report.key_runner_up_score,
                 report.beats.len(),
                 report.lufs_integrated,
             ),
@@ -210,8 +236,12 @@ mod tests {
             ),
             "{d}"
         );
+        // The tempo may be an octave out; the description says where the
+        // alternatives and the confidence are, and that there may be no beat.
         assert!(
-            d.contains("double or half the true tempo") && d.contains("check it by ear"),
+            d.contains("`bpm_alternatives` gives the half and double of `bpm`")
+                && d.contains("`bpm_confidence`")
+                && d.contains("`bpm` is null with no steady beat"),
             "{d}"
         );
     }
@@ -244,6 +274,130 @@ mod tests {
             }
             ToolResult::Error(e) => panic!("tool errored: {e}"),
         }
+    }
+
+    /// Write `samples` as a mono 16-bit WAV.
+    fn write_wav(path: &Path, sample_rate: u32, samples: &[f32]) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for s in samples {
+            writer.write_sample((s * i16::MAX as f32) as i16).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    fn analyse_path(path: &Path) -> Value {
+        let dir = path.parent().unwrap();
+        let (mut store, mut engine) = ctx_parts(dir);
+        let mut clipboard: Option<crate::Clipboard> = None;
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        match AnalyzeTrackTool
+            .invoke(json!({ "path": path.to_string_lossy() }), &mut ctx)
+            .unwrap()
+        {
+            ToolResult::Ok(v) => v,
+            ToolResult::Error(e) => panic!("tool errored: {e}"),
+        }
+    }
+
+    /// A kick on every beat and a hat on every off-beat, as #696 found them
+    /// read as double tempo: 90 BPM came out as 179.
+    #[test]
+    fn kick_and_off_beat_hats_read_at_the_kick_tempo_with_the_double_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("groove.wav");
+        let sr = 44_100u32;
+        let beat = 60.0f32 / 90.0;
+        let mut out = vec![0.0f32; (16.0 * sr as f32) as usize];
+        let mut rng = 7u64;
+        let mut k = 0;
+        while (0.25 + k as f32 * beat) < 15.5 {
+            let t = 0.25 + k as f32 * beat;
+            let mut phase = 0.0f32;
+            for i in 0..(sr as f32 * 0.25) as usize {
+                let ts = i as f32 / sr as f32;
+                phase += std::f32::consts::TAU * (50.0 + 90.0 * (-ts * 30.0).exp()) / sr as f32;
+                let at = (t * sr as f32) as usize + i;
+                if at < out.len() {
+                    out[at] += 0.8 * (-ts * 14.0).exp() * phase.sin();
+                }
+            }
+            let mut prev = 0.0f32;
+            for i in 0..(sr as f32 * 0.04) as usize {
+                rng = rng
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                let n = ((rng >> 33) as f32 / (1u64 << 31) as f32) * 2.0 - 1.0;
+                let at = ((t + beat / 2.0) * sr as f32) as usize + i;
+                if at < out.len() {
+                    out[at] += 0.25 * (-(i as f32 / sr as f32) * 90.0).exp() * (n - prev) * 0.5;
+                }
+                prev = n;
+            }
+            k += 1;
+        }
+        write_wav(&wav, sr, &out);
+        let v = analyse_path(&wav);
+        let bpm = v["bpm"].as_f64().expect("bpm");
+        assert!(
+            (bpm - 90.0).abs() <= 1.5,
+            "90 BPM groove read as {bpm}: {v}"
+        );
+        assert!(v["bpm_confidence"].as_f64().unwrap() >= 0.5, "{v}");
+        let alts = v["bpm_alternatives"].as_array().expect("alternatives");
+        let double = alts
+            .iter()
+            .find(|a| a["relation"] == "double")
+            .expect("double offered");
+        assert!(
+            (double["bpm"].as_f64().unwrap() - 180.0).abs() <= 3.0,
+            "{v}"
+        );
+        assert!(v["key_score"].is_number() && v["key_runner_up"].is_string());
+        assert!(v["key_runner_up_score"].is_number());
+        let summary = v["summary"].as_str().unwrap();
+        assert!(
+            summary.contains("90.") && summary.contains("confidence"),
+            "{summary}"
+        );
+    }
+
+    /// A pad has no pulse: `bpm` is null and the rest is still returned.
+    #[test]
+    fn a_pad_has_a_key_and_a_null_bpm() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("pad.wav");
+        let sr = 44_100u32;
+        let out: Vec<f32> = (0..sr as usize * 6)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                // B-flat minor: B-flat3, D-flat4, F4.
+                [233.08f32, 277.18, 349.23]
+                    .iter()
+                    .map(|f| (std::f32::consts::TAU * f * t).sin() / 3.0)
+                    .sum::<f32>()
+            })
+            .collect();
+        write_wav(&wav, sr, &out);
+        let v = analyse_path(&wav);
+        assert!(v["bpm"].is_null(), "{v}");
+        assert_eq!(v["bpm_alternatives"].as_array().unwrap().len(), 0, "{v}");
+        assert_eq!(v["key"], "A# minor", "{v}");
+        assert!(
+            v["summary"].as_str().unwrap().contains("no steady beat"),
+            "{v}"
+        );
     }
 
     fn ctx_parts(dir: &Path) -> (session::Store, audio_engine::Engine) {
