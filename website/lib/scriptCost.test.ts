@@ -105,17 +105,53 @@ describe("the polyfills Next puts in every page", () => {
     }
   });
 
+  /**
+   * The names a file imports from `lucide-react`, or `null` for an import that does not name
+   * them (`import * as`, a default import), which could reach any icon.
+   */
+  function lucideImports(source: string): string[] | null {
+    const names: string[] = [];
+    for (const [, clause] of source.matchAll(/\bimport\s+([^;]*?)\s+from\s*["']lucide-react["']/g)) {
+      const braces = /^(?:type\s+)?\{([^}]*)\}$/.exec(clause.trim());
+      if (!braces) return null;
+      for (const part of braces[1].split(",")) {
+        const name = part.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0];
+        if (name) names.push(name);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * The files under `dir` that mention `URL.canParse`, leaving out `skip` and `node_modules`.
+   * `readdir` with file types, so a folder costs one call and not one `stat` per entry.
+   */
+  const callers = (dir: string, skip = ""): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === "node_modules" || path === skip ? [] : callers(path, skip);
+      return /\.(?:m?js|cjs)$/.test(entry.name) && /canParse/.test(readFileSync(path, "utf8")) ? [path] : [];
+    });
+
   it("is safe to drop URL.canParse, which Chrome 111, Firefox 111 and Safari 16.4 lack, because nothing in the browser calls it", () => {
     const since = FEATURES["URL.canParse"];
     expect(since.chrome).toBeGreaterThan(111);
-    // The site's own code.
+    // The site's own code, and the lucide icons it imports.
     const own: string[] = [];
+    const icons = new Set<string>();
+    let everyIcon = false;
     const walk = (dir: string) => {
       for (const name of readdirSync(join(ROOT, dir))) {
         if (name === "node_modules" || name === ".next") continue;
         const rel = join(dir, name);
         if (statSync(join(ROOT, rel)).isDirectory()) walk(rel);
-        else if (/\.(?:tsx?|mjs|js)$/.test(name) && !/\.test\.ts$/.test(name) && /canParse/.test(read(rel))) own.push(rel);
+        else if (/\.(?:tsx?|mjs|js)$/.test(name)) {
+          const source = read(rel);
+          if (!/\.test\.ts$/.test(name) && /canParse/.test(source)) own.push(rel);
+          const named = lucideImports(source);
+          if (named === null) everyIcon = true;
+          else for (const icon of named) icons.add(icon);
+        }
       }
     };
     for (const dir of ["app", "components", "lib"]) walk(dir);
@@ -133,13 +169,29 @@ describe("the polyfills Next puts in every page", () => {
       "clsx",
       "tailwind-merge",
     ];
-    const callers = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-        const path = join(dir, entry.name);
-        if (entry.isDirectory()) return entry.name === "node_modules" ? [] : callers(path);
-        return /\.(?:m?js|cjs)$/.test(entry.name) && /canParse/.test(readFileSync(path, "utf8")) ? [path] : [];
-      });
-    for (const pkg of packages) expect(callers(join(ROOT, "node_modules", pkg)), pkg).toEqual([]);
+    // lucide-react is 1,747 one-icon files, and a bundle holds only the icons the site imports
+    // (`sideEffects: false`), so read those: the package minus its icons folder, then each icon
+    // the site names, found through the package's own ESM entry. Reading all of them was the
+    // bulk of this test's I/O, and it timed out on a cold disk (#687). An import that names no
+    // icon, or an icon the entry does not list, reads the whole folder, so this never reads less
+    // than it can show is safe.
+    const lucide = join(ROOT, "node_modules/lucide-react");
+    const iconsDir = join(lucide, "dist/esm/icons");
+    const entry = readFileSync(join(lucide, "dist/esm/lucide-react.js"), "utf8");
+    const iconFiles = (name: string) =>
+      new RegExp(`default as ${name}(?=[,\\s}])[^;]*?from '\\./icons/([^']+)'`).exec(entry)?.[1];
+    const files = [...icons].map((name) => [name, iconFiles(name)] as const);
+    const unknown = everyIcon || files.some(([, file]) => file === undefined);
+    expect(icons.size, "the site imports no lucide icons: has this scan lost them?").toBeGreaterThan(0);
+    for (const pkg of packages) {
+      const dir = join(ROOT, "node_modules", pkg);
+      expect(callers(dir, pkg === "lucide-react" && !unknown ? iconsDir : ""), pkg).toEqual([]);
+    }
+    if (!unknown) {
+      for (const [name, file] of files) {
+        expect(/canParse/.test(readFileSync(join(iconsDir, file!), "utf8")), `lucide icon ${name}`).toBe(false);
+      }
+    }
   });
 });
 
