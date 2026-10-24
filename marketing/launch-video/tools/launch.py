@@ -254,9 +254,9 @@ def build(key):
     t_flow = t
     if not ig:
         t_flow_end = t_flow + 6.6
-        T = t_flow_end + 5.3 + END_SECONDS[key]
+        T = t_flow_end + END_SECONDS[key]
         P.set_total(T)
-        common_tail(P, t_flow, t_flow_end, t_flow_end + 5.3, P.total, rd)
+        common_tail(P, t_flow, t_flow_end, P.total, rd)
     else:
         T = t_flow + END_SECONDS[key]
         P.set_total(T)
@@ -290,27 +290,20 @@ def end_card(P, t_end, total, ig=False, rd=False):
     P.scenes += [("end", t_end, total)]
 
 
-def common_tail(P, t_flow, t_limits, t_end, total, rd):
-    L = P.L
+def common_tail(P, t_flow, t_end, total, rd):
     # The tool count is docs/tools-reference.md ("Every one of the 94 tools the AI agent can call"; 93 until v0.7.0 added
     # `list_session`, #634). Keep it in step with that line, and with the claim ledger in ../script.md, when a tool is added.
-    P.step("*94 tools.* Run on *your machine.*", t_flow, t_limits + 0.1, cue="94 deterministic tools run on your machine. Only the chat goes to the provider you choose.")
-    P.add(Flow(P.ctx, t_flow + 0.3, t_limits + 0.1,
+    P.step("*94 tools.* Run on *your machine.*", t_flow, t_end + 0.1, cue="94 deterministic tools run on your machine. Only the chat goes to the provider you choose.")
+    P.add(Flow(P.ctx, t_flow + 0.3, t_end + 0.1,
                ("Your computer", ["Audio files stay here", "94 deterministic tools", "Rust DSP engine"]),
                ("The provider you choose", ["Only the chat is sent"]),
                "chat text only",
                ["Anthropic", "OpenAI", "OpenRouter", "Groq", "Gemini", "Ollama (local)"],
                vertical=(not rd), box=(None if not rd else (140, 230, 1780, 1000))))
     P.sfx.append((t_flow, "whoosh", -13))
-    P.step("*Honest* limits", t_limits, t_end + 0.15, cue="Honest limits: synthetic demo tracks; it preps files, it is not a live DJ tool; no stem separation or transcription yet; unsigned installers.")
-    box = (L.safe[0] + 28, L.title_box[3] + 20, L.safe[2] - 28, L.safe[3] - 60) if not rd else (260, 240, 1660, 1000)
-    P.add(Stack(P.ctx, ["Demo tracks are short synthetic loops",
-                        "It preps files. It is not a live DJ tool",
-                        "No stem separation or transcription yet",
-                        "Installers are unsigned: expect a warning"],
-                t_limits + 0.2, t_end + 0.1, box=box, stagger=0.32, marker="dash", size=(48 if not rd else 66), row_gap=1.75, center=True))
-    P.sfx.append((t_limits, "whoosh", -13))
-    P.scenes += [("how", t_flow, t_limits), ("limits", t_limits, t_end)]
+    # No "Honest limits" slide (removed at the owner's request, 2026-10-24): the how-it-works card is followed by the end card.
+    # No whoosh into the end card: like the Instagram cut's, it has the chime alone (a whoosh 0.2 s ahead of it would stack on it).
+    P.scenes += [("how", t_flow, t_end)]
     end_card(P, t_end, total, rd=rd)
 
 

@@ -47,10 +47,6 @@ And a three-track mini-mix
 94 deterministic tools run on your machine. Only the chat goes to the provider you choose.
 
 13
-00:00:59,000 --> 00:01:04,150
-Honest limits: synthetic demo tracks; it preps files, it is not a live DJ tool; no stem separation or transcription yet; unsigned installers.
-
-14
-00:01:04,900 --> 00:01:09,100
+00:00:59,600 --> 00:01:03,800
 edytlab. Free, open source (MIT). edytlab.com. github.com/laadtushar/edytlab. Which prep job would you hand off first?
 
