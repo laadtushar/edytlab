@@ -162,10 +162,10 @@ export const videos: readonly SiteVideo[] = [
     blurb: "Describe a blend in plain English, hear the transition, then master and export the mix.",
     disclosure: "Real screen recordings of the app on short synthetic demo tracks. Waits sped up.",
     caption:
-      "One DJ job from request to exported file, cut from the real recordings of the desktop app: the request is typed in plain English, the agent calls its tools and points out what it noticed, you hear the blend, and the mix is mastered and exported as a WAV. Two more jobs follow, then how it works (the audio stays on your machine, only the chat goes to the provider you choose) and its limits: demo tracks are short synthetic loops, it prepares files and is not a live DJ tool, there is no stem separation or transcription yet, and the installers are unsigned. Captions are available.",
+      "One DJ job from request to exported file, cut from the real recordings of the desktop app: the request is typed in plain English, the agent calls its tools and points out what it noticed, you hear the blend, and the mix is mastered and exported as a WAV. Two more jobs follow, then how it works (the audio stays on your machine, only the chat goes to the provider you choose) and an end card: free and open source, with the installers unsigned. Captions are available.",
     description:
-      "A one-minute video of the edytlab desktop app: a DJ describes a blend in plain English, the agent calls its tools, and the mix is exported. Limits stated.",
-    seconds: 64,
+      "A one-minute video of the edytlab desktop app: a DJ describes a blend in plain English, the agent calls its tools, and the mix is exported.",
+    seconds: 58,
     uploadDate: "2026-10-10",
     width: 1920,
     height: 1080,
@@ -184,8 +184,7 @@ export const videos: readonly SiteVideo[] = [
       { at: 39.05, text: "Also: hold the low end until the drop, with a 200 Hz high-pass." },
       { at: 42.75, text: "And a three-track mini-mix, with four-bar overlaps." },
       { at: 46.5, text: "How it works: your audio files stay on your computer and the app's own engine edits them; only the chat goes to the provider you choose." },
-      { at: 53.1, text: "The limits, stated on screen: the demo tracks are short synthetic loops, it prepares files and is not a live DJ tool, and there is no stem separation or transcription yet." },
-      { at: 59.0, text: "End card: free and open source (MIT), github.com/laadtushar/edytlab, edytlab.com. The installers are unsigned." },
+      { at: 53.7, text: "End card: free and open source (MIT), github.com/laadtushar/edytlab, edytlab.com. The installers are unsigned." },
     ],
   },
   {

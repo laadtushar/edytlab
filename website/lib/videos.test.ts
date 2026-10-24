@@ -85,12 +85,10 @@ describe("the list", () => {
     expect(v.title.length).toBeLessThanOrEqual(55);
     // The rules in marketing/README.md ("The accuracy rules"): nothing
     // that has not shipped, no counts or ratings, no superlatives.
-    // The launch video says on screen what it cannot do yet, and its
-    // caption repeats that; it is the one place the words may appear.
-    const words = `${v.title} ${v.caption} ${v.description} ${v.moments.map((m) => m.text).join(" ")}`.replace(
-      /no stem separation or transcription yet/gi,
-      "",
-    );
+    // The launch video's "Honest limits" slide, the one place "no stem
+    // separation or transcription yet" was allowed, was removed on 2026-10-24
+    // (it was stale), so no video's words may say it.
+    const words = `${v.title} ${v.caption} ${v.description} ${v.moments.map((m) => m.text).join(" ")}`;
     expect(words).not.toMatch(/\bthe only\b|\b(?:best|better than|ultimate)\b/i);
     expect(words).not.toMatch(/\bmashups?\b|vocals over|isolat|\bacapella\b|stem separation|\bstems\b/i);
     expect(words).not.toMatch(/\btranscri(?:be|bes|bed|ption|pt)\b|filler|speaker detection/i);
