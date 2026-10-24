@@ -354,6 +354,104 @@ function Windows() {
   );
 }
 
+/** Beat marks with one gap a beat wide and a half-spaced row below, beside a circle of twelve pitch classes with one marked. */
+function BpmKey() {
+  const ticks = Array.from({ length: 7 }, (_, i) => 48 + i * 40);
+  const pts = Array.from({ length: 12 }, (_, i) => {
+    const a = -Math.PI / 2 + (i * Math.PI) / 6;
+    return [n1(476 + 86 * Math.cos(a)), n1(168 + 86 * Math.sin(a))] as const;
+  });
+  return (
+    <>
+      <path d={ticks.map((x) => `M${x} 86V176`).join("")} className="stroke-primary" />
+      <path d="M48 62H88M48 52v20M88 52v20" className="stroke-muted-foreground" />
+      <path d={Array.from({ length: 13 }, (_, i) => `M${48 + i * 20} 214V252`).join("")} className="stroke-muted-foreground" />
+      <path d="M48 276H288" className="stroke-border" />
+      <circle cx="476" cy="168" r="86" className="stroke-border" />
+      {pts.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r={i === 9 ? 10 : 5} className={i === 9 ? "fill-primary stroke-primary" : "fill-card stroke-muted-foreground"} />
+      ))}
+      <path d={`M476 168L${pts[9][0]} ${pts[9][1]}`} className="stroke-primary" />
+    </>
+  );
+}
+
+/** A noisy waveform with its first stretch bracketed as the profile, and the same waveform quieter with a few spikes left over. */
+function NoiseProfile() {
+  const voice = (t: number) => Math.sin(t * Math.PI * 3) ** 2;
+  return (
+    <>
+      <path d={bars(40, 600, 90, 52, 71, 6, (t) => (t < 0.2 ? 0.45 : 0.45 + 0.55 * voice(t)))} className="stroke-muted-foreground" />
+      <path d="M40 150v10h104v-10" className="stroke-primary" />
+      <path d="M92 160v12" className="stroke-primary" />
+      <path d={bars(40, 600, 244, 52, 72, 6, (t) => (t < 0.2 ? 0.08 : 0.08 + 0.92 * voice(t)))} className="stroke-primary" />
+      <path d="M232 244v-44M384 244v-34M512 244v-40" className="stroke-primary" strokeWidth={4} />
+      <circle cx="232" cy="198" r="4.5" className="fill-primary stroke-primary" />
+      <circle cx="384" cy="208" r="4.5" className="fill-primary stroke-primary" />
+      <circle cx="512" cy="202" r="4.5" className="fill-primary stroke-primary" />
+    </>
+  );
+}
+
+/** Samples on a wave whose peak falls between two of them, above a dashed ceiling. */
+function PeakBetween() {
+  const pts = Array.from({ length: 81 }, (_, i) => {
+    const x = 40 + i * 7.5;
+    const y = 190 - 92 * Math.sin(((x - 40) / 560) * Math.PI * 4 + 0.35);
+    return `${i === 0 ? "M" : "L"}${n1(x)} ${n1(y)}`;
+  }).join("");
+  const dots = Array.from({ length: 16 }, (_, i) => {
+    const x = 40 + 35 * i + 22;
+    return [x, 190 - 92 * Math.sin(((x - 40) / 560) * Math.PI * 4 + 0.35)] as const;
+  });
+  return (
+    <>
+      <path d="M40 112H600" className="stroke-muted-foreground" strokeDasharray="4 9" />
+      <path d={pts} className="stroke-primary" opacity=".7" />
+      {dots.map(([x, y]) => (
+        <circle key={x} cx={n1(x)} cy={n1(y)} r="5" className="fill-card stroke-primary" />
+      ))}
+      <path d="M40 286H600" className="stroke-border" />
+    </>
+  );
+}
+
+/** Two pairs of crossing gain curves: straight lines that cross low, and bowed ones that cross higher. */
+function CrossCurves() {
+  const curve = (x0: number, f: (x: number) => number) =>
+    Array.from({ length: 25 }, (_, i) => {
+      const x = i / 24;
+      return `${i === 0 ? "M" : "L"}${n1(x0 + 240 * x)} ${n1(272 - 190 * f(x))}`;
+    }).join("");
+  return (
+    <>
+      <path d={curve(40, (x) => 1 - x)} className="stroke-muted-foreground" />
+      <path d={curve(40, (x) => x)} className="stroke-primary" />
+      <path d={curve(360, (x) => Math.cos((x * Math.PI) / 2))} className="stroke-muted-foreground" />
+      <path d={curve(360, (x) => Math.sin((x * Math.PI) / 2))} className="stroke-primary" />
+      <path d="M40 272H280M360 272H600" className="stroke-border" />
+      <path d="M40 82H280M360 82H600" className="stroke-border" strokeDasharray="3 8" />
+      <path d="M160 177v95M480 138v134" className="stroke-primary" strokeDasharray="2 7" />
+    </>
+  );
+}
+
+/** A laptop holding a chip, a waveform and a bubble, ringed by a dashed line nothing crosses. */
+function LocalModel() {
+  return (
+    <>
+      <rect x="150" y="62" width="340" height="190" rx="16" className="fill-secondary stroke-border" />
+      <path d="M118 272h404" className="stroke-border" />
+      <rect x="180" y="96" width="62" height="62" rx="8" className="fill-card stroke-primary" />
+      <path d="M196 110h30v30h-30zM194 126h-10M258 126h-16M211 96v-12M211 158v12" className="stroke-primary" />
+      <path d={bars(268, 380, 128, 28, 91, 7, (t) => Math.sin(t * Math.PI) ** 0.7)} className="stroke-primary" />
+      <rect x="318" y="178" width="140" height="48" rx="12" className="fill-card stroke-muted-foreground" />
+      <path d="M338 194h74M338 208h48" className="stroke-muted-foreground" />
+      <rect x="96" y="40" width="448" height="256" rx="30" className="stroke-primary" strokeDasharray="4 10" />
+    </>
+  );
+}
+
 const COVERS: Record<string, () => ReactNode> = {
   "ai-audio-editing-local-first": LocalFirst,
   "stem-separation-explained-demucs": Stems,
@@ -368,6 +466,11 @@ const COVERS: Record<string, () => ReactNode> = {
   "batch-normalize-audio-files-to-a-lufs-target": Batch,
   "remove-silence-from-audio-without-chopping-breaths": ShortPause,
   "change-tempo-without-changing-pitch": Windows,
+  "how-to-find-the-bpm-and-key-of-a-song": BpmKey,
+  "remove-background-noise-from-audio": NoiseProfile,
+  "true-peak-vs-sample-peak": PeakBetween,
+  "crossfade-two-songs": CrossCurves,
+  "edit-audio-with-a-local-model-ollama": LocalModel,
 };
 
 /** Slugs that have a cover of their own, for the test that holds every post to one. */

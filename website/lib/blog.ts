@@ -1,4 +1,5 @@
 import { audioHowtoPosts } from "./blog-posts-audio";
+import { audioHowtoPosts2 } from "./blog-posts-audio-2";
 import { octoberPosts } from "./blog-posts-october";
 import { stripInline } from "./inline";
 import { siteConfig } from "./site";
@@ -528,7 +529,7 @@ const earlierPosts: BlogPost[] = [
 ];
 
 /** Every post, oldest first. Where two share a date, the order here is the order shown. */
-export const posts: BlogPost[] = [...earlierPosts, ...octoberPosts, ...audioHowtoPosts];
+export const posts: BlogPost[] = [...earlierPosts, ...octoberPosts, ...audioHowtoPosts, ...audioHowtoPosts2];
 
 export function getPost(slug: string): BlogPost | undefined {
   return posts.find((p) => p.slug === slug);
