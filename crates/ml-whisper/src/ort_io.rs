@@ -130,6 +130,35 @@ fn backend(what: &str, e: impl std::fmt::Display) -> DecodeError {
     DecodeError::Backend(format!("{what}: {e}"))
 }
 
+/// Copy a tensor the runtime owns into a `Vec`. Tests count the bytes that go
+/// through here, per thread, to show what a decoder step moves out of ONNX
+/// Runtime (`model::tests::a_decoder_step_copies_a_cost_that_does_not_grow`).
+fn copy_out(data: &[f32]) -> Vec<f32> {
+    #[cfg(test)]
+    copied::add(std::mem::size_of_val(data));
+    data.to_vec()
+}
+
+/// The counter behind [`copy_out`]. Per thread, so tests that run in parallel
+/// do not count each other's copies.
+#[cfg(test)]
+pub(crate) mod copied {
+    use std::cell::Cell;
+
+    thread_local! {
+        static BYTES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn add(bytes: usize) {
+        BYTES.with(|b| b.set(b.get() + bytes as u64));
+    }
+
+    /// Bytes copied out of the runtime on this thread so far.
+    pub(crate) fn total() -> u64 {
+        BYTES.with(Cell::get)
+    }
+}
+
 impl DecoderRun for OrtDecoder<'_> {
     fn run(&mut self, feed: &Feed<'_>, want: &Want<'_>) -> Result<Fetched, DecodeError> {
         let l = self.layout;
@@ -193,14 +222,14 @@ impl DecoderRun for OrtDecoder<'_> {
         // The sequence axis of a `[1, heads, len, head_dim]` tensor.
         let len_of = |dims: &[i64]| dims.get(2).copied().unwrap_or(0).max(0) as usize;
 
-        let logits = extract("logits")?.1.to_vec();
+        let logits = copy_out(extract("logits")?.1);
 
         let mut decoder = Vec::with_capacity(l.layers);
         let mut decoder_len = 0;
         for names in &self.present {
             let (dims, key) = extract(&names[0])?;
             decoder_len = len_of(dims);
-            decoder.push((key.to_vec(), extract(&names[1])?.1.to_vec()));
+            decoder.push((copy_out(key), copy_out(extract(&names[1])?.1)));
         }
         let (mut encoder, mut encoder_len) = (None, 0);
         if want.encoder_present {
@@ -208,13 +237,13 @@ impl DecoderRun for OrtDecoder<'_> {
             for names in &self.present {
                 let (dims, key) = extract(&names[2])?;
                 encoder_len = len_of(dims);
-                all.push((key.to_vec(), extract(&names[3])?.1.to_vec()));
+                all.push((copy_out(key), copy_out(extract(&names[3])?.1)));
             }
             encoder = Some(all);
         }
         let mut cross = Vec::with_capacity(want.cross_layers.len());
         for &layer in want.cross_layers {
-            cross.push(extract(&cross_name(layer))?.1.to_vec());
+            cross.push(copy_out(extract(&cross_name(layer))?.1));
         }
         Ok(Fetched {
             logits,

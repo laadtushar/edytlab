@@ -604,6 +604,106 @@ mod tests {
         }
     }
 
+    // ---- the cost of a step, on the real model ----------------------------------
+
+    /// What a forced decode of `steps` tokens moved out of the runtime, and how
+    /// long it took, step by step.
+    struct Steps {
+        /// Bytes copied out of ONNX Runtime by step `i` alone (the prompt is step 0).
+        copied: Vec<u64>,
+        /// Wall time of step `i`.
+        took: Vec<std::time::Duration>,
+    }
+
+    /// Run the real decoder for the prompt and then `new_tokens` forced tokens,
+    /// which is the shape of a window that runs to the length cap, without
+    /// needing 30 s of dense speech: the cost of a step does not depend on which
+    /// token it is fed.
+    fn forced_decode(model: &WhisperModel, new_tokens: usize) -> Steps {
+        use crate::decode::DecoderStep;
+        let silence = vec![0.0f32; crate::mel::N_MELS * crate::mel::N_FRAMES];
+        let encoder =
+            run_encoder(&model.encoder, silence, &model.layout).expect("the encoder runs");
+        let cancel = || false;
+        let run = OrtDecoder::lock(&model.decoder, model.layout);
+        let mut decoder = CachedDecoder::new(run, model.layout, model.heads, &cancel);
+        let ids = &model.config.tokens;
+        let prompt = [
+            ids.sot,
+            ids.languages.start,
+            ids.transcribe,
+            ids.no_timestamps,
+        ];
+        assert_eq!(prompt.len(), PROMPT_LEN);
+
+        let (mut copied, mut took) = (Vec::new(), Vec::new());
+        let mut step = |tokens: &[u32], past: usize| {
+            let (bytes, clock) = (crate::ort_io::copied::total(), std::time::Instant::now());
+            decoder.step(tokens, past, &encoder).expect("a step runs");
+            took.push(clock.elapsed());
+            copied.push(crate::ort_io::copied::total() - bytes);
+        };
+        step(&prompt, 0);
+        for i in 0..new_tokens {
+            step(&[440], PROMPT_LEN + i);
+        }
+        Steps { copied, took }
+    }
+
+    #[test]
+    #[ignore = "needs ORT_DYLIB_PATH and WHISPER_MODEL_PATH (the folder of the pinned whisper-base)"]
+    fn a_decoder_step_copies_a_cost_that_does_not_grow() {
+        let dir =
+            PathBuf::from(std::env::var_os("WHISPER_MODEL_PATH").expect(
+                "WHISPER_MODEL_PATH is not set: a skipped --ignored test is a vacuous pass",
+            ));
+        assert!(
+            std::env::var_os("ORT_DYLIB_PATH").is_some(),
+            "ORT_DYLIB_PATH is not set: a skipped --ignored test is a vacuous pass"
+        );
+        let model = WhisperModel::load(&dir).expect("the model loads");
+        let cap = model.config.max_new_tokens;
+        let s = forced_decode(&model, cap);
+
+        let sum = |a: usize, b: usize| {
+            s.took[a..b]
+                .iter()
+                .map(|d| d.as_secs_f64() * 1e3)
+                .sum::<f64>()
+        };
+        eprintln!(
+            "steps: {}; copied out of the runtime: prompt {} B, step 20 {} B, step 100 {} B, \
+             step {cap} {} B, all {} B",
+            s.copied.len(),
+            s.copied[0],
+            s.copied[20],
+            s.copied[100],
+            s.copied[cap],
+            s.copied.iter().sum::<u64>()
+        );
+        eprintln!(
+            "wall: steps 1..=20 {:.1} ms, steps {}..={cap} {:.1} ms, all {:.1} ms",
+            sum(1, 21),
+            cap - 19,
+            sum(cap - 19, cap + 1),
+            sum(0, s.took.len())
+        );
+
+        // A later step moves what an earlier one does: its logits row and the
+        // alignment heads' attention row, whatever the cache has grown to.
+        assert_eq!(
+            s.copied[cap], s.copied[20],
+            "step {cap} copied {} B out of the runtime, step 20 copied {} B: the cache is being \
+             copied on every step",
+            s.copied[cap], s.copied[20]
+        );
+        assert!(
+            s.copied[20] < 1 << 20,
+            "a step copies {} B, which is more than a logits row and the attention rows",
+            s.copied[20]
+        );
+    }
+
     #[test]
     fn the_file_names_are_the_pinned_ones() {
         // `ml_pipeline::models::whisper_base()` is the one place the downloaded
