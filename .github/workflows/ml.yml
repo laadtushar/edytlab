@@ -50,8 +50,6 @@ name: ML
 # release asset.
 on:
   workflow_dispatch:
-  push:
-    branches: [claude/ci/ml-workflow-v2]
 
 # A dispatched run is left to finish, so its result is not lost.
 concurrency:
