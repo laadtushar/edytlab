@@ -27,6 +27,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "beatmatch-and-blend-two-tracks",
     title: "Beatmatch and Blend Two Tracks by Asking",
     date: "2026-10-09",
+    dateModified: "2026-10-24",
     description:
       "Match tempos, overlap two tracks, fade and filter the outgoing one, then master and export a WAV: the DJ transition from the demo, as prompts you can type.",
     coverAlt:
@@ -63,7 +64,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "That runs `analyze_track` on each track. It returns the BPM, the key, a beat grid, downbeats, sections, a loudness curve and the integrated loudness in LUFS. The analysis is pure Rust on your machine, with no model to download. Treat the tempo as a strong hint rather than a verdict: tempo estimators can land on half or double time, so check it against what you hear and correct the agent if it is off.",
+        text: "That runs `analyze_track` on each track. It returns the BPM, the key, a beat grid, a loudness curve and the integrated loudness in LUFS, and also a `downbeats` list and a `sections` list that are placeholders, not analysis: `downbeats` is every fourth beat from the first beat, and `sections` is one section covering the whole track. The analysis is pure Rust on your machine, with no model to download. Treat the tempo as a strong hint rather than a verdict: tempo estimators can land on half or double time, so check it against what you hear and correct the agent if it is off.",
       },
       { type: "h2", text: "Step 2: Stretch the incoming track to match" },
       {
@@ -178,6 +179,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "make-a-mixable-extended-intro",
     title: "Make a Mixable Extended Intro",
     date: "2026-10-09",
+    dateModified: "2026-10-24",
     description:
       "Turn a track's drums-only opening into a longer, DJ-friendly intro: copy the bars, paste them back, high-pass, fade in and export. A prompt for every step.",
     coverAlt:
@@ -203,11 +205,11 @@ export const octoberPosts: BlogPost[] = [
       { type: "h2", text: "Step 1: Find the bars" },
       {
         type: "prompt",
-        text: "Analyze the track: tempo, downbeats and sections. How long is a bar, and where do the drums-only bars end?",
+        text: "Analyze the track's tempo. How long is a bar? The drums play alone for the first 8 bars.",
       },
       {
         type: "p",
-        text: "`analyze_track` returns the BPM, the downbeats and the sections. In 4/4 a bar lasts 4 × 60 ÷ BPM seconds. At 120 BPM that is 2 seconds, so eight bars are 16 seconds. Those are example numbers; use your track's. Section detection is a guide, not an oracle: play the opening and confirm by ear that nothing but drums happens in the bars you plan to loop. A loop that includes the first bass note repeats the bass note.",
+        text: "`analyze_track` returns the BPM and the beat grid. It also returns `downbeats` and `sections`, but those are placeholders: `downbeats` is every fourth beat from the first beat (it assumes 4/4 and does not find the bar line), and `sections` is one section for the whole track, so it cannot tell you where the drums-only bars end. In 4/4 a bar lasts 4 × 60 ÷ BPM seconds. At 120 BPM that is 2 seconds, so eight bars are 16 seconds. Those are example numbers; use your track's. The tempo can also come out at double or half the true value, so check it by ear. Play the opening yourself, confirm that nothing but drums happens in the bars you plan to loop and that the first beat starts a bar, and give the agent the time where the drums stop. A loop that includes the first bass note repeats the bass note.",
       },
       { type: "h2", text: "Step 2: Copy the bars" },
       {

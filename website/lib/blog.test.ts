@@ -217,3 +217,25 @@ describe("links inside posts", () => {
     }
   });
 });
+
+/**
+ * `analyze_track` returns `downbeats` (every fourth beat from the first)
+ * and `sections` (one whole-track section) as placeholders (#696). A post
+ * that sends the reader to them as analysis would mislead, so each October
+ * post that names them says what they are.
+ */
+describe("posts that name analyze_track's downbeats and sections", () => {
+  const text = (p: BlogPost) =>
+    p.body.map((b) => ("items" in b ? b.items.join(" ") : b.text)).join("\n");
+
+  it.each(["beatmatch-and-blend-two-tracks", "make-a-mixable-extended-intro"])(
+    "%s calls them placeholders",
+    (slug) => {
+      const post = octoberPosts.find((p) => p.slug === slug)!;
+      const t = text(post);
+      expect(t).toMatch(/placeholders/);
+      expect(t).toMatch(/every fourth beat/);
+      expect(t).toMatch(/one section[^.]*whole track/);
+    },
+  );
+});

@@ -27,6 +27,14 @@ struct Args {
     path: Option<String>,
 }
 
+/// What `downbeats` is, said in the result as well as the description (#696):
+/// every fourth beat from the first, not a detected bar line.
+const DOWNBEATS_SOURCE: &str = "assumed_4_4";
+
+/// What `sections` is (#696): one section for the whole file, not a
+/// segmentation.
+const SECTIONS_SOURCE: &str = "whole_track";
+
 pub struct AnalyzeTrackTool;
 
 impl Tool for AnalyzeTrackTool {
@@ -37,7 +45,7 @@ impl Tool for AnalyzeTrackTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "analyze_track",
-            "Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.",
+            "Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. `sections` is one whole-track section, not detected sections; `downbeats` are assumed every 4th beat from the first beat (4/4), not detected. BPM can come out at double or half the true tempo: check it by ear. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.",
             json!({
                 "type": "object",
                 "properties": {
@@ -116,6 +124,8 @@ impl Tool for AnalyzeTrackTool {
             "key": report.key,
             "beats": report.beats,
             "downbeats": report.downbeats,
+            "downbeats_source": DOWNBEATS_SOURCE,
+            "sections_source": SECTIONS_SOURCE,
             "sections": report
                 .sections
                 .iter()
@@ -182,6 +192,58 @@ mod tests {
         assert_eq!(s["name"], "analyze_track");
         assert!(s["input_schema"]["properties"]["path"].is_object());
         assert!(s["input_schema"]["properties"]["track"].is_object());
+    }
+
+    /// `downbeats` and `sections` are placeholders (#696): the description
+    /// and the result both say so, so neither can be read as analysis.
+    #[test]
+    fn the_description_says_sections_and_downbeats_are_placeholders() {
+        let s = AnalyzeTrackTool.schema();
+        let d = s["description"].as_str().expect("description");
+        assert!(
+            d.contains("`sections` is one whole-track section, not detected sections"),
+            "{d}"
+        );
+        assert!(
+            d.contains(
+                "`downbeats` are assumed every 4th beat from the first beat (4/4), not detected"
+            ),
+            "{d}"
+        );
+        assert!(
+            d.contains("double or half the true tempo") && d.contains("check it by ear"),
+            "{d}"
+        );
+    }
+
+    #[test]
+    fn the_result_labels_downbeats_and_sections_as_placeholders() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("click.wav");
+        write_click_wav(&wav, 44_100, 8.0, 120.0);
+        let (mut store, mut engine) = ctx_parts(dir.path());
+        let mut clipboard: Option<crate::Clipboard> = None;
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        match AnalyzeTrackTool
+            .invoke(json!({ "path": wav.to_string_lossy() }), &mut ctx)
+            .unwrap()
+        {
+            ToolResult::Ok(v) => {
+                assert_eq!(v["downbeats_source"], "assumed_4_4");
+                assert_eq!(v["sections_source"], "whole_track");
+                // The labels describe what is there: one section, named "track".
+                let sections = v["sections"].as_array().expect("sections");
+                assert_eq!(sections.len(), 1, "{v}");
+                assert_eq!(sections[0]["name"], "track");
+            }
+            ToolResult::Error(e) => panic!("tool errored: {e}"),
+        }
     }
 
     fn ctx_parts(dir: &Path) -> (session::Store, audio_engine::Engine) {
