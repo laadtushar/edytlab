@@ -17,12 +17,12 @@ Claude" (the assistant is in the shot) or "Real app, recorded live" (it is not).
 
 | # | Headline | Frame from |
 |---|---|---|
-| 1 | Describe the edit. | the typed request and its Fade and Gain calls |
+| 1 | Describe the edit. | the typed request and the two edits it made (Fade, Gain) |
 | 2 | A DJ transition in one sentence. | the blend request: Fade, Low-pass filter, Fade |
 | 3 | Extend a club intro. | the request to repeat the first 8 bars: Copy, Paste |
 | 4 | Your audio stays on your computer. | a three-track session with the chat beside it |
 | 5 | Every edit is a version. | the history graph, with its branches |
-| 6 | Free and open source. | the lanes of a large session (MIT, 94 tools, macOS · Windows · Linux, the repo) |
+| 6 | Free and open source. | the chat's list of Gain edits beside the lanes of a large session (MIT, 94 tools, macOS · Windows · Linux, the repo) |
 
 ## Sizes and platforms
 
@@ -39,32 +39,33 @@ Claude" (the assistant is in the shot) or "Real app, recorded live" (it is not).
 | `pinterest-1000x1500` | 1000 x 1500 | Pinterest |
 
 Each size has its own layout: a stack (brand, headline, line, frame, footer)
-on the square and vertical canvases, and a text column beside the frame on the
-wide ones. The frame is cropped per canvas (`frames/tN-wide|mid|tall.png`) to
-the part of the app that reads at that size; nothing is resized, recoloured or
-drawn on, except theme 4's two small tags. Largest PNG: about 420 KB (no
-`pngquant` on the machine; the aurora is rendered without film grain, as in
-the LinkedIn kit, which keeps the files small).
+on the square and portrait canvases, a text column beside the frame on the
+wide ones, and a poster layout on the two tall ones (Story and Pinterest: the
+headline is fitted to the width, the frame takes the middle, and on the Story
+the label and URL sit just above the 350 px the platforms cover). The frame is
+cropped per canvas (`frames/tN-chat.png` for every canvas but Pinterest, which
+uses the narrower `frames/tN-pin.png`); nothing is resized, recoloured or drawn
+on, except theme 4's two small tags. Largest PNG: about 450 KB (no `pngquant`
+on the machine; the aurora is rendered without film grain, as in the LinkedIn
+kit, which keeps the files small).
 
 ## Which video and time each frame came from
 
 Videos are in `website/public/videos/` and `website/public/demos/`. Crops are
-in pixels of the video (x, y, width, height); the script is
-[`extract-frames.sh`](extract-frames.sh), which holds every number.
+in pixels of the video; [`extract-frames.sh`](extract-frames.sh) holds every
+number. Each crop starts in a clear gap above a line of the chat (found by
+scanning the pixels), so no message is cut through, and none includes the mouse
+pointer, the video's own speed badge, title or caption, or the status bar with
+the app's version.
 
 | Theme | Video | At | Why that moment |
 |---|---|---|---|
-| 1 | `videos/whats-new-v070.mp4` (16:9, 1920x1080) | 11 s | the request typed into the chat, then the two tool calls; its own "Describe the edit" moment, 6.8 s to 13 s |
-| 2 | `demos/dj-beatmatched-transition.mp4` (1280x776) | 76 s | the "Blend them" request with Fade, Low-pass filter and Fade; the "Blend" step starts at 59.6 s |
-| 3 | `demos/dj-extended-club-intro.mp4` | 47 s | the request to repeat the drums-only first 8 bars, with Copy and Paste; the "Extend the intro" step starts at 35.4 s |
-| 4 | `demos/dj-mini-mix.mp4` | 40 s | three tracks on the left, the request and its Fade calls on the right ("Sequence with 4-bar overlaps" starts at 24.6 s) |
+| 1 | `videos/whats-new-v070.mp4` (16:9, 1920x1080) | 11 s | the request typed into the chat, then the Fade and Gain edits; its own "Describe the edit" moment, 6.8 s to 13 s |
+| 2 | `demos/dj-beatmatched-transition.mp4` (1280x776) | 84 s | Claude's reply after the blend (the filter, the bars still a beat apart); the "Blend" step starts at 59.6 s and the pointer has left the chat |
+| 3 | `demos/dj-extended-club-intro.mp4` | 52 s | Claude's summary of the 16-bar intro (new length, where the music comes in); the "Extend the intro" step starts at 35.4 s |
+| 4 | `demos/dj-mini-mix.mp4` | 72 s | Claude's reply on loudness and the limiter, with a lane beside it ("Match loudness, limit the master" starts at 46.7 s) |
 | 5 | `videos/whats-new-v070.mp4` | 28.5 s | the history graph, in the graph moment that starts at 25.967 s |
-| 6 | `videos/whats-new-v070.mp4` | 46.5 s | the lanes of the 200-track session, after the strings were lowered (36.6 s to 48.3 s) |
-
-The demo crops stop at y 612 on purpose: the step caption the video burns in
-below the app and the status bar are left out. Theme 1 and 6 crop inside the
-app's panel (x 100, y 151 or so) and so leave out the status bar and its
-version. No image carries a version number.
+| 6 | `videos/whats-new-v070.mp4` | 44 s | the chat's run of Gain edits beside the lanes, in the 200-track moment (36.6 s to 48.3 s); the chat and the lanes are both in the frame, so "Real app, real Claude" is true of it |
 
 ## What the images claim
 
@@ -119,5 +120,6 @@ whether an image is any good: look at the output after a change.
 | `captions.md` | one caption per platform for each theme |
 | `render.mjs` | renders `themes.mjs` x canvases through `templates/image.html` |
 | `themes.mjs`, `images.css`, `templates/image.html` | copy, canvases and layouts |
-| `frames/`, `extract-frames.sh` | the 18 cropped video frames and the script that takes them |
+| `frames/`, `extract-frames.sh` | the 12 cropped video frames and the script that takes them |
+| `LAUNCH.md` | how to use the set for a launch: which canvas where, the order, times, links |
 | `.build/` | composed pages, rewritten on every render, not committed |

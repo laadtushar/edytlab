@@ -67,7 +67,8 @@ function tagsHtml(tags = []) {
   return tags
     .map((t) => {
       const side = t.align === "right" ? `right:${((1 - t.x) * 100).toFixed(1)}%` : `left:${(t.x * 100).toFixed(1)}%`;
-      return `<div class="tag ${t.tone ?? ""}" style="${side};top:${(t.y * 100).toFixed(1)}%">${t.text}</div>`;
+      const at = t.edge ? "" : `;top:${(t.y * 100).toFixed(1)}%`;
+      return `<div class="tag ${t.tone ?? ""} ${t.edge ?? ""}" style="${side}${at}">${t.text}</div>`;
     })
     .join("");
 }
@@ -77,7 +78,7 @@ function body(theme, canvas) {
   const frameFile = `t${themeNo}-${canvas.crop}.png`;
   const { w: iw, h: ih } = pngSize(join(HERE, "frames", frameFile));
   const alt = `A frame of the edytlab app from the site's own recording: ${theme.label.toLowerCase()}.`;
-  const shot = `<div class="shot" data-ratio="${(iw / ih).toFixed(4)}" data-safe="app frame"><img src="../frames/${frameFile}" alt="${alt}" />${tagsHtml(theme.tags?.[canvas.crop])}</div>`;
+  const shot = `<div class="shot" data-ratio="${(iw / ih).toFixed(4)}" data-safe="app frame"><div class="clip"><img src="../frames/${frameFile}" alt="${alt}" /></div>${tagsHtml(theme.tags?.[canvas.crop])}</div>`;
   const chips = theme.chips ? `<div class="chips">${theme.chips.map((c) => `<span class="pill">${fill(c)}</span>`).join("")}</div>` : "";
   const note = theme.note ? `<p class="note">${theme.note}</p>` : "";
   const urls = theme.url
@@ -85,11 +86,11 @@ function body(theme, canvas) {
     : `<div class="urls"><span class="url">edytlab.com</span></div>`;
   const foot = `<div class="foot"><span class="label">${theme.label}</span>${urls}</div>`;
   const brand = `<div class="brandbar"><div class="wordmark">{{logo}} edytlab</div></div>`;
-  const headline = `<h1 class="display">${theme.headline}</h1>`;
+  const headline = `<h1 class="display"${canvas.layout === "poster" ? ` data-fit data-cap="${Math.round(canvas.head * (theme.posterScale ?? 1))}" data-maxh="${canvas.headMax}"` : ""}>${theme.headline}</h1>`;
   const lead = theme.sub && !(canvas.tight && theme.chips) ? `<p class="lead">${theme.sub}</p>` : "";
 
   const style = [
-    `--w:${canvas.w}px`, `--h:${canvas.h}px`, `--head:${Math.round(canvas.head * (theme.scale ?? 1))}px`, `--sub:${canvas.sub}px`,
+    `--w:${canvas.w}px`, `--h:${canvas.h}px`, `--head:${Math.round(canvas.head * (canvas.layout === "poster" ? 1 : (theme.scale ?? 1)))}px`, `--sub:${canvas.sub}px`,
     `--pad:${canvas.pad}px`, `--gap:${canvas.gap}px`,
     canvas.col ? `--col:${canvas.col}` : "",
     canvas.safeTop ? `--pad-top:${canvas.safeTop}px` : "",
@@ -99,11 +100,16 @@ function body(theme, canvas) {
   if (canvas.layout === "stack") {
     return `<div class="canvas img stack" style="${style}"><div class="aurora strong"></div><div class="frame" style="gap:var(--gap)">
 ${brand}
-<div class="col"><div class="text">${headline}${lead}${chips}${note}</div><div class="fit">${shot}</div>${foot}</div>
+<div class="col"><div class="text">${headline}${lead}${chips}${note}</div><div class="fit${theme.tags?.[canvas.crop]?.some((t) => t.edge) ? " tagged" : ""}">${shot}</div>${foot}</div>
+</div></div>`;
+  }
+  if (canvas.layout === "poster") {
+    return `<div class="canvas img poster" style="${style}"><div class="aurora strong"></div><div class="frame">
+<div class="col">${brand}<div class="text">${headline}${lead}${chips}${note}</div><div class="fit${theme.tags?.[canvas.crop]?.some((t) => t.edge) ? " tagged" : ""}">${shot}</div>${foot}</div>
 </div></div>`;
   }
   return `<div class="canvas img side${canvas.tight ? " tight" : ""}" style="${style}"><div class="aurora strong"></div><div class="frame">
-<div class="row"><div class="text-col">${brand}${headline}${lead}${chips}${note}<div class="spacer"></div>${foot}</div><div class="fit">${shot}</div></div>
+<div class="row"><div class="text-col">${brand}${headline}${lead}${chips}${note}<div class="spacer"></div>${foot}</div><div class="fit${theme.tags?.[canvas.crop]?.some((t) => t.edge) ? " tagged" : ""}">${shot}</div></div>
 </div></div>`;
 }
 

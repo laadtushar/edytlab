@@ -17,7 +17,7 @@ export const THEMES = [
   {
     id: "1-describe-the-edit",
     headline: `Describe <span class="gradient-text">the edit.</span>`,
-    sub: "Type what you want. The assistant edits the timeline.",
+    sub: "Type what you want. The assistant edits your audio.",
     scale: 1.2,
     label: LIVE_CLAUDE,
   },
@@ -39,20 +39,17 @@ export const THEMES = [
     headline: `Your audio <span class="gradient-text">stays on your computer.</span>`,
     sub: "Only the chat goes to the provider you choose. Ollama runs fully local, with no key.",
     label: LIVE_CLAUDE,
-    // Two tags over the frame: what stays, and what is sent. Positions are
-    // fractions of the frame, per crop, and sit on the empty part of each.
+    // Two tags on the frame, placed where they hide none of the app. In the wide crop the lane's tag
+    // sits on the empty top of the lane and the chat's on the bottom edge; in the narrow one both
+    // sit on the bottom edge (`edge`), half outside the frame.
     tags: {
-      wide: [
-        { text: "Your audio stays here", x: 0.03, y: 0.3, tone: "lit" },
-        { text: "The chat goes to your provider", x: 0.97, y: 0.035, align: "right" },
+      chat: [
+        { text: "Your audio stays here", x: 0.04, y: 0.07, tone: "lit" },
+        { text: "The chat goes to your provider", x: 0.96, edge: "bottom", align: "right" },
       ],
-      mid: [
-        { text: "Your audio stays here", x: 0.03, y: 0.3, tone: "lit" },
-        { text: "The chat goes to your provider", x: 0.97, y: 0.035, align: "right" },
-      ],
-      tall: [
-        { text: "Your audio stays here", x: 0.04, y: 0.2, tone: "lit" },
-        { text: "The chat goes to your provider", x: 0.96, y: 0.035, align: "right" },
+      pin: [
+        { text: "Your audio stays here", x: 0.04, edge: "bottom", tone: "lit" },
+        { text: "The chat goes to your provider", x: 0.96, edge: "bottom", align: "right" },
       ],
     },
   },
@@ -83,11 +80,13 @@ export const THEMES = [
  * (Stories, Reels and TikTok draw over the top 250 and the bottom 340).
  */
 export const CANVASES = [
-  { id: "square-1080x1080", w: 1080, h: 1080, layout: "stack", crop: "mid", head: 78, sub: 32, pad: 72, gap: 22, platforms: "Instagram, Facebook, Threads (square)" },
-  { id: "portrait-1080x1350", w: 1080, h: 1350, layout: "stack", crop: "mid", head: 92, sub: 34, pad: 72, gap: 28, platforms: "Instagram, Threads (portrait)" },
-  { id: "story-1080x1920", w: 1080, h: 1920, layout: "stack", crop: "tall", head: 108, sub: 38, pad: 72, gap: 34, safeTop: 260, safeBottom: 350, platforms: "Stories, Reels, TikTok cover" },
-  { id: "x-1600x900", w: 1600, h: 900, layout: "side", crop: "tall", head: 72, sub: 34, pad: 80, col: 0.40, gap: 28, platforms: "X, Bluesky" },
-  { id: "linkedin-1200x627", w: 1200, h: 627, layout: "side", crop: "tall", head: 50, sub: 26, pad: 64, col: 0.39, gap: 16, tight: true, platforms: "LinkedIn, Facebook link" },
-  { id: "youtube-1280x720", w: 1280, h: 720, layout: "side", crop: "tall", head: 58, sub: 28, pad: 68, col: 0.41, gap: 20, tight: true, platforms: "YouTube thumbnail" },
-  { id: "pinterest-1000x1500", w: 1000, h: 1500, layout: "stack", crop: "tall", head: 90, sub: 34, pad: 72, gap: 28, platforms: "Pinterest" },
+  { id: "square-1080x1080", w: 1080, h: 1080, layout: "stack", crop: "chat", head: 78, sub: 32, pad: 72, gap: 22, platforms: "Instagram, Facebook, Threads (square)" },
+  { id: "portrait-1080x1350", w: 1080, h: 1350, layout: "stack", crop: "chat", head: 92, sub: 34, pad: 72, gap: 28, platforms: "Instagram, Threads (portrait)" },
+  // The tall canvases are posters: the headline is fitted to the width (up to `head`, within `headMax` px of height),
+  // the frame takes the middle, and the label and URL sit at the bottom of the band the platforms leave clear.
+  { id: "story-1080x1920", w: 1080, h: 1920, layout: "poster", crop: "chat", head: 168, headMax: 360, sub: 44, pad: 72, gap: 34, safeTop: 260, safeBottom: 350, platforms: "Stories, Reels, TikTok cover" },
+  { id: "x-1600x900", w: 1600, h: 900, layout: "side", crop: "chat", head: 72, sub: 34, pad: 80, col: 0.40, gap: 28, platforms: "X, Bluesky" },
+  { id: "linkedin-1200x627", w: 1200, h: 627, layout: "side", crop: "chat", head: 50, sub: 26, pad: 64, col: 0.39, gap: 16, tight: true, platforms: "LinkedIn, Facebook link" },
+  { id: "youtube-1280x720", w: 1280, h: 720, layout: "side", crop: "chat", head: 58, sub: 28, pad: 68, col: 0.41, gap: 20, tight: true, platforms: "YouTube thumbnail" },
+  { id: "pinterest-1000x1500", w: 1000, h: 1500, layout: "poster", crop: "pin", head: 148, headMax: 330, sub: 40, pad: 72, gap: 30, platforms: "Pinterest" },
 ];

@@ -46,12 +46,18 @@
 }
 .shot {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   border: 2px solid hsl(var(--primary) / 0.35);
   border-radius: var(--r-card);
   background: hsl(var(--background));
   box-shadow: var(--glow), 0 30px 90px -24px hsl(var(--primary) / 0.45);
   flex: none;
+}
+.shot .clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: calc(var(--r-card) - 2px);
 }
 .shot img {
   display: block;
@@ -101,6 +107,8 @@
 }
 
 /* tags laid on the frame (theme 4) */
+.tag.bottom { bottom: -30px; }
+.fit.tagged { padding-bottom: 34px; }
 .tag {
   position: absolute;
   padding: 8px 18px;
@@ -189,3 +197,29 @@
 .side.tight .url { font-size: 26px; }
 .side.tight .urls { gap: 2px; }
 .side.tight .text-col .foot { gap: 8px; }
+
+/* ---------- poster: the tall canvases. brand, headline, line, frame, footer, spread over the clear band ---------- */
+.poster .col {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: 1;
+  min-height: 0;
+  gap: var(--gap);
+}
+.poster .text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.6);
+}
+.poster .fit { flex: 1; }
+.poster .foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.poster .wordmark { font-size: 44px; gap: 16px; }
+.poster .logo { width: 56px; height: 56px; }
+.poster .display { line-height: 1.02; }

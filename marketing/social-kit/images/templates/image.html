@@ -12,12 +12,21 @@
 <script>
   // Fit each frame to its box, keeping the crop's own aspect ratio: nothing is cut or stretched.
   document.fonts.ready.then(() => {
+    // Poster headlines: the largest size, up to the cap, that fits the box and the height allowed.
+    for (const h of document.querySelectorAll(".display[data-fit]")) {
+      const cap = Number(h.dataset.cap), maxh = Number(h.dataset.maxh);
+      for (let s = cap; s >= 40; s -= 2) {
+        h.style.fontSize = s + "px";
+        if (h.scrollWidth <= h.clientWidth + 1 && h.offsetHeight <= maxh) break;
+      }
+    }
     for (const box of document.querySelectorAll(".fit")) {
       const shot = box.querySelector(".shot");
       const ratio = Number(shot.dataset.ratio);
       const border = 4; // 2px each side
-      const cw = box.clientWidth;
-      const ch = box.clientHeight;
+      const pad = getComputedStyle(box);
+      const cw = box.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
+      const ch = box.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
       const innerW = Math.min(cw - border, (ch - border) * ratio);
       shot.style.width = Math.floor(innerW + border) + "px";
       shot.style.height = Math.round(innerW / ratio + border) + "px";

@@ -22,41 +22,41 @@ Threads and Bluesky under 300, YouTube titles under 70. Re-count if you edit.
 Image: `1-describe-the-edit__*`. Video page: <https://edytlab.com/videos/reel-v070-describe-the-edit>
 
 **X**
-Type what you want and the assistant edits the timeline. "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB" became two tool calls and two nodes in the history. Free, open source, MIT. https://edytlab.com/videos/reel-v070-describe-the-edit
+Type what you want and the assistant edits your audio. "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB" became two edits, each one a version you can go back to. Free, open source, MIT. https://edytlab.com/videos/reel-v070-describe-the-edit
 
 **LinkedIn**
 You can edit audio by describing the edit.
-Here, a plain sentence about a fade and a gain change becomes two tool calls on the timeline.
+Here, a plain sentence about a fade and a gain change becomes two edits to your audio.
 The audio is edited on your computer. Only the chat goes to the AI provider you choose.
 edytlab is free and open source (MIT), for macOS, Windows and Linux.
 Watch it happen: https://edytlab.com/videos/reel-v070-describe-the-edit
 
 **Instagram**
 Describe the edit.
-Type what you want in plain words and the assistant does it on the timeline.
+Type what you want in plain words and the assistant makes the edit.
 Real app, real Claude, recorded live.
 Free and open source, for macOS, Windows and Linux. Link in bio: edytlab.com
 #audioediting #musicproduction #opensource #aitools #audioengineer #podcasting #producerlife #desktopapp #madewithrust
 
 **Facebook**
-edytlab is a desktop audio editor you talk to. In this clip a plain sentence ("Fade the backing in over the first 4 seconds and bring the vocal down 3 dB") turns into a fade and a gain change on the timeline. It is free and open source (MIT), runs on macOS, Windows and Linux, and edits your audio on your own computer. The installers are unsigned. See it at https://edytlab.com/videos/reel-v070-describe-the-edit
+edytlab is a desktop audio editor you talk to. In this clip a plain sentence ("Fade the backing in over the first 4 seconds and bring the vocal down 3 dB") turns into a fade and a volume change made for you. It is free and open source (MIT), runs on macOS, Windows and Linux, and edits your audio on your own computer. The installers are unsigned. See it at https://edytlab.com/videos/reel-v070-describe-the-edit
 
 **Threads**
-Describe the edit, and the assistant makes it on the timeline. Real app, real Claude, recorded live. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos/reel-v070-describe-the-edit
+Describe the edit, and the assistant makes the edit. Real app, real Claude, recorded live. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos/reel-v070-describe-the-edit
 
 **Bluesky**
-Type what you want, the assistant edits the timeline. One sentence about a fade and a gain change became two tool calls, filmed live in the real app. Free, open source (MIT). https://edytlab.com/videos/reel-v070-describe-the-edit
+Type what you want, the assistant edits your audio. One sentence about a fade and a volume change became two edits, filmed live in the real app. Free, open source (MIT). https://edytlab.com/videos/reel-v070-describe-the-edit
 
 **TikTok**
 Type the edit, watch it happen. Fade in the backing, vocal down 3 dB, one sentence. Real app, real Claude. Free and open source: edytlab.com #audioediting #musicproduction #opensource #producertok #aitools
 
 **YouTube**
 Title: Describe the edit: an audio editor you talk to
-Description: Type what you want in plain English and the assistant edits the timeline. Here a single sentence becomes a fade and a gain change, in the real app with real Claude, recorded live. The audio is edited on your computer; only the chat goes to the AI provider you choose. edytlab is free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned. Watch the full video: https://edytlab.com/videos/whats-new-v070 . Source: https://github.com/laadtushar/edytlab
+Description: Type what you want in plain English and the assistant edits your audio. Here a single sentence becomes a fade and a volume change, in the real app with real Claude, recorded live. The audio is edited on your computer; only the chat goes to the AI provider you choose. edytlab is free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned. Watch the full video: https://edytlab.com/videos/whats-new-v070 . Source: https://github.com/laadtushar/edytlab
 
 **Pinterest**
 Title: Describe the edit: an audio editor you talk to
-Description: Type what you want, and the assistant edits the audio timeline. Free and open source (MIT) for macOS, Windows and Linux. Real app, real Claude. https://edytlab.com/videos/reel-v070-describe-the-edit
+Description: Type what you want, and the assistant edits your audio. Free and open source (MIT) for macOS, Windows and Linux. Real app, real Claude. https://edytlab.com/videos/reel-v070-describe-the-edit
 
 ---
 
@@ -70,7 +70,7 @@ Image: `2-dj-transition-in-one-sentence__*`. Video page: <https://edytlab.com/vi
 **LinkedIn**
 A DJ blend, described in one sentence.
 The assistant matched one track's tempo to the other, then crossfaded them with a low-pass filter on the outgoing track.
-Every step is a tool call you can see, and every edit is a node you can go back to.
+Every step is an edit you can see, and every edit is a node you can go back to.
 Free and open source (MIT). Your audio stays on your computer.
 https://edytlab.com/videos/dj-beatmatched-transition
 
@@ -243,7 +243,7 @@ edytlab is free and open source (MIT): an audio editor you drive in plain Englis
 edytlab is free and open source, under the MIT license.
 It is a desktop audio editor driven by an AI assistant, with 94 tools.
 It runs on macOS, Windows and Linux. The installers are unsigned.
-Contributions and issues are welcome.
+The source is open for anyone to read.
 https://edytlab.com and https://github.com/laadtushar/edytlab
 
 **Instagram**
@@ -254,7 +254,7 @@ Link in bio: edytlab.com
 #opensource #mitlicense #audioeditor #musicproduction #foss #madewithrust #aitools #desktopapp #github
 
 **Facebook**
-edytlab is a free, open-source (MIT) desktop audio editor driven by an AI assistant. It has 94 tools and runs on macOS, Windows and Linux. The installers are unsigned for now. You can read the code, file an issue or send a pull request at https://github.com/laadtushar/edytlab and see it in action at https://edytlab.com
+edytlab is a free, open-source (MIT) desktop audio editor driven by an AI assistant. It has 94 tools and runs on macOS, Windows and Linux. The installers are unsigned for now. You can read the code and open an issue at https://github.com/laadtushar/edytlab and see it in action at https://edytlab.com
 
 **Threads**
 edytlab is free and open source (MIT): an AI-driven audio editor with 94 tools for macOS, Windows and Linux. Installers are unsigned. https://edytlab.com and https://github.com/laadtushar/edytlab
