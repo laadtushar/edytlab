@@ -61,18 +61,6 @@ const KNOWN_UNREACHABLE: Record<string, string> = {
     "argument and resolves the slot from the backend's active provider, so a " +
     "destructive action depended on the UI and the backend agreeing (#320)",
 
-  // The ChatGPT sign-in (#474): the commands landed in PR 5 and the window
-  // draws nothing for them until PR 6 (the Settings card, the session-ended
-  // card with Continue, the usage-limit modal). Each line goes when its
-  // caller does, and this test fails if one stays.
-  chatgptStatus: "the ChatGPT plan's Settings card is #474 PR 6",
-  chatgptSignIn: "the ChatGPT plan's Settings card is #474 PR 6",
-  chatgptCancelSignIn: "the ChatGPT plan's Settings card is #474 PR 6",
-  chatgptSignOut: "the ChatGPT plan's Settings card is #474 PR 6",
-  chatgptForgetRegistration: "the card's Start over action is #474 PR 6",
-  chatgptTakePendingMessage: "the session-ended card's Continue is #474 PR 6",
-  onChatGptStatus: "the card follows a browser sign-in in #474 PR 6",
-
   // Not a gap, but not a plain duplicate either.
   listProviders:
     "returns nothing but SUPPORTED_PROVIDER_IDS, so calling it at runtime would buy async " +

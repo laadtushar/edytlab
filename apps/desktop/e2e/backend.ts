@@ -216,6 +216,39 @@ export function chatgptCommands(
         "edytlab has forgotten its registration, and the next sign-in registers it again. The old entry may still be listed in ChatGPT settings, under Security and login, Sign in with ChatGPT; you can disconnect it there.",
     }),
     chatgpt_take_pending_message: ok(null),
+    // `open_chatgpt_usage`: `Ok(())`, which serialises as `null`. It takes no
+    // argument, so a spec that presses Manage usage checks the call was made
+    // with none.
+    open_chatgpt_usage: ok(null),
+  };
+}
+
+/**
+ * `list_models_for("chatgpt")` for a signed-in account: `ModelCatalogueDto`
+ * of `ChatGptHandle::list_models` (`commands.rs`), the account's own list as
+ * `/v1/models` answered it, with each model's `reasoning_levels` (always
+ * serialised). `source` is "live" and there is no notice.
+ */
+export function chatgptModelList(): Record<string, unknown> {
+  return {
+    models: [
+      {
+        id: "gpt-6.1-sol",
+        display_name: "GPT-6.1 Sol",
+        context_length: 400_000,
+        provider_hint: null,
+        reasoning_levels: ["low", "medium", "high"],
+      },
+      {
+        id: "gpt-6-luna",
+        display_name: "GPT-6 Luna",
+        context_length: 400_000,
+        provider_hint: null,
+        reasoning_levels: [],
+      },
+    ],
+    source: "live",
+    notice: null,
   };
 }
 

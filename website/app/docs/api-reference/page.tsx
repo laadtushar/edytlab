@@ -578,6 +578,11 @@ const commands = [
         returns: "PendingChatGptMessage | null",
         desc: "The message a turn could not send because the ChatGPT session ended, taken and forgotten. After signing in, send resumeText with disabledTools. Kept only when the session ended (not on a sign-out) and the account has not changed since the turn began. In memory only: it is gone at quit, at the next message, at a sign-out or start over and at this call. null when none is kept.",
       },
+      {
+        name: "openChatGptUsage()",
+        returns: "void",
+        desc: "Open ChatGPT's usage page (chatgpt.com/settings/usage) in the system browser, for the Manage usage buttons. The window has no opener, so the backend opens it, and it takes no argument: the address is fixed and the webview cannot ask for another page. Rejects if no browser could be opened.",
+      },
     ],
   },
   {

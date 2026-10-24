@@ -14,7 +14,7 @@
  * All the copy is here so the banner, the Settings note and the tests say
  * the same thing.
  */
-import type { KeychainPersistence } from "./tauri-bridge";
+import type { ChatGptTokenStorage, KeychainPersistence } from "./tauri-bridge";
 
 export interface KeychainNotice {
   kind: "read-error" | "session-only";
@@ -70,6 +70,32 @@ export function savedNotice(
 ): KeychainNotice | null {
   const fellBack = landings.find((at) => at != null && !at.persistent);
   return fellBack ? keychainNotice(null, fellBack) : null;
+}
+
+/**
+ * The notice for where the ChatGPT sign-in's refresh token is kept
+ * (`ChatGptStatus.tokenStorage`, #474), or null when it is in the system
+ * keychain, or there is no token.
+ *
+ * A token in the Linux kernel keyring is the case the launch banner
+ * describes, and says it in the banner's words: it lasts until the machine
+ * restarts. A token the keychain refused (`memory`) is the same loss, sooner:
+ * it lasts until edytlab quits. In both the sign-in works now and ends
+ * then.
+ */
+export function chatGptStorageNotice(
+  storage: ChatGptTokenStorage | null,
+): KeychainNotice | null {
+  if (!storage || storage.persistent) return null;
+  if (storage.kind === "memory") {
+    return {
+      kind: "session-only",
+      message:
+        "The system keychain would not keep your ChatGPT sign-in, so it lasts only until you quit edytlab." +
+        (storage.reason ? ` (${storage.reason})` : ""),
+    };
+  }
+  return keychainNotice(null, { persistent: false, reason: storage.reason });
 }
 
 /**

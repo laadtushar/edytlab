@@ -1407,6 +1407,22 @@ fn open_system_browser(url: &str) -> Result<(), String> {
         .map_err(|_| "no browser could be opened".to_string())
 }
 
+/// Opens ChatGPT's usage page (Settings, Usage) in the system browser, where a
+/// person reviews and changes what each app may spend (G15). The window has no
+/// opener of its own (see above), so this is its one way to the page.
+///
+/// It takes **no argument**: the address is the fixed
+/// [`ai::chatgpt::errors::USAGE_URL`], so the webview cannot make the backend
+/// open anything else.
+#[tauri::command]
+pub async fn open_chatgpt_usage() -> CmdResult<()> {
+    open_chatgpt_usage_with(open_system_browser)
+}
+
+fn open_chatgpt_usage_with(open: impl FnOnce(&str) -> Result<(), String>) -> CmdResult<()> {
+    open(ai::chatgpt::errors::USAGE_URL)
+}
+
 /// Where the ChatGPT sign-in stands. Reads nothing from the keychain and
 /// makes no request.
 #[tauri::command]
@@ -10292,6 +10308,25 @@ mod tests {
             provider_is_configured(&signed_in, "ollama"),
             Ok(true)
         ));
+    }
+
+    /// G15: the window's one way to ChatGPT's usage page opens that address and
+    /// no other. The command has no argument to take another from, and what it
+    /// hands the opener is the one fixed constant.
+    #[test]
+    fn manage_usage_opens_the_fixed_usage_page_and_nothing_else() {
+        let mut opened = Vec::new();
+        open_chatgpt_usage_with(|url| {
+            opened.push(url.to_string());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(opened, ["https://chatgpt.com/settings/usage"]);
+
+        // A browser that cannot be opened is the fixed sentence, with no URL.
+        let err =
+            open_chatgpt_usage_with(|_| Err("no browser could be opened".into())).unwrap_err();
+        assert_eq!(err, "no browser could be opened");
     }
 
     #[test]
