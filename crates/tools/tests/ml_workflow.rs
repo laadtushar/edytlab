@@ -27,9 +27,16 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// Line endings as `\n`: on Windows git checks the repository out with
+/// `\r\n`, and the step lookups below search for text that ends in `\n`.
+fn lf(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
 fn read(relative: &str) -> String {
     let path = repo_root().join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    lf(&std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display())))
 }
 
 fn workflow() -> String {
@@ -56,6 +63,32 @@ fn triggers(yaml: &str) -> Vec<String> {
         .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
         .map(|l| l.trim().trim_end_matches(':').to_string())
         .collect()
+}
+
+/// The lines of the step named `name`, after its `- name:` line.
+fn step_body<'a>(yaml: &'a str, name: &str) -> impl Iterator<Item = &'a str> {
+    let marker = format!("- name: {name}\n");
+    let at = yaml
+        .find(&marker)
+        .unwrap_or_else(|| panic!("no step {name:?}"));
+    yaml[at + marker.len()..]
+        .lines()
+        .take_while(|l| !l.trim_start().starts_with("- name:"))
+}
+
+#[test]
+fn the_workflow_reads_the_same_with_windows_line_endings() {
+    // A Windows checkout has `\r\n` in every file; `read` must hand back what
+    // a Linux one does, or the step lookups find nothing.
+    let yaml = workflow();
+    let crlf = yaml.replace('\n', "\r\n");
+    assert_ne!(crlf, yaml);
+    assert_eq!(lf(&crlf), yaml);
+    assert_eq!(
+        step_body(&lf(&crlf), "Fetch ONNX Runtime").count(),
+        step_body(&yaml, "Fetch ONNX Runtime").count()
+    );
+    assert!(step_body(&yaml, "Fetch ONNX Runtime").count() > 0);
 }
 
 #[test]
@@ -279,14 +312,7 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
     }
     // The fetch steps run on a cache hit as well, which is what checks it.
     for name in ["Fetch ONNX Runtime", "Fetch the whisper-base model"] {
-        let marker = format!("- name: {name}\n");
-        let at = yaml
-            .find(&marker)
-            .unwrap_or_else(|| panic!("no step {name:?}"));
-        let body = yaml[at + marker.len()..]
-            .lines()
-            .take_while(|l| !l.trim_start().starts_with("- name:"));
-        for line in body {
+        for line in step_body(&yaml, name) {
             assert!(
                 !line.trim_start().starts_with("if:"),
                 "the {name:?} step has a condition ({line:?}); it must run on a cache hit to check it"
