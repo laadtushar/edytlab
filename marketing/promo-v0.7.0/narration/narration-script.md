@@ -39,7 +39,7 @@ The 1:1 video uses the 16:9 script and track unchanged (the two have one timelin
 | # | Shot | Narration (as spoken) | Starts | Ends | Traced to `claims.md` |
 |---|---|---|---|---|---|
 | 1 | hook (S8a) (0.0 to 2.4 s) | Five changes you can see. | 0.35 | 1.83 | Edit table "What's new in v0.7.0 / Five changes you can see" (R1 shows five changes) |
-| 2 | faders (S2) (2.1 to 6.9 s) | Faders stay where you put them: four key taps, four steps. | 2.50 | 6.57 | S2 row (#596/#626); edit table "Four key taps, four steps (#596)" |
+| 2 | faders (S2) (2.1 to 6.9 s) | Faders stay where you put them: four key taps, four steps. | 2.50 | 6.57 | S2 row (#596/#626); edit table "Four key taps, four steps" |
 | 3 | graph (S3) (6.6 to 13.8 s) | The history graph keeps up: names and clean-ups show at once. Twenty nodes became eight. | 7.00 | 13.47 | S3 rows 2-3 (#602/#625; 20 bubbles became 8); edit table "The history graph keeps up / Names and clean-ups show at once" |
 | 4 | big sessions (S4) (13.6 to 23.4 s) | Two hundred tracks? Just ask. List session reads what the summary left out, then twelve strings drop six decibels. | 13.95 | 22.94 | S4 rows 1,2,4 (200 TRACKS; list_session #618/#634; twelve gain calls at -6 dB); edit table "200 tracks? Just ask." / "list_session pages past the summary" |
 | 5 | mix (S7) (23.1 to 30.7 s) | Switch tabs and it still plays, even when the mix is gone from the cache. | 23.45 | 28.31 | S7 rows 1-2 (#607/#635); edit table "Switch tabs. It still plays." / "Even when the mix is gone from the cache" |

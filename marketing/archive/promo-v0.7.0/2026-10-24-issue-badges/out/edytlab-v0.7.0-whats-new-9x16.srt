@@ -1,0 +1,174 @@
+1
+00:00:00,000 --> 00:00:02,600
+What's new
+in v0.7.0
+Five changes you can see
+v0.7.0 · real app · recorded live
+
+2
+00:00:02,600 --> 00:00:03,770
+Faders stay
+where you put them
+Four key taps, four steps (#596)
+gain slider
+v0.7.0 · real app · recorded live
+
+3
+00:00:03,770 --> 00:00:04,300
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++0.5 dB
+v0.7.0 · real app · recorded live
+
+4
+00:00:04,300 --> 00:00:04,830
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++1.0 dB
+v0.7.0 · real app · recorded live
+
+5
+00:00:04,830 --> 00:00:05,370
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++1.5 dB
+v0.7.0 · real app · recorded live
+
+6
+00:00:05,370 --> 00:00:06,700
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++2.0 dB, no bounce back
+v0.7.0 · real app · recorded live
+
+7
+00:00:06,700 --> 00:00:09,500
+The history graph
+keeps up
+Names and clean-ups show at once
+2× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+8
+00:00:09,500 --> 00:00:10,600
+The history graph
+keeps up
+Names and clean-ups show at once
+named at once
+2× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+9
+00:00:10,600 --> 00:00:11,975
+The history graph
+keeps up
+Names and clean-ups show at once
+1.6× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+10
+00:00:11,975 --> 00:00:13,667
+The history graph
+keeps up
+Names and clean-ups show at once
+20 nodes became 8
+1.6× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+11
+00:00:13,667 --> 00:00:15,100
+200 tracks?
+Just ask.
+list_session pages past the summary
+1.5× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+12
+00:00:15,100 --> 00:00:16,150
+200 tracks?
+Just ask.
+list_session pages past the summary
+2.2× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+13
+00:00:16,150 --> 00:00:17,350
+200 tracks?
+Just ask.
+list_session pages past the summary
+list_session
+2× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+14
+00:00:17,350 --> 00:00:20,350
+200 tracks?
+Just ask.
+list_session pages past the summary
+2× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+15
+00:00:20,350 --> 00:00:23,167
+200 tracks?
+Just ask.
+list_session pages past the summary
+v0.7.0 · real app · real Claude (Sonnet 5.5)
+
+16
+00:00:23,167 --> 00:00:26,367
+Switch tabs.
+It still plays.
+Even when the mix is gone from the cache
+v0.7.0 · real app · recorded live
+
+17
+00:00:26,367 --> 00:00:27,567
+Switch tabs.
+It still plays.
+Even when the mix is gone from the cache
+back to the timeline
+v0.7.0 · real app · recorded live
+
+18
+00:00:27,567 --> 00:00:28,567
+Switch tabs.
+It still plays.
+Even when the mix is gone from the cache
+v0.7.0 · real app · recorded live
+
+19
+00:00:28,567 --> 00:00:30,467
+Switch tabs.
+It still plays.
+Even when the mix is gone from the cache
+plays, no error
+v0.7.0 · real app · recorded live
+
+20
+00:00:30,467 --> 00:00:31,067
+Bundled skills
+stay current
+Updated when a release changes them
+v0.7.0 · real app · recorded live
+
+21
+00:00:31,067 --> 00:00:34,667
+Bundled skills
+stay current
+Updated when a release changes them
+unless you edited them
+v0.7.0 · real app · recorded live
+
+22
+00:00:35,067 --> 00:00:39,467
+edytlab
+v0.7.0
+edytlab.com
+Free and open source (MIT)
+macOS · Windows · Linux
+Unsigned installers

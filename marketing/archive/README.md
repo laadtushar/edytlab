@@ -43,6 +43,9 @@ archive/
 │   └── 2026-10-11-v0.5.0/            the LinkedIn renders that carried "v0.5.0" and "93 tools" (#578), replaced for v0.7.0
 │       └── out/                      post-1-launch.png, post-3-model-never-touches-a-sample.png, post-3-carousel.pdf
 └── promo-v0.7.0/
+    ├── 2026-10-24-issue-badges/      the live promo's 16:9, 1:1 and What's new renders with issue-number chips, and the narrated mixes made on them
+    │   ├── out/                      the three videos, their .srt captions and their contact sheets
+    │   └── narration/                daniel/ (16:9, 1:1, What's new) and river/ (16:9): the narrated mixes
     └── 2026-10-22-scripted/          the v0.7.0 promo made with a scripted assistant (#644, #649), replaced by the live one
         ├── footage/                  the nine clips (s1 to s8b), their two .wav files and the .marks.json / .notes.json beside each
         ├── out/                      the five videos, their .srt captions and their contact sheets
@@ -66,6 +69,7 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 | `linkedin/2026-10-11-v0.5.0/out/` | #578 (2026-10-11) | the v0.7.0 staleness sweep (2026-10-22), re-rendered by `social-kit/linkedin/render.mjs` | 1200x1200 PNGs (post 1 and the post 3 square) and the seven-page 1080x1350 carousel PDF. They said "v0.5.0" (post 1 and the carousel's last page) and "93 tools" (all three); the new renders say v0.7.0 and 94 tools. The other three squares (posts 2, 4 and 5) carry neither number, so they were not replaced |
 
 | `promo-v0.7.0/2026-10-22-scripted/` | #644 (footage and edit) and #649 (2026-10-22) | the live promo (2026-10-22): the same five videos re-cut from the released v0.7.0 app driven by real Claude, with the note "real Claude (Sonnet 5.5)" or "recorded live" in place of "scripted assistant" | `out/`: whats-new 9:16 0:31 (8.9 MB), describe-the-edit 9:16 0:21, 200-tracks 9:16 0:21, 16:9 0:58, 1:1 0:58, each with its `.srt` and a 20-frame contact sheet. `footage/`: nine clips, 3200x2000 at 30 fps, 38 MB. Every frame of app UI in them was the real v0.7.0 frontend in Chromium with the Rust backend replaced by a scripted one, and the assistant's replies and tool calls were scripted; the audio was synthetic |
+| `promo-v0.7.0/2026-10-24-issue-badges/` | #665 (the live promo) and #685 (the narrated mixes), 2026-10-22 and 2026-10-24 | the issue-number badges' removal (2026-10-24: issue-number badges removed, since viewers did not know what `#596`, `#602`, `#618`, `#574` and `#607` meant) | `out/`: the 16:9 (1920x1080, 1:16, 16.2 MB) and 1:1 (1080x1080, 1:16, 11.1 MB) cuts, each with a corner chip carrying a number on five shots, and What's new 9:16 (1080x1920, 0:39, 10.7 MB, "(#596)" in its faders line), with their `.srt` and contact sheets. `narration/`: Daniel's mixes of those three and River's 16:9 mix. The new files are the same pictures and the same sound (the audio track is bit-identical, so the voice tracks and the loudness and timing checks in `narration/checks/` are unchanged) without the numbers. Describe the edit and 200 tracks had none and rendered byte-for-byte the same, so they were not replaced. These narrated files carry ElevenLabs audio: see the licence note at the top and `promo-v0.7.0/narration/README.md` |
 
 Earlier versions of the documents and scripts in `marketing/` (the READMEs, `script.md`, the Python tools) were edited in place rather than replaced, so they are not copied here; `git log -p -- marketing/` shows every version.
 

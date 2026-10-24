@@ -34,6 +34,17 @@ and none says or implies that something is unbuilt.
 `<cut>` is `16x9`, `1x1`, `whats-new-9x16`, `describe-the-edit-9x16` or `200-tracks-9x16`. The mp4s are stored as plain files,
 as the videos in `../out/` and the rest of `marketing/` are (no Git LFS).
 
+## Rebuilt after the issue-number badges came out
+
+The first renders of the cuts in `../out/` carried a corner chip with an issue number (`#596`, `#602`, `#618`, `#574`, `#607`) on five
+shots; the 16:9, 1:1 and What's new cuts were rendered again without them, and these mixes were rebuilt on the new pictures with the same
+lines (`tools/fit.py`, then `tools/mix.py` for every cut and voice; no ElevenLabs request was made). Nothing in the sound moved: the
+cuts' own audio is bit-identical to before, the voice tracks (`narration-*.wav`) are byte-identical, and every line sits where it did,
+so `checks/` is unchanged (timing, loudness within 0.2 LU of the cut, true peak under -1 dBTP, all ten rows pass, re-run on the new files).
+The 9:16 Describe the edit and 200 tracks cuts were not touched (their renders came out byte-for-byte the same), so their mixes are the
+same files. What changed is the video stream (copied from `../out/`) of Daniel's 16:9, 1:1 and What's new mixes and River's 16:9 mix; the
+earlier four are in [`../../archive/promo-v0.7.0/2026-10-24-issue-badges/narration/`](../../archive/promo-v0.7.0/2026-10-24-issue-badges/narration/).
+
 ## How the mix is made
 
 `tools/mix.py` runs on the finished videos in `../out/`; nothing is re-rendered. Each line is trimmed of its silence, sped up

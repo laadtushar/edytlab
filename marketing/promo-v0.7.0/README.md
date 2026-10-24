@@ -20,6 +20,13 @@ videos do not say that stem separation or transcription works (they do not: no m
 installers are unsigned, and the one line about the ONNX Runtime says "groundwork only: no model yet". Every on-screen claim has a
 row in [`claims.md`](claims.md) naming a PR, a doc or a test.
 
+**No issue numbers on screen.** The first render of this edit put a corner chip with the number of the fix (`#596`, `#602`,
+`#618`, `#574`, `#607`) on five shots of the 16:9 and 1:1 cuts, and "(#596)" in the first reel's faders line. Viewers do not
+know what those mean, so they are gone (`remotion/src/cuts.ts`); the numbers stay in [`claims.md`](claims.md) and in the text
+below as the sources of the claims. What the edit still draws is unchanged: the note, the "N× speed" badges, titles, labels,
+the "groundwork only" and "demo audio" chips and the end card. The earlier renders (and the narrated mixes made on them) are in
+[`../archive/promo-v0.7.0/2026-10-24-issue-badges/`](../archive/promo-v0.7.0/2026-10-24-issue-badges/).
+
 ## The files (`out/`)
 
 All H.264 High, yuv420p, 30 fps, AAC 48 kHz stereo, mastered to -14 LUFS integrated with a true peak under -1 dBTP, **measured

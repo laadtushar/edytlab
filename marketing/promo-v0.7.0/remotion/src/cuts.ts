@@ -19,7 +19,7 @@ export const R1: Cut = {
   overlap: OVERLAP,
   parts: [
     shot('hook', 's8a', [{a: 9.0, b: 11.4}], {titles: [T(0.1, 2.1, "What's new\nin v0.7.0", {hl: ['v0.7.0'], sub: 'Five changes you can see', big: true})]}),
-    shot('faders', 's2', [{a: 3.4, b: 8.2}], {titles: [T(0.1, 4.5, 'Faders stay\nwhere you put them', {hl: ['stay'], sub: 'Four key taps, four steps (#596)'})]}),
+    shot('faders', 's2', [{a: 3.4, b: 8.2}], {titles: [T(0.1, 4.5, 'Faders stay\nwhere you put them', {hl: ['stay'], sub: 'Four key taps, four steps'})]}),
     shot('graph', 's3', [{a: 12.0, b: 20.0, rate: 2}, {a: 38.8, b: 44.0, rate: 1.6}], {titles: [T(0.1, 6.9, 'The history graph\nkeeps up', {hl: ['keeps', 'up'], sub: 'Names and clean-ups show at once'})]}),
     shot('big-sessions', 's4', [{a: 9.6, b: 11.9, rate: 1.5}, {a: 11.9, b: 14.1, rate: 2.2}, {a: 14.1, b: 22.6, rate: 2}, {a: 27.0, b: 30.0}], {titles: [T(0.1, 9.4, '200 tracks?\nJust ask.', {hl: ['ask'], sub: 'list_session pages past the summary'})]}),
     shot('mix', 's7', [{a: 7.6, b: 10.4}, {a: 11.2, b: 16.0}], {audio: true, titles: [T(0.1, 7.4, 'Switch tabs.\nIt still plays.', {hl: ['plays'], sub: 'Even when the mix is gone from the cache'})]}),
@@ -76,19 +76,18 @@ const v1Parts = () => [
     titles: [T(0.1, 3.1, 'Describe the edit\nin plain English', {hl: ['plain', 'english']}), T(3.3, 9.0, 'The assistant calls the tools,\nthe timeline updates', {hl: ['tools']}), T(9.2, 16.0, 'Press play and hear it', {hl: ['hear']})],
     chips: [chip(9.4, 15.9, 'demo audio, made in code', 'bl')],
   }),
-  shot('faders', 's2', [{a: 3.4, b: 8.4}], {titles: [T(0.1, 4.7, 'Faders that stay\nwhere you put them', {hl: ['stay']})], chips: [chip(0.3, 4.6, '#596', 'tr')]}),
+  shot('faders', 's2', [{a: 3.4, b: 8.4}], {titles: [T(0.1, 4.7, 'Faders that stay\nwhere you put them', {hl: ['stay']})]}),
   shot('graph-intro', 's8b', [{a: 5.8, b: 9.8}], {titles: [T(0.1, 3.7, 'Every edit is a node\nin the history graph', {hl: ['node']})]}),
-  shot('graph', 's3', [{a: 12.0, b: 20.0, rate: 2}, {a: 38.8, b: 44.0, rate: 1.6}], {titles: [T(0.1, 3.9, 'Name a version:\nit shows at once', {hl: ['once']}), T(4.1, 7.2, 'Compact the history:\nnodes leave at once', {hl: ['leave']})], chips: [chip(0.3, 7.1, '#602', 'tr')]}),
+  shot('graph', 's3', [{a: 12.0, b: 20.0, rate: 2}, {a: 38.8, b: 44.0, rate: 1.6}], {titles: [T(0.1, 3.9, 'Name a version:\nit shows at once', {hl: ['once']}), T(4.1, 7.2, 'Compact the history:\nnodes leave at once', {hl: ['leave']})]}),
   shot('big-sessions', 's4', [{a: 9.6, b: 11.9, rate: 1.5}, {a: 11.9, b: 14.1, rate: 2.2}, {a: 14.1, b: 22.6, rate: 1.7}, {a: 26.8, b: 30.8}], {
     titles: [T(0.1, 2.9, '200 tracks?\nJust ask.', {hl: ['ask']}), T(3.0, 8.0, 'list_session reads what\nthe summary left out', {hl: ['reads']}), T(8.1, 11.6, 'Twelve strings,\n6 dB quieter', {hl: ['quieter']})],
-    chips: [chip(0.3, 11.5, '#618', 'tr')],
   }),
   shot('runtime', 's5', [{a: 4.3, b: 10.3}], {
     titles: [T(0.1, 5.7, 'The ONNX Runtime now\nships in every installer', {hl: ['onnx']})],
     chips: [chip(0.5, 5.6, 'groundwork only: no model yet', 'tr')],
   }),
-  shot('skills', 's6', [{a: 7.3, b: 12.7}], {titles: [T(0.1, 5.1, 'Bundled skills update,\nunless you edited them', {hl: ['update']})], chips: [chip(0.3, 5.0, '#574', 'tr')]}),
-  shot('mix', 's7', [{a: 6.0, b: 10.8}, {a: 11.2, b: 19.2}], {audio: true, titles: [T(0.1, 12.5, 'Switch tabs, press play:\nit still plays', {hl: ['plays']})], chips: [chip(0.3, 12.4, '#607', 'tr')]}),
+  shot('skills', 's6', [{a: 7.3, b: 12.7}], {titles: [T(0.1, 5.1, 'Bundled skills update,\nunless you edited them', {hl: ['update']})]}),
+  shot('mix', 's7', [{a: 6.0, b: 10.8}, {a: 11.2, b: 19.2}], {audio: true, titles: [T(0.1, 12.5, 'Switch tabs, press play:\nit still plays', {hl: ['plays']})]}),
   end('end', 5.4),
 ];
 

@@ -9,7 +9,7 @@ v0.7.0 · real app · recorded live
 00:00:02,600 --> 00:00:03,770
 Faders stay
 where you put them
-Four key taps, four steps (#596)
+Four key taps, four steps
 gain slider
 v0.7.0 · real app · recorded live
 
@@ -17,7 +17,7 @@ v0.7.0 · real app · recorded live
 00:00:03,770 --> 00:00:04,300
 Faders stay
 where you put them
-Four key taps, four steps (#596)
+Four key taps, four steps
 +0.5 dB
 v0.7.0 · real app · recorded live
 
@@ -25,7 +25,7 @@ v0.7.0 · real app · recorded live
 00:00:04,300 --> 00:00:04,830
 Faders stay
 where you put them
-Four key taps, four steps (#596)
+Four key taps, four steps
 +1.0 dB
 v0.7.0 · real app · recorded live
 
@@ -33,7 +33,7 @@ v0.7.0 · real app · recorded live
 00:00:04,830 --> 00:00:05,370
 Faders stay
 where you put them
-Four key taps, four steps (#596)
+Four key taps, four steps
 +1.5 dB
 v0.7.0 · real app · recorded live
 
@@ -41,7 +41,7 @@ v0.7.0 · real app · recorded live
 00:00:05,370 --> 00:00:06,700
 Faders stay
 where you put them
-Four key taps, four steps (#596)
+Four key taps, four steps
 +2.0 dB, no bounce back
 v0.7.0 · real app · recorded live
 
