@@ -20,6 +20,7 @@
 //! test does run `scripts/fetch-ml-model.sh`, against a folder it damages.
 
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::Command;
 
 fn repo_root() -> PathBuf {
