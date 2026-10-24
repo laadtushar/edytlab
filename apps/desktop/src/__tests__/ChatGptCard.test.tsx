@@ -347,6 +347,29 @@ describe("the ChatGPT plan's card", () => {
     expect(screen.getByTestId("chatgpt-end-notice")).toHaveTextContent("does not disconnect");
   });
 
+  it("Start over shows a spinner on its own button while it runs, with the state unchanged", async () => {
+    const user = userEvent.setup();
+    const result = held<unknown>();
+    m.forget.mockReturnValue(result.promise);
+    await renderCard(SIGNED_IN);
+    await user.click(screen.getByTestId("chatgpt-start-over"));
+    const button = screen.getByTestId("chatgpt-start-over");
+    expect(within(button).getByTestId("chatgpt-spinner")).toBeInTheDocument();
+    expect(button).toHaveTextContent("Starting over…");
+    expect(button).toBeDisabled();
+    // The backend keeps the session's own state meanwhile, never signing_in.
+    expect(state()).toBe("signed_in");
+    await result.resolve({
+      status: SIGNED_OUT,
+      revocation: "nothing_to_revoke",
+      tokenRemoved: true,
+      registrationForgotten: true,
+      notice: null,
+    });
+    await waitFor(() => expect(state()).toBe("signed_out"));
+    expect(screen.queryByTestId("chatgpt-spinner")).toBeNull();
+  });
+
   it("Use another account signs in with that intent", async () => {
     const user = userEvent.setup();
     await renderCard(SIGNED_IN);

@@ -67,10 +67,10 @@ const SIGNED_IN = {
   pendingMessage: false,
 };
 
-async function sendAndFail(failure: string) {
+async function sendAndFail(failure: string, props: { onOpenSettings?: () => void } = {}) {
   const user = userEvent.setup();
   m.send.mockRejectedValueOnce(failure);
-  render(<Chat />);
+  render(<Chat {...props} />);
   await user.type(screen.getByLabelText("Message"), "make it louder");
   await user.click(screen.getByRole("button", { name: /send/i }));
   return user;
@@ -280,6 +280,20 @@ describe("the other plan failures", () => {
   it("a failure that is not on the plan still reads as before", async () => {
     await sendAndFail("the model provider returned an error (401): invalid x-api-key");
     expect(await screen.findByTestId("chat-error")).toHaveTextContent("The provider rejected the API key");
+    expect(screen.queryByTestId("plan-error-card")).toBeNull();
+  });
+});
+
+describe("a signed-out plan with no agent", () => {
+  it("is the ordinary no-agent banner, which sends the person to Settings to sign in", async () => {
+    const onOpenSettings = vi.fn();
+    const user = await sendAndFail(
+      "no agent configured: the ChatGPT plan is not signed in. Choose Continue with ChatGPT in Settings to sign in.",
+      { onOpenSettings },
+    );
+    expect(await screen.findByTestId("chat-error")).toHaveTextContent("Continue with ChatGPT in Settings");
+    await user.click(screen.getByTestId("chat-error-open-settings"));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("plan-error-card")).toBeNull();
   });
 });
