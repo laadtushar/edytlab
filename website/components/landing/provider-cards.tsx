@@ -9,7 +9,7 @@ import { SectionHeading } from "@/components/motion/section-heading";
  *
  * Three other spots used to: a "Bring your own LLM" feature card, and
  * two FAQ answers ("Which LLM models work?", "Can I use a local LLM?")
- * that listed these same six providers again. Their detail — keychain,
+ * that listed these same six API providers again. Their detail — keychain,
  * per-model agent profiles, switching without a reinstall, what a local
  * model needs — is folded in here, next to the providers it is about.
  */
@@ -55,7 +55,7 @@ export function ProviderCards() {
         <SectionHeading
           eyebrow="Models"
           title="Bring your own key. Switch any time."
-          lead="Keys live in your OS keychain, and we never proxy your audio or your tokens. Change provider, model or per-model agent profile from Settings, without reinstalling."
+          lead="Keys live in your OS keychain, and we never proxy your audio or your tokens. Change provider, model or per-model agent profile from Settings, without reinstalling. Prefer no key? Use your ChatGPT plan instead."
         />
         {/* Cards stagger in and draw their icons — a cloud where the
             model is hosted, a laptop where it runs on yours — then lift
@@ -93,6 +93,21 @@ export function ProviderCards() {
             })}
           </Stagger>
         </LineDraw>
+        {/* The seventh way in, which is not a key: kept out of the grid so
+            the six API providers stay six cards. */}
+        <p className="mx-auto mt-8 max-w-3xl text-center text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Your ChatGPT plan</span>{" "}
+          (a preview, v0.9.0 and later) runs the assistant on a ChatGPT Plus or
+          Pro plan&apos;s usage with no API key: Continue with ChatGPT in
+          Settings signs you in through your browser. May not be available on
+          workspace plans.{" "}
+          <Link
+            href="/docs/user-guide#chatgpt-plan"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            How it works
+          </Link>
+        </p>
       </div>
     </section>
   );

@@ -21,7 +21,8 @@ track to match the first, crossfade, and export a WAV" into calls to 94
 deterministic audio tools. The tools run locally in a Rust engine on the user's
 own computer, so audio files are never uploaded; only the chat goes to the
 language-model provider the user selects (Anthropic, OpenAI, OpenRouter, Groq,
-Gemini, or Ollama for a fully local setup). Every edit is saved as a node in a
+Gemini, or Ollama for a fully local setup, or the user's own ChatGPT Plus or Pro
+plan through OpenAI's Sign in with ChatGPT, a preview). Every edit is saved as a node in a
 branchable history, with undo and A/B comparison. edytlab runs on macOS,
 Windows and Linux, is released under the MIT license, and its source is at
 github.com/laadtushar/edytlab.
@@ -30,7 +31,9 @@ github.com/laadtushar/edytlab.
 
 Every line below was checked against the repository or the GitHub release on
 2026-10-22, for v0.7.0 (the Latest version row and the telemetry row were
-updated on 2026-10-24 for v0.8.1 and the website's cookie banner).
+updated on 2026-10-24 for v0.8.1 and the website's cookie banner; the AI
+providers, network requests and keys rows describe the ChatGPT sign-in that
+ships in v0.9.0, and this change is held until that release).
 
 | | |
 |---|---|
@@ -46,11 +49,11 @@ updated on 2026-10-24 for v0.8.1 and the website's cookie banner).
 | Audio engine | Pure-Rust DSP. Decode with `symphonia`, resample with `rubato`, effects in an in-house dependency-free `audio-dsp` crate. |
 | Time-stretch / pitch-shift | A phase vocoder written for the project |
 | Tools | 94 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
-| AI providers | Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key) |
+| AI providers | Six API providers plus the user's ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key), and, from 0.9.0, Continue with ChatGPT, which uses a ChatGPT Plus or Pro plan's included usage instead of a key (OpenAI's Sign in with ChatGPT for open-source apps, a preview). Available for ChatGPT Plus and Pro. May not be available on workspace plans; that depends on OpenAI and your admin. |
 | Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider; that includes the words a transcription finds (text, a bounded amount per call, never audio), which stay on the computer with Ollama. |
 | Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) and, when enabled, Google Analytics 4 only after a visitor accepts it in the cookie banner (it sets cookies; the footer's Cookie settings link withdraws it) |
-| Other network requests | Besides the AI provider and the hosts you configure (plugins, MCP servers), one download you start: from 0.8.0 (0.7.0 has no Download button), the speech model (Whisper base, about 139 MB) is downloaded from Hugging Face (huggingface.co) when the user clicks Download in Settings. Hugging Face sees the IP address, the file requested and that edytlab (and which version) is asking, never audio. Nothing downloads at launch or from the agent. Transcribing makes no request. |
-| Keys | Stored in the operating system's credential store |
+| Other network requests | Besides the AI provider and the hosts you configure (plugins, MCP servers), one download you start: from 0.8.0 (0.7.0 has no Download button), the speech model (Whisper base, about 139 MB) is downloaded from Hugging Face (huggingface.co) when the user clicks Download in Settings. Hugging Face sees the IP address, the file requested and that edytlab (and which version) is asking, never audio. Nothing downloads at launch or from the agent. Transcribing makes no request. From 0.9.0, and only if the user clicks Continue with ChatGPT: the browser goes to auth.openai.com to sign in, and the app then exchanges, renews and (on sign-out) revokes the sign-in with that host and sends the assistant's requests (the same text as for any provider, never audio) to api.openai.com with the user's ChatGPT access token. OpenAI can tie them to the user's ChatGPT account, to edytlab's registration and to the installation's random host ID. Signing out does not disconnect edytlab in ChatGPT; the user does that in ChatGPT settings under Security and login. |
+| Keys | Stored in the operating system's credential store. The ChatGPT plan has no key: its sign-in keeps one refresh token in the same store (slot `chatgpt_refresh_token`) and a small `registration.json` (host ID, OpenAI's client ID for edytlab, the account's email as a label) in the app's config folder. |
 | History | Branchable graph of edits with fork, A/B compare and undo |
 | Optional safety | "Plan first" mode shows the agent's steps for approval before they run |
 | Export | WAV, FLAC, MP3 |

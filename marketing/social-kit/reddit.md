@@ -197,7 +197,7 @@ Where I'd like help:
 - macOS microphone (issue 464). Since v0.5.0 the build has the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
 - A real pass on Linux with a locked Secret Service (issue 497). The code is tested against fakes only.
 - Shipping the ML pieces (issues 383 to 385). Transcription (Whisper base) runs from v0.8.0 on a model the user downloads. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording.
-- New audio tools and new LLM providers. docs/contributing.md walks through both. Six providers today: Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama for local models.
+- New audio tools and new LLM providers. docs/contributing.md walks through both. Six API providers today: Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama for local models, plus a preview that uses a ChatGPT Plus or Pro plan instead of a key.
 
 No open issue carries the "good first issue" label right now. If you want a starter task, say so and I'll write one up.
 

@@ -78,9 +78,9 @@ export default function AboutPage() {
         <p>
           edytlab is a desktop app for macOS, Windows and Linux in which you describe an edit in a chat and an AI agent calls
           local audio tools to make it. The audio is decoded, edited and rendered on your computer. Only the chat goes to the AI
-          provider you choose: Anthropic, OpenAI, OpenRouter, Groq or Gemini with your own key, or Ollama on your own machine
-          with no key. The app sends no telemetry. Using it costs nothing, but a hosted AI provider bills you for tokens unless
-          you use Ollama. The <Link href="/privacy">privacy page</Link> has the details, including what this website records.
+          provider you choose: Anthropic, OpenAI, OpenRouter, Groq or Gemini with your own key, your ChatGPT plan, or Ollama on
+          your own machine with no key. The app sends no telemetry. Using it costs nothing, but a hosted AI provider bills you for
+          tokens unless you use Ollama, and your ChatGPT plan counts the usage toward the plan. The <Link href="/privacy">privacy page</Link> has the details, including what this website records.
         </p>
         <p>What it is not:</p>
         <ul>

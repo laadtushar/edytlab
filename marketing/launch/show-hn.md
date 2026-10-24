@@ -122,7 +122,7 @@ Source: https://github.com/laadtushar/edytlab
 |---|---|
 | "Why not just script ffmpeg/sox?" | You can, and for a fixed pipeline you should. This is for edits you would otherwise do by ear and by hand, with an audible A/B at each step and a graph of what you tried. |
 | "Does the LLM hear the audio?" | No. It gets the session state and tool results such as BPM, key, beat grid and loudness from `analyze_track`, and chooses edits from that. |
-| "What does it cost?" | The app is free (MIT). Hosted providers charge you per token under your own key; Ollama is free. The docs give a rough range, but do not quote it here as a promise. |
+| "What does it cost?" | The app is free (MIT). Hosted providers charge you per token under your own key; Ollama is free; with a ChatGPT Plus or Pro plan (a preview, v0.9.0 and later) the usage comes out of the plan instead. The docs give a rough range, but do not quote it here as a promise. |
 | "Is the audio really never uploaded?" | Yes: there is no server in the loop. The privacy page lists the network traffic: chat requests to your chosen provider, plus the request Settings makes to that provider for its model list (it carries your key, no prompt or audio). You can check it in your OS network tools. |
 | "Why Tauri and not Electron?" | The back end is Rust, so the UI process and the DSP crates share one workspace. Do not claim size or speed numbers against Electron; none were measured. |
 | "Is there a web version?" | No. A browser SaaS is evaluated in #389 and undecided. |

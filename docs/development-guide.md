@@ -212,7 +212,7 @@ pnpm --filter @edytlab/desktop tauri dev
 
 Which in turn runs the Tauri CLI (`@tauri-apps/cli`, the desktop package's `tauri` script) — `tauri dev`, which starts Vite and builds `apps/desktop/src-tauri/`.
 
-### Setting up an API Key (required to use the agent)
+### Setting up an API Key (or the ChatGPT plan) to use the agent
 
 1. Get a key from any supported provider:
    - Anthropic: https://console.anthropic.com/settings/keys
@@ -223,6 +223,8 @@ Which in turn runs the Tauri CLI (`@tauri-apps/cli`, the desktop package's `taur
    - Ollama: no key — run a local Ollama daemon (`ollama serve`, then `ollama pull llama3.2`)
 
 2. In the running app, click the gear icon → pick the provider → enter your key. The key is stored in your OS keychain — never on disk or committed to git.
+
+That is six API providers. The seventh way in is not a key: with a ChatGPT Plus or Pro plan, pick **ChatGPT plan** in Settings → Account and choose **Continue with ChatGPT** to sign in through your browser (a preview of OpenAI's Sign in with ChatGPT for open-source apps, v0.9.0 and later). It is for a desktop build: the CLI has no browser to open and refuses `--provider chatgpt`. The sign-in keeps a refresh token in the keychain slot `chatgpt_refresh_token` and a `chatgpt/registration.json` in the app config folder; see `docs/specs/2026-10-10-chatgpt-subscription-sign-in.md` and the "ChatGPT in the desktop" section of `docs/architecture.md`.
 
 ---
 

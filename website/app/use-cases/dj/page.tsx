@@ -122,7 +122,7 @@ export default function DjUseCasePage() {
         <p>
           The audio processing runs locally in a Rust engine. Tracks are never
           uploaded. Only the chat goes to the AI provider you pick (Anthropic,
-          OpenAI, OpenRouter, Groq or Gemini), or nowhere at all if you run a
+          OpenAI, OpenRouter, Groq or Gemini, or your ChatGPT plan), or nowhere at all if you run a
           local model with Ollama. See the{" "}
           <Link href="/use-cases/local-ai-audio-editor">
             local-first AI audio editor

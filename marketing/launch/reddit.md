@@ -217,8 +217,9 @@ any model works unless you have tried it.
 > edytlab is a desktop audio editor driven by an LLM agent. The model chooses
 > and orders calls to 94 deterministic audio tools (EQ, compression, time
 > stretch, fades, loudness, export); the DSP is in Rust and runs on your
-> machine. Ollama is one of six providers (the others are Anthropic, OpenAI,
-> OpenRouter, Groq and Gemini). For Ollama there's no key: point it at your
+> machine. Ollama is one of six API providers (the others are Anthropic, OpenAI,
+> OpenRouter, Groq and Gemini), and there is a preview that uses a ChatGPT
+> Plus or Pro plan instead of a key. For Ollama there's no key: point it at your
 > daemon, pick a model, and the chat stays local too. The Settings "Test" button
 > sends a minimal request and checks the model can call tools.
 >

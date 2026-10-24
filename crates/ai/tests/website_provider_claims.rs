@@ -33,11 +33,12 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 /// Providers in the registry that the app does not offer yet, so the screen
-/// and the site copy this test checks do not list them: the ChatGPT plan's
-/// provider exists (#474, PR 4) and Settings gets its card in PR 6 and the
-/// site its copy in PR 7. Each of those PRs removes the name here, which is
-/// what makes this test check the new row.
-const NOT_OFFERED_YET: &[&str] = &["chatgpt"];
+/// and the site copy this test checks do not list them. Empty since the
+/// ChatGPT plan's site copy landed (#474, PR 7; its provider was PR 4 and its
+/// Settings card PR 6). A provider registered before it is offered goes here
+/// and comes out when its copy lands, which is what makes this test check the
+/// new row.
+const NOT_OFFERED_YET: &[&str] = &[];
 
 /// The registry's ids, less those not offered yet.
 static SUPPORTED_PROVIDER_IDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
@@ -59,7 +60,7 @@ fn read_website(relative: &str) -> String {
 /// the site writes a name.
 ///
 /// Every id in `SUPPORTED_PROVIDER_IDS` must appear here or the test
-/// below fails — that is how adding a seventh provider is made to
+/// below fails — that is how adding an eighth provider is made to
 /// surface as a website task rather than being forgotten.
 fn display_name(id: &str) -> Option<&'static str> {
     match id {
@@ -69,6 +70,7 @@ fn display_name(id: &str) -> Option<&'static str> {
         "groq" => Some("Groq"),
         "gemini" => Some("Gemini"),
         "ollama" => Some("Ollama"),
+        "chatgpt" => Some("ChatGPT plan"),
         _ => None,
     }
 }
@@ -301,6 +303,109 @@ fn no_page_says_ollama_gets_the_same_tools_as_other_providers_while_it_gets_a_sm
                 "{file} says {banned:?}, but OllamaProvider::tool_set() is Slim: Ollama is sent \
                  a compact set (the common edits plus the tools a message names), with every \
                  other tool still callable by name"
+            );
+        }
+    }
+}
+
+/// A source file's text with its whitespace runs collapsed to one space, so a
+/// sentence the site wraps across lines can be compared whole.
+fn words(source: &str) -> String {
+    source.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The privacy page names what the ChatGPT sign-in keeps and which hosts it
+/// talks to, as the code has them (#474, PR 7).
+///
+/// These are the facts a person acts on: where the refresh token is, which
+/// file holds the rest, and who receives what. They are pinned to the
+/// constants the session uses, so renaming the keychain slot or moving a host
+/// fails here until the page says the new thing.
+#[test]
+fn the_privacy_page_names_what_the_chatgpt_sign_in_keeps_and_contacts() {
+    let page = words(&read_website("app/privacy/page.tsx"));
+    let host = |url: &str| {
+        url.trim_start_matches("https://")
+            .trim_end_matches('/')
+            .to_string()
+    };
+    for (what, needle) in [
+        (
+            "the keychain slot of the refresh token",
+            ai::chatgpt::store::REFRESH_TOKEN_SLOT.to_string(),
+        ),
+        (
+            "the file the registration is saved in",
+            ai::chatgpt::store::REGISTRATION_FILE.to_string(),
+        ),
+        ("the sign-in host", host(ai::chatgpt::spec::ISSUER)),
+        (
+            "the inference host",
+            host(ai::chatgpt::provider::CHATGPT_API_BASE_URL),
+        ),
+        (
+            "the usage page the Manage usage button opens",
+            host(ai::chatgpt::errors::USAGE_URL),
+        ),
+        (
+            "where to disconnect edytlab in ChatGPT, which signing out does not do",
+            "Security and login".to_string(),
+        ),
+    ] {
+        assert!(
+            page.contains(&needle),
+            "the privacy page does not mention {what} ({needle:?}), but the ChatGPT sign-in uses it"
+        );
+    }
+}
+
+/// The eligibility sentence on the site is the Settings card's, word for word
+/// (G7): "Available for ChatGPT Plus and Pro. May not be available on
+/// workspace plans; that depends on OpenAI and your admin." It says nothing
+/// either way about Team or Business, because OpenAI's own docs do not.
+#[test]
+fn the_site_words_eligibility_as_the_settings_card_does() {
+    let copy = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/src/lib/chatgptCopy.ts"),
+    )
+    .expect("cannot read apps/desktop/src/lib/chatgptCopy.ts");
+    let after = &copy[copy
+        .find("export const ELIGIBILITY_NOTE")
+        .expect("ELIGIBILITY_NOTE moved out of chatgptCopy.ts")..];
+    let start = after.find('"').expect("ELIGIBILITY_NOTE has no string") + 1;
+    let end = start + after[start..].find('"').expect("unterminated string");
+    let sentence = &after[start..end];
+    assert!(
+        sentence.starts_with("Available for ChatGPT Plus and Pro."),
+        "the card's eligibility sentence changed to {sentence:?}; the site must be re-worded with it"
+    );
+    for page in [
+        "app/docs/user-guide/page.tsx",
+        "app/docs/getting-started/page.tsx",
+    ] {
+        assert!(
+            words(&read_website(page)).contains(sentence),
+            "{page} does not carry the Settings card's eligibility sentence: {sentence:?}"
+        );
+    }
+}
+
+/// No OpenAI mark on the site until OpenAI has been asked (G14): the button
+/// is the text "Continue with ChatGPT", and the site shows no ChatGPT or
+/// OpenAI logo for it. OpenAI's marks are used only with its permission.
+#[test]
+fn the_site_carries_no_openai_or_chatgpt_logo_asset() {
+    let sources = website_sources();
+    assert!(
+        sources.len() > 20,
+        "found only {} site sources",
+        sources.len()
+    );
+    for (file, text) in &sources {
+        for banned in ["chatgpt-logo", "openai-logo", "sign-in-buttons/"] {
+            assert!(
+                !text.contains(banned),
+                "{file} refers to {banned:?}: the OpenAI mark waits for OpenAI's permission (G14)"
             );
         }
     }

@@ -91,7 +91,7 @@ export default function OpengraphImage() {
           <span>·</span>
           <span>Linux</span>
           <span>·</span>
-          <span>Six LLM providers, one of them local</span>
+          <span>Six API providers and your ChatGPT plan</span>
         </div>
       </div>
     ),

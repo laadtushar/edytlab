@@ -23,7 +23,7 @@ import { SectionHeading } from "@/components/motion/section-heading";
 const faqs = [
   {
     q: "Which LLM models work?",
-    a: "Six providers: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama. Hosted providers use your own key, stored in the OS keychain; Ollama runs models on your machine and needs no API key. Switch provider and model in Settings at any time.",
+    a: "Six API providers plus your ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama. Hosted providers use your own key, stored in the OS keychain; Ollama runs models on your machine and needs no API key; and with a ChatGPT Plus or Pro plan you can choose Continue with ChatGPT to use the plan's usage instead of a key (a preview, v0.9.0 and later). Switch provider and model in Settings at any time.",
   },
   {
     q: "Does my audio leave my machine?",
@@ -36,7 +36,7 @@ const faqs = [
   },
   {
     q: "Is it free?",
-    a: "The app is free in BYO-key mode — you pay your LLM provider directly for tokens. A hosted subscription that bundles AI inference is on the roadmap; pricing isn't finalized.",
+    a: "The app is free. You pay your LLM provider directly for tokens, or, if you sign in with ChatGPT, the usage comes out of your ChatGPT plan. A hosted subscription that bundles AI inference is on the roadmap; pricing isn't finalized.",
   },
   {
     q: "Is it open source?",

@@ -82,7 +82,24 @@ export default function LocalAiUseCasePage() {
               <td>API keys</td>
               <td>
                 Your operating system&apos;s credential store, sent only to the
-                provider that owns the key.
+                provider that owns the key. The ChatGPT plan has no key.
+              </td>
+            </tr>
+            <tr>
+              <td>Signing in with ChatGPT (v0.9.0 and later; optional)</td>
+              <td>
+                Only if you click Continue with ChatGPT. Your browser goes to
+                auth.openai.com, and edytlab exchanges and renews the sign-in
+                with the same host and asks it to revoke it when you sign out.
+                The assistant then talks to api.openai.com with your ChatGPT
+                access token instead of a key: the same text as for any
+                provider, never your raw audio. The refresh token stays in your
+                operating system&apos;s credential store, and a small
+                registration file (host ID, client ID, your email as a label)
+                stays in the app&apos;s config folder. Signing out in edytlab
+                does not disconnect it in ChatGPT; the{" "}
+                <Link href="/privacy#signing-in-with-chatgpt">privacy page</Link>{" "}
+                says how.
               </td>
             </tr>
             <tr>
@@ -146,8 +163,8 @@ export default function LocalAiUseCasePage() {
         <p>
           The <Link href="/docs/getting-started">getting started guide</Link>{" "}
           walks through it. You can also switch between Ollama and a hosted
-          provider (Anthropic, OpenAI, OpenRouter, Groq or Gemini) at any time,
-          without reinstalling.
+          provider (Anthropic, OpenAI, OpenRouter, Groq or Gemini, or your
+          ChatGPT plan) at any time, without reinstalling.
         </p>
 
         <h2>Be realistic about local models</h2>

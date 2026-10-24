@@ -7,7 +7,7 @@ Nothing here posts anywhere by itself.
 Facts used, all true of the released app: free and open source (MIT); macOS,
 Windows and Linux; the installers are unsigned; audio is edited on your
 computer and never uploaded, only the chat goes to the provider you choose;
-six providers, Ollama runs locally with no key; 94 tools; every edit is a node
+six API providers plus your ChatGPT plan, Ollama runs locally with no key; 94 tools; every edit is a node
 in a history graph. No caption claims anything that has not shipped, and none carries a version
 number, a user count or another product's name. The `edytlab.com/videos/<slug>` pages are the
 site's own watch pages for the videos the frames come from.
@@ -157,7 +157,7 @@ Your audio stays on your computer. edytlab edits it locally; only the chat goes 
 Does the audio get uploaded? No.
 edytlab decodes, edits, mixes and exports on your computer.
 Only the chat goes to the AI provider you choose, as text, never your audio.
-Six providers are supported, and Ollama runs a model locally with no key.
+Six API providers are supported, plus your ChatGPT plan as a preview, and Ollama runs a model locally with no key.
 Free and open source (MIT): https://edytlab.com
 
 **Instagram**
@@ -168,7 +168,7 @@ Free and open source. Link in bio: edytlab.com
 #privacy #localfirst #opensource #audioediting #musicproduction #ollama #aitools #producerlife #desktopapp
 
 **Facebook**
-A question we hear about AI tools: does my audio get uploaded? With edytlab it does not. Your audio is edited on your computer, and only the chat (your messages and what the tools report back) goes to the AI provider you choose. There are six providers, including Ollama, which runs a model on your own machine and needs no key. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com
+A question we hear about AI tools: does my audio get uploaded? With edytlab it does not. Your audio is edited on your computer, and only the chat (your messages and what the tools report back) goes to the AI provider you choose. There are six API providers, including Ollama, which runs a model on your own machine and needs no key, and a preview that uses a ChatGPT plan instead of a key. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com
 
 **Threads**
 Your audio stays on your computer. Only the chat goes to the AI provider you choose, and with Ollama it runs fully local, no key. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com
@@ -181,7 +181,7 @@ Your audio never leaves your computer. Only the chat goes to the AI provider you
 
 **YouTube**
 Title: Your audio stays on your computer: a local-first audio editor
-Description: edytlab edits your audio on your own computer. Only the chat goes to the AI provider you choose, as text and never your audio. It supports six providers, and Ollama runs a model locally with no API key. Free and open source (MIT) for macOS, Windows and Linux; the installers are unsigned. Privacy details: https://edytlab.com/privacy . Source: https://github.com/laadtushar/edytlab
+Description: edytlab edits your audio on your own computer. Only the chat goes to the AI provider you choose, as text and never your audio. It supports six API providers, plus a preview that uses a ChatGPT plan, and Ollama runs a model locally with no API key. Free and open source (MIT) for macOS, Windows and Linux; the installers are unsigned. Privacy details: https://edytlab.com/privacy . Source: https://github.com/laadtushar/edytlab
 
 **Pinterest**
 Title: An audio editor that keeps your audio on your computer

@@ -52,7 +52,7 @@ const rows: Row[] = [
   {
     label: "Bring your own LLM key",
     edytlab: "yes",
-    detail: "Anthropic, OpenAI, OpenRouter, Groq or Gemini with your key; Ollama needs none.",
+    detail: "Anthropic, OpenAI, OpenRouter, Groq or Gemini with your key; Ollama needs none. Or use your ChatGPT plan.",
   },
   {
     label: "MCP client",

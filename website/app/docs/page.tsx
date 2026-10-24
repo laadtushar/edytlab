@@ -98,16 +98,18 @@ export default function DocsPage() {
         your chosen LLM provider, plus the requests you start yourself: a
         plugin you install from a URL, an MCP server you add and, from
         v0.8.0, the speech model you download from Hugging Face
-        by clicking Download in Settings.
+        by clicking Download in Settings and, from v0.9.0, the sign-in to
+        OpenAI when you choose Continue with ChatGPT.
       </p>
       <p>
-        edytlab supports six LLM providers out of the box:{" "}
-        <strong>Anthropic</strong>, <strong>OpenAI</strong>,{" "}
+        edytlab supports six API providers plus your ChatGPT plan out of the
+        box: <strong>Anthropic</strong>, <strong>OpenAI</strong>,{" "}
         <strong>Google Gemini</strong>, <strong>Groq</strong>,{" "}
         <strong>OpenRouter</strong>, and <strong>Ollama</strong> for a local
         model. You bring your own API key, stored in your OS keychain — Ollama
-        needs none. You can switch providers at any time from Settings without
-        reinstalling.
+        needs none — or, from v0.9.0, sign in with ChatGPT to use your Plus or
+        Pro plan instead of a key (a preview). You can switch providers at any
+        time from Settings without reinstalling.
       </p>
 
       <h2>Platform support</h2>

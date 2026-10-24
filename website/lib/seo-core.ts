@@ -44,13 +44,13 @@ export const SITE_UPDATED = "2026-10-24";
  */
 export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/": "2026-10-24",
-  "/docs": "2026-10-23",
-  "/docs/getting-started": "2026-10-22",
-  "/docs/user-guide": "2026-10-23",
+  "/docs": "2026-10-24",
+  "/docs/getting-started": "2026-10-24",
+  "/docs/user-guide": "2026-10-24",
   "/docs/tools": "2026-10-23",
   "/docs/developer-guide": "2026-10-23",
   "/docs/api-reference": "2026-10-24",
-  "/use-cases/dj": "2026-10-22",
+  "/use-cases/dj": "2026-10-24",
   "/use-cases/local-ai-audio-editor": "2026-10-24",
   "/about": "2026-10-24",
   "/alternatives/audacity": "2026-10-24",
@@ -73,7 +73,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/changelog": "2026-10-23",
   "/press": "2026-10-24",
   "/privacy": "2026-10-24",
-  "/terms": "2026-10-23",
+  "/terms": "2026-10-24",
 };
 
 /** When a page last changed in substance: its own date, else the site's. */

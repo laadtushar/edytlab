@@ -5,7 +5,7 @@ import { DocShell } from "@/components/docs/doc-shell";
 
 const title = "Getting Started: install and edit your first file";
 const description =
-  "Install edytlab on macOS, Windows or Linux, connect an LLM provider with your own API key (or Ollama, no key), and edit your first audio file by chatting.";
+  "Install edytlab on macOS, Windows or Linux, connect an LLM provider with your own API key, your ChatGPT plan or Ollama (no key), and edit your first audio file by chatting.";
 
 export const metadata: Metadata = {
   title,
@@ -100,7 +100,10 @@ export default function GettingStartedPage() {
       <p>
         edytlab uses an LLM to understand your editing instructions. You bring
         your own API key — it is stored in your OS keychain and never sent to
-        edytlab servers.
+        edytlab servers. If you have a ChatGPT Plus or Pro plan you can skip
+        the key (v0.9.0 and later; a preview): see the last row of the table
+        and &ldquo;Using your ChatGPT plan&rdquo; in the{" "}
+        <a href="/docs/user-guide#chatgpt-plan">user guide</a>.
       </p>
       <table>
         <thead>
@@ -167,13 +170,27 @@ export default function GettingStartedPage() {
             </td>
             <td>Free — runs on your hardware</td>
           </tr>
+          <tr>
+            <td>ChatGPT plan (preview, v0.9.0 and later)</td>
+            <td>
+              No key. In Settings, choose ChatGPT plan and{" "}
+              <strong>Continue with ChatGPT</strong>; edytlab opens your
+              browser to sign in. Available for ChatGPT Plus and Pro. May not
+              be available on workspace plans; that depends on OpenAI and
+              your admin.
+            </td>
+            <td>No separate bill — it uses your plan&apos;s included usage</td>
+          </tr>
         </tbody>
       </table>
       <blockquote>
         <strong>Cost estimate:</strong> A typical 30-minute editing session
         consumes roughly $0.05–0.50 in LLM tokens depending on the model and
         session complexity. Haiku-class models cost about 20× less per token
-        than Sonnet-class models.
+        than Sonnet-class models. With the ChatGPT plan there is no per-token
+        bill: the usage counts toward your plan, and on Plus the five-hour
+        limit is shared with every other app and tool that uses the plan (it
+        does not apply to Pro).
       </blockquote>
 
       <h2>3. Enter your API key</h2>
@@ -182,9 +199,14 @@ export default function GettingStartedPage() {
         <li>Click the gear icon (⚙) in the top-right corner.</li>
         <li>
           Pick your provider (Anthropic, OpenRouter, OpenAI, Groq, Google
-          Gemini or Ollama).
+          Gemini, Ollama or the ChatGPT plan).
         </li>
-        <li>Paste your API key into the field (Ollama needs none).</li>
+        <li>
+          Paste your API key into the field (Ollama needs none). For the
+          ChatGPT plan there is no field: choose{" "}
+          <strong>Continue with ChatGPT</strong> and finish signing in in your
+          browser.
+        </li>
         <li>
           Optionally press <strong>Test</strong>: edytlab sends a minimal
           request to check the key and that the chosen model can call tools.

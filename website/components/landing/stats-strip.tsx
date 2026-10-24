@@ -25,7 +25,7 @@ import "@/lib/gsap-text";
  */
 const stats = [
   { value: "0", unit: "bytes", label: "of your audio uploaded — the DSP runs on your machine" },
-  { value: "6", unit: "providers", label: "bring your own key, or run a local model" },
+  { value: "6", unit: "API providers", label: "bring your own key or run a local model, or use your ChatGPT plan" },
   { value: "94", unit: "tools", label: "the agent can call, from fade to beat-warp" },
 ];
 

@@ -115,6 +115,6 @@ Vercel analytics breaks out UTM parameters.
 - Never post the same text twice: every caption in `captions.md` is written for its platform.
 - Keep the "Real app, real Claude" and "Real app, recorded live" labels on every frame; do not crop them out.
 - No stem separation, vocal isolation or mashup claims, and no version number, count or ranking beyond what is on
-  the images (94 tools, six providers, MIT, unsigned installers).
+  the images (94 tools, six API providers plus your ChatGPT plan, MIT, unsigned installers).
 - No "best" or "fastest". Say "unsigned" in any post that links a download.
 - Do not stack two community posts on one day, and do not post a community thread you cannot stay in.

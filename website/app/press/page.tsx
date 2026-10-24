@@ -69,7 +69,9 @@ export default function PressPage() {
             The tools run locally in a Rust engine on the user&apos;s own
             computer, so audio files are never uploaded; only the chat goes to
             the language-model provider the user selects (Anthropic, OpenAI,
-            OpenRouter, Groq, Gemini, or Ollama for a fully local setup). Every
+            OpenRouter, Groq, Gemini, or Ollama for a fully local setup, or the
+            user&apos;s own ChatGPT Plus or Pro plan through OpenAI&apos;s
+            Sign in with ChatGPT, a preview). Every
             edit is saved as a node in a branchable history, with undo and A/B
             comparison. edytlab runs on macOS, Windows and Linux, is released
             under the MIT license, and its source is at
@@ -127,8 +129,13 @@ export default function PressPage() {
             <tr>
               <th scope="row">AI providers</th>
               <td>
-                Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama (local,
-                no key)
+                Six API providers plus the user&apos;s ChatGPT plan: Anthropic,
+                OpenAI, OpenRouter, Groq, Gemini, and Ollama (local, no key),
+                and, from v0.9.0, Continue with ChatGPT, which uses a ChatGPT
+                Plus or Pro plan&apos;s included usage instead of a key (a
+                preview; available for ChatGPT Plus and Pro, and may not be
+                available on workspace plans, which depends on OpenAI and your
+                admin)
               </td>
             </tr>
             <tr>

@@ -68,7 +68,7 @@ filenames out of the repo unless you want them in `website/public`.
 | 2 | Chat panel after an edit, with tool badges visible beside the waveform | Every edit is a real tool call you can see, not a black box. |
 | 3 | The plan card with Plan first switched on | Plan first: review the agent's steps and approve them before anything runs. |
 | 4 | The history Graph view with a forked branch | Fork a take, A/B it against the original, go back whenever you like. |
-| 5 | Settings with the provider list open, Ollama selected | Six providers, including Ollama for a model that stays on your machine. |
+| 5 | Settings with the provider list open, Ollama selected | Six API providers plus your ChatGPT plan (a preview), including Ollama for a model that stays on your machine. |
 
 ## Topics
 

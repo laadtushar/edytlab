@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalShell title="Terms of use" path="/terms" updated="2026-10-23">
+    <LegalShell title="Terms of use" path="/terms" updated="2026-10-24">
       <p>
         These terms govern your use of the edytlab desktop application and this
         marketing website. By installing or using the app you agree to these
@@ -34,7 +34,10 @@ export default function TermsPage() {
       <h2>Third-party services</h2>
       <p>
         When you connect an LLM provider (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, or a
-        local model) you are subject to that provider&apos;s terms. edytlab is
+        local model) you are subject to that provider&apos;s terms. The same
+        goes for the ChatGPT plan (from v0.9.0): you sign in to OpenAI, and
+        OpenAI&apos;s terms and the terms of your ChatGPT plan apply to the
+        usage, which counts toward that plan. edytlab is
         not a party to that relationship and is not responsible for charges
         you incur with that provider.
       </p>

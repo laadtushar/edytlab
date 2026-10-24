@@ -71,6 +71,14 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
   transcript: they key on a voice track's audio (voiced sound, not what was
   said), so say that, not "keyed on the words". The README's older mashup
   example predates this; do not reuse it.
+- That the ChatGPT sign-in is tested on real accounts, until the real-account
+  list in `docs/specs/2026-10-10-chatgpt-subscription-sign-in.md` §4.10 is
+  done, or that it is an OpenAI partnership. Call it a preview. Say "Available
+  for ChatGPT Plus and Pro. May not be available on workspace plans; that
+  depends on OpenAI and your admin", and do not say Team or Business works or
+  does not. Use the words "Continue with ChatGPT" and no OpenAI or ChatGPT
+  logo (OpenAI's marks need its permission,
+  <https://openai.com/brand/>; requests go to partnercomms@openai.com).
 - A user count, download count, star count, testimonial, press quote or
   benchmark. None exists in the repo to cite.
 - That the website has no analytics. The desktop app sends no telemetry, but
@@ -91,8 +99,9 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Claim | Where it was checked |
 |---|---|
 | 94 tools | `docs/tools-reference.md` (generated from the tool registry) |
-| Six providers: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama | `README.md`, `website/app/docs/getting-started/page.tsx` |
+| Six API providers plus your ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama, and (from v0.9.0, a preview for Plus and Pro) Continue with ChatGPT | `README.md`, `website/app/docs/getting-started/page.tsx`, `crates/ai/tests/website_provider_claims.rs` |
 | Ollama needs no key and can keep the chat on your machine | `website/app/privacy/page.tsx`, user guide |
+| The ChatGPT plan has no key: its sign-in keeps one refresh token in the keychain and a small registration file; signing out does not disconnect edytlab in ChatGPT (the user does that in ChatGPT settings) | `website/app/privacy/page.tsx` ("Signing in with ChatGPT"), user guide ("Using your ChatGPT plan"); OpenAI's Help Center article 20001542 |
 | Audio is never uploaded; only the chat goes to the provider (Settings also asks it for its model list, with your key and no prompt or audio) | `website/app/privacy/page.tsx` |
 | The desktop app sends no telemetry. The website uses anonymous Vercel analytics, and Google Analytics 4 only after a visitor accepts the cookie banner, in a build that has a measurement ID | `website/app/privacy/page.tsx`; `<Analytics />`, `<SpeedInsights />` and `<GoogleAnalyticsConsent />` in `website/app/layout.tsx` |
 | Branchable session graph, fork, A/B compare, undo | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, README |
