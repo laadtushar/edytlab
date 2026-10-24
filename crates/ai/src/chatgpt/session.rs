@@ -471,6 +471,27 @@ pub struct SignOutReport {
     pub removed_from_store: Result<(), SecretStoreError>,
 }
 
+/// What starting over did ([`ChatGptSession::forget_registration`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForgetReport {
+    /// The sign-out that came first: the saved refresh token revoked with the
+    /// client it was issued to, and removed from the store.
+    pub sign_out: SignOutReport,
+    /// Whether the registered client and its account were taken out of
+    /// `registration.json`. The text is the file problem, with no secret in
+    /// it.
+    pub registration_removed: Result<(), String>,
+}
+
+/// Why the registration was not forgotten.
+#[derive(Debug, thiserror::Error)]
+pub enum ForgetError {
+    /// A sign-in is registering or exchanging a code right now. Cancel it
+    /// first.
+    #[error("a ChatGPT sign-in is in progress")]
+    SignInInProgress,
+}
+
 /// A ChatGPT plan session. See the module documentation. The state is
 /// behind an `Arc`, which the tasks that must finish whatever the caller
 /// does (a refresh, the end of a sign-in, a sign-out) hold too.
@@ -847,6 +868,47 @@ impl ChatGptSession {
             )),
         })
         .await
+    }
+}
+
+impl ChatGptSession {
+    /// Starts over (G13): signs out, as [`Self::sign_out`] does (the saved
+    /// refresh token is revoked with its client and removed), then forgets the
+    /// registered client and the account it was verified for, so the next
+    /// sign-in is a first registration with a new client. The host ID is the
+    /// installation's and is kept.
+    ///
+    /// It is for a registration that no longer works: OpenAI refuses the saved
+    /// client (`invalid_client`, a consent page that says the app is
+    /// unavailable), or the person disconnected the app in ChatGPT settings
+    /// and sign-in keeps failing. Nothing here can remove the old entry from
+    /// the person's ChatGPT settings (Security and login, Sign in with
+    /// ChatGPT), so the caller says it may remain there and can be
+    /// disconnected by hand.
+    ///
+    /// Refused while a sign-in is in progress, and no sign-in can start until
+    /// it is done. It runs to the end even if the caller stops waiting.
+    pub async fn forget_registration(&self) -> Result<ForgetReport, ForgetError> {
+        let attempt = Core::begin_attempt(&self.core).map_err(|_| ForgetError::SignInInProgress)?;
+        let core = Arc::clone(&self.core);
+        Ok(detached(
+            async move {
+                let _attempt = attempt;
+                core.forget_registration().await
+            },
+            || ForgetReport {
+                sign_out: SignOutReport {
+                    revocation: Revocation::NotConfirmed {
+                        reason: "starting over stopped before it finished".into(),
+                    },
+                    removed_from_store: Err(SecretStoreError::Unavailable(
+                        "starting over stopped before it finished".into(),
+                    )),
+                },
+                registration_removed: Err("starting over stopped before it finished".into()),
+            },
+        )
+        .await)
     }
 }
 
@@ -1742,6 +1804,39 @@ impl Core {
         SignOutReport {
             revocation,
             removed_from_store,
+        }
+    }
+
+    /// [`ChatGptSession::forget_registration`], under no sign-in attempt of
+    /// its own (the caller holds the guard).
+    async fn forget_registration(&self) -> ForgetReport {
+        // The token first, so it is revoked with the client that holds it.
+        let sign_out = self.sign_out().await;
+        let issuer = self.issuer().to_string();
+        let registration_removed = {
+            let _flight = self.flight.lock().await;
+            // As in a sign-out, this must not hang on another process.
+            let _file = self.lock_file().await.ok();
+            let removed = self
+                .update_registration(|r| {
+                    r.clients.retain(|c| c.issuer != issuer);
+                    if r.active_client_id
+                        .as_deref()
+                        .is_some_and(|id| r.client(id).is_none())
+                    {
+                        r.active_client_id = None;
+                    }
+                })
+                .map_err(|e| e.to_string());
+            lock(&self.inner).phase = Phase::SignedOut;
+            removed
+        };
+        if let Err(e) = &registration_removed {
+            tracing::warn!("chatgpt: could not forget the registration: {e}");
+        }
+        ForgetReport {
+            sign_out,
+            registration_removed,
         }
     }
 

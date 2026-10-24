@@ -1263,6 +1263,88 @@ async fn signing_out_of_a_session_not_yet_loaded_revokes_its_stored_token() {
     assert_eq!(restarted.status().state, SessionState::SignedOut);
 }
 
+// --- Start over: forget the registration (#474, G13) ------------------------------
+
+#[tokio::test]
+async fn forgetting_the_registration_signs_out_and_the_next_sign_in_registers_afresh() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    let host_id = registration_json(dir.path())["host_id"].clone();
+
+    let report = session.forget_registration().await.unwrap();
+    // The token is revoked with the client it was issued to, and removed.
+    assert_eq!(report.sign_out.revocation, Revocation::Confirmed);
+    assert_eq!(report.sign_out.removed_from_store, Ok(()));
+    assert_eq!(report.registration_removed, Ok(()));
+    assert_eq!(fake.revocations.lock().unwrap()[0]["token"], "RT-1");
+    assert_eq!(store.get(), None);
+    // The client and the account it was verified for are gone: no email, no
+    // active client. The host ID is the installation's and stays.
+    let status = session.status();
+    assert_eq!(status.state, SessionState::SignedOut);
+    assert_eq!(status.email, None);
+    let reg = registration_json(dir.path());
+    assert_eq!(reg["active_client_id"], Value::Null);
+    assert_eq!(reg["clients"], json!([]));
+    assert_eq!(reg["host_id"], host_id);
+    // A restart reads signed out, too.
+    assert_eq!(
+        fake.session(dir.path(), store.clone()).status().state,
+        SessionState::SignedOut
+    );
+
+    // The next sign-in is a first registration, with the same host.
+    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    let authorizations = fake.authorizations.lock().unwrap().clone();
+    let first = authorizations.first().unwrap();
+    let last = authorizations.last().unwrap();
+    assert_eq!(first["client_id"], "dynamic_agent_client");
+    assert_eq!(last["client_id"], "dynamic_agent_client", "{last:?}");
+    assert_eq!(last["ext_agent_host_id"], host_id.as_str().unwrap());
+    assert!(!last.contains_key("login_hint"), "no account is remembered");
+    assert_eq!(session.status().state, SessionState::SignedIn);
+}
+
+#[tokio::test]
+async fn a_dead_registration_can_be_forgotten_when_the_session_has_ended() {
+    // The case it is for: OpenAI refuses the saved client, the session ended
+    // and signing in again does not help.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.knobs().refresh_error = Some((400, json!({ "error": "invalid_grant" })));
+    fake.clock.advance(61 * MINUTE);
+    assert!(matches!(
+        session.bearer().await,
+        Err(BearerError::SessionEnded(_))
+    ));
+    assert!(matches!(
+        session.status().state,
+        SessionState::SessionEnded(_)
+    ));
+
+    let report = session.forget_registration().await.unwrap();
+    assert_eq!(report.registration_removed, Ok(()));
+    assert_eq!(session.status().state, SessionState::SignedOut);
+    assert_eq!(registration_json(dir.path())["clients"], json!([]));
+}
+
+#[tokio::test]
+async fn forgetting_with_nothing_registered_is_not_an_error() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.session(dir.path(), MemoryStore::new());
+    let report = session.forget_registration().await.unwrap();
+    assert_eq!(report.sign_out.revocation, Revocation::NothingToRevoke);
+    assert_eq!(report.registration_removed, Ok(()));
+    assert_eq!(session.status().state, SessionState::SignedOut);
+}
+
 #[tokio::test]
 async fn a_refresh_the_caller_stops_waiting_for_still_saves_the_rotated_token() {
     // A Stop button or a timeout drops the bearer future while the refresh

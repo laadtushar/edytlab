@@ -18,6 +18,7 @@ import {
   isCredentialError,
   needsSettings,
   parseModelUnavailable,
+  parsePlanUsageError,
 } from "../lib/chat-errors";
 
 const api = (status: number, body: string) =>
@@ -277,5 +278,82 @@ describe("a model the provider no longer has", () => {
     expect(text).toMatch(/retired/);
     expect(text).not.toMatch(/Switch to/);
     expect(text).toMatch(/Settings/);
+  });
+});
+
+/**
+ * A failed turn on the ChatGPT plan (#474) reaches the window as text that
+ * starts with a marker line (`plan_usage_text` in `chatgpt.rs`, whose own
+ * test pins the Rust side of this form). The window reads the code from it
+ * and shows the sentence after it.
+ */
+describe("a ChatGPT plan failure", () => {
+  const CODES = [
+    "usage_limit",
+    "not_eligible",
+    "plan_disabled",
+    "session_ended",
+    "unavailable",
+    "unsupported_request",
+    "refused",
+  ] as const;
+
+  it("is read by code, with the request id when there is one", () => {
+    expect(
+      parsePlanUsageError(
+        "[plan-usage code=usage_limit request-id=req_Ab-1.2:3] Your ChatGPT plan's usage limit is reached.",
+      ),
+    ).toEqual({
+      code: "usage_limit",
+      requestId: "req_Ab-1.2:3",
+      message: "Your ChatGPT plan's usage limit is reached.",
+    });
+    expect(
+      parsePlanUsageError("[plan-usage code=session_ended] Sign in again."),
+    ).toEqual({ code: "session_ended", requestId: null, message: "Sign in again." });
+    // What a rejected `invoke` hands over may be an Error.
+    expect(
+      parsePlanUsageError(new Error("[plan-usage code=not_eligible] x")),
+    ).toMatchObject({ code: "not_eligible" });
+  });
+
+  it("is not read from any other failure", () => {
+    for (const other of [
+      ANTHROPIC_WRONG_KEY,
+      "no agent configured; call set_api_key first",
+      "ai error: the model provider returned an error (500): oops",
+      // The marker is the start of the text, not a phrase inside it.
+      "ai error: [plan-usage code=usage_limit] x",
+      "",
+    ]) {
+      expect(parsePlanUsageError(other), other).toBeNull();
+    }
+  });
+
+  it("reads a code a newer backend adds as the generic refusal", () => {
+    expect(parsePlanUsageError("[plan-usage code=brand_new] hm")).toMatchObject({
+      code: "refused",
+    });
+  });
+
+  it("is never a key problem, whatever words OpenAI's own message uses", () => {
+    for (const code of CODES) {
+      for (const sentence of [
+        "Unauthorized: authentication failed for this API key (HTTP 401).",
+        "OpenAI refused the request.",
+      ]) {
+        const text = `[plan-usage code=${code} request-id=req_1] ${sentence}`;
+        expect(isCredentialError(text), text).toBe(false);
+        expect(needsSettings(text), text).toBe(false);
+        // The banner shows the sentence, not the marker, and does not call
+        // the failure a refused key.
+        expect(describeChatError(text)).toBe(sentence);
+      }
+    }
+  });
+
+  it("leaves a refused key as it was", () => {
+    expect(isCredentialError(ANTHROPIC_WRONG_KEY)).toBe(true);
+    expect(describeChatError(ANTHROPIC_WRONG_KEY)).toMatch(/rejected the API key/);
   });
 });

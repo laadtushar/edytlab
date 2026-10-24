@@ -67,7 +67,23 @@ export interface ModelInfo {
   display_name: string;
   context_length: number | null;
   provider_hint: string | null;
+  /**
+   * The reasoning levels the model accepts (`low`, `medium`, `high`, ...),
+   * for the ChatGPT plan, whose catalogue lists them per model. Empty for
+   * every other provider and for a model that lists none, which is also the
+   * model for which the backend sends no effort.
+   */
+  reasoning_levels: string[];
 }
+
+/**
+ * The ChatGPT plan's provider id (#474). It is not in {@link ProviderId}
+ * until Settings offers it (PR 6): that union is the list Settings has a
+ * card for, and a test holds it to the registry. The commands below that
+ * take a provider take it too, and it is what `get_active_provider` answers
+ * once a person has made the plan active.
+ */
+export type ChatGptProviderId = "chatgpt";
 
 /**
  * A provider's models and which list they are: `ModelCatalogueDto` in
@@ -86,7 +102,7 @@ export interface ModelCatalogue {
  * uses the key saved for `provider`, which never leaves it.
  */
 export const listModelsFor = (
-  provider: ProviderId,
+  provider: ProviderId | ChatGptProviderId,
   apiKey?: string,
 ): Promise<ModelCatalogue> =>
   invoke<ModelCatalogue>("list_models_for", {
@@ -139,8 +155,160 @@ export const hasApiKey = (): Promise<boolean> =>
  * Whether `provider` has a stored key. Rejects when the keychain could
  * not be read, as {@link hasApiKey} does.
  */
-export const hasApiKeyFor = (provider: ProviderId): Promise<boolean> =>
+export const hasApiKeyFor = (
+  provider: ProviderId | ChatGptProviderId,
+): Promise<boolean> =>
   invoke<boolean>("has_api_key_for", { provider });
+
+// ---------------------------------------------------------------------------
+// The ChatGPT plan: Sign in with ChatGPT (#474)
+// ---------------------------------------------------------------------------
+//
+// Mirrors `commands.rs` and `chatgpt.rs`. No command here returns a token or
+// a local path, and the window never opens the browser or sees the URL: the
+// backend does, so no opener capability exists and the CSP is unchanged.
+
+/**
+ * Where the sign-in stands (`ChatGptStatusDto.state`):
+ *
+ * - `signed_out`: no account, or the person signed out of it.
+ * - `signing_in`: the browser is open and edytlab is waiting. Cancel with
+ *   {@link chatgptCancelSignIn}.
+ * - `signed_in`: ready to use the plan.
+ * - `plan_disabled`: signed in, but plan usage was declined; signing in with
+ *   `enable_plan_usage` asks again.
+ * - `session_ended`: over without a sign-out; `reason.code` says why.
+ * - `unread`: a sign-in is saved but its token has not been read from the
+ *   keychain (it refused access at launch, or could not be read).
+ * - `unavailable`: this build could not open the session.
+ */
+export type ChatGptState =
+  | "signed_out"
+  | "signing_in"
+  | "signed_in"
+  | "plan_disabled"
+  | "session_ended"
+  | "unread"
+  | "unavailable";
+
+/** `ChatGptStatusDto.reason.code`. */
+export type ChatGptReasonCode =
+  | "plan_usage_declined"
+  | "refresh_token_unusable"
+  | "id_token_rejected"
+  | "no_refresh_token"
+  | "not_stored"
+  | "signed_out_elsewhere"
+  | "replaced_elsewhere"
+  | "keychain_unread"
+  | "no_config_dir";
+
+/**
+ * Where the refresh token is kept: `keychain`, `kernel_keyring` (Linux with
+ * no Secret Service: gone at the next reboot) or `memory` (the keychain
+ * refused it: gone when edytlab quits). Same words as
+ * {@link KeychainPersistence}: `persistent` and why not.
+ */
+export interface ChatGptTokenStorage {
+  kind: "keychain" | "kernel_keyring" | "memory";
+  persistent: boolean;
+  reason: string | null;
+}
+
+/**
+ * `ChatGptStatusDto`: what {@link chatgptStatus} answers and
+ * {@link onChatGptStatus} delivers whenever it changes. `email` is the
+ * account's label when the session has one and the state is not
+ * `signed_out`. `pendingMessage` is true while a message waits for the
+ * Continue card ({@link chatgptTakePendingMessage}).
+ */
+export interface ChatGptStatus {
+  state: ChatGptState;
+  email: string | null;
+  reason: { code: ChatGptReasonCode; message: string } | null;
+  tokenStorage: ChatGptTokenStorage | null;
+  pendingMessage: boolean;
+}
+
+/**
+ * What the person asked for: `sign_in` (Continue with ChatGPT), `enable_plan_usage`
+ * (ask for consent again after declining it) or `another_account`.
+ */
+export type ChatGptSignInIntent = "sign_in" | "enable_plan_usage" | "another_account";
+
+/** Where status changes arrive: `events::CHATGPT_STATUS`. */
+const CHATGPT_STATUS_EVENT = "chatgpt://status";
+
+/** Reads the status. No keychain read and no request. */
+export const chatgptStatus = (): Promise<ChatGptStatus> =>
+  invoke<ChatGptStatus>("chatgpt_status");
+
+/**
+ * Signs in through the system browser, which the backend opens. Resolves
+ * when the sign-in is over, which can be minutes. A cancel resolves with the
+ * status as it then stands; a failure (the browser came back with an error, a
+ * timeout, another account than the one saved) rejects with a sentence.
+ * Follow it on {@link onChatGptStatus}: `signing_in` arrives once the
+ * browser is about to open.
+ */
+export const chatgptSignIn = (
+  intent: ChatGptSignInIntent = "sign_in",
+): Promise<ChatGptStatus> => invoke<ChatGptStatus>("chatgpt_sign_in", { intent });
+
+/** Ends the sign-in in progress, if there is one. */
+export const chatgptCancelSignIn = (): Promise<void> =>
+  invoke<void>("chatgpt_cancel_sign_in");
+
+/**
+ * `ChatGptEndDto`: what a sign-out or a start over did. `notice`, when there
+ * is one, is for the person: what could not be confirmed, or that the old
+ * entry may remain in ChatGPT's settings. `registrationForgotten` is present
+ * for a start over only.
+ */
+export interface ChatGptEnd {
+  status: ChatGptStatus;
+  revocation: "confirmed" | "not_confirmed" | "nothing_to_revoke";
+  tokenRemoved: boolean;
+  registrationForgotten?: boolean;
+  notice: string | null;
+}
+
+/** Signs out: revokes the token and removes it. The registered client stays. */
+export const chatgptSignOut = (): Promise<ChatGptEnd> =>
+  invoke<ChatGptEnd>("chatgpt_sign_out");
+
+/**
+ * Start over (G13): signs out and forgets the registered client, so the next
+ * sign-in registers edytlab again. Rejects while a sign-in is in progress.
+ */
+export const chatgptForgetRegistration = (): Promise<ChatGptEnd> =>
+  invoke<ChatGptEnd>("chatgpt_forget_registration");
+
+/**
+ * `PendingMessageDto`: a message a turn could not send because the session
+ * ended (G9). After signing in, send `resumeText` with `disabledTools`
+ * ({@link sendMessage}). `resumeText` is the person's own text when the turn
+ * got no further than sending it, and a line asking the model to carry on
+ * when tools had already run (`progressed`).
+ */
+export interface PendingChatGptMessage {
+  text: string;
+  resumeText: string;
+  disabledTools: string[];
+  progressed: boolean;
+}
+
+/**
+ * Takes the message kept for the Continue card, and forgets it (the status
+ * stops saying `pendingMessage`). `null` when nothing is kept. In memory only.
+ */
+export const chatgptTakePendingMessage = (): Promise<PendingChatGptMessage | null> =>
+  invoke<PendingChatGptMessage | null>("chatgpt_take_pending_message");
+
+export const onChatGptStatus = (
+  cb: (status: ChatGptStatus) => void,
+): Promise<UnlistenFn> =>
+  listen<ChatGptStatus>(CHATGPT_STATUS_EVENT, (e) => cb(e.payload));
 
 /**
  * Whether keys and settings saved now survive a reboot, or, as the answer
@@ -296,7 +464,7 @@ export interface ProbeReport {
  * point of the button.
  */
 export const testApiKeyFor = (
-  provider: ProviderId,
+  provider: ProviderId | ChatGptProviderId,
   key: string,
   baseUrl?: string,
   model?: string,
@@ -315,7 +483,7 @@ export const getActiveProvider = (): Promise<ProviderId> =>
   invoke<ProviderId>("get_active_provider");
 
 export const setActiveProvider = (
-  provider: ProviderId,
+  provider: ProviderId | ChatGptProviderId,
 ): Promise<KeychainPersistence> =>
   invoke<KeychainPersistence>("set_active_provider", { provider });
 

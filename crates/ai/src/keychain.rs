@@ -786,11 +786,70 @@ pub fn delete_effort(provider_id: &str) -> Result<(), keyring::Error> {
     delete_account(&effort_account_for(provider_id))
 }
 
+// ---------------------------------------------------------------------------
+// The ChatGPT plan's refresh token (#474)
+// ---------------------------------------------------------------------------
+
+/// The refresh token of the signed-in ChatGPT account. The only slot the
+/// ChatGPT plan has: no `chatgpt_api_key`, no `chatgpt_base_url` (a key or an
+/// address for a provider that takes neither), and the access token is never
+/// stored. It is the slot the session's
+/// [`RefreshTokenStore`](crate::chatgpt::store::RefreshTokenStore) names
+/// ([`crate::chatgpt::store::REFRESH_TOKEN_SLOT`]; a test holds the two
+/// together), and it goes through the same plumbing as every other slot, so
+/// the Secret Service, the Linux kernel-keyring fallback (#394) and the
+/// access-refused handling behave exactly as they do for an API key.
+const CHATGPT_REFRESH_TOKEN_ACCOUNT: &str = "chatgpt_refresh_token";
+
+/// Read the ChatGPT refresh token. A keychain that cannot be read is an
+/// error and not "no token": the session ends differently for the two.
+pub fn try_load_chatgpt_refresh_token() -> Result<Option<String>, KeychainError> {
+    read_account(CHATGPT_REFRESH_TOKEN_ACCOUNT).map(|t| t.filter(|t| !t.trim().is_empty()))
+}
+
+/// Save the ChatGPT refresh token, replacing any other. Says where it ended
+/// up, like every `save_*`: [`Persistence::SessionOnly`] is the kernel
+/// keyring, gone at the next reboot.
+pub fn save_chatgpt_refresh_token(token: &str) -> Result<Persistence, keyring::Error> {
+    write_account(CHATGPT_REFRESH_TOKEN_ACCOUNT, token)
+}
+
+/// Remove the ChatGPT refresh token, from both stores. Missing is success.
+pub fn delete_chatgpt_refresh_token() -> Result<(), keyring::Error> {
+    delete_account(CHATGPT_REFRESH_TOKEN_ACCOUNT)
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
 
     use super::*;
+
+    /// The refresh token has one slot, the one the session's store names,
+    /// and it collides with no other: not a provider's key, address, model or
+    /// level, not the active provider, not the persistence probe.
+    #[test]
+    fn the_chatgpt_refresh_token_has_its_own_slot() {
+        assert_eq!(CHATGPT_REFRESH_TOKEN_ACCOUNT, "chatgpt_refresh_token");
+        assert_eq!(
+            CHATGPT_REFRESH_TOKEN_ACCOUNT,
+            crate::chatgpt::store::REFRESH_TOKEN_SLOT
+        );
+        for p in crate::SUPPORTED_PROVIDER_IDS {
+            for other in [
+                account_for(p),
+                base_url_account_for(p),
+                model_account_for(p),
+                effort_account_for(p),
+            ] {
+                assert_ne!(CHATGPT_REFRESH_TOKEN_ACCOUNT, other, "collides for {p}");
+            }
+        }
+        assert_ne!(CHATGPT_REFRESH_TOKEN_ACCOUNT, ACTIVE_PROVIDER_ACCOUNT);
+        assert_ne!(CHATGPT_REFRESH_TOKEN_ACCOUNT, PROBE_ACCOUNT);
+        // And no slot is made for the plan's key or address.
+        assert_ne!(CHATGPT_REFRESH_TOKEN_ACCOUNT, account_for("chatgpt"));
+    }
 
     #[test]
     fn account_uses_provider_id_suffix() {

@@ -51,6 +51,7 @@ unlisten();
 - [Capabilities](#capabilities)
 - [ONNX Runtime](#onnx-runtime)
 - [Speech Model](#speech-model)
+- [ChatGPT Plan](#chatgpt-plan)
 - [Skills (CRUD)](#skills-crud)
 - [Agent Profiles (CRUD)](#agent-profiles-crud)
 - [Memory](#memory)
@@ -334,6 +335,8 @@ Check whether a specific provider has a key.
 
 **Throws:** Error string when the keychain could not be read, as `hasApiKey` does.
 
+For `"chatgpt"` there is no key to look for: it answers `true` while the ChatGPT sign-in is signed in (see [ChatGPT Plan](#chatgpt-plan)), `false` when it is not, and reads no keychain slot. A saved sign-in whose token the keychain could not be asked for (state `unread`) **rejects** with the reason, as an unreadable key does: `false` would send the person to sign in again over a session that may be there. `hasApiKey` does the same when the plan is the active provider.
+
 ### `getKeychainPersistence() → KeychainPersistence`
 
 Whether keys and settings saved now survive a reboot. Always `persistent: true` on macOS and Windows. On Linux they live in the Secret Service (GNOME Keyring, KWallet or KeePassXC), and `persistent: false` means none is running, so they are kept in the kernel keyring until the machine restarts. `reason` is why the Secret Service could not be used. It looks up an account nothing ever stores, so it never raises an unlock prompt.
@@ -393,6 +396,8 @@ interface ProbeReport {
 }
 ```
 
+For `"chatgpt"`, `key` and `baseUrl` are ignored: it is tested with the signed-in session (one streamed request with a dummy tool, after reading the account's model list), on a provider of its own, so a turn that is running is not affected by the ladder Test may step down or the levels it reads. What Test learns reaches the running agent at its next turn. It rejects when not signed in, and spends a little of the person's plan.
+
 **Throws:** the endpoint is unreachable or the key was rejected —
 `"<status> <body>"`, e.g. `"401 invalid x-api-key"`. A model that
 connects but cannot call tools resolves with `toolsOk: false` instead of
@@ -419,9 +424,11 @@ Returns the currently active provider.
 
 **Throws:** Error string (the reason alone) after a startup the system keychain could not be read in, until a save goes through. The default provider is then what was never read, not an answer: a caller that saved it would overwrite the stored choice. Pending, like `hasApiKey`, while the app's launch-time keychain reads are still going.
 
-### `setActiveProvider(provider: ProviderId) → KeychainPersistence`
+### `setActiveProvider(provider: ProviderId | "chatgpt") → KeychainPersistence`
 
 Switch the active provider. Rebuilds the agent with the new provider configuration. Resolves with where the choice was saved, as `setApiKeyFor` does.
+
+`"chatgpt"` can be made active only while the ChatGPT sign-in is signed in; otherwise it rejects, saying to sign in first, and nothing is saved. Its agent is built on the session, never a key.
 
 **Throws:** If the switch worked but the new provider's saved key could not be read, it rejects with that reason instead of resolving. The choice is saved.
 
@@ -469,8 +476,8 @@ nothing, so it always resolves `persistent: true`: there is no value to lose.
 ### `getEffortFor(provider: ProviderId) → ReasoningEffort | null`
 
 The reasoning effort saved for this provider, or `null` when the model's own
-default applies. Only Anthropic has the setting, so any other provider answers
-`null`.
+default applies. Only Anthropic and the ChatGPT plan have the setting, so any
+other provider answers `null`.
 
 **Throws:** Error string (the reason alone) when the keychain could not be
 read, as `getBaseUrlFor` does, and for the same reason. Like it, rejects
@@ -489,8 +496,10 @@ Resolves with where the level was saved, as `setBaseUrlFor` does (clearing it
 is always `persistent: true`).
 
 Rejects a level that is not one of the five in `ReasoningEffort`, and rejects
-any level for a provider other than Anthropic (OpenRouter and the
-chat-completions providers have no such field, so none is ever sent to them).
+any level for a provider other than Anthropic and the ChatGPT plan (OpenRouter
+and the chat-completions providers have no such field, so none is ever sent to
+them). The ChatGPT plan sends it as `reasoning.effort`, and only when the
+model's list (`ModelInfo.reasoning_levels`) names it.
 
 ```typescript
 await bridge.setEffortFor("anthropic", "xhigh");
@@ -540,8 +549,17 @@ interface ModelInfo {
   display_name: string;
   context_length: number | null;
   provider_hint: string | null;
+  // The levels the model accepts (low, medium, ...), read from the account's
+  // list for the ChatGPT plan; [] for every other provider and for a model
+  // that lists none, for which no effort is sent.
+  reasoning_levels: string[];
 }
 ```
+
+For `provider = "chatgpt"` the list is the signed-in account's own (`GET /v1/models`
+with its session, on a provider of its own), `apiKey` is ignored, and it rejects
+when not signed in. It is also read in the background after a sign-in and when
+an agent is built on the plan, so the levels are known.
 
 **Example:**
 ```typescript
@@ -789,6 +807,8 @@ const newHead = await bridge.acceptB(nodeBId);
 Send a user message to the agent. The agent turn runs asynchronously and emits events back to the frontend.
 
 **Side effects:** Emits `agent://text-delta`, `agent://tool-call`, `agent://tool-call-end`, `agent://node-created`, and `agent://done` events during processing (plus `agent://plan*` when a plan, or the first edit, needs approval: see `setPlanFirst`). The promise settles when the turn does, so it stays pending while the turn waits on a plan card.
+
+**Throws:** On the ChatGPT plan, a failed turn rejects with text that **starts with a marker line** the window reads and strips (`parsePlanUsageError` in `chat-errors.ts`): `[plan-usage code=<code> request-id=<id>] <the sentence to show>`, the `request-id` left out when OpenAI sent none. `code` is `usage_limit`, `not_eligible`, `plan_disabled`, `session_ended`, `unavailable`, `unsupported_request` or `refused`. None is a problem with a key (the sentence names none), none is retried on another provider, and `chat-errors.ts` never routes them to Settings. When the code is `session_ended`, the message is kept, see `chatgptTakePendingMessage`.
 
 **Throws:** If no API key is configured or no project is open. After a startup the system keychain refused (a locked keyring, a dismissed unlock prompt) there is no agent either, and the message says why: `no agent configured: the keychain refused access at launch (…), so it was not asked again. Press Save in Settings to try the keychain again, or unlock your keyring and restart edytlab.` The agent is not built from guesses, since building it reads the stored base URL and reasoning level; the first key or provider save that goes through builds it.
 
@@ -1368,6 +1388,148 @@ the commands answer with.
 
 ---
 
+## ChatGPT Plan
+
+Sign in with ChatGPT (#474, preview) lets edytlab run the agent on a ChatGPT
+Plus or Pro plan instead of an API key. These six commands and one event are
+the backend's side of it; there is no key, no address and no token on this
+surface. The sign-in is OAuth with PKCE through the system browser, which **the
+backend opens** (`tauri-plugin-opener`'s `open_url`, used from Rust and never
+registered as a plugin: the window has no opener command or permission, the CSP
+is unchanged, and the authorization URL, the code and the tokens never reach the
+webview). The refresh token is in the keychain slot `chatgpt_refresh_token`,
+through the same plumbing as the API keys (the Linux kernel-keyring fallback of
+#394 and a startup the keychain refused, #497, behave the same way). The access
+token is in memory only. The non-secret registration is
+`<app config dir>/chatgpt/registration.json`.
+
+Requests go to `auth.openai.com` (sign-in, refresh, revoke) and `api.openai.com`
+(the agent's requests and the model list, with the session's bearer). Nothing is
+offered in the UI until PR 6.
+
+```typescript
+type ChatGptState =
+  | "signed_out" | "signing_in" | "signed_in" | "plan_disabled"
+  | "session_ended" | "unread" | "unavailable";
+
+interface ChatGptStatus {
+  state: ChatGptState;
+  email: string | null;       // the account's label; never for signed_out
+  reason: { code: ChatGptReasonCode; message: string } | null;
+  tokenStorage: {
+    kind: "keychain" | "kernel_keyring" | "memory";
+    persistent: boolean;      // false: gone at reboot (kernel_keyring) or at quit (memory)
+    reason: string | null;    // why, in words for the banner
+  } | null;                   // while there is a session
+  pendingMessage: boolean;    // a message is kept for the Continue card
+}
+// reason.code: plan_usage_declined (plan_disabled); refresh_token_unusable,
+// id_token_rejected, no_refresh_token, not_stored, signed_out_elsewhere,
+// replaced_elsewhere (session_ended); keychain_unread (unread);
+// no_config_dir (unavailable).
+```
+
+### `chatgptStatus() → ChatGptStatus`
+
+Where the sign-in stands. Holds no token, reads nothing from the keychain and
+makes no request. Pending, like `hasApiKey`, while the launch-time keychain
+reads (which include the saved sign-in's token) are still going. `signing_in` is a browser being waited for: it is not reported while `chatgptForgetRegistration` runs (the session holds the same guard against a sign-in starting meanwhile; the status is then whatever the session is, and the command is pending). `unread` is a
+saved sign-in whose token the keychain was not asked for (it refused access at
+launch, #497; the first save that goes through lifts that).
+
+### `chatgptSignIn(intent: "sign_in" | "enable_plan_usage" | "another_account" = "sign_in") → ChatGptStatus`
+
+Sign in through the system browser. `sign_in` is Continue with ChatGPT: the saved
+account's client if there is one (so signing in again adds nothing to the
+person's ChatGPT settings), else a first registration. `enable_plan_usage`
+asks for consent again after plan usage was declined. `another_account` signs in
+to a different ChatGPT account with a new registration.
+
+Resolves when the sign-in is over, which can be minutes: the person is in the
+browser. `signing_in` is sent on `onChatGptStatus` once the browser is about to
+open. **A cancel is not an error**: `chatgptCancelSignIn()` ends it and this
+resolves with the status as it then stands. A failure rejects with a sentence:
+edytlab's own sign-in files could not be used (a fixed sentence: no local path ever reaches the window, here or in any `chatgpt_*` answer; the detail is in the log), the browser came back with an error (its description is included, so
+"this app is unavailable" or an organisation that has not enabled access reads
+as such), a timeout (five minutes), a different account than the one saved
+(sign in with `another_account` to use it), a code OpenAI refused. A browser that
+shows an error and never comes back is the timeout. After a sign-in the model
+list is read in the background, and an agent is built if the plan is the active
+provider and there is none.
+
+### `chatgptCancelSignIn() → void`
+
+Ends the sign-in in progress, at once if it is waiting for the browser. One that
+is already exchanging its code finishes. Does nothing when none is in progress.
+
+### `chatgptSignOut() → ChatGptEnd`
+
+Signs out: the refresh token is revoked at OpenAI and removed from the keychain,
+what edytlab learned about the account's route and any kept message are dropped,
+and an agent running on the plan is dropped (nothing to run it on). The
+registered client is kept, so the next sign-in reuses it.
+
+```typescript
+interface ChatGptEnd {
+  status: ChatGptStatus;
+  revocation: "confirmed" | "not_confirmed" | "nothing_to_revoke";
+  tokenRemoved: boolean;           // taken out of the keychain
+  registrationForgotten?: boolean; // chatgptForgetRegistration only
+  notice: string | null;           // for the person; see below
+}
+```
+
+`notice` says what the person may still have to do: that OpenAI could not be told
+to end the sign-in (disconnect edytlab in ChatGPT settings, under Security and
+login, Sign in with ChatGPT), or that the token could not be removed from the
+keychain. `null` when there is nothing to add.
+
+### `chatgptForgetRegistration() → ChatGptEnd`
+
+Start over (G13). Signs out as above, then forgets the registered client and the
+account it was verified for, so the next sign-in registers edytlab again. The
+installation's host ID is kept. For a registration OpenAI no longer accepts (the
+person disconnected the app in ChatGPT settings, or the consent page says the app
+is unavailable). `notice` always says the old entry may remain listed in ChatGPT
+settings and can be disconnected there. Rejects while a sign-in is in progress.
+
+### `chatgptTakePendingMessage() → PendingChatGptMessage | null`
+
+A turn that ends because the session did (`sendMessage` rejects with
+`[plan-usage code=session_ended]`, G9) keeps the person's message, so the window
+can offer **Continue with ChatGPT** and send it again after the sign-in. It is
+kept only if the session **ended** (a person who signed out chose to leave) and
+the account is the one the turn began under: a sign-out, a start over or another
+account clears it, and a turn still running at that moment cannot put it back.
+This takes it, and forgets it: `pendingMessage` goes back to `false`. `null` when
+nothing is kept.
+
+```typescript
+interface PendingChatGptMessage {
+  text: string;            // what the person typed
+  resumeText: string;      // what to send again with sendMessage
+  disabledTools: string[]; // the tools they had switched off for that turn
+  progressed: boolean;     // tools had run, or the model had answered
+}
+```
+
+If the turn got no further than sending the message, it is taken back off the
+agent's conversation (so it is not there twice) and `resumeText` is `text`. If
+tools had run, the conversation holds the request and its results, and `resumeText`
+is a line asking the model to carry on instead. The agent keeps its history across
+the sign-in (it is not rebuilt). It is held in memory until the next message is
+sent, a sign-out or start over, or this call; it does not survive quitting.
+
+### `onChatGptStatus(cb: (status: ChatGptStatus) => void) → Promise<UnlistenFn>`
+
+Emitted as `chatgpt://status` whenever the status differs from the last one sent:
+a sign-in begins, ends or is cancelled, a sign-out or start over, a session that
+ended inside a turn or a refresh, the startup restore, a message kept or taken.
+It lets a card follow a sign-in that is happening in the browser. The payload is
+the object `chatgptStatus` answers with.
+
+---
+
 ## Skills (CRUD)
 
 ### `listSkills() → SkillSummary[]`
@@ -1652,6 +1814,8 @@ Full type definitions are in `apps/desktop/src/lib/tauri-bridge.ts`.
 ```typescript
 type NodeId = string;
 type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini" | "ollama";
+// Not in ProviderId until Settings offers it; the commands that take a provider take it.
+type ChatGptProviderId = "chatgpt";
 type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 interface KeychainPersistence {

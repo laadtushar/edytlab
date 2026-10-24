@@ -137,6 +137,16 @@ impl ToolRung {
         }
     }
 
+    /// How far down the ladder this rung is: 0 for the first.
+    pub fn depth(self) -> u8 {
+        match self {
+            Self::NamespaceFull => 0,
+            Self::NamespaceSlim => 1,
+            Self::AdditionalTools => 2,
+            Self::Flat => 3,
+        }
+    }
+
     /// The rung after this one, if there is one.
     pub fn next(self) -> Option<Self> {
         match self {
@@ -260,6 +270,41 @@ impl ChatGptProvider {
     /// ([`Self::with_tool_rung`]), so a refusal is not learned again.
     pub fn tool_rung(&self) -> ToolRung {
         self.lock().rung
+    }
+
+    /// Moves the ladder to `rung` if that is further down than where it stands,
+    /// and says whether it moved. For what a copy of this provider learned
+    /// (Test, the model list) to be taken on **between turns**: a turn in
+    /// flight keeps the layout it started with, and the next one starts where
+    /// the copy ended. Never moves back up, because the ladder is walked in
+    /// one direction and a copy that learned less must not undo what this one
+    /// has learned ([`Self::reset_adaptations`] is how a new account starts
+    /// again).
+    pub fn adopt_rung(&self, rung: ToolRung) -> bool {
+        let mut state = self.lock();
+        if rung.depth() > state.rung.depth() {
+            state.rung = rung;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The reasoning levels the last catalogue fetch listed, for every model
+    /// it named. What a copy of this provider read (Test, the model list)
+    /// and the app carries to the next agent and, between turns, to the one
+    /// running ([`Self::adopt_levels`]).
+    pub fn levels_snapshot(&self) -> HashMap<String, Vec<String>> {
+        self.lock().levels.clone()
+    }
+
+    /// Takes `levels` as what the catalogue lists, in place of what this
+    /// provider knows ([`LlmProvider::note_catalogue`] with the levels only).
+    /// Between turns: the levels decide whether a request carries the
+    /// person's reasoning effort, so changing them under a turn in flight
+    /// would change that turn's reasoning layout.
+    pub fn adopt_levels(&self, levels: HashMap<String, Vec<String>>) {
+        self.lock().levels = levels;
     }
 
     /// The choice about reasoning now: `Off` after a 400 about `include`.
@@ -845,6 +890,86 @@ mod tests {
             ToolRung::NamespaceSlim,
             "the copy is its own"
         );
+    }
+
+    /// Test and the model list run beside a turn on a copy of the provider
+    /// (#474, review finding 7). Whatever the copy does (steps the ladder,
+    /// turns reasoning off, reads another catalogue, builds a request, which
+    /// starts its parser afresh) must not change the original, or a turn in
+    /// flight would change its tools, its reasoning layout or lose its
+    /// stream half way.
+    #[test]
+    fn a_copy_that_learns_or_builds_a_request_leaves_the_original_as_it_was() {
+        let p = ChatGptProvider::default();
+        p.note_catalogue(&[model("gpt-x", &["low", "high"])]);
+        let delta = |text: &str| {
+            json!({
+                "type": "response.output_text.delta",
+                "output_index": 0, "content_index": 0, "delta": text
+            })
+            .to_string()
+        };
+        // The turn's request is built, and its response is half way through.
+        let before = p.serialize_request(&request(&hi(), None, Some(Effort::High)));
+        let first = p.parse_stream_chunk(&delta("cut here")).unwrap();
+        assert!(first.len() > 1, "the first chunk starts the block");
+
+        let copy = p.clone();
+        assert_eq!(
+            copy.adapt_after_refusal(&http(400, &refusal("tools"))),
+            Some(Adaptation::ToolLayout)
+        );
+        assert_eq!(
+            copy.adapt_after_refusal(&http(400, &refusal("include"))),
+            Some(Adaptation::Reasoning)
+        );
+        copy.note_catalogue(&[model("gpt-x", &[])]);
+        copy.serialize_request(&request(&hi(), None, Some(Effort::High)));
+        copy.parse_stream_chunk(&delta("the copy's own")).unwrap();
+        copy.reset_adaptations();
+
+        assert_eq!(p.tool_rung(), ToolRung::NamespaceFull);
+        assert_eq!(p.reasoning_choice(), ReasoningReplay::Echo);
+        assert_eq!(p.reasoning_levels("gpt-x"), ["low", "high"]);
+        // The response goes on from where it was: one delta, not a restart.
+        let more = p.parse_stream_chunk(&delta("more")).unwrap();
+        assert_eq!(more.len(), 1, "{more:?}");
+        assert!(matches!(more[0], StreamEvent::ContentBlockDelta { .. }));
+        assert_eq!(
+            p.serialize_request(&request(&hi(), None, Some(Effort::High))),
+            before,
+            "the next request: the same tools and reasoning layout"
+        );
+    }
+
+    #[test]
+    fn levels_are_read_out_and_adopted_whole() {
+        let p = ChatGptProvider::default();
+        p.note_catalogue(&[model("a", &["low"]), model("b", &[])]);
+        let levels = p.levels_snapshot();
+        assert_eq!(levels["a"], ["low"]);
+        assert!(levels["b"].is_empty());
+        let q = ChatGptProvider::default();
+        q.note_catalogue(&[model("old", &["max"])]);
+        q.adopt_levels(levels);
+        assert_eq!(q.reasoning_levels("a"), ["low"]);
+        assert!(q.reasoning_levels("old").is_empty(), "replaced, not merged");
+    }
+
+    /// What a copy learned goes back on purpose, between turns, and only
+    /// down: the ladder is walked in one direction, so a copy that learned
+    /// less cannot undo what the original has learned.
+    #[test]
+    fn a_rung_is_adopted_only_further_down_the_ladder() {
+        let p = ChatGptProvider::default();
+        assert!(p.adopt_rung(ToolRung::AdditionalTools));
+        assert_eq!(p.tool_rung(), ToolRung::AdditionalTools);
+        // Not back up, and not to where it is.
+        assert!(!p.adopt_rung(ToolRung::NamespaceFull));
+        assert!(!p.adopt_rung(ToolRung::AdditionalTools));
+        assert_eq!(p.tool_rung(), ToolRung::AdditionalTools);
+        assert!(p.adopt_rung(ToolRung::Flat));
+        assert_eq!(p.tool_rung(), ToolRung::Flat);
     }
 
     #[test]

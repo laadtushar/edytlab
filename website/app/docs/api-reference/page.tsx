@@ -91,7 +91,7 @@ const commands = [
       {
         name: "hasApiKeyFor(provider)",
         returns: "boolean",
-        desc: "Check whether a specific provider has a key. Rejects when the keychain could not be read, as hasApiKey does.",
+        desc: "Check whether a specific provider has a key. For chatgpt there is no key: it is true while the ChatGPT sign-in is signed in. Rejects when the keychain could not be read, as hasApiKey does.",
       },
       {
         name: "getKeychainPersistence()",
@@ -111,7 +111,7 @@ const commands = [
       {
         name: "testApiKeyFor(provider, key, baseUrl?, model?)",
         returns: "ProbeReport",
-        desc: "Probe a provider at the endpoint and model currently on screen. Reports three outcomes: ready, connected but the model cannot call tools (so editing will fail), or unreachable.",
+        desc: "Probe a provider at the endpoint and model currently on screen. Reports three outcomes: ready, connected but the model cannot call tools (so editing will fail), or unreachable. For chatgpt the key and address are ignored: it is tested with the signed-in session, on a provider of its own so a turn that is running is not affected, and rejects when not signed in.",
       },
       {
         name: "testApiKey(key)",
@@ -136,12 +136,12 @@ const commands = [
       {
         name: "setActiveProvider(provider)",
         returns: "KeychainPersistence",
-        desc: "Switch the active provider. Rebuilds the agent. Resolves with where the choice was saved, as setApiKeyFor does.",
+        desc: "Switch the active provider. Rebuilds the agent. Resolves with where the choice was saved, as setApiKeyFor does. chatgpt can be made active only while the ChatGPT sign-in is signed in.",
       },
       {
         name: "listModelsFor(provider, apiKey?)",
         returns: "ModelCatalogue",
-        desc: "Live list; Anthropic falls back to a built-in list without a key or when the fetch fails. Cached 10 minutes.",
+        desc: "Live list; Anthropic falls back to a built-in list without a key or when the fetch fails. Cached 10 minutes. Each model carries reasoning_levels, which only chatgpt fills in: the levels the signed-in account lists for it. For chatgpt it is the account's own list, read with its session, and rejects when not signed in.",
       },
       {
         name: "getActiveModel(provider)",
@@ -171,12 +171,12 @@ const commands = [
       {
         name: "getEffortFor(provider)",
         returns: "ReasoningEffort | null",
-        desc: "The reasoning effort saved for the provider, or null when the model's own default applies. Only Anthropic has the setting; any other provider answers null. Rejects when the keychain could not be read, as getBaseUrlFor does.",
+        desc: "The reasoning effort saved for the provider, or null when the model's own default applies. Only Anthropic and the ChatGPT plan have the setting; any other provider answers null. Rejects when the keychain could not be read, as getBaseUrlFor does.",
       },
       {
         name: "setEffortFor(provider, effort)",
         returns: "KeychainPersistence",
-        desc: "Set how hard the model works on a response: low, medium, high, xhigh or max, sent as output_config.effort. null restores the model's default. Anthropic only; any other provider is refused. Rebuilds the agent, and resolves with where the level was saved, as setBaseUrlFor does.",
+        desc: "Set how hard the model works on a response: low, medium, high, xhigh or max, sent as output_config.effort. null restores the model's default. Anthropic and the ChatGPT plan only; any other provider is refused. For chatgpt the level is sent as reasoning.effort, and only when the model's list names it. Rebuilds the agent, and resolves with where the level was saved, as setBaseUrlFor does.",
       },
     ],
   },
@@ -251,7 +251,7 @@ const commands = [
       {
         name: "sendMessage(text)",
         returns: "void",
-        desc: "Send a user message. Agent runs async; emits events during processing.",
+        desc: "Send a user message. Agent runs async; emits events during processing. A failure on the ChatGPT plan rejects with text that starts [plan-usage code=usage_limit] (or not_eligible, plan_disabled, session_ended, unavailable, unsupported_request, refused), then the sentence to show; when the session ended the message is kept for chatgptTakePendingMessage.",
       },
       {
         name: "approvePlan(steps?)",
@@ -546,6 +546,41 @@ const commands = [
     ],
   },
   {
+    group: "ChatGPT Plan",
+    items: [
+      {
+        name: "chatgptStatus()",
+        returns: "ChatGptStatus",
+        desc: "Where Sign in with ChatGPT (preview) stands: state is signed_out, signing_in, signed_in, plan_disabled, session_ended (reason.code says why), unread (a saved sign-in the keychain was not asked for) or unavailable; plus the account's email when there is one, where the refresh token is kept (tokenStorage: the keychain, the Linux kernel keyring until reboot, or memory until quit), and whether a message is kept to send again. Holds no token. Reads nothing from the keychain and makes no request.",
+      },
+      {
+        name: "chatgptSignIn(intent)",
+        returns: "ChatGptStatus",
+        desc: "Sign in through the system browser, which the backend opens: the window never sees the URL. intent is sign_in, enable_plan_usage (ask for consent again after declining it) or another_account. Resolves when the sign-in is over, which can be minutes; a cancel resolves with the status as it then stands, and a failure rejects with a sentence. Requests go to auth.openai.com, and later to api.openai.com. No token is returned.",
+      },
+      {
+        name: "chatgptCancelSignIn()",
+        returns: "void",
+        desc: "End the sign-in in progress, if any. chatgptSignIn then resolves with the status as it stands.",
+      },
+      {
+        name: "chatgptSignOut()",
+        returns: "ChatGptEnd",
+        desc: "Sign out: the refresh token is revoked at OpenAI and removed from the keychain. The registered client is kept, so signing in again adds no new entry in ChatGPT's settings. notice says what could not be confirmed, if anything. An agent running on the plan is dropped.",
+      },
+      {
+        name: "chatgptForgetRegistration()",
+        returns: "ChatGptEnd",
+        desc: "Start over: sign out, then forget the registered client and its account, so the next sign-in registers edytlab again. For a registration OpenAI no longer accepts. The old entry may remain in ChatGPT's settings, which notice says. Rejects while a sign-in is in progress.",
+      },
+      {
+        name: "chatgptTakePendingMessage()",
+        returns: "PendingChatGptMessage | null",
+        desc: "The message a turn could not send because the ChatGPT session ended, taken and forgotten. After signing in, send resumeText with disabledTools. Kept only when the session ended (not on a sign-out) and the account has not changed since the turn began. In memory only: it is gone at quit, at the next message, at a sign-out or start over and at this call. null when none is kept.",
+      },
+    ],
+  },
+  {
     group: "Templates",
     items: [
       {
@@ -642,6 +677,11 @@ const events = [
     name: "onMarkerChanged(cb)",
     payload: "none",
     desc: "Marker or region annotation added, renamed, moved or removed. Refresh the marker list.",
+  },
+  {
+    name: "onChatGptStatus(cb)",
+    payload: "status: ChatGptStatus",
+    desc: "The ChatGPT sign-in changed (event chatgpt://status), sent when the status differs from the last one sent: a sign-in begins, ends or is cancelled, a sign-out, a session that ended inside a turn or a refresh, a message kept or taken. Lets a card follow a sign-in that is happening in the browser. The payload is the object chatgptStatus answers with.",
   },
   {
     name: "onMlModelProgress(cb)",

@@ -180,6 +180,28 @@ pub struct AppState {
     /// last-known tool lists. `Arc` so the agent-loop (future
     /// follow-up) can hold a clone without going through `AppState`.
     pub mcp: Arc<McpRegistry>,
+    /// The ChatGPT plan's sign-in session and what the app remembers around
+    /// it (#474). A handle with no session until [`AppState::install_chatgpt`]
+    /// runs, so a bare `AppState::new()` is a state with ChatGPT unavailable.
+    pub chatgpt: crate::chatgpt::ChatGptHandle,
+}
+
+/// Why the keychain is not asked again, after a startup it refused
+/// ([`AppState::keychain_refused`]); `None` while it is not known to. The
+/// reason alone, in words for Settings' "Save leaves it as it is" note.
+///
+/// One wording for every read that is skipped, the API keys' and the ChatGPT
+/// refresh token's.
+pub fn keychain_refusal_note(refused: bool, read_error: Option<String>) -> Option<String> {
+    if !refused {
+        return None;
+    }
+    let why = read_error
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    Some(format!(
+        "the keychain refused access at launch{why}, so it was not asked again"
+    ))
 }
 
 impl AppState {
@@ -220,7 +242,55 @@ impl AppState {
             mcp_config: Arc::new(Mutex::new(McpConfig::default())),
             mcp_config_path: Arc::new(Mutex::new(PathBuf::new())),
             mcp: Arc::new(McpRegistry::new()),
+            chatgpt: crate::chatgpt::ChatGptHandle::default(),
         }
+    }
+
+    /// Opens the ChatGPT session, whose files are in `<app_config_dir>/chatgpt`
+    /// and whose refresh token is in the keychain slot `chatgpt_refresh_token`
+    /// (#474). Reads `registration.json` and nothing else: no keychain read
+    /// and no request. Called once at startup from `lib.rs::run`; a session
+    /// that cannot be opened leaves ChatGPT unavailable and never stops the
+    /// app starting. Returns whether it opened.
+    ///
+    /// The keychain is not asked after a startup it refused, as for an API
+    /// key ([`crate::chatgpt::KeychainTokenStore`]).
+    pub fn install_chatgpt(&self, app_config_dir: &std::path::Path) -> bool {
+        use ai::chatgpt::{ChatGptSession, SessionConfig};
+
+        let refused = Arc::clone(&self.keychain_refused);
+        let read_error = Arc::clone(&self.keychain_read_error);
+        let refusal: crate::chatgpt::Refusal = Arc::new(move || {
+            keychain_refusal_note(
+                refused.load(std::sync::atomic::Ordering::SeqCst),
+                read_error
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone(),
+            )
+        });
+        let tokens = Arc::new(crate::chatgpt::KeychainTokenStore::new(
+            crate::chatgpt::OsTokenSlot,
+            Arc::clone(&refusal),
+        ));
+        let session = match ChatGptSession::open(SessionConfig::new(app_config_dir), tokens.clone())
+        {
+            Ok(session) => Arc::new(session),
+            Err(e) => {
+                tracing::warn!(error = %e, "could not open the ChatGPT session");
+                return false;
+            }
+        };
+        self.chatgpt.install(
+            session,
+            crate::chatgpt::Hooking {
+                persistence: Arc::new(move || tokens.persistence()),
+                refusal,
+                refresh_models: true,
+                private_dir: Some(app_config_dir.to_path_buf()),
+            },
+        );
+        true
     }
 
     /// Install the settings file path and read what it holds. Called once
