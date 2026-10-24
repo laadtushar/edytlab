@@ -426,7 +426,10 @@ Tell me which edit you'd ask for first.
   older draft's "the website has no analytics". `website/app/privacy/page.tsx`
   says the website uses anonymous Vercel analytics, and
   `marketing/launch/show-hn.md`, `marketing/README.md` and
-  `marketing/press-kit.md` now say the same (#472).
+  `marketing/press-kit.md` now say the same (#472). Since #684 the site can
+  also run Google Analytics 4 behind a consent banner once a measurement ID is
+  set; those three files name it, and none of them says "no cookies" without
+  scoping it to Vercel's pair.
 - The newsletter and Discord text list release changes only, and not all of
   them (the Discord post names five): the full list is on the changelog page
   if your audience wants it.

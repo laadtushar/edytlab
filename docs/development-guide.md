@@ -81,7 +81,7 @@ sudo apt-get install -y \
     table below). Without it the tool answers `[onnx_runtime_unavailable]`
     and the window shows a card that says so.
   - **The speech model**, about 139 MB. In the app the user presses
-    **Download** in Settings → Account (from the release after v0.7.0). From
+    **Download** in Settings → Account (from v0.8.0). From
     source you can do the same, or set `WHISPER_MODEL_PATH` to a folder of the
     three files (below), which takes precedence. Without either the tool
     answers `[speech_model_not_downloaded]` and the window's card sends the
@@ -102,7 +102,7 @@ sudo apt-get install -y \
   pinned, the speech model `whisper-base` (about 139 MB from
   huggingface.co, `crates/ml-pipeline/models.json`), and the app downloads
   it **only when you click Download** in Settings → Account (`Speech
-  model`; from the release after v0.7.0), with a progress bar, Cancel (a resume with a `Range` request
+  model`; from v0.8.0), with a progress bar, Cancel (a resume with a `Range` request
   carries on from what arrived) and Remove. The `transcribe` tool finds the
   files there with `ml_pipeline::models::cached`, which hashes them (0.7 to 0.9 s in a release
   build; later calls skip the hashing while each file's size and modified time
@@ -629,7 +629,7 @@ Defined in `apps/desktop/src-tauri/tauri.conf.json`:
 
 App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 ```json
-"version": "0.7.0"
+"version": "0.8.0"
 ```
 
 The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.ts` fails if any drifts. When bumping a version:

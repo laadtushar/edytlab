@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalShell title="Terms of use" path="/terms" updated="2026-10-22">
+    <LegalShell title="Terms of use" path="/terms" updated="2026-10-23">
       <p>
         These terms govern your use of the edytlab desktop application and this
         marketing website. By installing or using the app you agree to these

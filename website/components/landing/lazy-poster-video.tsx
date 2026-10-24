@@ -35,6 +35,7 @@ export function LazyPosterVideo({
     const el = ref.current;
     if (!el) return;
     if (typeof IntersectionObserver === "undefined") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- a browser without IntersectionObserver is only known after hydration; the poster is set at once, as documented above
       setNear(true);
       return;
     }

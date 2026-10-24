@@ -20,7 +20,7 @@ import { siteConfig } from "./site";
  * `<lastmod>` only "if it's consistently and verifiably" accurate, and
  * one date on every page is not verifiable for any of them.
  */
-export const SITE_UPDATED = "2026-10-22";
+export const SITE_UPDATED = "2026-10-24";
 
 /**
  * The day each page's content last changed in substance, by path, for
@@ -43,35 +43,35 @@ export const SITE_UPDATED = "2026-10-22";
  * signs for helpful-content review.
  */
 export const PAGE_UPDATED: Readonly<Record<string, string>> = {
-  "/": "2026-10-22",
-  "/docs": "2026-10-22",
+  "/": "2026-10-23",
+  "/docs": "2026-10-23",
   "/docs/getting-started": "2026-10-22",
-  "/docs/user-guide": "2026-10-22",
-  "/docs/tools": "2026-10-22",
-  "/docs/developer-guide": "2026-10-22",
-  "/docs/api-reference": "2026-10-22",
+  "/docs/user-guide": "2026-10-23",
+  "/docs/tools": "2026-10-23",
+  "/docs/developer-guide": "2026-10-23",
+  "/docs/api-reference": "2026-10-24",
   "/use-cases/dj": "2026-10-22",
-  "/use-cases/local-ai-audio-editor": "2026-10-22",
-  "/about": "2026-10-22",
-  "/alternatives/audacity": "2026-10-22",
-  "/videos": "2026-10-22",
-  "/videos/whats-new-v070": "2026-10-22",
-  "/videos/launch-video": "2026-10-22",
-  "/videos/dj-beatmatched-transition": "2026-10-22",
-  "/videos/dj-extended-club-intro": "2026-10-22",
-  "/videos/dj-mini-mix": "2026-10-22",
-  "/videos/reel-v070-whats-new": "2026-10-22",
-  "/videos/reel-v070-describe-the-edit": "2026-10-22",
-  "/videos/reel-v070-200-tracks": "2026-10-22",
-  "/videos/reel-highlights": "2026-10-22",
-  "/videos/reel-teaser": "2026-10-22",
-  "/videos/reel-beatmatched-transition": "2026-10-22",
-  "/videos/reel-extended-club-intro": "2026-10-22",
-  "/videos/reel-mini-mix": "2026-10-22",
-  "/changelog": "2026-10-21",
-  "/press": "2026-10-21",
-  "/privacy": "2026-10-22",
-  "/terms": "2026-10-22",
+  "/use-cases/local-ai-audio-editor": "2026-10-24",
+  "/about": "2026-10-23",
+  "/alternatives/audacity": "2026-10-24",
+  "/videos": "2026-10-24",
+  "/videos/whats-new-v070": "2026-10-23",
+  "/videos/launch-video": "2026-10-24",
+  "/videos/dj-beatmatched-transition": "2026-10-23",
+  "/videos/dj-extended-club-intro": "2026-10-23",
+  "/videos/dj-mini-mix": "2026-10-23",
+  "/videos/reel-v070-whats-new": "2026-10-23",
+  "/videos/reel-v070-describe-the-edit": "2026-10-23",
+  "/videos/reel-v070-200-tracks": "2026-10-23",
+  "/videos/reel-highlights": "2026-10-23",
+  "/videos/reel-teaser": "2026-10-23",
+  "/videos/reel-beatmatched-transition": "2026-10-23",
+  "/videos/reel-extended-club-intro": "2026-10-23",
+  "/videos/reel-mini-mix": "2026-10-23",
+  "/changelog": "2026-10-23",
+  "/press": "2026-10-24",
+  "/privacy": "2026-10-24",
+  "/terms": "2026-10-23",
 };
 
 /** When a page last changed in substance: its own date, else the site's. */

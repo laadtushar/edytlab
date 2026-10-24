@@ -130,7 +130,11 @@ export const NEAR = "100% 0px";
  */
 export function useGSAPWhenNear(callback: () => void | (() => void), options: { scope: RefObject<Element | null> }) {
   const latest = useRef(callback);
-  latest.current = callback;
+  // Written in an effect, not during render, and declared before the one
+  // that reads it, so `start` always sees the latest callback.
+  useEffect(() => {
+    latest.current = callback;
+  });
   const { scope } = options;
 
   useEffect(() => {

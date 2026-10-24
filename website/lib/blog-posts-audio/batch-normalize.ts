@@ -25,6 +25,7 @@ export const batchNormalize: BlogPost = {
   slug: "batch-normalize-audio-files-to-a-lufs-target",
   title: "Batch Normalize Audio Files to a LUFS Target",
   date: "2026-10-22",
+  dateModified: "2026-10-23",
   description:
     "Bring a folder of audio to one LUFS target three ways: ffmpeg loudnorm, an Audacity macro, and an edytlab recipe with batch_apply. Steps and caveats.",
   coverAlt:

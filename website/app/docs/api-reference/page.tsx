@@ -396,7 +396,7 @@ const commands = [
       {
         name: "setClipEnvelope(track, clip, points)",
         returns: "NodeId",
-        desc: "Replace a clip's volume automation curve with points of { time_samples, gain_db }, the time relative to the clip's own start. An empty array clears it; the points need not be sorted.",
+        desc: "Replace a clip's volume automation curve with points of { time_sec, gain_db }, the time in seconds from the clip's own start. An empty array clears it; the points need not be sorted.",
       },
     ],
   },

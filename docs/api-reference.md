@@ -1100,7 +1100,7 @@ Replace a clip's volume automation curve. An empty array clears it.
 
 ```typescript
 interface EnvelopePoint {
-  time_samples: number;  // Relative to the clip's own start
+  time_sec: number;      // Seconds from the clip's own start
   gain_db: number;
 }
 ```

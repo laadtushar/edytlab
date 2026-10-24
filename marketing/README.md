@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.7.0 today (published 2026-10-22). (The website's own buttons point at the
+non-prerelease, which is v0.8.0 today (published 2026-10-23). (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -73,8 +73,11 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
   benchmark. None exists in the repo to cite.
 - That the website has no analytics. The desktop app sends no telemetry, but
   the website uses Vercel Web Analytics and Speed Insights (anonymous, no
-  cookies), as `website/app/privacy/page.tsx` says. Keep the two apart:
-  "the app has no telemetry" is true; "no analytics" about the site is not.
+  cookies) and, once `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set in the site's
+  build, Google Analytics 4 behind a consent banner (nothing from Google loads
+  before a visitor accepts; it sets cookies), as `website/app/privacy/page.tsx`
+  says. Keep the two apart: "the app has no telemetry" is true; "no analytics"
+  about the site is not, and "no cookies" holds for the Vercel pair only.
 - That builds are signed. They are not
   ([#386](https://github.com/laadtushar/edytlab/issues/386)). Say so wherever a
   download link appears.
@@ -89,13 +92,13 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Six providers: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama | `README.md`, `website/app/docs/getting-started/page.tsx` |
 | Ollama needs no key and can keep the chat on your machine | `website/app/privacy/page.tsx`, user guide |
 | Audio is never uploaded; only the chat goes to the provider (Settings also asks it for its model list, with your key and no prompt or audio) | `website/app/privacy/page.tsx` |
-| The desktop app sends no telemetry. The website uses anonymous Vercel analytics | `website/app/privacy/page.tsx`; `<Analytics />` and `<SpeedInsights />` in `website/app/layout.tsx` |
+| The desktop app sends no telemetry. The website uses anonymous Vercel analytics, and Google Analytics 4 only after a visitor accepts the cookie banner, in a build that has a measurement ID | `website/app/privacy/page.tsx`; `<Analytics />`, `<SpeedInsights />` and `<GoogleAnalyticsConsent />` in `website/app/layout.tsx` |
 | Branchable session graph, fork, A/B compare, undo | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, README |
 | Plan first is an optional toggle in the chat box | `apps/desktop/src/components/Chat.tsx` |
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.7.0 | GitHub release v0.7.0 (six installers), `LICENSE` |
+| macOS universal, Windows, Linux builds; MIT; v0.8.0 | GitHub release v0.8.0 (six installers, checked 2026-10-24), `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -217,6 +220,9 @@ own community.
 - Measurement: the website runs Vercel Web Analytics and Speed Insights
   (anonymous page views and page performance, no cookies), and the owner sees
   them as aggregates in the Vercel dashboard. The desktop app sends no
-  telemetry. The other built-in signals are GitHub release download counts,
+  telemetry. Google Analytics 4 is wired in behind a consent banner (#684) and
+  is off until `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set; with it set, the privacy
+  page names it. The other built-in signals are GitHub release download counts,
   stars and issues. Do not add any further tracking for the launch; the
-  privacy page says Vercel's is the only analytics the site runs.
+  privacy page lists the analytics the site runs, and a launch post must not
+  name one it does not.
