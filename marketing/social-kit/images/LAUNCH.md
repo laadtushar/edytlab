@@ -34,13 +34,17 @@ Pair a theme with a community post only where it fits.
 
 | Day | Own feeds | Aimed at | Image / video | Community post that day |
 |---|---|---|---|---|
-| 1 (Tue) | **1 Describe the edit** | everyone | launch video (`edytlab.com/videos/launch-video`), reel as cover | none: answer comments |
-| 2 (Wed) | **2 A DJ transition in one sentence** | DJ communities | `reel-beatmatched-transition` | Show HN, then stay 4 to 6 hours |
-| 3 (Thu) | **4 Your audio stays on your computer** | privacy and local-AI audiences | image only (no video of its own) | r/rust (the calendar's Wednesday post) |
-| 4 (Fri) | none, or a reply round | | | r/LocalLLaMA (after Show HN and r/rust) |
-| 5 to 6 | **3 Extend a club intro** | DJs and producers | `reel-extended-club-intro` | r/DJs or r/edmproduction |
-| 8 to 9 | **5 Every edit is a version** | producers, editors | `whats-new-v070` (video page) | r/opensource, if the sidebar allows |
-| 10 to 12 | **6 Free and open source** | developers, GitHub | image only | link GitHub, not a reel |
+| Week 1 Tue | **1 Describe the edit** | everyone | launch video (`edytlab.com/videos/launch-video`), reel as cover | none: answer comments |
+| Week 1 Wed | **2 A DJ transition in one sentence** | DJ communities | `reel-beatmatched-transition` | Show HN at 12:00 UTC, then stay 4 to 6 hours |
+| Week 1 Thu | **4 Your audio stays on your computer** | privacy and local-AI audiences | image only (no video of its own) | r/rust (engineering notes) |
+| Week 1 Fri | none, a reply round | | | r/LocalLLaMA (after Show HN and r/rust) |
+| Week 2 Tue | **3 Extend a club intro** | DJs and producers | `reel-extended-club-intro` | Product Hunt at 12:01am PT (its own day) |
+| Week 2 Wed | **5 Every edit is a version** | producers, editors | `whats-new-v070` (video page) | r/DJs or r/edmproduction |
+| Week 2 Thu | **6 Free and open source** | developers, GitHub | image only | r/opensource, if the sidebar allows; link GitHub, not a reel |
+
+Own feeds post Tuesday to Thursday only: weekends are the weakest days on every platform in the sources below.
+The interactive version of this plan, with the schedule in your own time zone and copy buttons on every caption, is
+the launch-kit artifact the owner was given; this file is the copy that lives with the images.
 
 Day 1 replaces the calendar's Monday lead (`reel-highlights`); post one or the other, not both. Skip a community
 post if the sidebar bans self-promotion. Do not post a community thread on a day you cannot stay in it.
