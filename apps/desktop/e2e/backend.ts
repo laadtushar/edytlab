@@ -148,6 +148,111 @@ export function speechModelCommands({ received = 0 }: { received?: number } = {}
 }
 
 /**
+ * `ChatGptStatusDto` (`chatgpt.rs`) for a person who never signed in:
+ * `status_dto` of a `SessionState::SignedOut` session that is not signing in.
+ * `email` is left out of a signed-out status, there is no `reason` and no
+ * token to be stored, and no message is kept.
+ */
+export const CHATGPT_SIGNED_OUT = {
+  state: "signed_out",
+  email: null,
+  reason: null,
+  tokenStorage: null,
+  pendingMessage: false,
+} as const;
+
+/**
+ * The same, signed in: `SessionState::SignedIn` with the token in the system
+ * keychain (`token_storage_dto` of `TokenStorage::Stored` where
+ * `ai::keychain::persistence()` is `Durable`).
+ */
+export const CHATGPT_SIGNED_IN = {
+  state: "signed_in",
+  email: "person@example.com",
+  reason: null,
+  tokenStorage: { kind: "keychain", persistent: true, reason: null },
+  pendingMessage: false,
+} as const;
+
+/**
+ * The ChatGPT sign-in commands (#474), for a spec that presses them. Each is
+ * a `CmdResult` of the DTO in `chatgpt.rs`:
+ *
+ * - `chatgpt_status`: `ChatGptHandle::status`, the status now.
+ * - `chatgpt_sign_in`: resolves when the sign-in is over, with the status at
+ *   the end of it (a cancel resolves with the status as it then stands).
+ * - `chatgpt_cancel_sign_in`: `Ok(())`, which serialises as `null`.
+ * - `chatgpt_sign_out`: a `ChatGptEndDto` of a sign-out. No token was left to
+ *   revoke, so `revocation` is `nothing_to_revoke`; the token is removed, and
+ *   with nothing loose there is no `notice`. `registrationForgotten` is
+ *   skipped for a sign-out.
+ * - `chatgpt_forget_registration`: the same for a start over, which adds
+ *   `registrationForgotten` and always has a `notice`: the old entry may
+ *   remain in ChatGPT's settings.
+ * - `chatgpt_take_pending_message`: `None` while no message is kept.
+ *
+ * Status changes arrive on the `chatgpt://status` event, which a spec fires
+ * itself.
+ */
+export function chatgptCommands(
+  status: Record<string, unknown> = CHATGPT_SIGNED_OUT,
+): Backend {
+  return {
+    chatgpt_status: ok(status),
+    chatgpt_sign_in: ok(CHATGPT_SIGNED_IN),
+    chatgpt_cancel_sign_in: ok(null),
+    chatgpt_sign_out: ok({
+      status: CHATGPT_SIGNED_OUT,
+      revocation: "nothing_to_revoke",
+      tokenRemoved: true,
+      notice: null,
+    }),
+    chatgpt_forget_registration: ok({
+      status: CHATGPT_SIGNED_OUT,
+      revocation: "nothing_to_revoke",
+      tokenRemoved: true,
+      registrationForgotten: true,
+      notice:
+        "edytlab has forgotten its registration, and the next sign-in registers it again. The old entry may still be listed in ChatGPT settings, under Security and login, Sign in with ChatGPT; you can disconnect it there.",
+    }),
+    chatgpt_take_pending_message: ok(null),
+    // `open_chatgpt_usage`: `Ok(())`, which serialises as `null`. It takes no
+    // argument, so a spec that presses Manage usage checks the call was made
+    // with none.
+    open_chatgpt_usage: ok(null),
+  };
+}
+
+/**
+ * `list_models_for("chatgpt")` for a signed-in account: `ModelCatalogueDto`
+ * of `ChatGptHandle::list_models` (`commands.rs`), the account's own list as
+ * `/v1/models` answered it, with each model's `reasoning_levels` (always
+ * serialised). `source` is "live" and there is no notice.
+ */
+export function chatgptModelList(): Record<string, unknown> {
+  return {
+    models: [
+      {
+        id: "gpt-6.1-sol",
+        display_name: "GPT-6.1 Sol",
+        context_length: 400_000,
+        provider_hint: null,
+        reasoning_levels: ["low", "medium", "high"],
+      },
+      {
+        id: "gpt-6-luna",
+        display_name: "GPT-6 Luna",
+        context_length: 400_000,
+        provider_hint: null,
+        reasoning_levels: [],
+      },
+    ],
+    source: "live",
+    notice: null,
+  };
+}
+
+/**
  * What Settings asks for when it opens, for a user who has never
  * changed a provider setting.
  */
@@ -212,24 +317,28 @@ function providerCommands(): Backend {
           display_name: "Claude Sonnet 5.5 (default)",
           context_length: 1_000_000,
           provider_hint: null,
+          reasoning_levels: [],
         },
         {
           id: "claude-haiku-5-5",
           display_name: "Claude Haiku 5.5",
           context_length: 1_000_000,
           provider_hint: null,
+          reasoning_levels: [],
         },
         {
           id: "claude-opus-5-5",
           display_name: "Claude Opus 5.5",
           context_length: 1_000_000,
           provider_hint: null,
+          reasoning_levels: [],
         },
         {
           id: "claude-fable-5-1",
           display_name: "Claude Fable 5.1",
           context_length: 1_000_000,
           provider_hint: null,
+          reasoning_levels: [],
         },
       ],
       source: "fallback",

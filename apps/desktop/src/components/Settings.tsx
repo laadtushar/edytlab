@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import {
+  chatgptStatus,
   clearApiKeyFor,
   installPlugin,
   listModelsFor,
@@ -48,12 +49,15 @@ import {
   type ProviderId,
   type ReasoningEffort,
 } from "../lib/tauri-bridge";
+import { CHATGPT_LABEL } from "../lib/chatgptCopy";
+import { EFFORT_OPTIONS, asEffort } from "../lib/effort";
 import { savedNotice } from "../lib/keychainNotice";
 import {
   MODEL_STORAGE_KEY_PREFIX,
   modelStorageKey,
 } from "../lib/model-storage";
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
+import { ChatGptCard } from "./ChatGptCard";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { MlRuntimeLine } from "./MlRuntimeLine";
@@ -96,6 +100,10 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
   groq: "llama-3.3-70b-versatile",
   gemini: "gemini-3.8-flash",
   ollama: "llama3.2",
+  // The backend's fallback, for a plan whose account lists nothing yet. Once
+  // signed in, the card offers the account's own list and saves its first
+  // model for a person who has chosen none; no model is assumed to be there.
+  chatgpt: "gpt-6.1-sol",
 };
 
 const PROVIDERS: ReadonlyArray<{
@@ -103,6 +111,12 @@ const PROVIDERS: ReadonlyArray<{
   label: string;
   keyPlaceholder: string;
   keysUrl: string;
+  /**
+   * Signs in with an account in the browser instead of taking a key: the
+   * ChatGPT plan (#474). Its card replaces the key, address and model
+   * fields; there is no key to save, test or clear.
+   */
+  oauth?: boolean;
   /**
    * Providers that authenticate. A local daemon does not, and the
    * key field is hidden for it — mirrors `LlmProvider::requires_api_key`
@@ -156,25 +170,17 @@ const PROVIDERS: ReadonlyArray<{
     keysUrl: OLLAMA_DOCS_URL,
     needsKey: false,
   },
+  {
+    id: "chatgpt",
+    label: CHATGPT_LABEL,
+    keyPlaceholder: "",
+    keysUrl: "",
+    oauth: true,
+    needsKey: false,
+  },
 ];
 
 const DEFAULT_PROVIDER: ProviderId = "anthropic";
-
-/**
- * The reasoning-effort choices, in the order the API ranks them. The
- * empty value is "Default": nothing is sent and the model uses its own.
- */
-const EFFORT_OPTIONS: ReadonlyArray<{
-  value: ReasoningEffort | "";
-  label: string;
-}> = [
-  { value: "", label: "Default (model's own)" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "Extra high" },
-  { value: "max", label: "Max" },
-];
 
 /**
  * How far from either end of the tab strip a tab has to sit to count as
@@ -182,12 +188,6 @@ const EFFORT_OPTIONS: ReadonlyArray<{
  * reach is never left half dimmed under it (#392).
  */
 const TAB_FADE_PX = 24;
-
-function asEffort(value: string | null | undefined): ReasoningEffort | "" {
-  return EFFORT_OPTIONS.some((o) => o.value === value && o.value !== "")
-    ? (value as ReasoningEffort)
-    : "";
-}
 
 function readStoredModel(provider: ProviderId): string {
   if (typeof window === "undefined") return DEFAULT_MODEL_BY_PROVIDER[provider];
@@ -284,6 +284,8 @@ export function Settings({
    * what the form asks for.
    */
   const needsKey = PROVIDERS.find((p) => p.id === provider)?.needsKey !== false;
+  // The ChatGPT plan: a card in place of the key, address and model fields.
+  const oauth = PROVIDERS.find((p) => p.id === provider)?.oauth === true;
   const supportsEffort =
     PROVIDERS.find((p) => p.id === provider)?.supportsEffort === true;
 
@@ -579,6 +581,9 @@ export function Settings({
     setBaseUrl("");
     setBaseUrlKnown(false);
     setBaseUrlUnread(null);
+    // The ChatGPT plan has no address to read or save (the backend refuses
+    // both for it).
+    if (provider === "chatgpt") return;
     // Asked apart: the placeholder is only a hint, and a read of the
     // stored URL that failed must not take it down, nor the reverse. A
     // settings panel that cannot read one optional field should still
@@ -636,6 +641,14 @@ export function Settings({
 
   const fetchCatalogue = useCallback(
     async (p: ProviderId, k: string | undefined) => {
+      // The plan's models are the card's: they are the signed-in account's.
+      if (p === "chatgpt") {
+        setModels([]);
+        setCatalogueSource(null);
+        setCatalogueNotice(null);
+        setModelsError(null);
+        return;
+      }
       try {
         const catalogue = await listModelsFor(p, k);
         setModels(catalogue.models);
@@ -664,6 +677,36 @@ export function Settings({
     return () => window.clearTimeout(t);
   }, [key, provider, fetchCatalogue]);
 
+  /**
+   * Makes the ChatGPT plan the active provider, which the backend allows only
+   * while it is signed in. Told to the app the way any provider switch is.
+   *
+   * When it already is the active provider (a session that ended and was
+   * signed in again) nothing is set: `set_active_provider` rebuilds the agent,
+   * and a sign-in keeps the one it has, with the conversation in it.
+   */
+  const activateChatGpt = useCallback(async () => {
+    const active = await getActiveProvider().catch(() => null);
+    if (active !== "chatgpt") {
+      const at = await setActiveProvider("chatgpt");
+      const notice = savedNotice([at]);
+      if (notice) setSavedSessionOnly(notice.message);
+    }
+    onProviderChanged?.(true);
+  }, [onProviderChanged]);
+
+  // The person signed out of the plan or started over. If it was the active
+  // provider it has no agent now, which the app is told as for a provider
+  // with no key.
+  const handleChatGptSignedOut = useCallback(() => {
+    void getActiveProvider().then(
+      (active) => {
+        if (active === "chatgpt") onProviderChanged?.(false);
+      },
+      () => undefined,
+    );
+  }, [onProviderChanged]);
+
   const handleProviderChange = useCallback(
     async (next: ProviderId) => {
       if (next === provider) return;
@@ -676,6 +719,18 @@ export function Settings({
       setSaveError(null);
       // Another provider is another form; the note was about the last Save.
       setSavedSessionOnly(null);
+      // The ChatGPT plan is looked at before it is chosen: with no sign-in
+      // there is nothing to activate, and the card is where to start one.
+      // Signed in, choosing it activates it, as for any provider.
+      if (next === "chatgpt") {
+        try {
+          const status = await chatgptStatus();
+          if (status.state === "signed_in") await activateChatGpt();
+        } catch (err) {
+          setSaveError(String(err));
+        }
+        return;
+      }
       try {
         await setActiveProvider(next);
 
@@ -702,7 +757,7 @@ export function Settings({
         setSaveError(String(err));
       }
     },
-    [provider, onProviderChanged],
+    [provider, onProviderChanged, activateChatGpt],
   );
 
   const handleModelChange = useCallback(
@@ -728,6 +783,8 @@ export function Settings({
   );
 
   const handleSave = useCallback(async () => {
+    // The ChatGPT plan has no key to save; its card saves as it goes.
+    if (provider === "chatgpt") return;
     if ((needsKey && !key.trim()) || saving) return;
     setSaving(true);
     setSaveError(null);
@@ -860,6 +917,8 @@ export function Settings({
    * action on a credential, where being explicit is worth more.
    */
   const handleClear = useCallback(async () => {
+    // No key to clear for the plan: signing out is on its card.
+    if (provider === "chatgpt") return;
     try {
       await clearApiKeyFor(provider);
       setKey("");
@@ -1175,9 +1234,9 @@ export function Settings({
           <>
           {mode === "blocking" ? (
             <p className="mb-5 text-sm leading-relaxed text-[var(--text-dim)]">
-              edytlab needs an LLM API key to power the assistant. Pick a
-              provider below; your key is stored in your OS keychain —
-              never on disk in plaintext.
+              edytlab needs an LLM API key or a ChatGPT plan to power the
+              assistant. Pick a provider below; a key is stored in your OS
+              keychain — never on disk in plaintext.
             </p>
           ) : null}
           {storageWarning ? (
@@ -1226,6 +1285,15 @@ export function Settings({
             </div>
           </fieldset>
 
+          {oauth ? (
+            // The ChatGPT plan has no key, address or Test: its card is the
+            // sign-in, and saves the model and the level as they are chosen.
+            <ChatGptCard
+              onSignedIn={activateChatGpt}
+              onSignedOut={handleChatGptSignedOut}
+            />
+          ) : (
+          <>
           {needsKey ? (
             <>
           <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
@@ -1537,6 +1605,27 @@ export function Settings({
               </p>
             </>
           ) : null}
+          </>
+          )}
+
+          {oauth && saveError ? (
+            <p
+              data-testid="settings-save-error"
+              role="alert"
+              className="mb-4 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs text-[var(--danger)]"
+            >
+              {saveError}
+            </p>
+          ) : null}
+          {oauth && savedSessionOnly !== null ? (
+            <p
+              data-testid="settings-save-session-only"
+              role="status"
+              className="mb-4 rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-1.5 text-xs text-[var(--warning)]"
+            >
+              {savedSessionOnly}
+            </p>
+          ) : null}
 
           {/* Not in the first-run card: it is already as tall as a small
               window allows (settings-fits-window.spec.ts), and the line
@@ -1555,7 +1644,7 @@ export function Settings({
           </div>
         </div>
 
-        {tab === "account" ? (
+        {tab === "account" && !oauth ? (
           // Outside the scrolling body, so Save is reachable without
           // scrolling and a failed save's message is read where it was
           // clicked, not somewhere below the fold.

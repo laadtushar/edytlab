@@ -693,6 +693,23 @@ impl Agent {
         &self.store
     }
 
+    /// The configuration the agent runs on: its provider, credential and
+    /// model. Read-only; for a caller that needs to know which provider
+    /// instance the agent holds.
+    pub fn llm_config(&self) -> &LlmConfig {
+        &self.cfg
+    }
+
+    /// Takes `text`, the user's message of a turn that failed, back off the
+    /// end of the conversation, if the turn left it there unanswered. The
+    /// ChatGPT plan keeps such a message to send again after a new sign-in
+    /// (#474, G9), and a conversation that still held it would join the second
+    /// copy onto the first. `false`, and nothing changed, when the end of the
+    /// conversation is anything else (the model answered, or tools ran).
+    pub fn withdraw_unanswered_text(&mut self, text: &str) -> bool {
+        approval::withdraw_user_text(&mut self.conversation, text)
+    }
+
     /// Reset the conversation history. The next [`Agent::turn`] starts
     /// from a clean slate; the dispatcher / store / engine are
     /// untouched.

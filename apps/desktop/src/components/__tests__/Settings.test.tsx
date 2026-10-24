@@ -63,6 +63,7 @@ const info = (
   display_name,
   context_length: 1_000_000,
   provider_hint: null,
+  reasoning_levels: [],
 });
 
 /** The built-in list: `anthropic_fallback_models()` in `crates/ai/src/models.rs`. */

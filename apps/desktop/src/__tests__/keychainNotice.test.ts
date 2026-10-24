@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   SESSION_ONLY_DISMISSED_KEY,
+  chatGptStorageNotice,
   keychainNotice,
   readSessionOnlyDismissed,
   savedNotice,
@@ -126,5 +127,24 @@ describe("the dismissed flag", () => {
     expect(readSessionOnlyDismissed()).toBe(false);
     expect(() => writeSessionOnlyDismissed(true)).not.toThrow();
     expect(() => writeSessionOnlyDismissed(false)).not.toThrow();
+  });
+});
+
+describe("chatGptStorageNotice", () => {
+  it("says nothing for a token in the keychain, or no token", () => {
+    expect(chatGptStorageNotice(null)).toBeNull();
+    expect(chatGptStorageNotice({ kind: "keychain", persistent: true, reason: null })).toBeNull();
+  });
+
+  it("uses the launch banner's words for the kernel keyring", () => {
+    const n = chatGptStorageNotice({ kind: "kernel_keyring", persistent: false, reason: "X" });
+    expect(n).toEqual(keychainNotice(null, { persistent: false, reason: "X" }));
+  });
+
+  it("says a token kept in memory lasts until edytlab quits", () => {
+    const n = chatGptStorageNotice({ kind: "memory", persistent: false, reason: "too long" });
+    expect(n?.kind).toBe("session-only");
+    expect(n?.message).toContain("until you quit edytlab");
+    expect(n?.message).toContain("(too long)");
   });
 });

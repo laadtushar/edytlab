@@ -17,12 +17,10 @@ use std::path::PathBuf;
 use ai::provider::provider_from_id;
 use std::sync::LazyLock;
 
-/// Providers in the registry that the app does not offer yet, so the screen
-/// and the site copy this test checks do not list them: the ChatGPT plan's
-/// provider exists (#474, PR 4) and Settings gets its card in PR 6 and the
-/// site its copy in PR 7. Each of those PRs removes the name here, which is
-/// what makes this test check the new row.
-const NOT_OFFERED_YET: &[&str] = &["chatgpt"];
+/// Providers in the registry that Settings does not offer yet. None now: the
+/// ChatGPT plan's card landed in #474 PR 6, so this test checks its row too.
+/// The site copy has its own list (`website_provider_claims.rs`, PR 7).
+const NOT_OFFERED_YET: &[&str] = &[];
 
 /// The registry's ids, less those not offered yet.
 static SUPPORTED_PROVIDER_IDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {

@@ -380,6 +380,48 @@ pub(crate) fn push_user_text(conversation: &mut Vec<Message>, text: String) {
     });
 }
 
+/// Takes `text` back off the end of the conversation, the way
+/// [`push_user_text`] put it there: the last block of the last message, a user
+/// message, if that block is exactly `text` (a block the text was joined onto
+/// keeps what was before it). A message left with no block goes too. Returns
+/// whether it did.
+///
+/// For a turn that ended before the model answered it (the ChatGPT session
+/// ended, #474 G9): the message is kept to be sent again, and left in the
+/// conversation it would be joined to its own copy. A conversation whose end
+/// is anything else (the model answered, tools ran) is left alone.
+pub(crate) fn withdraw_user_text(conversation: &mut Vec<Message>, text: &str) -> bool {
+    let Some(last) = conversation.last_mut() else {
+        return false;
+    };
+    if last.role != Role::User {
+        return false;
+    }
+    match last.content.last() {
+        Some(ContentBlock::Text { text: t }) if t == text => {
+            last.content.pop();
+        }
+        // The text joined onto an earlier one in the same block.
+        Some(ContentBlock::Text { text: t }) => {
+            let Some(rest) = t.strip_suffix(text) else {
+                return false;
+            };
+            let Some(rest) = rest.strip_suffix("\n\n") else {
+                return false;
+            };
+            let rest = rest.to_string();
+            if let Some(ContentBlock::Text { text: t }) = last.content.last_mut() {
+                *t = rest;
+            }
+        }
+        _ => return false,
+    }
+    if last.content.is_empty() {
+        conversation.pop();
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1087,5 +1129,68 @@ mod tests {
         let mut empty = Vec::new();
         push_user_text(&mut empty, "hello".to_string());
         assert_eq!(empty.len(), 1);
+    }
+    #[test]
+    fn withdrawing_takes_the_text_back_the_way_push_user_text_put_it() {
+        // On its own: the message goes.
+        let mut c = vec![Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text { text: "hi".into() }],
+        }];
+        push_user_text(&mut c, "cut it".to_string());
+        assert!(withdraw_user_text(&mut c, "cut it"));
+        assert_eq!(c.len(), 1, "{c:?}");
+
+        // Joined onto tool results: only the text goes.
+        let mut c = vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: "a".into(),
+                content: DECLINED.into(),
+                is_error: Some(true),
+            }],
+        }];
+        push_user_text(&mut c, "next".to_string());
+        assert!(withdraw_user_text(&mut c, "next"));
+        assert_eq!(c.len(), 1);
+        assert!(matches!(
+            c[0].content.as_slice(),
+            [ContentBlock::ToolResult { .. }]
+        ));
+
+        // Joined onto text in the same block: what was there stays.
+        let mut c = Vec::new();
+        push_user_text(&mut c, "first".to_string());
+        push_user_text(&mut c, "second".to_string());
+        assert!(withdraw_user_text(&mut c, "second"));
+        assert!(matches!(
+            c[0].content.as_slice(),
+            [ContentBlock::Text { text }] if text == "first"
+        ));
+    }
+
+    #[test]
+    fn withdrawing_leaves_a_conversation_that_does_not_end_in_the_text_alone() {
+        // The model answered: nothing to take back.
+        let mut c = Vec::new();
+        push_user_text(&mut c, "cut it".to_string());
+        c.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text {
+                text: "done".into(),
+            }],
+        });
+        let before = format!("{c:?}");
+        assert!(!withdraw_user_text(&mut c, "cut it"));
+        assert_eq!(format!("{c:?}"), before);
+
+        // Another text at the end, an empty conversation, a suffix that is
+        // not the whole text.
+        let mut c = Vec::new();
+        push_user_text(&mut c, "cut it now".to_string());
+        assert!(!withdraw_user_text(&mut c, "it now"));
+        assert!(!withdraw_user_text(&mut c, "something else"));
+        assert!(!withdraw_user_text(&mut Vec::new(), "x"));
+        assert_eq!(c.len(), 1);
     }
 }

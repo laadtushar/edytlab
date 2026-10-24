@@ -16,6 +16,8 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import {
+  chatgptSignIn,
+  chatgptTakePendingMessage,
   sendMessage as bridgeSendMessage,
   getActiveModel,
   getActiveProvider,
@@ -28,7 +30,14 @@ import {
   describeChatError,
   needsSettings,
   parseModelUnavailable,
+  parsePlanUsageError,
+  type PlanUsageFailure,
 } from "../lib/chat-errors";
+import {
+  RESUME_CARRIES_ON,
+  RESUME_NOTHING_KEPT,
+  RESUME_RESENDS,
+} from "../lib/chatgptCopy";
 import { modelStorageKey } from "../lib/model-storage";
 import { nothingCanRun, type PlanStep } from "../lib/planSteps";
 
@@ -46,6 +55,12 @@ import { CapabilitiesMenu } from "./CapabilitiesMenu";
 import { COMMANDS } from "./CommandPalette";
 import { MessageBubble } from "./MessageBubble";
 import { PlanStepText } from "./PlanStepText";
+import {
+  PlanErrorCard,
+  SessionEndedCard,
+  UsageLimitCard,
+  type ContinueState,
+} from "./PlanUsageCards";
 import { AuditionPlayer } from "./AuditionPlayer";
 import { SpectrumChart } from "./SpectrumChart";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -131,6 +146,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     current,
     awaiting,
     stopAwaiting,
+    startAwaiting,
     pushUserMessage,
     pendingPlan,
     approvePlan,
@@ -139,6 +155,15 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  // Set when a turn failed on the ChatGPT plan (#474): a card of its own, told
+  // apart by the failure's code. Never a refused key, and never retried by
+  // itself.
+  const [planFailure, setPlanFailure] = useState<PlanUsageFailure | null>(null);
+  // Where the session-ended card's Continue has got to (G9).
+  const [resume, setResume] = useState<ContinueState>({ kind: "idle" });
+  // What a resumed turn says while it runs: the assistant carries on, or the
+  // message is sent again.
+  const [resumeNote, setResumeNote] = useState<string | null>(null);
   // Set when the failure is a model the provider no longer has (#468).
   // `switchTo` is what the banner offers as one explicit click, and is
   // there only if the model that failed is the one chosen in Settings: an
@@ -311,33 +336,93 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     setLocalError(`Now using ${defaultModel}. Retry to send your message again.`);
   };
 
-  const sendInternal = async (wireText: string) => {
+  const sendInternal = async (
+    wireText: string,
+    // `resumed`: the message is already in the log, and was sent before the
+    // session ended; send what the backend kept for it (G9), with the tools
+    // that were switched off for that turn.
+    resumed?: { disabledTools: string[]; note: string },
+  ) => {
     lastSentRef.current = wireText;
     failureSeq.current += 1;
     setLocalError(null);
     setModelGone(null);
-    pushUserMessage(wireText);
+    setPlanFailure(null);
+    setResume({ kind: "idle" });
+    setResumeNote(resumed?.note ?? null);
+    if (resumed) {
+      startAwaiting();
+    } else {
+      pushUserMessage(wireText);
+    }
     setBusy(true);
     try {
       let disabledTools: string[] = [];
-      try {
-        const raw = localStorage.getItem("edytlab.capabilities.disabled");
-        disabledTools = raw ? (JSON.parse(raw) as string[]) : [];
-      } catch {
-        // corrupt localStorage entry — send with no restrictions
+      if (resumed) {
+        disabledTools = resumed.disabledTools;
+      } else {
+        try {
+          const raw = localStorage.getItem("edytlab.capabilities.disabled");
+          disabledTools = raw ? (JSON.parse(raw) as string[]) : [];
+        } catch {
+          // corrupt localStorage entry — send with no restrictions
+        }
       }
       await bridgeSendMessage(wireText, disabledTools);
     } catch (err) {
       // The request failed before any agent event could clear "thinking".
       stopAwaiting();
-      setLocalError(describeChatError(err));
-      void offerDefaultModel(
-        String(err instanceof Error ? err.message : (err ?? "")),
-        failureSeq.current,
-      );
+      setResumeNote(null);
+      // A failure on the ChatGPT plan has a card, picked by its code. It
+      // is not an API key problem and has no banner of its own.
+      const plan = parsePlanUsageError(err);
+      if (plan) {
+        setPlanFailure(plan);
+      } else {
+        setLocalError(describeChatError(err));
+        void offerDefaultModel(
+          String(err instanceof Error ? err.message : (err ?? "")),
+          failureSeq.current,
+        );
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  // The session-ended card's Continue (G9): sign in, take the message the
+  // backend kept, and send what it says to send. The agent is not rebuilt by
+  // a sign-in, so its conversation is still there.
+  const continueWithChatGpt = async () => {
+    if (busy) return;
+    setResume({ kind: "signing_in" });
+    let pending: Awaited<ReturnType<typeof chatgptTakePendingMessage>>;
+    try {
+      const status = await chatgptSignIn("sign_in");
+      if (status.state !== "signed_in") {
+        // Cancelled, or ended some other way: the message stays kept.
+        setResume({ kind: "cancelled" });
+        return;
+      }
+      pending = await chatgptTakePendingMessage();
+    } catch (err) {
+      setResume({
+        kind: "error",
+        message: String(err instanceof Error ? err.message : (err ?? "")),
+      });
+      return;
+    }
+    if (!pending) {
+      // Signed in, but nothing was kept (the app was restarted, say).
+      setPlanFailure(null);
+      setResume({ kind: "idle" });
+      setResumeNote(RESUME_NOTHING_KEPT);
+      return;
+    }
+    await sendInternal(pending.resumeText, {
+      disabledTools: pending.disabledTools,
+      note: pending.progressed ? RESUME_CARRIES_ON : RESUME_RESENDS,
+    });
   };
 
   const submit = async () => {
@@ -534,6 +619,38 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
 
         {awaiting && current.length === 0 ? (
           <ThinkingIndicator awaiting={awaiting} />
+        ) : null}
+
+        {resumeNote ? (
+          <div
+            data-testid="chat-resume-note"
+            role="status"
+            className="
+              banner-in
+              rounded-md border border-[var(--warning-border)]
+              bg-[var(--warning-soft)]
+              px-3 py-2 text-xs text-[var(--text-dim)]
+            "
+          >
+            {resumeNote}
+          </div>
+        ) : null}
+
+        {planFailure?.code === "usage_limit" ? <UsageLimitCard failure={planFailure} /> : null}
+        {planFailure?.code === "session_ended" ? (
+          <SessionEndedCard
+            failure={planFailure}
+            resume={resume}
+            busy={busy}
+            onContinue={() => void continueWithChatGpt()}
+          />
+        ) : null}
+        {planFailure && planFailure.code !== "usage_limit" && planFailure.code !== "session_ended" ? (
+          <PlanErrorCard
+            failure={planFailure}
+            onRetry={lastSentRef.current && !busy ? retryLast : undefined}
+            onOpenSettings={onOpenSettings ? () => onOpenSettings() : undefined}
+          />
         ) : null}
 
         {localError ? (
