@@ -102,11 +102,18 @@ fn registry() -> &'static ModelRegistry {
     REGISTRY.get_or_init(ModelRegistry::new)
 }
 
-/// A registry id that changes when the file does, and that names the role:
-/// the same file given to both roles (a wrong folder, or symlinks) is two
-/// sessions, not one session locked twice.
-fn session_id(role: &str, path: &Path) -> String {
+/// Where a session comes from: the role and the file's place. It names the
+/// role, so the same file given to both roles (a wrong folder, or symlinks) is
+/// two sessions, not one session locked twice.
+fn session_family(role: &str, path: &Path) -> String {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    format!("whisper:{role}:{}", canonical.display())
+}
+
+/// What the file holds, as far as the registry can tell without reading it: its
+/// size and modification time. A file that is replaced is a new version of the
+/// same [`session_family`], which gets a new session.
+fn file_version(path: &Path) -> String {
     let (len, modified) = std::fs::metadata(path)
         .map(|m| {
             let nanos = m
@@ -117,7 +124,24 @@ fn session_id(role: &str, path: &Path) -> String {
             (m.len(), nanos)
         })
         .unwrap_or((0, 0));
-    format!("whisper:{role}:{}:{len}:{modified}", canonical.display())
+    format!("{len}:{modified}")
+}
+
+/// The session for one of the model's files. The registry drops the sessions of
+/// the file's earlier versions once this one is built (#658), so replacing the
+/// model's files does not leave the old weights loaded for the rest of the
+/// process.
+fn load_session(
+    registry: &ModelRegistry,
+    role: &str,
+    path: &Path,
+) -> std::result::Result<SharedSession, ml_pipeline::Error> {
+    registry.load_versioned(
+        &session_family(role, path),
+        &file_version(path),
+        path,
+        ExecProvider::Cpu,
+    )
 }
 
 /// Turn the pipeline's error for loading `file` into ours.
@@ -167,19 +191,9 @@ impl WhisperModel {
         let tokenizer = Tokenizer::from_file(&files.tokenizer)?;
         let ids = token_ids(&tokenizer)?;
 
-        let encoder = registry()
-            .load(
-                &session_id("encoder", &files.encoder),
-                &files.encoder,
-                ExecProvider::Cpu,
-            )
+        let encoder = load_session(registry(), "encoder", &files.encoder)
             .map_err(|e| load_error(e, &files.encoder))?;
-        let decoder = registry()
-            .load(
-                &session_id("decoder", &files.decoder),
-                &files.decoder,
-                ExecProvider::Cpu,
-            )
+        let decoder = load_session(registry(), "decoder", &files.decoder)
             .map_err(|e| load_error(e, &files.decoder))?;
 
         // One lock at a time.
@@ -616,7 +630,7 @@ mod tests {
     }
 
     /// Give the model files in `dir` a later modification time, which is what
-    /// a model removed and downloaded again looks like to `session_id`.
+    /// a model removed and downloaded again looks like to `file_version`.
     fn touch_model(dir: &Path, later_by: std::time::Duration) {
         for file in [ENCODER_FILE, DECODER_FILE] {
             let f = std::fs::File::options()
@@ -704,12 +718,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("m.onnx");
         std::fs::write(&file, b"x").unwrap();
-        assert_ne!(session_id("encoder", &file), session_id("decoder", &file));
-        assert_eq!(session_id("encoder", &file), session_id("encoder", &file));
-        // And a changed file is a new session.
-        let before = session_id("encoder", &file);
+        assert_ne!(
+            session_family("encoder", &file),
+            session_family("decoder", &file)
+        );
+        assert_eq!(
+            session_family("encoder", &file),
+            session_family("encoder", &file)
+        );
+        // And a changed file is a new version of the same place, which is a
+        // new session (and the registry drops the old one: #658).
+        let before = (session_family("encoder", &file), file_version(&file));
         std::fs::write(&file, b"xy").unwrap();
-        assert_ne!(before, session_id("encoder", &file));
+        assert_eq!(before.0, session_family("encoder", &file));
+        assert_ne!(before.1, file_version(&file));
     }
 
     #[test]

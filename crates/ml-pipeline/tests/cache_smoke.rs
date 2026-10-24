@@ -212,6 +212,110 @@ fn model_registry_caches_arcs() {
     assert_eq!(registry.len(), 1);
 }
 
+/// Run `identity.onnx` through a session and return what came out.
+fn run_identity(session: &ml_pipeline::SharedSession) -> Vec<f32> {
+    let mut session = session.lock().expect("session lock");
+    let input = [3.0f32, -1.0, 0.5];
+    let tensor =
+        ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");
+    let outputs = session
+        .run(ort::inputs!["X" => tensor])
+        .expect("run identity.onnx through the registry's session");
+    let (_, data) = outputs["Y"]
+        .try_extract_tensor::<f32>()
+        .expect("Y is a float tensor");
+    data.to_vec()
+}
+
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
+fn a_replaced_file_drops_the_session_of_its_earlier_version() {
+    // #658: a new version of a model file is a new session, and the old one
+    // stayed in the registry for the life of the process.
+    let model_path = fixture_model();
+    let registry = ModelRegistry::new();
+    let load = |family: &str, version: &str| {
+        registry
+            .load_versioned(family, version, &model_path, ExecProvider::Cpu)
+            .expect("load")
+    };
+
+    let v1 = load("encoder", "100:1");
+    let v1_weak = std::sync::Arc::downgrade(&v1);
+    assert!(
+        std::sync::Arc::ptr_eq(&v1, &load("encoder", "100:1")),
+        "the same version is the same session"
+    );
+    assert_eq!(registry.len(), 1);
+
+    // Another family and an id from plain `load` are not versions of it.
+    let other_family = load("decoder", "100:1");
+    let plain = registry
+        .load("encoder-plain", &model_path, ExecProvider::Cpu)
+        .expect("plain load");
+    assert_eq!(registry.len(), 3);
+
+    // The file is replaced: the new version is loaded, the old one dropped.
+    drop(v1);
+    assert!(
+        v1_weak.upgrade().is_some(),
+        "the registry keeps a session nobody is using, until its file is replaced"
+    );
+    let v2 = load("encoder", "100:2");
+    assert_eq!(registry.len(), 3, "two sessions in the registry, not four");
+    assert!(
+        v1_weak.upgrade().is_none(),
+        "nothing used the first session and the registry still held it"
+    );
+    assert_eq!(run_identity(&v2), [3.0, -1.0, 0.5]);
+
+    // The other family and the plain id are untouched.
+    assert!(std::sync::Arc::ptr_eq(
+        &other_family,
+        &load("decoder", "100:1")
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &plain,
+        &registry
+            .load("encoder-plain", &model_path, ExecProvider::Cpu)
+            .expect("plain load again")
+    ));
+    assert_eq!(registry.len(), 3);
+
+    // A holder of the old version keeps a working session after it is replaced.
+    let in_use = load("encoder", "100:3");
+    let in_use_weak = std::sync::Arc::downgrade(&in_use);
+    let _v4 = load("encoder", "100:4");
+    assert_eq!(registry.len(), 3);
+    assert_eq!(run_identity(&in_use), [3.0, -1.0, 0.5]);
+    drop(in_use);
+    assert!(
+        in_use_weak.upgrade().is_none(),
+        "freed with its last holder"
+    );
+}
+
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
+fn a_failed_load_of_a_new_version_evicts_nothing() {
+    let model_path = fixture_model();
+    let registry = ModelRegistry::new();
+    let v1 = registry
+        .load_versioned("encoder", "1", &model_path, ExecProvider::Cpu)
+        .expect("load");
+    let missing = Path::new("/definitely/does/not/exist.onnx");
+    registry
+        .load_versioned("encoder", "2", missing, ExecProvider::Cpu)
+        .expect_err("the file is not there");
+    assert_eq!(registry.len(), 1, "the earlier version is still loaded");
+    assert!(std::sync::Arc::ptr_eq(
+        &v1,
+        &registry
+            .load_versioned("encoder", "1", &model_path, ExecProvider::Cpu)
+            .expect("load again")
+    ));
+}
+
 #[test]
 #[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
 fn a_session_from_the_registry_can_be_run() {

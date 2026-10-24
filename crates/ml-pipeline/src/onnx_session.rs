@@ -49,6 +49,10 @@ pub type SharedSession = Arc<Mutex<Session>>;
 /// registry-wide RwLock), so other model_ids stay parallelizable.
 type Lazy = Arc<Mutex<Option<SharedSession>>>;
 
+/// Between a family and a version in the id [`ModelRegistry::load_versioned`]
+/// makes. NUL cannot be in a path, so it cannot be in a family made from one.
+const VERSION_SEPARATOR: char = '\0';
+
 /// ONNX Runtime execution provider preference.
 ///
 /// `default_for_platform()` returns the canonical preference: CoreML on
@@ -102,7 +106,9 @@ impl ModelRegistry {
     /// Loading the same `model_id` twice always returns the same
     /// [`SharedSession`] (acceptance criterion #1). Callers that want to
     /// force a reload should pick a new `model_id` (e.g. include the
-    /// model file's content hash in the id).
+    /// model file's content hash in the id). Nothing here drops the older
+    /// session: a file that can be replaced is loaded with
+    /// [`load_versioned`](ModelRegistry::load_versioned), which does.
     ///
     /// **Single-flight on cold cache.** Two concurrent calls for the
     /// same `model_id` will not both run `build_session` — they race on
@@ -153,6 +159,64 @@ impl ModelRegistry {
         let arc = Arc::new(Mutex::new(session));
         *slot = Some(arc.clone());
         Ok(arc)
+    }
+
+    /// Like [`load`](ModelRegistry::load), for a model whose file can be
+    /// replaced: `family` names the file's place (its role and path) and
+    /// `version` what it held (its size and modification time).
+    ///
+    /// A different `version` of the same `family` is a new session, as a
+    /// different `model_id` is. Once the new session is built, the sessions of
+    /// the family's other versions are dropped from the registry: nothing will
+    /// ask for them again, and each holds the model's weights (about 136 MB
+    /// for Whisper base) for as long as the registry does (#658). A holder of
+    /// one keeps it, since it is an `Arc`: it is freed when that holder lets
+    /// go. A load that fails evicts nothing.
+    ///
+    /// Other families, and ids loaded with `load`, are not touched.
+    pub fn load_versioned(
+        &self,
+        family: &str,
+        version: &str,
+        path: &Path,
+        ep: ExecProvider,
+    ) -> Result<SharedSession> {
+        debug_assert!(
+            !family.contains(VERSION_SEPARATOR),
+            "a family cannot hold the separator"
+        );
+        let id = format!("{family}{VERSION_SEPARATOR}{version}");
+        let session = self.load(&id, path, ep)?;
+        let evicted = self.evict_where(|other| {
+            other != id
+                && other
+                    .split_once(VERSION_SEPARATOR)
+                    .is_some_and(|(other_family, _)| other_family == family)
+        });
+        if evicted > 0 {
+            tracing::debug!(
+                family,
+                evicted,
+                "dropped the sessions of an earlier version of a replaced model file"
+            );
+        }
+        Ok(session)
+    }
+
+    /// Remove every slot whose id `evict` accepts, and return how many went.
+    ///
+    /// The sessions are dropped after the registry's lock is let go: freeing
+    /// one releases its weights, which is not quick, and `load` for another
+    /// model waits on that lock.
+    fn evict_where(&self, evict: impl Fn(&str) -> bool) -> usize {
+        let removed: Vec<Lazy> = {
+            let Ok(mut guard) = self.inner.write() else {
+                return 0;
+            };
+            let ids: Vec<String> = guard.keys().filter(|id| evict(id)).cloned().collect();
+            ids.iter().filter_map(|id| guard.remove(id)).collect()
+        };
+        removed.len()
     }
 
     /// Number of cached sessions (mostly for diagnostics / tests).
