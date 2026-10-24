@@ -3,15 +3,12 @@ name: ML
 # The tests CI cannot run: the ones that need the real speech model and the
 # real ONNX Runtime library (#383, #384). Both are large, the model comes from a
 # third party (huggingface.co), and a run takes minutes, so this workflow is
-# opt-in:
+# opt-in: it runs only when someone dispatches it (Actions -> ML -> Run
+# workflow, or `gh workflow run ml.yml --ref <branch>`).
 #
-#   - workflow_dispatch, to run it by hand (Actions -> ML -> Run workflow);
-#   - weekly, so a pin that has gone stale (a model revision removed upstream, a
-#     runtime release pulled) shows up on a quiet week.
-#
-# It never runs on push or on a pull request, and nothing waits on it: it is
-# not a `ci.yml` job, so a failure here cannot turn the run named "CI" red,
-# which `auto-release.yml` waits on. Do not make it a required check.
+# It never runs on push, on a pull request or on a schedule, and nothing waits
+# on it: it is not a `ci.yml` job, so a failure here cannot turn the run named
+# "CI" red, which `auto-release.yml` waits on. Do not make it a required check.
 #
 # What it runs, all `#[ignore]`d in the crates so that `cargo test` skips them
 # visibly (#263) and all failing, not passing, when what they need is missing:
@@ -19,6 +16,11 @@ name: ML
 #   - ml-whisper `transcribe_known_words`: the pinned whisper-base files on the
 #     pinned ONNX Runtime, over a committed speech fixture. Asserts the words
 #     and when they start, and prints the realtime factor;
+#   - ml-whisper `transcribe_smoke`: the two of its tests that load the model;
+#   - tools `transcribe_end_to_end` (#668): the `transcribe` tool on the real
+#     model, through a session, and the edits that work from its transcript;
+#   - tools `transcribe_load_errors`: the tool's answers for a model that is
+#     not there or will not load. It needs only the ONNX Runtime;
 #   - ml-pipeline `model_real_download`: the downloader fetches the same three
 #     files for real (a resume with a `Range` request included).
 #
@@ -30,18 +32,26 @@ name: ML
 #     file's size and SHA-256), through scripts/fetch-ml-model.sh.
 #
 # Each is cached under a key made from its manifest, so changing a pin misses
-# the cache. The scripts run on a hit too, and re-check every restored file
-# against the manifest, so a corrupt cache fails the step instead of the test.
+# the cache. The fetch steps run on a hit too (there is no `if` on them), and
+# each script checks what it finds in the folder against the manifest:
+#
+#   - a file that is not there, or whose size or SHA-256 is not the pinned
+#     one (a damaged or tampered cache), is deleted and downloaded again, and
+#     the download is checked against the same pin before it is given its
+#     name;
+#   - the step fails only if that fresh download does not match either, and
+#     then nothing is left under the file's name.
+#
+# So a bad cache costs a download and never a wrong result; it does not fail
+# the run by itself. crates/tools/tests/ml_workflow.rs runs the model script
+# against a damaged folder to hold that in place.
 #
 # No secrets are needed: the model is public and the runtime is a GitHub
 # release asset.
 on:
   workflow_dispatch:
-  schedule:
-    # Tuesday 05:41 UTC. Off the hour: GitHub delays top-of-hour schedules.
-    - cron: "41 5 * * 2"
 
-# A scheduled or dispatched run is left to finish, so its result is not lost.
+# A dispatched run is left to finish, so its result is not lost.
 concurrency:
   group: ml-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -63,10 +73,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # rust-toolchain.toml pins the channel and lists the components.
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       # Its own key: these are release-profile builds, which ci.yml's debug
       # ones cannot share. Saved only from main, as ci.yml does (#610).
@@ -79,38 +88,78 @@ jobs:
       # The library is 22 MB, under the same key ci.yml uses for it, so the
       # two share one cache entry.
       - name: Cache ONNX Runtime
+        id: cache-runtime
         uses: actions/cache@v6
         with:
           path: ml-runtime/linux-x64
           key: ml-runtime-linux-x64-${{ hashFiles('apps/desktop/src-tauri/ml-runtime.json') }}
 
+      # Runs on a hit too: the library is checked against `library_sha256`
+      # and fetched again if it is not that.
       - name: Fetch ONNX Runtime
         run: bash scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64
 
       # The three model files, 139 MB. Keyed on the manifest, so a new pin
-      # misses; on a hit the script checks every restored file's size and
-      # SHA-256 against models.json and downloads nothing.
+      # misses.
       - name: Cache the whisper-base model
+        id: cache-model
         uses: actions/cache@v6
         with:
           path: ml-models/whisper-base
           key: ml-model-whisper-base-${{ hashFiles('crates/ml-pipeline/models.json') }}
 
+      # Runs on a hit too: every restored file's size and SHA-256 is checked
+      # against models.json, a file that fails is downloaded again, and the
+      # download is checked in turn (see the header).
       - name: Fetch the whisper-base model
         run: bash scripts/fetch-ml-model.sh whisper-base ml-models/whisper-base
 
       # `--release`: the realtime factor it prints is the one worth reading,
       # and a debug build of the mel transform is several times slower.
       # `--ignored` runs only the ignored tests, and they fail rather than
-      # skip when ORT_DYLIB_PATH or WHISPER_MODEL_DIR is missing, so this step
-      # cannot go green without having run the model.
+      # skip when ORT_DYLIB_PATH or WHISPER_MODEL_PATH is missing, so these
+      # steps cannot go green without having run the model.
       - name: Whisper on the known words
         env:
           ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
-          WHISPER_MODEL_DIR: ${{ github.workspace }}/ml-models/whisper-base
+          WHISPER_MODEL_PATH: ${{ github.workspace }}/ml-models/whisper-base
         run: cargo test -p ml-whisper --release --test transcribe_known_words -- --ignored --nocapture --test-threads=1
+
+      # Its two ignored tests load the model; the others in the file run in ci.yml.
+      - name: Whisper smoke tests
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          WHISPER_MODEL_PATH: ${{ github.workspace }}/ml-models/whisper-base
+        run: cargo test -p ml-whisper --release --test transcribe_smoke -- --ignored --nocapture --test-threads=1
+
+      # The tool on the real model (#384, #668). The folder is named
+      # `whisper-base`, which the test's "found the way the app finds it"
+      # phase needs.
+      - name: The transcribe tool end to end
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          WHISPER_MODEL_PATH: ${{ github.workspace }}/ml-models/whisper-base
+        run: cargo test -p tools --release --test transcribe_end_to_end -- --ignored --nocapture --test-threads=1
+
+      # Needs the library only; it points WHISPER_MODEL_PATH at broken
+      # folders of its own.
+      - name: The transcribe tool's load errors
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+        run: cargo test -p tools --release --test transcribe_load_errors -- --ignored --nocapture --test-threads=1
 
       # The downloader against the real server. It writes into a temporary
       # folder of its own and does not touch ml-models/.
       - name: The pinned model downloads, resumes and verifies
         run: cargo test -p ml-pipeline --release --test model_real_download -- --ignored --nocapture --test-threads=1
+
+      # Which caches were hit, on the run's summary page.
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ML workflow"
+            echo ""
+            echo "- ONNX Runtime cache hit: \`${{ steps.cache-runtime.outputs.cache-hit || 'false' }}\`"
+            echo "- whisper-base model cache hit: \`${{ steps.cache-model.outputs.cache-hit || 'false' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

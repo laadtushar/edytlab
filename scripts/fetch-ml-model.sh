@@ -11,7 +11,10 @@
 # folder has), checks each one's size and SHA-256 before it is given its
 # final name, and prints <outdir>'s absolute path, and only that, on stdout:
 #
-#   export WHISPER_MODEL_DIR="$(scripts/fetch-ml-model.sh whisper-base models/whisper-base)"
+#   export WHISPER_MODEL_PATH="$(scripts/fetch-ml-model.sh whisper-base models/whisper-base)"
+#
+# (WHISPER_MODEL_PATH names the model's folder, the one that holds onnx/ and
+# tokenizer.json, since #652.)
 #
 # This is a developer and CI script, run by hand or by .github/workflows/ml.yml.
 # The app never runs it, and nothing the app ships downloads through it: the
@@ -19,10 +22,20 @@
 # crates/ml-pipeline/tests/only_the_user_downloads.rs).
 #
 # It exits non-zero on a failed download or a size or digest that is not the
-# manifest's, and a file that fails is deleted, never left under its name. A
-# run that finds every file already there with the right size and digest
-# downloads nothing, so CI can restore <outdir> from a cache keyed on the
-# manifest's hash and still run the script to confirm what it restored.
+# manifest's, and a file that fails is deleted, never left under its name.
+#
+# A file already in <outdir> is checked first, so CI can restore <outdir>
+# from a cache keyed on the manifest's hash and still run the script:
+#
+#   - one with the pinned size and SHA-256 is kept, and nothing is downloaded;
+#   - one that is missing, or is there with another size or digest (a damaged
+#     cache), is deleted and downloaded again, and the download is checked
+#     against the same pin. The run says so on stderr;
+#   - it fails only when that fresh download does not match the pin either.
+#
+# So a bad cache costs a download and does not fail the run by itself, and
+# every file the manifest lists was checked against it when the script exits 0.
+# crates/tools/tests/ml_workflow.rs runs this against a damaged folder.
 #
 # Needs bash, curl, python3 (or python), and sha256sum or shasum. Python reads
 # the manifest, as in fetch-ml-runtime.sh.
@@ -101,6 +114,9 @@ while IFS=$'\t' read -r path url size sha256; do
   if verified "$dest" "$size" "$sha256"; then
     echo "fetch-ml-model: $path is already here (sha256 $sha256)" >&2
     continue
+  fi
+  if [[ -e $dest ]]; then
+    echo "fetch-ml-model: $path is here but is not the pinned file (size or sha256 differs; a damaged cache?), downloading it again" >&2
   fi
   mkdir -p "$(dirname "$dest")"
   part="$dest.part"
