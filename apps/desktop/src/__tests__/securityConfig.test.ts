@@ -50,6 +50,25 @@ describe("the shipped Content Security Policy", () => {
     }
   });
 
+  it("loads images only from the app, its assets and in-page data, so the bundled ChatGPT logo needs no remote host", () => {
+    // The logo files (assets/chatgpt/) are bundled: Vite emits each as a file
+    // under /assets/ on the app's own origin (they are over its 4 kB inline
+    // limit), which 'self' covers; a smaller build would inline them as data:,
+    // which is listed too. Nothing here names a remote host, and the logo is
+    // never fetched from OpenAI at runtime.
+    const img = sources("img-src");
+    expect(img).toContain("'self'");
+    for (const source of img) {
+      const local =
+        source === "'self'" ||
+        source === "asset:" ||
+        source === "http://asset.localhost" ||
+        source === "data:" ||
+        source === "blob:";
+      expect(local, `img-src must not allow ${source}`).toBe(true);
+    }
+  });
+
   it("connects only to the app, its IPC and its assets — nowhere remote", () => {
     for (const source of sources("connect-src")) {
       const local =

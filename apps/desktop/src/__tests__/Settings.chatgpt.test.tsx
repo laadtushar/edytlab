@@ -79,6 +79,21 @@ describe("Settings: the ChatGPT plan", () => {
     expect(screen.getByText("ChatGPT plan")).toBeInTheDocument();
   });
 
+  it("shows OpenAI's logo beside its name, and invents none for the other providers", async () => {
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+    const chatgpt = (await screen.findByTestId("settings-provider-chatgpt")).closest("label")!;
+    const logo = chatgpt.querySelector("[data-testid='chatgpt-logo']");
+    expect(logo).not.toBeNull();
+    // The list is dark, so the white file; the name stays text beside it.
+    expect(logo).toHaveAttribute("data-logo", "white");
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    expect(chatgpt).toHaveTextContent("ChatGPT plan");
+    for (const id of ["anthropic", "openrouter", "openai", "groq", "gemini", "ollama"]) {
+      const label = screen.getByTestId(`settings-provider-${id}`).closest("label")!;
+      expect(label.querySelector("img, svg"), id).toBeNull();
+    }
+  });
+
   it("shows a card, not a key field, an address or Save and Clear", async () => {
     const user = userEvent.setup();
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);

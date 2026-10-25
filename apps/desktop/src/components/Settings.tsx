@@ -58,6 +58,7 @@ import {
 } from "../lib/model-storage";
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { ChatGptCard } from "./ChatGptCard";
+import { ChatGptLogo } from "./ChatGptLogo";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { MlRuntimeLine } from "./MlRuntimeLine";
@@ -1279,6 +1280,7 @@ export function Settings({
                     data-testid={`settings-provider-${p.id}`}
                     className="sr-only"
                   />
+                  {p.oauth ? <ChatGptLogo tone="on-dark" size={16} /> : null}
                   {p.label}
                 </label>
               ))}

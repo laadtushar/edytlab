@@ -54,6 +54,7 @@ import {
 import { CapabilitiesMenu } from "./CapabilitiesMenu";
 import { COMMANDS } from "./CommandPalette";
 import { MessageBubble } from "./MessageBubble";
+import { PlanIndicator } from "./PlanIndicator";
 import { PlanStepText } from "./PlanStepText";
 import {
   PlanErrorCard,
@@ -94,6 +95,12 @@ export interface ChatProps {
    * the provider refused the key (#414). See `lib/chat-errors`.
    */
   onOpenSettings?: (reveal?: "speech-model") => void;
+  /**
+   * Changes when the active provider may have changed (Settings closed, a
+   * provider chosen), so the "Using ChatGPT plan" line above the composer
+   * reads it again. The line also follows `chatgpt://status` on its own.
+   */
+  providerEpoch?: number;
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -140,6 +147,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   onExportSelection,
   exporting,
   onOpenSettings,
+  providerEpoch,
 }: ChatProps, ref: React.Ref<ChatHandle>) {
   const {
     entries,
@@ -946,6 +954,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             </button>
           </div>
         ) : null}
+        <PlanIndicator refreshKey={providerEpoch} />
         {slashOpen && slashFiltered.length > 0 && (
           <div className="mb-1 overflow-hidden rounded-lg border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-(--shadow-pop)">
             <div className="px-3 py-1.5 border-b border-[var(--border)]">

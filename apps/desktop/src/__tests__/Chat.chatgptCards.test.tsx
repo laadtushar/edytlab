@@ -8,7 +8,7 @@
  * writes (`plan_usage_text`).
  */
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,7 +21,9 @@ const m = {
   take: vi.fn(),
   usage: vi.fn(),
   provider: vi.fn(),
+  status: vi.fn(),
 };
+let statusListener: ((s: unknown) => void) | null = null;
 
 vi.mock("../lib/tauri-bridge", () => ({
   sendMessage: (text: string, disabled: string[]) => {
@@ -38,6 +40,13 @@ vi.mock("../lib/tauri-bridge", () => ({
   },
   openChatgptUsage: () => m.usage(),
   getActiveProvider: () => m.provider(),
+  chatgptStatus: () => m.status(),
+  onChatGptStatus: (cb: (s: unknown) => void) => {
+    statusListener = cb;
+    return Promise.resolve(() => {
+      statusListener = null;
+    });
+  },
   getActiveModel: vi.fn(() => Promise.resolve("")),
   setActiveModel: vi.fn(() => Promise.resolve(undefined)),
   approvePlan: vi.fn(() => Promise.resolve()),
@@ -83,6 +92,8 @@ beforeEach(() => {
   m.signIn.mockResolvedValue(SIGNED_IN);
   m.usage.mockResolvedValue(undefined);
   m.provider.mockResolvedValue("chatgpt");
+  m.status.mockResolvedValue(SIGNED_IN);
+  statusListener = null;
   m.take.mockResolvedValue(null);
   window.localStorage.clear();
 });
@@ -101,6 +112,17 @@ describe("a usage limit on the ChatGPT plan", () => {
     expect(card).toHaveTextContent("Signing in again or retrying won't restore usage.");
     expect(screen.queryByTestId("chat-error")).toBeNull();
     expect(screen.queryByTestId("chat-error-open-settings")).toBeNull();
+  });
+
+  it("keeps the ChatGPT identity visible: the logo in the card header, beside the words", async () => {
+    await sendAndFail(LIMIT);
+    const card = await screen.findByTestId("plan-usage-limit-card");
+    const logo = within(card).getByTestId("chatgpt-logo");
+    // The card is a dark tint, so OpenAI's white file; the words say ChatGPT.
+    expect(logo).toHaveAttribute("data-logo", "white");
+    expect(logo).toHaveAttribute("alt", "");
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    expect(logo.parentElement).toHaveTextContent("ChatGPT plan's usage limit");
   });
 
   it("has no retry, and nothing retries or signs in by itself", async () => {
@@ -178,6 +200,33 @@ describe("a session that ended mid-turn", () => {
       "Your ChatGPT session ended. Continue with ChatGPT to finish this message.",
     );
     expect(screen.queryByTestId("chat-error")).toBeNull();
+  });
+
+  it("shows the logo in its header and on the Continue with ChatGPT button, in the approved format", async () => {
+    await sendAndFail(ENDED);
+    const card = await screen.findByTestId("plan-session-ended-card");
+    const button = within(card).getByRole("button", { name: "Continue with ChatGPT" });
+    expect(button).toHaveTextContent(/^Continue with ChatGPT$/);
+    // On the violet fill with dark text: the black logo.
+    expect(within(button).getByTestId("chatgpt-logo")).toHaveAttribute("data-logo", "black");
+    // Header logo, beside "Your ChatGPT session ended."
+    const header = within(card).getAllByTestId("chatgpt-logo").find((l) => !button.contains(l));
+    expect(header).toBeDefined();
+    expect(header).toHaveAttribute("data-logo", "white");
+    expect(header?.parentElement).toHaveTextContent("Your ChatGPT session ended.");
+  });
+
+  it("while it signs in, the button is the dark disabled one and shows no logo", async () => {
+    const result = held<typeof SIGNED_IN>();
+    m.signIn.mockReturnValue(result.promise);
+    const user = await sendAndFail(ENDED);
+    await user.click(await screen.findByTestId("plan-continue"));
+    const button = await screen.findByTestId("plan-continue");
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(within(button).queryByTestId("chatgpt-logo")).toBeNull();
+    await act(async () => {
+      result.resolve(SIGNED_IN);
+    });
   });
 
   it("Continue signs in, then takes the kept message, then sends it, in that order", async () => {
@@ -270,6 +319,14 @@ describe("the other plan failures", () => {
     expect(screen.queryByTestId("chat-error-open-settings")).toBeNull();
   });
 
+  it("a plan error card has the logo beside its sentence", async () => {
+    await sendAndFail("[plan-usage code=refused] nope");
+    const card = await screen.findByTestId("plan-error-card");
+    const logo = within(card).getByTestId("chatgpt-logo");
+    expect(logo).toHaveAttribute("data-logo", "white");
+    expect(logo.parentElement).toHaveTextContent("OpenAI refused this request.");
+  });
+
   it("unavailable offers Try again, which is a click and sends the same message", async () => {
     const user = await sendAndFail("[plan-usage code=unavailable] try later");
     await user.click(await screen.findByTestId("plan-error-retry"));
@@ -295,5 +352,64 @@ describe("a signed-out plan with no agent", () => {
     await user.click(screen.getByTestId("chat-error-open-settings"));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("plan-error-card")).toBeNull();
+  });
+});
+
+describe("the Using ChatGPT plan line above the composer", () => {
+  const line = () => screen.queryByTestId("plan-indicator");
+
+  it("shows with the logo and Manage usage while the plan is active and signed in", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    const indicator = await screen.findByTestId("plan-indicator");
+    expect(indicator).toHaveTextContent("Using ChatGPT plan");
+    expect(within(indicator).getByTestId("chatgpt-logo")).toHaveAttribute("data-logo", "white");
+    // It is above the message box, in the composer's form.
+    expect(screen.getByTestId("chat-form")).toContainElement(indicator);
+    await user.click(within(indicator).getByRole("button", { name: "Manage usage" }));
+    expect(m.usage).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not there when another provider is active", async () => {
+    m.provider.mockResolvedValue("anthropic");
+    render(<Chat />);
+    await waitFor(() => expect(m.provider).toHaveBeenCalled());
+    expect(line()).toBeNull();
+    // A person on another provider costs the ChatGPT backend nothing.
+    expect(m.status).not.toHaveBeenCalled();
+  });
+
+  it("is not there when the plan is active but nobody is signed in", async () => {
+    m.status.mockResolvedValue({ ...SIGNED_IN, state: "signed_out", email: null });
+    render(<Chat />);
+    await waitFor(() => expect(m.status).toHaveBeenCalled());
+    expect(line()).toBeNull();
+  });
+
+  it("goes when the session ends or the person signs out, and comes back on a sign-in", async () => {
+    render(<Chat />);
+    await screen.findByTestId("plan-indicator");
+    act(() => statusListener?.({ ...SIGNED_IN, state: "session_ended" }));
+    await waitFor(() => expect(line()).toBeNull());
+    act(() => statusListener?.(SIGNED_IN));
+    expect(await screen.findByTestId("plan-indicator")).toBeInTheDocument();
+  });
+
+  it("reads the provider again when the app says it may have changed", async () => {
+    m.provider.mockResolvedValue("anthropic");
+    const view = render(<Chat providerEpoch={0} />);
+    await waitFor(() => expect(m.provider).toHaveBeenCalledTimes(1));
+    expect(line()).toBeNull();
+    m.provider.mockResolvedValue("chatgpt");
+    view.rerender(<Chat providerEpoch={1} />);
+    expect(await screen.findByTestId("plan-indicator")).toBeInTheDocument();
+  });
+
+  it("stays out of the way when the provider cannot be read", async () => {
+    m.provider.mockRejectedValue(new Error("no backend"));
+    render(<Chat />);
+    await waitFor(() => expect(m.provider).toHaveBeenCalled());
+    expect(line()).toBeNull();
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
   });
 });

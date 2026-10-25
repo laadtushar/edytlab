@@ -117,12 +117,23 @@ afterEach(() => {
 });
 
 describe("the ChatGPT plan's card", () => {
-  it("signed out: a text-only button, what it does, and who it is for", async () => {
+  it("signed out: OpenAI's Continue with ChatGPT button, what it does, and who it is for", async () => {
     await renderCard();
     expect(state()).toBe("signed_out");
+    // The approved format: OpenAI's logo and the label. The accessible name is
+    // the label alone, because the logo is decorative.
     const button = screen.getByRole("button", { name: "Continue with ChatGPT" });
-    // Text only: no logo until OpenAI's partner team has been asked (G14).
-    expect(button.querySelector("img, svg")).toBeNull();
+    expect(button).toHaveTextContent(/^Continue with ChatGPT$/);
+    const logo = within(button).getByTestId("chatgpt-logo");
+    expect(logo.tagName).toBe("IMG");
+    expect(logo).toHaveAttribute("alt", "");
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    // The primary button is a light violet fill with dark text: the black logo.
+    expect(logo).toHaveAttribute("data-logo", "black");
+    expect(logo.getAttribute("src")).toMatch(/chatgpt-logo-black\.svg/);
+    // Drawn from the bundled file, never fetched from a host.
+    expect(logo.getAttribute("src")).not.toMatch(/^https?:/);
+    expect(logo.getAttribute("src")).not.toMatch(/^\/\//);
     const card = screen.getByTestId("settings-chatgpt-card");
     expect(card).toHaveTextContent(
       "Uses your ChatGPT plan's usage instead of an API key. edytlab opens your browser to sign in.",
@@ -387,6 +398,9 @@ describe("the ChatGPT plan's card", () => {
     expect(state()).toBe("session_ended");
     expect(screen.getByTestId("chatgpt-status")).toHaveTextContent("Your ChatGPT session ended.");
     expect(screen.getByTestId("chatgpt-reason")).toHaveTextContent("no longer accepts");
+    expect(
+      within(screen.getByRole("button", { name: "Continue with ChatGPT" })).getByTestId("chatgpt-logo"),
+    ).toHaveAttribute("data-logo", "black");
     await user.click(screen.getByRole("button", { name: "Continue with ChatGPT" }));
     expect(m.signIn).toHaveBeenCalledWith("sign_in");
   });
@@ -399,8 +413,23 @@ describe("the ChatGPT plan's card", () => {
       reason: { code: "plan_usage_declined", message: "Plan usage was not granted." },
     });
     expect(state()).toBe("plan_disabled");
-    await user.click(screen.getByRole("button", { name: "Turn plan usage back on" }));
+    // "Turn plan usage back on" is not one of OpenAI's approved button labels,
+    // so it carries no logo.
+    const enable = screen.getByRole("button", { name: "Turn plan usage back on" });
+    expect(within(enable).queryByTestId("chatgpt-logo")).toBeNull();
+    await user.click(enable);
     expect(m.signIn).toHaveBeenCalledWith("enable_plan_usage");
+  });
+
+  it("signed in: the Using ChatGPT plan badge carries the white logo on its dark tint", async () => {
+    await renderCard(SIGNED_IN);
+    const badge = screen.getByTestId("chatgpt-using-plan");
+    expect(badge).toHaveTextContent("Using ChatGPT plan");
+    const logo = within(badge).getByTestId("chatgpt-logo");
+    expect(logo).toHaveAttribute("data-logo", "white");
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    // No sign-in button, so no second logo.
+    expect(screen.getAllByTestId("chatgpt-logo")).toHaveLength(1);
   });
 
   it("a token that will not persist uses the keychain banner's words", async () => {

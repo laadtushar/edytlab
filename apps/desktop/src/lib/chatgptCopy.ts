@@ -18,7 +18,11 @@ import type { PlanUsageCode } from "./chat-errors";
 
 export const CHATGPT_LABEL = "ChatGPT plan";
 
-/** The sign-in button. Text only: the OpenAI mark waits for partnercomms (G14). */
+/**
+ * The sign-in button's label, one of OpenAI's approved wordings. The button
+ * shows OpenAI's logo beside it (`ChatGptLogo`), the approved format; the
+ * label itself stays text.
+ */
 export const CONTINUE_LABEL = "Continue with ChatGPT";
 
 export const SIGNED_OUT_ABOUT =

@@ -37,6 +37,7 @@ import {
   adminRequestText,
 } from "../lib/chatgptCopy";
 import { openChatgptUsage } from "../lib/tauri-bridge";
+import { ChatGptLogo } from "./ChatGptLogo";
 
 const CARD_CLASS =
   "banner-in rounded-md border border-[var(--warning-border)] bg-[var(--warning-soft)] px-3 py-2 text-xs text-[var(--text-dim)]";
@@ -131,7 +132,10 @@ function ManageUsageButton() {
 export function UsageLimitCard({ failure }: { failure: PlanUsageFailure }) {
   return (
     <div role="alert" data-testid="plan-usage-limit-card" data-code="usage_limit" className={CARD_CLASS}>
-      <p className="font-medium text-[var(--text)]">{USAGE_LIMIT_TITLE}</p>
+      <p className="flex items-start gap-2 font-medium text-[var(--text)]">
+        <ChatGptLogo tone="on-dark" size={16} className="mt-px" />
+        <span>{USAGE_LIMIT_TITLE}</span>
+      </p>
       <p className="mt-1">{USAGE_LIMIT_APP_LIMIT}</p>
       <p className="mt-1">{USAGE_LIMIT_NO_RETRY}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -169,8 +173,11 @@ export function SessionEndedCard({
   const signingIn = resume.kind === "signing_in";
   return (
     <div role="alert" data-testid="plan-session-ended-card" data-code="session_ended" className={CARD_CLASS}>
-      <p>
-        <span className="font-medium text-[var(--text)]">{SESSION_ENDED_TITLE}</span> {SESSION_ENDED_BODY}
+      <p className="flex items-start gap-2">
+        <ChatGptLogo tone="on-dark" size={16} className="mt-px" />
+        <span>
+          <span className="font-medium text-[var(--text)]">{SESSION_ENDED_TITLE}</span> {SESSION_ENDED_BODY}
+        </span>
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
@@ -178,8 +185,14 @@ export function SessionEndedCard({
           data-testid="plan-continue"
           disabled={busy || signingIn}
           onClick={onContinue}
-          className="btn-primary px-3 py-1 text-xs"
+          className="btn-primary inline-flex items-center gap-1.5 px-3 py-1 text-xs"
         >
+          {/* Approved button: logo and "Continue with ChatGPT". Dark text on
+              the violet fill takes the black logo; disabled, the button is a
+              dark grey, which takes the white one. */}
+          {signingIn ? null : (
+            <ChatGptLogo tone={busy ? "on-dark" : "on-light"} size={16} />
+          )}
           {signingIn ? SIGNING_IN : CONTINUE_LABEL}
         </button>
       </div>
@@ -223,7 +236,10 @@ export function PlanErrorCard({
       className="banner-in rounded-md border border-[var(--danger-border)] bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger)]"
     >
       <div className="flex items-start justify-between gap-2">
-        <span data-testid="plan-error-sentence">{PLAN_ERROR_SENTENCES[code]}</span>
+        <span className="flex items-start gap-2">
+          <ChatGptLogo tone="on-dark" size={16} className="mt-px" />
+          <span data-testid="plan-error-sentence">{PLAN_ERROR_SENTENCES[code]}</span>
+        </span>
         {code === "unavailable" && onRetry ? (
           <button
             type="button"

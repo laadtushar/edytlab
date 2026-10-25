@@ -203,6 +203,12 @@ function App() {
     readSessionOnlyDismissed,
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Moves when the active provider may have changed (Settings opened or
+  // closed, a provider chosen there), for Chat's "Using ChatGPT plan" line.
+  const [providerEpoch, setProviderEpoch] = useState(0);
+  useEffect(() => {
+    setProviderEpoch((n) => n + 1);
+  }, [settingsOpen, keyConfigured]);
   // Which part of Settings' Account tab to scroll to on opening, for a caller
   // that sends the user to press a button there (the speech-setup card, #384).
   const [settingsReveal, setSettingsReveal] = useState<"speech-model" | null>(null);
@@ -1898,6 +1904,7 @@ function App() {
 
         <aside className="h-full min-h-0 bg-[var(--surface)]">
           <Chat ref={chatRef} 
+            providerEpoch={providerEpoch}
             rendering={rendering}
             onRequestRenderPreview={handleRenderPreview}
             selection={selection}

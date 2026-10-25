@@ -74,6 +74,7 @@ import {
   type ModelInfo,
   type ReasoningEffort,
 } from "../lib/tauri-bridge";
+import { ChatGptLogo } from "./ChatGptLogo";
 
 /** A small turning ring beside a button's label while its action runs. */
 function Spinner() {
@@ -303,8 +304,13 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
       type="button"
       data-testid="chatgpt-continue"
       onClick={() => void signIn(intent)}
-      className="btn-primary px-4 py-1.5 text-sm transition"
+      className="btn-primary inline-flex items-center gap-2 px-4 py-1.5 text-sm transition"
     >
+      {/* OpenAI's approved button: the logo and "Continue with ChatGPT". The
+          fill is light enough to take dark text, so the black logo. Another
+          label (turning plan usage back on) is not an approved wording, so it
+          carries no logo. */}
+      {label === CONTINUE_LABEL ? <ChatGptLogo tone="on-light" size={18} /> : null}
       {label}
     </button>
   );
@@ -464,8 +470,9 @@ export function ChatGptCard({ onSignedIn, onSignedOut }: ChatGptCardProps) {
             </p>
             <span
               data-testid="chatgpt-using-plan"
-              className="rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--accent-text)]"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--accent-text)]"
             >
+              <ChatGptLogo tone="on-dark" size={14} />
               {USING_PLAN}
             </span>
           </div>

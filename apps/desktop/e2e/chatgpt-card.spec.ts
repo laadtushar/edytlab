@@ -61,7 +61,7 @@ test("the card goes Signed out, Signing in, Signed in, and Sign out returns it t
 }) => {
   const { page, card } = await openChatGptCard(app);
 
-  // Signed out: a text-only button, and what it does.
+  // Signed out: OpenAI's Continue with ChatGPT button (logo and label), and what it does.
   await expect(page.getByTestId("chatgpt-continue")).toHaveText("Continue with ChatGPT");
   await expect(card).toContainText("Uses your ChatGPT plan's usage instead of an API key");
   await expect(page.getByTestId("chatgpt-eligibility")).toContainText("workspace plans");
