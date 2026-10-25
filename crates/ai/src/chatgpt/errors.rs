@@ -247,7 +247,22 @@ impl PlanUsageError {
             return Some(known);
         }
         let detail = cleaned(&message);
+        // Direct-route admission answers before the Responses layer, with a
+        // `{"detail": "..."}` body and no `error` object ("Errors and
+        // recovery"). Its 400 means the request's shape was not accepted
+        // (v0.9.0 sent two Content-Type headers and got "Unsupported content
+        // type"); kept as a plan error so its text and request ID reach the
+        // card instead of a bare provider error.
+        let admission = json.as_ref().is_some_and(|j| j.get("detail").is_some()) && error.is_none();
         let kind = match status {
+            400 if admission => PlanUsageKind::UnsupportedRequest {
+                param: None,
+                detail: if detail.is_empty() {
+                    "OpenAI did not accept the request".to_string()
+                } else {
+                    detail
+                },
+            },
             401 => PlanUsageKind::SessionEnded {
                 detail: Some("OpenAI did not accept the sign-in".to_string()),
             },
@@ -580,8 +595,29 @@ mod tests {
             )),
             PlanUsageKind::Unavailable { .. }
         ));
+        // Admission's 400 (the shape of the request was not accepted) keeps
+        // its text and request ID; v0.9.0's two Content-Type headers got this.
+        let refused = PlanUsageError::from_http(
+            400,
+            r#"{"detail":"Unsupported content type"}"#,
+            Some("req_ct1"),
+        )
+        .unwrap();
+        assert_eq!(
+            refused.kind(),
+            &PlanUsageKind::UnsupportedRequest {
+                param: None,
+                detail: "Unsupported content type".to_string()
+            }
+        );
+        assert_eq!(refused.code(), "unsupported_request");
+        assert_eq!(refused.request_id(), Some("req_ct1"));
+        // A 400 with no admission body is not this route's to name.
+        assert_eq!(
+            PlanUsageError::from_http(400, r#"{"error":{"message":"bad"}}"#, None),
+            None
+        );
         // Anything else is not this route's to name.
-        assert_eq!(http(400, detail.clone()), None);
         assert_eq!(http(404, detail.clone()), None);
         assert_eq!(http(500, detail), None);
     }
