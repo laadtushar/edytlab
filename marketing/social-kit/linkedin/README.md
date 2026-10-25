@@ -33,7 +33,7 @@ Posts 2, 3 (the square) and 5 carry no provider count and were not re-rendered.
 | `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 203 KB | Post 3, build story | The model reads text and answers with tool calls; the 94 tools and the audio are on your machine |
 | `out/post-4-privacy.png` | 1200x1200, 224 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected (the six API providers and the ChatGPT plan button) |
 | `out/post-5-help-wanted.png` | 1200x1200, 249 KB | Post 5, open source | Four places a contributor would make a difference, with issue numbers |
-| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, 5156 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline (94 tools), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, 6 API providers, 94 tools, and "v0.9.0 for macOS, Windows and Linux. The installers are unsigned") |
+| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, each an image (2x, JPEG), 2691 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline (94 tools), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, 6 API providers, 94 tools, and "v0.9.0 for macOS, Windows and Linux. The installers are unsigned") |
 
 A square can also be the cover of the post's reel, if LinkedIn's uploader offers a
 custom thumbnail (not checked from here). The carousel is a native document post:
@@ -181,18 +181,17 @@ count, a quote or a benchmark.
 - A UI change makes `shots/` stale. Retake it with `--shots`, look at each image,
   and re-render. This is on the staleness sweep's list for UI changes
   (screenshots and recordings that show the app).
-- In the PDF, the gradient headline is an SVG `<text>` with the site's gradient,
-  swapped in just before printing. As the site draws it (`background-clip: text`) the
-  PDF writer produced a clipped box whose bottom edge showed as a hairline under
-  the line in one viewer.
-- The carousel's gradient headline halves are SVG text in the PDF, and two PDF
-  engines checked on 2026-10-22 do not paint them: PDFium (pypdfium2 5.13, build
-  153.0.7999.0) leaves them out, and poppler 24.02 (`pdftoppm`) draws a solid
-  magenta box. The 2026-10-11 PDF behaves the same, so this is not new, and the
-  text is in the file (`pdftotext` reads "a sample."). It was not checked in
-  Chrome's own viewer, Acrobat or LinkedIn's document viewer. Open the PDF in
-  the viewer you will use, and in LinkedIn's uploader preview, before posting
-  post 3 as a carousel; the squares are plain PNGs and have no such problem.
+- The carousel PDF is built from images of its pages (`carouselPdf` in
+  `render.mjs`, #643): each page is screenshotted at 2x and stored as a JPEG, one
+  image per page. Printed from the HTML, the gradient headline halves
+  (`background-clip: text`, and later an SVG `<text>` with a gradient fill) did
+  not paint in every viewer: PDFium left them out and poppler drew a solid
+  magenta box. The image PDF was checked on 2026-10-25 in PDFium (pypdfium2
+  5.14) and poppler 24.02 (`pdftoppm`), and every page, headline included,
+  draws as the canvas does. The cost: the PDF's text is not selectable or
+  searchable, which LinkedIn's document viewer does not offer anyway. It was not
+  checked in Acrobat or LinkedIn's uploader preview; look at the preview before
+  posting.
 - LinkedIn's own limits for images and documents were not checked from here. The
   files are well inside the sizes it is usually reported to accept (an image under
   a few MB, a document well under 100 MB), but check the uploader on the day.
