@@ -933,7 +933,7 @@ describe("the videos hub", () => {
     const read = (f: string) => readFileSync(join(ROOT, f), "utf8");
     const demoCards = read("components/landing/real-demos.tsx");
     expect(read("components/landing/footer.tsx")).toMatch(/href: "\/videos"/);
-    expect(read("components/landing/site-header.tsx")).toMatch(/href: "\/videos"/);
+    expect(read("components/landing/site-nav.ts")).toMatch(/href: "\/videos"/);
     expect(demoCards).toContain('href="/videos"');
     expect(demoCards).toContain("More videos");
   });
