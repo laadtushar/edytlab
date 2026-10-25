@@ -35,10 +35,12 @@ Two homes, split by whether the value is a secret.
   ```
 
   The slot names are the per-slot accounts of earlier builds. The item is read once per process and
-  cached. A save or a delete reads the map (from the cache), changes it, writes the item and then
-  replaces the cache, all under one mutex that also serialises every other keychain call, so a key
-  save and a ChatGPT token refresh cannot lose each other and a read after a write never sees the
-  older value. A write that fails leaves the cache as it was. The last delete removes the item.
+  cached. A save or a delete reads the item itself (not the cache), changes the map, writes the item
+  and then replaces the cache, all under one mutex that also serialises every other keychain call,
+  so a key save and a ChatGPT token refresh cannot lose each other and a read after a write never
+  sees the older value. A write that fails leaves the cache as it was. The last delete removes the
+  item. The item is written and read as UTF-8 bytes (`set_secret` / `get_secret`), not as a
+  password. One entry, `__migrated`, is reserved (see Migration); no slot can have that name.
 - **Everything else is a JSON file**, `provider-settings.json`, in the app's config directory:
 
   ```json
@@ -76,8 +78,13 @@ call that needs anything:
    their prompts appear. Nothing is moved between the Secret Service and the kernel keyring while
    reading;
 2. writes the `secrets` item (merged over one that is already there, the per-slot items winning,
-   since they are what the app was using) and reads it back;
-3. writes the settings file and reads it back. It is written last, so its presence is the commit;
+   since they are what the app was using, unless the item carries `"__migrated": "1"`: see 3) and
+   reads it back;
+3. writes the settings file and reads it back. It is written last, so its presence is the commit.
+   Then it records the commit in the item, as the entry `"__migrated": "1"`. Readers look a slot up
+   by name and nothing reads the marker. An item that carries it is authoritative: a later migration
+   (the settings file went missing) never lets a per-slot item override it, and only deletes the
+   leftovers (settings found per slot are still adopted: the file is gone and they are all there is). An item without it is an unfinished attempt, and per-slot still wins;
 4. deletes the legacy items it found. A delete that fails leaves a stale item that nothing reads.
 
 A failure at step 1 or 2 or 3 deletes what the attempt wrote (the new item, if the attempt created
@@ -96,7 +103,9 @@ A read the keychain refuses (locked, prompt dismissed) is the caller's answer, a
 migration stops there, reads nothing more, and is asked for again at the next call. A settings file
 that does not parse is moved aside to `provider-settings.json.bad` and a new one is started (the
 secrets are in the keychain; the model, effort, address and provider choices are lost). One that
-cannot be read at all leaves the process on the per-slot items.
+cannot be read at all (a folder in its place, no permission) is an error from every read and write,
+never a switch to the per-slot items: by then they are deleted, and a save to one would never be
+read. It is asked for again at the next call.
 
 A secrets item that does not parse is an error that quotes nothing (`serde_json` quotes the value in
 a type error), and is not overwritten by a save.
@@ -129,13 +138,36 @@ a type error), and is not overwritten by a save.
   migrate until one answers. Its behaviour is the build before this one's.
 - Rewriting the item on every save rewrites every secret in it. A token refresh therefore rewrites
   the API keys; a failed write leaves the old item, which the cache then matches.
-- **Windows caps one credential at 2,560 bytes**, which is 1,280 characters as `keyring` writes a
-  password (UTF-16, `CRED_MAX_CREDENTIAL_BLOB_SIZE`), and now every secret shares it: six hosted keys,
-  the names around them and a long refresh token can pass it. A save that no longer fits fails with
-  `keyring`'s `TooLong` and changes nothing; a migration that does not fit stays on the per-slot
-  items (each was under the same cap alone). Raw bytes (`set_secret`) would double the room; it is not
-  done here because it changes how the one item is encoded on every platform and cannot be checked on
-  Windows from this change. It is the first thing to do if a report of `TooLong` comes in.
+- **Windows caps one credential at 2,560 bytes** (`CRED_MAX_CREDENTIAL_BLOB_SIZE`), and now every
+  secret shares it. `keyring` writes a password as UTF-16, which would make that 1,280 characters,
+  so the item is written with `set_secret` (the UTF-8 bytes, 2,560 of them) on every backend
+  (macOS, Windows, Secret Service and the kernel keyring all implement it in `keyring` 3.6; this
+  build was unreleased, so no shipped item has to be converted; the per-slot items are still read
+  as passwords). Six hosted keys and a long refresh token still fit, and a save that no longer does
+  fails with `keyring`'s `TooLong` and changes nothing; the window says the saved keys and sign-in
+  no longer fit and to remove one you do not use. A migration that does not fit stays on the
+  per-slot items.
+- **Two processes share one item.** Every save and delete reads the item (and the settings file)
+  again before changing it, so a rotated ChatGPT token one process saved is not undone by a key the
+  other saves from a copy it read earlier. That is one extra read per save, of an item this build
+  created, so it raises no prompt.
+- **A save during a Secret Service outage cannot wipe the other keys.** With the service
+  unreachable the save goes to the kernel keyring, and that copy then holds only what the save could
+  see. When the service answers again the kernel copy is merged into the durable item key by key
+  (the kernel copy winning per key), never replacing it. A save made while the store cannot be
+  reached writes only the kernel copy, so a service that comes back between the read and the write
+  is not written from an incomplete map. A removal cannot be recorded in that state (the merge would
+  bring the key back), so it fails with an error.
+- **A Deny on macOS is remembered.** `keyring` reports it as `PlatformFailure`, which is not cached
+  as an answer, and every later read in the launch would prompt again. A failed read of the item is
+  now remembered for the process and answered the same way, with no keychain call, as
+  `keychain_refused` does in the desktop (#497); a save is the user's act and tries again.
+- **An MCP server's `<keychain:slot>`** is not a provider's slot and was never in the item. It is the
+  per-slot item `<slot>_api_key` that the user makes in the OS store, read on demand when the slot is
+  not in the item, and never migrated or deleted. A provider's slot that is not set costs no such read.
+- **A base URL is a setting, so it is in the plain settings file.** One that holds credentials
+  (`https://user:pass@host`, or a key in its query string) was in a keychain item before and is a file
+  with mode `0600` now. A key belongs in the key field; the base URL is for an address.
 - What macOS asks for when an updated build rewrites an item the previous build created is not
   something the tests can see. The owner checks one launch on a Mac.
 
@@ -148,5 +180,8 @@ legacy layout with keys for three providers, models, a base URL, an effort and a
 migrates to identical values, leaves no legacy item, and the next launch reads one item; a write
 that fails during the migration (the item, the file) keeps every legacy item and serves their
 values; a key save and a token save at the same moment both persist; a delete leaves the item and the
-cache in agreement; an outage and a `SessionOnly` save change nothing. Then the owner's check on a
+cache in agreement; an outage and a `SessionOnly` save change nothing; a save in an outage keeps the
+other keys and a removal in one is an error; two stores over one keychain keep each other's saves;
+an unreadable settings file is an error; a leftover per-slot item does not override a marked item; an
+MCP slot resolves; a byte cap is met by the bytes; a failed read is remembered. Then the owner's check on a
 Mac: at most one prompt at the first launch after the migration.

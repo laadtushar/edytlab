@@ -35,6 +35,10 @@ struct Backend {
     /// Accounts the store cannot reach at all (no Secret Service).
     down: Mutex<BTreeSet<String>>,
     down_all: AtomicBool,
+    /// A credential size cap on the `secrets` item, as Windows has: `set` (a
+    /// password, stored as UTF-16) counts two bytes a character, `set_secret`
+    /// counts the bytes.
+    cap: Mutex<Option<usize>>,
 }
 
 impl Backend {
@@ -106,6 +110,41 @@ impl FakeSlot {
 
 impl Slot for FakeSlot {
     fn get(&self) -> keyring::Result<String> {
+        self.get_inner()
+    }
+
+    fn set(&self, value: &str) -> keyring::Result<()> {
+        self.set_sized(value, value.encode_utf16().count() * 2)
+    }
+
+    fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+        self.get_inner().map(String::into_bytes)
+    }
+
+    fn set_secret(&self, value: &[u8]) -> keyring::Result<()> {
+        self.set_sized(std::str::from_utf8(value).unwrap(), value.len())
+    }
+
+    fn delete(&self) -> keyring::Result<()> {
+        self.log(Op::Delete);
+        let map = if self.kernel {
+            &self.backend.kernel
+        } else {
+            if self.backend.is_down(&self.account) {
+                return Err(keyring::Error::PlatformFailure("no secret service".into()));
+            }
+            &self.backend.items
+        };
+        map.lock()
+            .unwrap()
+            .remove(&self.account)
+            .map(|_| ())
+            .ok_or(keyring::Error::NoEntry)
+    }
+}
+
+impl FakeSlot {
+    fn get_inner(&self) -> keyring::Result<String> {
         self.log(Op::Get);
         if self.kernel {
             return self
@@ -138,8 +177,15 @@ impl Slot for FakeSlot {
             .ok_or(keyring::Error::NoEntry)
     }
 
-    fn set(&self, value: &str) -> keyring::Result<()> {
+    fn set_sized(&self, value: &str, size: usize) -> keyring::Result<()> {
         self.log(Op::Set);
+        if !self.kernel && self.account == SECRETS_ACCOUNT {
+            if let Some(cap) = *self.backend.cap.lock().unwrap() {
+                if size > cap {
+                    return Err(keyring::Error::TooLong("secret".into(), cap as u32));
+                }
+            }
+        }
         if self.kernel {
             self.backend
                 .kernel
@@ -166,23 +212,6 @@ impl Slot for FakeSlot {
             .unwrap()
             .insert(self.account.clone(), value.to_string());
         Ok(())
-    }
-
-    fn delete(&self) -> keyring::Result<()> {
-        self.log(Op::Delete);
-        let map = if self.kernel {
-            &self.backend.kernel
-        } else {
-            if self.backend.is_down(&self.account) {
-                return Err(keyring::Error::PlatformFailure("no secret service".into()));
-            }
-            &self.backend.items
-        };
-        map.lock()
-            .unwrap()
-            .remove(&self.account)
-            .map(|_| ())
-            .ok_or(keyring::Error::NoEntry)
     }
 }
 
@@ -566,6 +595,7 @@ fn migrating_a_legacy_layout_keeps_every_value_and_removes_the_old_items() {
                 "chatgpt_refresh_token".to_string(),
                 "refresh-token-1".to_string()
             ),
+            (MIGRATED_MARKER.to_string(), "1".to_string()),
         ])
     );
     let text = settings_text(dir.path());
@@ -672,7 +702,11 @@ fn a_migration_that_cannot_write_the_item_keeps_the_old_items_and_serves_their_v
     assert_eq!(find("anthropic effort"), None);
     assert_eq!(find("openai key").as_deref(), Some("key-openai"));
     assert_eq!(find("chatgpt token").as_deref(), Some("refresh-token-1"));
-    assert_eq!(backend.secrets().len(), 4);
+    assert_eq!(
+        backend.secrets().len(),
+        5,
+        "four secrets and the migrated marker"
+    );
     assert!(!backend
         .items
         .lock()
@@ -713,18 +747,22 @@ fn a_migration_that_cannot_write_the_settings_file_keeps_the_old_items_and_drops
     assert_eq!(backend.item("active_provider").as_deref(), Some("groq"));
 }
 
+/// Before the migration has run, too: the old items are left alone and nothing
+/// is read from them as if the migration had not happened (finding 3).
 #[test]
-fn a_settings_file_that_cannot_be_read_leaves_the_old_items_in_use() {
+fn a_settings_file_that_cannot_be_read_leaves_the_old_items_alone() {
     let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
     seed_legacy(&backend);
     std::fs::create_dir(dir.path().join(SETTINGS_FILE)).unwrap();
     let store = launch(&backend, dir.path());
-    assert_eq!(everything(&store), expected_after_migration());
+    assert!(store.get(Field::ApiKey("anthropic")).is_err());
+    assert!(store.put(Field::ApiKey("anthropic"), "key-new").is_err());
     assert_eq!(backend.item(SECRETS_ACCOUNT), None);
     assert_eq!(
         backend.item("anthropic_api_key").as_deref(),
         Some("key-anthropic")
     );
+    assert_eq!(backend.items.lock().unwrap().len(), LEGACY.len());
 }
 
 /// A keychain that refuses the first read is the caller's answer, as before,
@@ -788,7 +826,11 @@ fn a_migration_waits_for_a_secret_service_that_does_not_answer() {
     let next = launch(&backend, dir.path());
     assert_eq!(everything(&next), expected_after_migration());
     assert!(dir.path().join(SETTINGS_FILE).exists());
-    assert_eq!(backend.secrets().len(), 4);
+    assert_eq!(
+        backend.secrets().len(),
+        5,
+        "four secrets and the migrated marker"
+    );
     assert!(backend.item("anthropic_api_key").is_none());
 }
 
@@ -905,8 +947,8 @@ fn a_save_is_what_the_next_read_returns_in_the_same_process() {
     assert_eq!(backend.secrets()["openai_api_key"], "key-2");
     assert_eq!(
         backend.count(Op::Get, SECRETS_ACCOUNT),
-        1,
-        "read once, however many saves"
+        3,
+        "one read for the first get, then one for each save (it reads the item itself)"
     );
 }
 
@@ -939,10 +981,11 @@ fn deleting_a_key_removes_it_from_the_item_and_the_cache_alike() {
         None
     );
 
-    // Removing what is not there writes nothing.
+    // Removing what is not there reads the item (to know) and writes nothing.
     backend.forget_calls();
     store.remove(Field::ApiKey("openai")).unwrap();
-    assert_eq!(backend.total_calls(), 0);
+    assert_eq!(backend.count(Op::Set, SECRETS_ACCOUNT), 0);
+    assert_eq!(backend.count(Op::Delete, SECRETS_ACCOUNT), 0);
 
     // The last one takes the item with it.
     store.remove(Field::ApiKey("groq")).unwrap();
@@ -1172,5 +1215,407 @@ fn the_new_accounts_collide_with_no_slot() {
     assert!(
         !legacy_keys().contains(&Field::BaseUrl(crate::CHATGPT_ID)),
         "and no address"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Review fixes on #741.
+// ---------------------------------------------------------------------------
+
+/// A store that has finished the migration, over a Linux keychain, with the
+/// durable `secrets` item holding the given keys.
+fn linux_with_keys(keys: &[(&str, &str)]) -> (Arc<Backend>, tempfile::TempDir) {
+    let (backend, dir) = (Backend::linux(), tempfile::tempdir().unwrap());
+    std::fs::write(dir.path().join(SETTINGS_FILE), r#"{"version":1}"#).unwrap();
+    let map: SecretMap = keys
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+    backend.seed(SECRETS_ACCOUNT, &secrets_json(&map).unwrap());
+    (backend, dir)
+}
+
+/// Finding 1. The Secret Service is down (and nothing is cached) when a key is
+/// saved, so the save lands in the kernel keyring. When the service is back,
+/// that copy has to join the durable item, not replace it.
+#[test]
+fn a_save_during_a_secret_service_outage_does_not_wipe_the_other_keys() {
+    let (backend, dir) =
+        linux_with_keys(&[("anthropic_api_key", "key-a"), ("openai_api_key", "key-o")]);
+    backend.down_all.store(true, Ordering::Relaxed);
+    let store = launch(&backend, dir.path());
+    assert!(matches!(
+        store.put(Field::ApiKey("groq"), "key-g").unwrap(),
+        Persistence::SessionOnly { .. }
+    ));
+    backend.down_all.store(false, Ordering::Relaxed);
+
+    for reader in [&store, &launch(&backend, dir.path())] {
+        assert_eq!(
+            reader.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+            Some("key-a")
+        );
+        assert_eq!(
+            reader.get(Field::ApiKey("openai")).unwrap().as_deref(),
+            Some("key-o")
+        );
+        assert_eq!(
+            reader.get(Field::ApiKey("groq")).unwrap().as_deref(),
+            Some("key-g")
+        );
+    }
+    assert_eq!(
+        backend.secrets().len(),
+        3,
+        "the durable item holds all three"
+    );
+    assert!(
+        backend.kernel.lock().unwrap().is_empty(),
+        "and the kernel copy is gone"
+    );
+}
+
+/// The same, with the item already read when the outage starts.
+#[test]
+fn a_save_during_an_outage_after_a_read_keeps_what_was_read() {
+    let (backend, dir) =
+        linux_with_keys(&[("anthropic_api_key", "key-a"), ("openai_api_key", "key-o")]);
+    let store = launch(&backend, dir.path());
+    assert!(store.get(Field::ApiKey("anthropic")).unwrap().is_some());
+    backend.down_all.store(true, Ordering::Relaxed);
+    assert!(store.put(Field::ApiKey("groq"), "key-g").is_ok());
+    backend.down_all.store(false, Ordering::Relaxed);
+    let fresh = launch(&backend, dir.path());
+    for (key, want) in [
+        ("anthropic", "key-a"),
+        ("openai", "key-o"),
+        ("groq", "key-g"),
+    ] {
+        assert_eq!(
+            fresh.get(Field::ApiKey(key)).unwrap().as_deref(),
+            Some(want),
+            "{key}"
+        );
+    }
+}
+
+/// A kernel copy wins per key, and only for the keys it has.
+#[test]
+fn a_kernel_copy_of_the_secrets_item_is_merged_key_by_key() {
+    let (backend, dir) = linux_with_keys(&[
+        ("anthropic_api_key", "key-a"),
+        ("openai_api_key", "key-o-old"),
+    ]);
+    backend.kernel.lock().unwrap().insert(
+        SECRETS_ACCOUNT.to_string(),
+        r#"{"openai_api_key":"key-o-new","groq_api_key":"key-g"}"#.to_string(),
+    );
+    let store = launch(&backend, dir.path());
+    assert_eq!(
+        store.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+        Some("key-a")
+    );
+    assert_eq!(
+        store.get(Field::ApiKey("openai")).unwrap().as_deref(),
+        Some("key-o-new")
+    );
+    assert_eq!(
+        store.get(Field::ApiKey("groq")).unwrap().as_deref(),
+        Some("key-g")
+    );
+    assert_eq!(backend.secrets().len(), 3);
+    assert!(backend.kernel.lock().unwrap().is_empty());
+}
+
+/// A removal cannot be recorded while the durable item cannot be reached (the
+/// kernel copy would be merged over it and bring the key back), so it says so.
+#[test]
+fn a_remove_during_an_outage_is_an_error_and_removes_nothing() {
+    let (backend, dir) =
+        linux_with_keys(&[("anthropic_api_key", "key-a"), ("openai_api_key", "key-o")]);
+    backend.down_all.store(true, Ordering::Relaxed);
+    let store = launch(&backend, dir.path());
+    assert!(store.remove(Field::ApiKey("openai")).is_err());
+    assert!(store.remove(Field::ChatGptToken).is_err());
+
+    // With the item read before the outage, too.
+    backend.down_all.store(false, Ordering::Relaxed);
+    let store = launch(&backend, dir.path());
+    assert!(store.get(Field::ApiKey("openai")).unwrap().is_some());
+    backend.down_all.store(true, Ordering::Relaxed);
+    assert!(store.remove(Field::ApiKey("openai")).is_err());
+
+    backend.down_all.store(false, Ordering::Relaxed);
+    assert_eq!(
+        launch(&backend, dir.path())
+            .get(Field::ApiKey("openai"))
+            .unwrap()
+            .as_deref(),
+        Some("key-o")
+    );
+}
+
+/// Finding 2. Two processes share the keychain and the folder. A rotated
+/// ChatGPT token saved by one is not undone by a key saved by the other.
+#[test]
+fn two_processes_do_not_overwrite_each_others_secrets() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    installed(&backend, dir.path());
+    let (a, b) = (launch(&backend, dir.path()), launch(&backend, dir.path()));
+    // B has read the item, so it holds the old token in its cache.
+    assert_eq!(
+        b.get(Field::ChatGptToken).unwrap().as_deref(),
+        Some("refresh-token-1")
+    );
+    a.put(Field::ChatGptToken, "refresh-token-2").unwrap();
+    b.put(Field::ApiKey("groq"), "key-g").unwrap();
+
+    let item = backend.secrets();
+    assert_eq!(item["chatgpt_refresh_token"], "refresh-token-2");
+    assert_eq!(item["groq_api_key"], "key-g");
+    assert_eq!(item["anthropic_api_key"], "key-anthropic");
+    for reader in [&a, &b, &launch(&backend, dir.path())] {
+        assert_eq!(
+            reader.get(Field::ChatGptToken).unwrap().as_deref(),
+            Some("refresh-token-2")
+        );
+    }
+
+    // And a removal in one is not undone by a save in the other.
+    a.remove(Field::ApiKey("groq")).unwrap();
+    b.put(Field::ApiKey("openai"), "key-o").unwrap();
+    let item = backend.secrets();
+    assert!(!item.contains_key("groq_api_key"));
+    assert_eq!(item["openai_api_key"], "key-o");
+}
+
+/// Finding 2, for the settings file.
+#[test]
+fn two_processes_do_not_overwrite_each_others_settings() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    installed(&backend, dir.path());
+    let (a, b) = (launch(&backend, dir.path()), launch(&backend, dir.path()));
+    assert!(b.get(Field::ActiveProvider).unwrap().is_some());
+    a.put(Field::Model("openai"), "gpt-from-a").unwrap();
+    b.put(Field::Effort("openai"), "low").unwrap();
+    b.remove(Field::Model("anthropic")).unwrap();
+
+    let json = settings_json(dir.path());
+    assert_eq!(json["providers"]["openai"]["model"], "gpt-from-a");
+    assert_eq!(json["providers"]["openai"]["effort"], "low");
+    assert!(json["providers"]
+        .get("anthropic")
+        .is_none_or(|p| p.get("model").is_none()));
+    assert_eq!(json["providers"]["anthropic"]["effort"], "high");
+}
+
+/// Finding 3. A settings file that is there and cannot be read is not a
+/// reason to read per-slot items that the migration deleted.
+#[test]
+fn an_unreadable_settings_file_is_an_error_not_the_legacy_layout() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    installed(&backend, dir.path());
+    std::fs::remove_file(dir.path().join(SETTINGS_FILE)).unwrap();
+    std::fs::create_dir(dir.path().join(SETTINGS_FILE)).unwrap();
+    let before = backend.secrets();
+
+    let store = launch(&backend, dir.path());
+    assert!(store.get(Field::ApiKey("anthropic")).is_err());
+    assert!(store.get(Field::ChatGptToken).is_err());
+    assert!(store.get(Field::Model("anthropic")).is_err());
+    assert!(store.put(Field::ApiKey("openai"), "key-o").is_err());
+    assert!(store.put(Field::Model("openai"), "m").is_err());
+    assert!(store.remove(Field::ApiKey("anthropic")).is_err());
+    let text = store
+        .get(Field::ApiKey("anthropic"))
+        .unwrap_err()
+        .to_string();
+    assert!(!text.contains(dir.path().to_str().unwrap()), "{text}");
+
+    assert_eq!(backend.secrets(), before, "no data lost");
+    assert!(
+        backend.item("openai_api_key").is_none() && backend.item("active_provider").is_none(),
+        "nothing was saved to a per-slot item that is never read"
+    );
+
+    // The folder in the way is cleared: the same store answers again.
+    std::fs::remove_dir(dir.path().join(SETTINGS_FILE)).unwrap();
+    std::fs::write(dir.path().join(SETTINGS_FILE), r#"{"version":1}"#).unwrap();
+    assert_eq!(
+        store.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+        Some("key-anthropic")
+    );
+}
+
+/// Finding 4. The migration finished once; a per-slot item whose delete failed
+/// is still there when the settings file goes missing. The newer key in the
+/// item stands.
+#[test]
+fn a_leftover_per_slot_item_does_not_overwrite_a_newer_key_after_a_finished_migration() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    backend.seed(
+        SECRETS_ACCOUNT,
+        &format!(r#"{{"anthropic_api_key":"key-new","{MIGRATED_MARKER}":"1"}}"#),
+    );
+    backend.seed("anthropic_api_key", "key-old");
+    backend.seed("openai_api_key", "key-openai-leftover");
+    backend.seed("anthropic_model", "claude-left-over");
+    assert!(!dir.path().join(SETTINGS_FILE).exists());
+
+    let store = launch(&backend, dir.path());
+    assert_eq!(
+        store.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+        Some("key-new")
+    );
+    assert_eq!(
+        store.get(Field::ApiKey("openai")).unwrap(),
+        None,
+        "a leftover is deleted, not adopted"
+    );
+    assert!(backend.item("anthropic_api_key").is_none());
+    assert!(backend.item("openai_api_key").is_none());
+    assert_eq!(backend.secrets()["anthropic_api_key"], "key-new");
+    assert!(backend.secrets().contains_key(MIGRATED_MARKER));
+}
+
+/// A migration writes the marker only once the settings file is there, and the
+/// marker is no key anyone can read or save.
+#[test]
+fn a_finished_migration_marks_the_item_and_an_unfinished_one_does_not() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    seed_legacy(&backend);
+    let store = launch(&backend, dir.path());
+    assert_eq!(everything(&store), expected_after_migration());
+    assert_eq!(backend.secrets()[MIGRATED_MARKER], "1");
+    assert_eq!(
+        store.get(Field::ApiKey(MIGRATED_MARKER)).ok().flatten(),
+        None
+    );
+    // Removing the last key leaves the marker, not an item that vanishes.
+    for k in ["anthropic", "openai", "groq"] {
+        store.remove(Field::ApiKey(k)).unwrap();
+    }
+    store.remove(Field::ChatGptToken).unwrap();
+    assert_eq!(
+        backend.secrets(),
+        SecretMap::from([(MIGRATED_MARKER.to_string(), "1".to_string())])
+    );
+
+    // An attempt that stopped before the file: no marker, so the per-slot
+    // items (what the app was using) still win over the half-written item.
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    backend.seed(SECRETS_ACCOUNT, r#"{"anthropic_api_key":"key-half"}"#);
+    backend.seed("anthropic_api_key", "key-in-use");
+    let store = launch(&backend, dir.path());
+    assert_eq!(
+        store.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+        Some("key-in-use")
+    );
+}
+
+/// Finding 5. An MCP server's `<keychain:slot>` is the user's own per-slot item
+/// (`<slot>_api_key`). It is read on demand, never migrated, and it does not
+/// cost a provider's slot an extra read.
+#[test]
+fn an_mcp_slot_resolves_after_migration() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    seed_legacy(&backend);
+    backend.seed("github_token_api_key", "ghp-from-the-os-store");
+    let store = launch(&backend, dir.path());
+    assert_eq!(everything(&store), expected_after_migration());
+
+    assert_eq!(
+        store.get(Field::ApiKey("github_token")).unwrap().as_deref(),
+        Some("ghp-from-the-os-store")
+    );
+    assert_eq!(
+        backend.item("github_token_api_key").as_deref(),
+        Some("ghp-from-the-os-store"),
+        "not migrated, not deleted"
+    );
+    assert!(!backend.secrets().contains_key("github_token_api_key"));
+    assert_eq!(store.get(Field::ApiKey("no_such_slot")).unwrap(), None);
+
+    // A provider's slot that is not set never reads its per-slot item.
+    backend.forget_calls();
+    assert_eq!(store.get(Field::ApiKey("gemini")).unwrap(), None);
+    assert_eq!(backend.total_calls(), 0);
+    assert_eq!(backend.count(Op::Get, "gemini_api_key"), 0);
+}
+
+/// Finding 6. The item is written as bytes: a map that would not fit as
+/// UTF-16 (the cap here is Windows' 2,560 bytes) is saved, one that is over the
+/// cap in bytes fails with `TooLong` and changes nothing.
+#[test]
+fn the_secrets_item_is_written_as_bytes_so_twice_as_much_fits() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    *backend.cap.lock().unwrap() = Some(2560);
+    let store = launch(&backend, dir.path());
+    let long = "k".repeat(300);
+    for p in ["anthropic", "openai", "groq", "gemini", "openrouter"] {
+        store.put(Field::ApiKey(p), &long).unwrap();
+    }
+    store.put(Field::ChatGptToken, &long).unwrap();
+    let size = backend.item(SECRETS_ACCOUNT).unwrap().len();
+    assert!(size > 1280 && size < 2560, "{size}");
+
+    let err = store
+        .put(Field::ApiKey("ollama"), &"k".repeat(900))
+        .unwrap_err();
+    assert!(matches!(err, keyring::Error::TooLong(..)), "{err}");
+    assert_eq!(backend.item(SECRETS_ACCOUNT).unwrap().len(), size);
+    assert_eq!(store.get(Field::ApiKey("ollama")).unwrap(), None);
+    assert_eq!(
+        launch(&backend, dir.path())
+            .get(Field::ApiKey("openrouter"))
+            .unwrap()
+            .as_deref(),
+        Some(long.as_str())
+    );
+}
+
+/// Finding 7. A read the platform failed (a macOS Deny arrives as
+/// `PlatformFailure`) is not asked again in the same launch; a save is a user
+/// action, so it asks again.
+#[test]
+fn a_failed_secrets_read_is_remembered_until_a_save_tries_again() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    std::fs::write(dir.path().join(SETTINGS_FILE), r#"{"version":1}"#).unwrap();
+    backend.seed(SECRETS_ACCOUNT, r#"{"openai_api_key":"key-o"}"#);
+    backend
+        .down
+        .lock()
+        .unwrap()
+        .insert(SECRETS_ACCOUNT.to_string());
+
+    let store = launch(&backend, dir.path());
+    let first = store.get(Field::ApiKey("openai")).unwrap_err();
+    assert_eq!(backend.count(Op::Get, SECRETS_ACCOUNT), 1);
+    assert_eq!(store.get(Field::ApiKey("openai")).unwrap_err(), first);
+    assert_eq!(store.get(Field::ChatGptToken).unwrap_err(), first);
+    assert_eq!(
+        backend.count(Op::Get, SECRETS_ACCOUNT),
+        1,
+        "no second prompt"
+    );
+    // Settings never needed it.
+    assert_eq!(store.get(Field::Model("openai")).unwrap(), None);
+
+    // A save asks again (and, failing again, is remembered again).
+    assert!(store.put(Field::ApiKey("groq"), "key-g").is_err());
+    assert_eq!(backend.count(Op::Get, SECRETS_ACCOUNT), 2);
+    assert!(store.get(Field::ApiKey("groq")).is_err());
+    assert_eq!(backend.count(Op::Get, SECRETS_ACCOUNT), 2);
+
+    // Allowed this time: the save goes through and the reads work again.
+    backend.down.lock().unwrap().clear();
+    store.put(Field::ApiKey("groq"), "key-g").unwrap();
+    assert_eq!(
+        store.get(Field::ApiKey("openai")).unwrap().as_deref(),
+        Some("key-o")
+    );
+    assert_eq!(
+        store.get(Field::ApiKey("groq")).unwrap().as_deref(),
+        Some("key-g")
     );
 }

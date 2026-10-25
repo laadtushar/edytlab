@@ -1229,7 +1229,7 @@ edytlab supports the Model Context Protocol for extending the agent with externa
 }
 ```
 
-Transport types: `stdio` (JSON-RPC over stdin/stdout; `command`/`args`/`env`, as above) and `sse` (HTTP Server-Sent Events; `url` and `headers` instead). The transport is inferred from which fields are present (`McpServerConfig` in `crates/mcp/src/config.rs` is untagged). A `<keychain:slot>` value in `env` is replaced with that keychain secret when the server launches.
+Transport types: `stdio` (JSON-RPC over stdin/stdout; `command`/`args`/`env`, as above) and `sse` (HTTP Server-Sent Events; `url` and `headers` instead). The transport is inferred from which fields are present (`McpServerConfig` in `crates/mcp/src/config.rs` is untagged). A `<keychain:slot>` value in `env` is replaced with that secret when the server launches. The secret is an item you make yourself in the operating system's credential store, with the account `<slot>_api_key` under the service `app.edytlab.desktop` (for `<keychain:my_secret>`, the account `my_secret_api_key`). edytlab reads it when the server starts; it is not part of the single `secrets` item that holds the provider keys and the ChatGPT sign-in, and edytlab never writes or deletes it.
 
 The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools. On Ollama the slim selection applies to them like any built-in tool (see [Request size](#request-size-and-small-context-models)): an MCP tool is sent in full when a message names it and otherwise only listed by name, after the built-in tools, and a long MCP tool list ends the names line with "and N more" (the built-in tools are never what it leaves out).
 

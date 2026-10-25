@@ -7,8 +7,12 @@
 //!   from slot name to value, `{"anthropic_api_key": "...",
 //!   "chatgpt_refresh_token": "..."}`. The slot names are the per-slot account
 //!   names earlier builds used, so a key is known by one name everywhere. The
-//!   item is read **once per process** and cached; every save and delete
-//!   updates the item and the cache together, under one lock.
+//!   item is read **once per process** and cached for reads. Every save and
+//!   delete reads the item itself again first (another process may have
+//!   changed it), then updates the item and the cache together, under one
+//!   lock. It is written and read as UTF-8 bytes (`set_secret`), which on
+//!   Windows doubles what fits in one credential. The entry
+//!   [`MIGRATED_MARKER`] is not a secret; see below.
 //! - **Everything else** (the active provider and each provider's model, base
 //!   URL and reasoning effort) is in a JSON file, `provider-settings.json`, in
 //!   the directory the app registers with [`set_settings_dir`]. It is written
@@ -32,7 +36,9 @@
 //! `secrets` item, reads it back, writes the settings file, reads that back,
 //! and only then deletes the old items it found. The settings file is written
 //! last and carries `version`, so a file that is there means the migration
-//! finished. Any failure before that keeps every old item and drops what the
+//! finished; the item is then marked ([`MIGRATED_MARKER`]), and an item that
+//! carries the mark is never overridden by a leftover per-slot item if the
+//! migration runs again. Any failure before that keeps every old item and drops what the
 //! migration had written, and the process then runs on the old items (the
 //! `Legacy` layout below), exactly as the previous build did; the next launch
 //! tries again. A migration is also put off, not run, while the Secret Service
@@ -40,6 +46,19 @@
 //! stored", and the keys it holds would be left behind), or when the new item
 //! could only be saved to the kernel keyring (the old items would be deleted
 //! for a copy that a reboot erases).
+//!
+//! # An MCP server's secret
+//!
+//! `<keychain:slot>` in `mcp.json` is read with [`load_api_key`]`(slot)`. A
+//! slot that is not a provider id and is not in the `secrets` item is the
+//! user's own item `<slot>_api_key`, read from the store on demand. It is
+//! never migrated, written or deleted here.
+//!
+//! # A failed read
+//!
+//! A read of the `secrets` item that fails with `PlatformFailure` (what a
+//! macOS Deny comes back as) is remembered for the process and answered the
+//! same way without another keychain call, until a save asks again.
 //!
 //! # No folder registered
 //!
@@ -74,7 +93,11 @@
 //!
 //! A durable save removes the kernel copy, so a kernel copy next to a
 //! durable one is the newer: it was saved while the Secret Service could
-//! not be reached. A read prefers it and moves it across the same way.
+//! not be reached. A read prefers it and moves it across the same way. For the
+//! `secrets` item the two are merged key by key (the kernel copy winning per
+//! key, [`merge_secrets`]), because that copy holds only what the save could
+//! see; and a save or removal made while the item cannot be reached never
+//! writes the durable item (a removal is an error).
 //!
 //! A locked or refused store is an error, never a silent "nothing
 //! stored": the `try_` readers return it, and the `Option` readers log
@@ -122,6 +145,11 @@ const SERVICE: &str = "app.edytlab.desktop";
 
 /// The one keychain account that holds every secret, as a JSON object.
 const SECRETS_ACCOUNT: &str = "secrets";
+
+/// A reserved key of the `secrets` item: the migration from the per-slot items
+/// finished. No slot name can equal it (a key slot ends in `_api_key`), and
+/// every read looks a slot up by its own name, so nothing reads it as a secret.
+const MIGRATED_MARKER: &str = "__migrated";
 
 /// The settings file's name, inside the directory [`set_settings_dir`] was
 /// given.
@@ -241,6 +269,17 @@ impl From<keyring::Error> for KeychainError {
 trait Slot {
     fn get(&self) -> keyring::Result<String>;
     fn set(&self, value: &str) -> keyring::Result<()>;
+    /// The value as the bytes the store holds, for the `secrets` item (see
+    /// [`Bytes`]).
+    fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+        self.get().map(String::into_bytes)
+    }
+    fn set_secret(&self, value: &[u8]) -> keyring::Result<()> {
+        match std::str::from_utf8(value) {
+            Ok(text) => self.set(text),
+            Err(_) => Err(keyring::Error::PlatformFailure("not text".into())),
+        }
+    }
     fn delete(&self) -> keyring::Result<()>;
 }
 
@@ -251,8 +290,90 @@ impl Slot for Entry {
     fn set(&self, value: &str) -> keyring::Result<()> {
         self.set_password(value)
     }
+    fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+        Entry::get_secret(self)
+    }
+    fn set_secret(&self, value: &[u8]) -> keyring::Result<()> {
+        Entry::set_secret(self, value)
+    }
     fn delete(&self) -> keyring::Result<()> {
         self.delete_credential()
+    }
+}
+
+/// A [`Slot`] that notes whether the store answered a read, and if not, why.
+/// "Answered" is a value, "not found" or a refusal; a store that could not be
+/// reached has not answered, and what a read found then is only the kernel
+/// keyring's copy, not the item.
+struct Answered<'a> {
+    inner: &'a dyn Slot,
+    answered: std::cell::Cell<bool>,
+    unreachable: std::cell::RefCell<Option<String>>,
+}
+
+impl<'a> Answered<'a> {
+    fn new(inner: &'a dyn Slot) -> Self {
+        Self {
+            inner,
+            answered: std::cell::Cell::new(false),
+            unreachable: std::cell::RefCell::new(None),
+        }
+    }
+}
+
+impl Slot for Answered<'_> {
+    fn get(&self) -> keyring::Result<String> {
+        let read = self.inner.get();
+        match &read {
+            Err(e) if unreachable(e) => *self.unreachable.borrow_mut() = Some(e.to_string()),
+            _ => {
+                self.answered.set(true);
+                *self.unreachable.borrow_mut() = None;
+            }
+        }
+        read
+    }
+    fn set(&self, value: &str) -> keyring::Result<()> {
+        self.inner.set(value)
+    }
+    fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+        self.inner.get_secret()
+    }
+    fn set_secret(&self, value: &[u8]) -> keyring::Result<()> {
+        self.inner.set_secret(value)
+    }
+    fn delete(&self) -> keyring::Result<()> {
+        self.inner.delete()
+    }
+}
+
+/// A [`Slot`] read and written as UTF-8 bytes (`get_secret` / `set_secret`)
+/// instead of as a password. Used for the `secrets` item only.
+///
+/// Why: Windows' Credential Manager holds at most 2,560 bytes per credential,
+/// and `set_password` stores UTF-16, so the whole map was limited to 1,280
+/// characters. The secret form stores the bytes as they are, and every
+/// backend `keyring` 3.6 has in use here (macOS, Windows, Secret Service,
+/// the kernel keyring) implements it. A value that is not UTF-8 is an error
+/// that carries none of its bytes (`BadEncoding` would).
+struct Bytes<'a>(&'a dyn Slot);
+
+impl Slot for Bytes<'_> {
+    fn get(&self) -> keyring::Result<String> {
+        String::from_utf8(self.0.get_secret()?)
+            .map_err(|_| keyring::Error::PlatformFailure("the stored entry is not text".into()))
+    }
+    fn set(&self, value: &str) -> keyring::Result<()> {
+        self.0.set_secret(value.as_bytes())
+    }
+    fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+        self.0.get_secret()
+    }
+    fn set_secret(&self, value: &[u8]) -> keyring::Result<()> {
+        self.0.set_secret(value)
+    }
+    fn delete(&self) -> keyring::Result<()> {
+        self.0.delete()
     }
 }
 
@@ -306,6 +427,25 @@ fn read_from(
     move_refused: &AtomicBool,
     unreachable_confirmed: &AtomicBool,
 ) -> keyring::Result<Option<String>> {
+    read_from_merging(primary, legacy, move_refused, unreachable_confirmed, None)
+}
+
+/// How a `legacy` copy that sits next to a durable one is combined with it:
+/// the durable text and the kernel text in, the text to answer and keep out,
+/// or `None` to leave the durable one standing. Without one, the `legacy` copy
+/// replaces the durable one, which is right for a value that is one string.
+/// The `secrets` item is a map of many, so its copies are merged key by key
+/// ([`merge_secrets`]).
+type Merge<'a> = Option<&'a dyn Fn(&str, &str) -> Option<String>>;
+
+/// [`read_from`], with the way two copies of one item are combined.
+fn read_from_merging(
+    primary: &dyn Slot,
+    legacy: Option<&dyn Slot>,
+    move_refused: &AtomicBool,
+    unreachable_confirmed: &AtomicBool,
+    merge: Merge<'_>,
+) -> keyring::Result<Option<String>> {
     let first = primary.get();
     // The service answered, with a value, "not found", or a refusal:
     // whatever the last reads found, it is not gone now.
@@ -313,7 +453,7 @@ fn read_from(
         unreachable_confirmed.store(false, Ordering::Relaxed);
     }
     match first {
-        Ok(v) => Ok(Some(newer_of(primary, legacy, v, move_refused))),
+        Ok(v) => Ok(Some(newer_of(primary, legacy, v, move_refused, merge))),
         Err(keyring::Error::NoEntry) => {
             let Some(legacy) = legacy else {
                 return Ok(None);
@@ -353,7 +493,8 @@ fn read_from(
 }
 
 /// The value a read answers when `primary` holds `durable`: a different
-/// value in `legacy` is newer (see [`read_from`]), so it is that one, moved
+/// value in `legacy` is newer (see [`read_from`]), so it is that one (or, for
+/// the `secrets` item, the two merged with `legacy` winning key by key), moved
 /// into `primary` as [`move_across`] does it, whether or not the move works.
 ///
 /// A copy that is blank is not a value, and one that cannot be read is no
@@ -363,6 +504,7 @@ fn newer_of(
     legacy: Option<&dyn Slot>,
     durable: String,
     move_refused: &AtomicBool,
+    merge: Merge<'_>,
 ) -> String {
     let Some(legacy) = legacy else {
         return durable;
@@ -374,8 +516,17 @@ fn newer_of(
             durable
         }
         Ok(kernel) if !kernel.trim().is_empty() => {
-            move_across(primary, legacy, &kernel, move_refused);
-            kernel
+            let value = match merge {
+                Some(merge) => match merge(&durable, &kernel) {
+                    Some(merged) => merged,
+                    // Not something that can be merged: the durable copy
+                    // stands, and nothing is moved or deleted.
+                    None => return durable,
+                },
+                None => kernel,
+            };
+            move_across(primary, legacy, &value, move_refused);
+            value
         }
         _ => durable,
     }
@@ -702,6 +853,20 @@ fn parse_secrets(json: &str) -> Result<SecretMap, KeychainError> {
         .map_err(|_| KeychainError::new("the stored secrets entry is not valid JSON"))
 }
 
+/// Two copies of the `secrets` item, the durable one and the kernel keyring's,
+/// as one: every key of both, the kernel copy's value where both have one.
+///
+/// The kernel copy was saved while the Secret Service could not be reached. It
+/// holds what that save read (nothing, when nothing was cached) plus the key
+/// saved, so it may be a few keys of many, and replacing the durable item with
+/// it would delete the rest. `None` when either does not parse: the durable
+/// copy stands and the kernel one is left alone.
+fn merge_secrets(durable: &str, kernel: &str) -> Option<String> {
+    let mut map = parse_secrets(durable).ok()?;
+    map.extend(parse_secrets(kernel).ok()?);
+    secrets_json(&map).ok()
+}
+
 fn secrets_json(map: &SecretMap) -> keyring::Result<String> {
     serde_json::to_string(map).map_err(|_| keyring::Error::PlatformFailure("serialize".into()))
 }
@@ -795,8 +960,16 @@ enum Layout {
 struct State {
     layout: Layout,
     settings: Settings,
-    /// The `secrets` item, once read or written. `None` until then.
+    /// The `secrets` item, once read or written. `None` until then, and while
+    /// what is known of it is not the item (a Secret Service that cannot be
+    /// reached).
     secrets: Option<SecretMap>,
+    /// A read of the `secrets` item the platform failed (`PlatformFailure`:
+    /// on macOS that is what a Deny comes back as). Remembered for the
+    /// process, as `keychain_refused` is in the desktop (#497): every further
+    /// read answers the same error with no keychain call, since each one
+    /// would raise the prompt again. A save is a user action and asks again.
+    read_failed: Option<KeychainError>,
 }
 
 /// Why a migration did not finish.
@@ -806,6 +979,14 @@ enum NotMigrated {
     Refused(KeychainError),
     /// Anything else. Every old item is kept and the process runs on them.
     Kept(String),
+}
+
+/// Whether a read of the `secrets` item was answered by the platform's store.
+enum Reach {
+    Answered,
+    /// Only the kernel keyring was asked (or nothing answered); the string is
+    /// why the store did not answer.
+    Unreachable(String),
 }
 
 struct Store {
@@ -827,6 +1008,7 @@ impl Store {
                 layout: Layout::Unknown,
                 settings: Settings::empty(),
                 secrets: None,
+                read_failed: None,
             }),
             move_refused: AtomicBool::new(false),
             unreachable_confirmed: AtomicBool::new(false),
@@ -851,6 +1033,9 @@ impl Store {
 
     fn read_item(&self, account: &str) -> keyring::Result<Option<String>> {
         let (primary, legacy) = (self.slots)(account)?;
+        if account == SECRETS_ACCOUNT {
+            return self.read_secrets_item(&*primary, legacy.as_deref()).0;
+        }
         read_from(
             &*primary,
             legacy.as_deref(),
@@ -859,9 +1044,53 @@ impl Store {
         )
     }
 
+    /// Read the `secrets` item as bytes, merging a kernel copy into it. Also
+    /// answers whether the store itself answered, or only the kernel
+    /// keyring did (and why it did not).
+    fn read_secrets_item(
+        &self,
+        primary: &dyn Slot,
+        legacy: Option<&dyn Slot>,
+    ) -> (keyring::Result<Option<String>>, Reach) {
+        let bytes = Bytes(primary);
+        let primary = Answered::new(&bytes);
+        let legacy = legacy.map(Bytes);
+        let read = read_from_merging(
+            &primary,
+            legacy.as_ref().map(|l| l as &dyn Slot),
+            &self.move_refused,
+            &self.unreachable_confirmed,
+            Some(&merge_secrets),
+        );
+        let reach = if primary.answered.get() {
+            Reach::Answered
+        } else {
+            Reach::Unreachable(
+                primary
+                    .unreachable
+                    .borrow()
+                    .clone()
+                    .unwrap_or_else(|| "the Secret Service could not be reached".to_string()),
+            )
+        };
+        (read, reach)
+    }
+
     fn write_item(&self, account: &str, value: &str) -> keyring::Result<Persistence> {
         let (primary, legacy) = (self.slots)(account)?;
-        let persistence = write_to(&*primary, legacy.as_deref(), value)?;
+        let persistence = if account == SECRETS_ACCOUNT {
+            write_to(
+                &Bytes(&*primary),
+                legacy
+                    .as_deref()
+                    .map(Bytes)
+                    .as_ref()
+                    .map(|l| l as &dyn Slot),
+                value,
+            )?
+        } else {
+            write_to(&*primary, legacy.as_deref(), value)?
+        };
         if let Persistence::SessionOnly { reason } = &persistence {
             tracing::warn!(
                 account = %account,
@@ -910,9 +1139,13 @@ impl Store {
                 );
             }
             FileState::Unreadable(kind) => {
-                tracing::warn!(error_kind = ?kind, "the settings file cannot be read; using the per-slot keychain items");
-                st.layout = Layout::Legacy;
-                return Ok(());
+                // Not the per-slot layout: if the migration ran, those items
+                // are gone, and a read of them would find nothing and a save
+                // would write an item nothing reads. Asked again next time.
+                tracing::warn!(error_kind = ?kind, "the settings file cannot be read");
+                return Err(KeychainError::new(
+                    "edytlab's settings file cannot be read (is it a folder, or not readable?)",
+                ));
             }
         }
         match self.migrate(&dir) {
@@ -999,50 +1232,62 @@ impl Store {
             }
         }
 
-        // 2. The secrets item. An item that is already there (an attempt that
-        //    went part of the way) is merged with, the per-slot items winning:
-        //    they are what the app was using.
+        // 2. The secrets item. An item that is already there is merged with,
+        //    the per-slot items winning: they are what the app was using. Not
+        //    when it carries the marker, though: that says an earlier
+        //    migration finished, so the item is the newer and what is found
+        //    per slot is a leftover whose delete failed, to be deleted again.
         let mut written = None;
         let mut created_item = false;
+        let mut wrote_item = false;
         if !secrets.is_empty() {
-            let mut merged = match self.read_item(SECRETS_ACCOUNT).map_err(classify)? {
-                Some(json) => parse_secrets(&json).map_err(|e| kept(e.reason()))?,
-                None => {
-                    created_item = true;
-                    SecretMap::new()
-                }
+            let existing = match self.read_item(SECRETS_ACCOUNT).map_err(classify)? {
+                Some(json) => Some(parse_secrets(&json).map_err(|e| kept(e.reason()))?),
+                None => None,
             };
-            merged.extend(secrets);
-            let json = secrets_json(&merged).map_err(|e| kept(KeychainError::from(e).reason()))?;
-            let rollback = |this: &Self| {
-                if created_item {
-                    let _ = this.delete_item(SECRETS_ACCOUNT);
+            if existing
+                .as_ref()
+                .is_some_and(|m| m.contains_key(MIGRATED_MARKER))
+            {
+                written = existing;
+            } else {
+                created_item = existing.is_none();
+                let mut merged = existing.unwrap_or_default();
+                merged.extend(secrets);
+                let json =
+                    secrets_json(&merged).map_err(|e| kept(KeychainError::from(e).reason()))?;
+                let rollback = |this: &Self| {
+                    if created_item {
+                        let _ = this.delete_item(SECRETS_ACCOUNT);
+                    }
+                };
+                match self.write_item(SECRETS_ACCOUNT, &json) {
+                    Ok(Persistence::Durable) => {}
+                    Ok(Persistence::SessionOnly { .. }) => {
+                        // The old items would go for a copy a reboot erases.
+                        rollback(self);
+                        return Err(kept("the Secret Service could not be reached to save"));
+                    }
+                    // A refused write (the prompt for creating the item was
+                    // dismissed) is no reason to ask again: stay on the old
+                    // items.
+                    Err(e) => {
+                        rollback(self);
+                        return Err(kept(KeychainError::from(e).reason()));
+                    }
                 }
-            };
-            match self.write_item(SECRETS_ACCOUNT, &json) {
-                Ok(Persistence::Durable) => {}
-                Ok(Persistence::SessionOnly { .. }) => {
-                    // The old items would go for a copy a reboot erases.
+                let back = self
+                    .read_item(SECRETS_ACCOUNT)
+                    .ok()
+                    .flatten()
+                    .and_then(|j| parse_secrets(&j).ok());
+                if back.as_ref() != Some(&merged) {
                     rollback(self);
-                    return Err(kept("the Secret Service could not be reached to save"));
+                    return Err(kept("the new secrets entry did not read back"));
                 }
-                // A refused write (the prompt for creating the item was
-                // dismissed) is no reason to ask again: stay on the old items.
-                Err(e) => {
-                    rollback(self);
-                    return Err(kept(KeychainError::from(e).reason()));
-                }
+                wrote_item = true;
+                written = Some(merged);
             }
-            let back = self
-                .read_item(SECRETS_ACCOUNT)
-                .ok()
-                .flatten()
-                .and_then(|j| parse_secrets(&j).ok());
-            if back.as_ref() != Some(&merged) {
-                rollback(self);
-                return Err(kept("the new secrets entry did not read back"));
-            }
-            written = Some(merged);
         }
 
         // 3. The settings file, last: its presence says the migration is done.
@@ -1061,6 +1306,23 @@ impl Store {
                 let _ = std::fs::remove_file(dir.join(SETTINGS_FILE));
                 undo(self);
                 return Err(kept("the settings file did not read back"));
+            }
+        }
+
+        // 3b. Now that the file is there, say so in the item (see 2). If this
+        //     fails nothing is lost: it is what the migration did before the
+        //     marker, and the per-slot items are deleted just the same.
+        if wrote_item {
+            if let Some(map) = written.as_mut() {
+                let mut marked = map.clone();
+                marked.insert(MIGRATED_MARKER.to_string(), "1".to_string());
+                let done = secrets_json(&marked)
+                    .map_err(KeychainError::from)
+                    .and_then(|json| self.write_item(SECRETS_ACCOUNT, &json).map_err(Into::into));
+                match done {
+                    Ok(Persistence::Durable) => *map = marked,
+                    _ => tracing::warn!("the secrets entry could not be marked as migrated"),
+                }
             }
         }
 
@@ -1084,36 +1346,103 @@ impl Store {
     ///
     /// An item that is not there is an empty map, remembered like any other
     /// answer, except when the reason is a Secret Service that could not be
-    /// asked: that is no answer, and the next call asks again.
+    /// asked: that is no answer, and the next call asks again. A read the
+    /// platform failed is remembered as the answer (see
+    /// [`State::read_failed`]).
     fn load_secrets(&self, st: &mut State) -> Result<SecretMap, KeychainError> {
         if let Some(map) = &st.secrets {
             return Ok(map.clone());
         }
-        match self.read_item(SECRETS_ACCOUNT)? {
-            Some(json) => {
-                let map = parse_secrets(&json)?;
-                st.secrets = Some(map.clone());
-                Ok(map)
-            }
-            None => {
-                if !self.unreachable_confirmed.load(Ordering::Relaxed) {
-                    st.secrets = Some(SecretMap::new());
+        Ok(self.read_secrets(st)?.0)
+    }
+
+    /// Read the item itself, whatever the cache holds: what a save or a
+    /// removal changes. A second process may have changed it since this one
+    /// read it (a ChatGPT token it refreshed), and a change made to a copy
+    /// that is out of date puts the old value back. One read of an item this
+    /// build wrote, which raises no prompt.
+    ///
+    /// Answers the map to change and whether the store answered. When it did
+    /// not (a Secret Service that cannot be reached), the map is what is
+    /// known: the cache and the kernel keyring's copy, which together are
+    /// what this process saw, and it is not cached.
+    fn read_secrets(&self, st: &mut State) -> Result<(SecretMap, Reach), KeychainError> {
+        if let Some(failure) = &st.read_failed {
+            return Err(failure.clone());
+        }
+        let (primary, legacy) = (self.slots)(SECRETS_ACCOUNT)?;
+        let (read, reach) = self.read_secrets_item(&*primary, legacy.as_deref());
+        let found = match read {
+            Ok(found) => found,
+            Err(e) => {
+                let platform_failure = matches!(e, keyring::Error::PlatformFailure(_));
+                let e = KeychainError::from(e);
+                if platform_failure {
+                    st.read_failed = Some(e.clone());
                 }
-                Ok(SecretMap::new())
+                return Err(e);
+            }
+        };
+        let item = match found {
+            Some(json) => Some(parse_secrets(&json)?),
+            None => None,
+        };
+        match reach {
+            Reach::Answered => {
+                let map = item.unwrap_or_default();
+                st.secrets = Some(map.clone());
+                Ok((map, Reach::Answered))
+            }
+            Reach::Unreachable(why) => {
+                let mut map = st.secrets.clone().unwrap_or_default();
+                map.extend(item.unwrap_or_default());
+                Ok((map, Reach::Unreachable(why)))
             }
         }
     }
 
     /// Replace the item with `map` (or remove it when `map` is empty), and the
     /// cache with it, or neither when the item cannot be written.
-    fn store_secrets(&self, st: &mut State, map: SecretMap) -> keyring::Result<Persistence> {
-        let persistence = if map.is_empty() {
-            self.delete_item(SECRETS_ACCOUNT)?;
-            Persistence::Durable
-        } else {
-            self.write_item(SECRETS_ACCOUNT, &secrets_json(&map)?)?
+    ///
+    /// With `reach` unreachable the item is not touched: the map goes to the
+    /// kernel keyring alone, so a store that answers again a moment later is
+    /// not written from a map that did not include what it holds. The next
+    /// read merges the two.
+    fn store_secrets(
+        &self,
+        st: &mut State,
+        map: SecretMap,
+        reach: Reach,
+    ) -> keyring::Result<Persistence> {
+        let persistence = match reach {
+            Reach::Unreachable(why) => {
+                let (_, legacy) = (self.slots)(SECRETS_ACCOUNT)?;
+                let Some(legacy) = legacy else {
+                    return Err(keyring::Error::PlatformFailure(why.into()));
+                };
+                Bytes(&*legacy).set(&secrets_json(&map)?)?;
+                tracing::warn!(
+                    reason = %why,
+                    "no Secret Service; stored in the kernel keyring until reboot"
+                );
+                Persistence::SessionOnly { reason: why }
+            }
+            Reach::Answered if map.is_empty() => {
+                self.delete_item(SECRETS_ACCOUNT)?;
+                Persistence::Durable
+            }
+            Reach::Answered => self.write_item(SECRETS_ACCOUNT, &secrets_json(&map)?)?,
         };
-        st.secrets = Some(map);
+        match persistence {
+            Persistence::Durable => st.secrets = Some(map),
+            // The item does not hold this yet: a copy that said it did would
+            // be read for the item after the service is back.
+            Persistence::SessionOnly { .. } => {
+                if st.secrets.is_some() {
+                    st.secrets = Some(map);
+                }
+            }
+        }
         Ok(persistence)
     }
 
@@ -1125,11 +1454,23 @@ impl Store {
         if st.layout == Layout::Legacy {
             return Ok(self.read_item(&key.account())?);
         }
-        if key.is_secret() {
-            Ok(self.load_secrets(&mut st)?.remove(&key.account()))
-        } else {
-            Ok(st.settings.get(&key))
+        if !key.is_secret() {
+            return Ok(st.settings.get(&key));
         }
+        let account = key.account();
+        if let Some(value) = self.load_secrets(&mut st)?.remove(&account) {
+            return Ok(Some(value));
+        }
+        // An MCP server's `<keychain:slot>` names a key the user made in the
+        // OS store by hand: `<slot>_api_key`, not a provider's, so never in
+        // the item and never migrated. Read on demand. A provider's own slot
+        // that is not set does not come here: it costs no second read.
+        if let Field::ApiKey(slot) = key {
+            if !crate::SUPPORTED_PROVIDER_IDS.contains(&slot) {
+                return Ok(self.read_item(&account)?);
+            }
+        }
+        Ok(None)
     }
 
     fn put(&self, key: Field<'_>, value: &str) -> keyring::Result<Persistence> {
@@ -1139,13 +1480,17 @@ impl Store {
             return self.write_item(&key.account(), value);
         }
         if key.is_secret() {
-            let mut map = self.load_secrets(&mut st).map_err(write_error)?;
+            // A save is the user's act: it asks again after a failed read.
+            st.read_failed = None;
+            let (mut map, reach) = self.read_secrets(&mut st).map_err(write_error)?;
             map.insert(key.account(), value.to_string());
-            return self.store_secrets(&mut st, map);
+            return self.store_secrets(&mut st, map, reach);
         }
-        let mut next = st.settings.clone();
-        next.set(&key, value);
-        self.save_settings(&mut st, next)
+        let account = key.account();
+        self.change_settings(&mut st, |settings| settings.set(&key, value))
+            .inspect_err(
+                |_| tracing::warn!(account = %account, "the settings file could not be saved"),
+            )
     }
 
     fn remove(&self, key: Field<'_>) -> keyring::Result<()> {
@@ -1155,32 +1500,58 @@ impl Store {
             return self.delete_item(&key.account());
         }
         if key.is_secret() {
-            let mut map = self.load_secrets(&mut st).map_err(write_error)?;
+            st.read_failed = None;
+            let (mut map, reach) = self.read_secrets(&mut st).map_err(write_error)?;
+            // A removal cannot be kept while the item cannot be reached: the
+            // kernel copy that would carry it is merged over the item, which
+            // still holds the key, and brings it back. Say so.
+            if let Reach::Unreachable(why) = reach {
+                return Err(keyring::Error::PlatformFailure(why.into()));
+            }
             if map.remove(&key.account()).is_none() {
                 return Ok(());
             }
-            return self.store_secrets(&mut st, map).map(|_| ());
+            return self
+                .store_secrets(&mut st, map, Reach::Answered)
+                .map(|_| ());
         }
-        let mut next = st.settings.clone();
-        next.clear(&key);
-        self.save_settings(&mut st, next).map(|_| ())
+        self.change_settings(&mut st, |settings| settings.clear(&key))
+            .map(|_| ())
     }
 
-    /// Write `next` as the settings file, unless it is what is there already.
-    fn save_settings(&self, st: &mut State, next: Settings) -> keyring::Result<Persistence> {
-        if next == st.settings {
-            return Ok(Persistence::Durable);
-        }
+    /// Change the settings file. The file is read again first: another process
+    /// may have changed it (a model picked in a second window), and writing
+    /// this process's copy would put its old values back.
+    fn change_settings(
+        &self,
+        st: &mut State,
+        change: impl FnOnce(&mut Settings),
+    ) -> keyring::Result<Persistence> {
         let Some(dir) = self.dir() else {
             return Err(keyring::Error::PlatformFailure(
                 "the folder for edytlab's settings was not set up".into(),
             ));
         };
-        write_settings_file(&dir, &next).map_err(|e| {
-            keyring::Error::PlatformFailure(
-                format!("the settings file could not be written: {e}").into(),
-            )
-        })?;
+        let current = match read_settings_file(&dir) {
+            FileState::Present(on_disk) => on_disk,
+            // Gone or damaged since it was read: what this process holds is
+            // the best there is, and the write puts a good file in its place.
+            FileState::Missing | FileState::Corrupt => st.settings.clone(),
+            FileState::Unreadable(_) => {
+                return Err(keyring::Error::PlatformFailure(
+                    "the settings file cannot be read".into(),
+                ))
+            }
+        };
+        let mut next = current.clone();
+        change(&mut next);
+        if next != current {
+            write_settings_file(&dir, &next).map_err(|e| {
+                keyring::Error::PlatformFailure(
+                    format!("the settings file could not be written: {e}").into(),
+                )
+            })?;
+        }
         st.settings = next;
         Ok(Persistence::Durable)
     }
