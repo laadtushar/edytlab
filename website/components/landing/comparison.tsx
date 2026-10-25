@@ -62,7 +62,7 @@ const rows: Row[] = [
   {
     label: "Stem separation",
     edytlab: "Not yet",
-    detail: "Wired in as a tool; the model inference has not shipped (#385).",
+    detail: "Not in the app yet. Split stems in another tool, then load each one as a track.",
   },
   {
     label: "Transcription and text-based editing",

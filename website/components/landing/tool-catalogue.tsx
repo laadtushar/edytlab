@@ -125,7 +125,6 @@ const GROUPS = [
       "plot_spectrum",
       "silence_finder",
       "transcribe",
-      "separate_stems",
     ],
   },
   {

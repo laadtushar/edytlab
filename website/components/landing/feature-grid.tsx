@@ -24,9 +24,9 @@ import { SectionHeading } from "@/components/motion/section-heading";
  * their detail is.
  *
  * The phrases `website_tool_docs.rs` pins to registered tools ("Text-based
- * editing, after a one-time model download", "Demucs stem separation",
- * "Warp a performance onto a beat grid", "Loudness-normalise", "Fork,
- * A/B compare, and revert" …) are load-bearing: reword one and update
+ * editing, after a one-time model download", "Warp a performance onto a
+ * beat grid", "Loudness-normalise", "Fork, A/B compare, and revert" …) are
+ * load-bearing: reword one and update
  * that test in the same change. The text-editing headline carries its
  * limit on purpose (the model is a download, not part of the app): headings
  * are what snippets and assistants quote.
@@ -45,7 +45,7 @@ const features = [
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "A pure-Rust audio graph (cpal · symphonia · rubato · realfft) with no C dependency in the audio path. Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats. Demucs stem separation is wired in as a tool; its model inference has not shipped yet.",
+    body: "A pure-Rust audio graph (cpal · symphonia · rubato · realfft) with no C dependency in the audio path. Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats.",
   },
   {
     icon: GitBranch,

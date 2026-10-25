@@ -573,8 +573,7 @@ fn the_landing_page_claims_only_what_the_registry_can_do() {
             "cut_words",
         ),
         ("the transcript becomes the editor", "transcribe"),
-        // Stem separation and the phase vocoder.
-        ("Demucs stem separation", "separate_stems"),
+        // The phase vocoder.
         ("Time-stretch", "time_stretch"),
         ("pitch-shift", "pitch_shift"),
         ("Warp a performance onto a beat grid", "align_to_beat"),
