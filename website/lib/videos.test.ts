@@ -408,7 +408,10 @@ describe("only a video's own page carries its VideoObject", () => {
   it("is not in the markup of the demo cards, which play on the home page and the DJ page", () => {
     const demo = demos[0];
     const card = renderToStaticMarkup(createElement(DemoCard, { demo, index: 0 }));
-    expect(card).toContain("<video");
+    // No `<video>` either until play is pressed: Google reports a video on a page where it
+    // is not the main content as "Video isn't on a watch page".
+    expect(card).not.toContain("<video");
+    expect(card).toContain(`aria-label="Play the video: ${demo.title}"`);
     expect(card).not.toContain("application/ld+json");
     expect(card).not.toContain("VideoObject");
     // They link to the page that has it.
@@ -416,7 +419,8 @@ describe("only a video's own page carries its VideoObject", () => {
     expect(card).toContain("Watch on its own page");
 
     const section = renderToStaticMarkup(createElement(RealDemos));
-    expect(section.match(/<video\b/g)?.length).toBe(demos.length);
+    expect(section).not.toMatch(/<video\b/);
+    expect(section.match(/aria-label="Play the video: /g)?.length).toBe(demos.length);
     expect(section).not.toContain("application/ld+json");
     for (const d of demos) expect(section).toContain(`href="/videos/${d.slug}"`);
   });

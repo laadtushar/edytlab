@@ -113,23 +113,14 @@ describe("the demo posters are not part of the first load", () => {
   };
   const html = renderToStaticMarkup(createElement(DemoCard, { demo, index: 0 }));
 
-  it("renders the video without a poster, so the server's HTML asks for no image", () => {
-    expect(html).toContain("<video");
-    expect(html).not.toMatch(/<video[^>]*\bposter=/);
-    // The structured data names the poster (as a thumbnail URL, in a script); nothing fetches it.
-    expect(html.replace(/<script[\s\S]*?<\/script>/g, "")).not.toContain("dj-mini-mix.jpg");
-  });
-
-  it("sets the poster once the video is near the viewport, and at once without IntersectionObserver", () => {
-    const src = code("components/landing/lazy-poster-video.tsx");
-    expect(src).toMatch(/new IntersectionObserver\(/);
-    expect(src).toMatch(/rootMargin/);
-    expect(src).toMatch(/typeof IntersectionObserver === "undefined"/);
-    expect(src).toMatch(/poster=\{near \? poster : undefined\}/);
+  it("renders a poster that loads lazily, not at high priority, and no video", () => {
+    expect(html).not.toContain("<video");
+    expect(html).toMatch(/<img[^>]*\bloading="lazy"/);
+    expect(html).not.toMatch(/fetchpriority/);
   });
 
   it("is what the demo card plays its video with", () => {
-    expect(code("components/landing/real-demos.tsx")).toMatch(/<LazyPosterVideo\b/);
+    expect(code("components/landing/real-demos.tsx")).toMatch(/<FeaturedVideo\b[\s\S]*?\blazy\b/);
     expect(code("components/landing/real-demos.tsx")).not.toMatch(/<video\b/);
   });
 });

@@ -14,6 +14,12 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
  * and nothing else; with scripts off, or a modified click (new tab), it
  * is the link it was.
  *
+ * The demo cards on the home page and the DJ page use it too (`lazy`),
+ * for the same reason: a `<video>` there is one Google finds on a page
+ * where it is not the main content, and reports as "Video isn't on a
+ * watch page". Their posters are below the fold, so `lazy` leaves the
+ * fetch to the browser's lazy loading instead of asking for it at once.
+ *
  * The props are resolved paths, not a `WatchVideo`, so the client bundle
  * carries none of the video list.
  */
@@ -25,6 +31,8 @@ export function FeaturedVideo({
   captions,
   width,
   height,
+  lazy = false,
+  frame = "rounded-2xl border border-border/60",
 }: {
   href: string;
   title: string;
@@ -34,6 +42,10 @@ export function FeaturedVideo({
   captions?: string;
   width: number;
   height: number;
+  /** Below the fold: the poster loads lazily, not at high priority. */
+  lazy?: boolean;
+  /** The box's corners and border; a card that draws its own passes "". */
+  frame?: string;
 }) {
   const [playing, setPlaying] = useState(false);
   const player = useRef<HTMLVideoElement>(null);
@@ -42,7 +54,7 @@ export function FeaturedVideo({
     if (playing) player.current?.focus();
   }, [playing]);
 
-  const box = "relative block w-full overflow-hidden rounded-2xl border border-border/60 bg-black";
+  const box = `relative block w-full overflow-hidden bg-black ${frame}`;
   const ratio = { aspectRatio: `${width} / ${height}` };
 
   if (playing) {
@@ -79,7 +91,7 @@ export function FeaturedVideo({
       className={`${box} group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
       style={ratio}
     >
-      {/* The first thing in view on the page, so it is fetched at once;
+      {/* On the hub, the first thing in view, so it is fetched at once;
           its box is reserved from the file's own size. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -90,7 +102,7 @@ export function FeaturedVideo({
         decoding="async"
         // `fetchpriority` in lower case: React 18 does not know the
         // camel-case prop and warns, though the browser reads either.
-        {...{ fetchpriority: "high" }}
+        {...(lazy ? { loading: "lazy" as const } : { fetchpriority: "high" })}
         className="block h-full w-full object-cover"
       />
       <span aria-hidden className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/10">

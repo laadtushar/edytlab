@@ -93,6 +93,15 @@ export interface VideoFacts {
  * `public/videos/` and `public/demos/`. No rating, review or view
  * count: there are none.
  */
+/**
+ * A day as a date and time in UTC. Google's video report warns about a
+ * bare `uploadDate` ("Datetime property is missing a timezone"); the day
+ * stays the one written in `lib/videos.ts` and `lib/demos.ts`.
+ */
+export function uploadDateTime(day: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day}T00:00:00Z` : day;
+}
+
 export function videoObjectJsonLd(video: VideoFacts, where: { video: string; poster: string }) {
   return {
     "@context": "https://schema.org",
@@ -100,7 +109,7 @@ export function videoObjectJsonLd(video: VideoFacts, where: { video: string; pos
     name: video.title,
     description: video.description,
     thumbnailUrl: [absoluteUrl(where.poster)],
-    uploadDate: video.uploadDate,
+    uploadDate: uploadDateTime(video.uploadDate),
     contentUrl: absoluteUrl(where.video),
     duration: isoDuration(video.seconds),
     inLanguage: "en",

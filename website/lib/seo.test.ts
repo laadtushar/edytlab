@@ -683,8 +683,9 @@ describe("the three full demos", () => {
     // The poster the player shows, and the file it plays, both absolute, in the demos' own folder.
     expect(ld.thumbnailUrl).toEqual([`https://www.edytlab.com/demos/${demo.slug}.jpg`]);
     expect(ld.contentUrl).toBe(`https://www.edytlab.com/demos/${demo.slug}.mp4`);
-    expect(ld.uploadDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(ld.uploadDate).toBe(demo.uploadDate);
+    // A date and time with a timezone, which Google's video report asks for.
+    expect(ld.uploadDate).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00Z$/);
+    expect(ld.uploadDate).toBe(`${demo.uploadDate}T00:00:00Z`);
     expect(ld.duration).toMatch(/^PT(?:\d+H)?(?:\d+M)?\d+S$/);
     expect(ld.duration).toBe(isoDuration(demo.seconds));
   });
@@ -977,7 +978,7 @@ describe("a video's own page", () => {
     expect(ld.thumbnailUrl).toEqual([absoluteUrl(videoPosterSrc(video.slug))]);
     expect(ld.contentUrl).toBe(absoluteUrl(videoSrc(video.slug)));
     expect("embedUrl" in ld).toBe(false);
-    expect(ld.uploadDate).toBe(video.uploadDate);
+    expect(ld.uploadDate).toBe(`${video.uploadDate}T00:00:00Z`);
     expect(ld.duration).toBe(isoDuration(video.seconds));
     expectNoSocialProof(videoObjectJsonLd(video, files), "VideoObject");
   });

@@ -10,17 +10,17 @@
  * own page (`/videos/<slug>`), which each card links to, because Google
  * indexes a video only on a page where it is the main content.
  *
- * Nothing plays on its own. Each video waits for a press of play, which
- * settles autoplay-with-sound and reduced motion in one go, and with
- * `preload="none"` the page fetches only the posters until then — and
- * those only as a video nears the viewport (`LazyPosterVideo`), so they
- * do not queue with the page's scripts on the way in.
+ * Nothing plays on its own. Each card is its poster, a link to the
+ * video's page, until play is pressed (`FeaturedVideo`), which settles
+ * autoplay-with-sound and reduced motion in one go. So the markup holds
+ * no `<video>` for Google to report as "not on a watch page", and the
+ * page fetches only the posters, lazily, until then.
  */
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { LazyPosterVideo } from "@/components/landing/lazy-poster-video";
+import { FeaturedVideo } from "@/components/landing/featured-video";
 import { Reveal, Stagger } from "@/components/motion";
 import { DEMO_FRAME, type Demo, demoPosterSrc, demoVideoSrc, demos } from "@/lib/demos";
 import { videoPath } from "@/lib/videos";
@@ -28,35 +28,20 @@ import { videoPath } from "@/lib/videos";
 export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
   const titleId = `demo-${demo.slug}-title`;
   const captionId = `demo-${demo.slug}-caption`;
-  const src = demoVideoSrc(demo.slug);
 
   return (
     <figure className="overflow-hidden rounded-xl border border-border/60 bg-card lg:grid lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
       <div className="bg-black">
-        <LazyPosterVideo
-          controls
-          playsInline
-          preload="none"
+        <FeaturedVideo
+          href={videoPath(demo.slug)}
+          title={demo.title}
+          src={demoVideoSrc(demo.slug)}
           poster={demoPosterSrc(demo.slug)}
           width={DEMO_FRAME.width}
           height={DEMO_FRAME.height}
-          aria-labelledby={titleId}
-          aria-describedby={captionId}
-          className="block h-auto w-full max-w-full object-contain"
-          // The box is reserved from the frame size, so the page does
-          // not move when the poster lands; a recording at another
-          // ratio is letterboxed inside it.
-          style={{ aspectRatio: `${DEMO_FRAME.width} / ${DEMO_FRAME.height}` }}
-        >
-          <source src={src} type="video/mp4" />
-          <p className="p-4 text-sm text-muted-foreground">
-            This browser cannot play the video.{" "}
-            <a href={src} className="text-primary underline underline-offset-4">
-              Download the MP4
-            </a>{" "}
-            instead.
-          </p>
-        </LazyPosterVideo>
+          lazy
+          frame=""
+        />
       </div>
       <figcaption className="flex flex-col gap-3 border-t border-border/60 p-5 sm:p-6 lg:border-l lg:border-t-0">
         <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
