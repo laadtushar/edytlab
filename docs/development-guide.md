@@ -640,7 +640,7 @@ Defined in `apps/desktop/src-tauri/tauri.conf.json`:
 
 App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 ```json
-"version": "0.8.1"
+"version": "0.9.0"
 ```
 
 The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.ts` fails if any drifts. When bumping a version:

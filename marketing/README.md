@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.8.1 today (published 2026-10-24). (The website's own buttons point at the
+non-prerelease, which is v0.9.0 today (published 2026-10-25). (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -109,7 +109,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.8.1 | GitHub release v0.8.1 (six installers, checked 2026-10-24), `LICENSE` |
+| macOS universal, Windows, Linux builds; MIT; v0.9.0 | GitHub release v0.9.0 (its page lists the six installers), `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -187,7 +187,7 @@ getting caught.
       `website/public/demos/dj-beatmatched-transition.jpg` is the clearest
       still in the repo. `docs/brand/` also holds before and after screenshots
       of the app's colours (#515, 1440x900, taken with the IPC faked, so they
-      show fake data); the `before-*` set is the look v0.5.0 and earlier
+      show fake data; `after-06-settings-dialog.png` was retaken on 2026-10-25 for v0.9.0, so it shows the ChatGPT plan button the others lack); the `before-*` set is the look v0.5.0 and earlier
       shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
       [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.7.0 build.
