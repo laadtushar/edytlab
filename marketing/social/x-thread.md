@@ -54,7 +54,7 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.9.0 is out. New: Sign in with ChatGPT (a preview), so the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.7.0 it can also transcribe, once you download the speech model, and edits at mixed sample rates land in the right place.
+v0.9.0 is out. New: Sign in with ChatGPT (a preview), so the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, once you download the speech model, and edits at mixed sample rates land in the right place.
 ```
 
 **7/8**

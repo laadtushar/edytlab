@@ -1,6 +1,6 @@
 # edytlab launch kit
 
-Copy-paste material for launching edytlab v0.7.0. Everything here is written
+Copy-paste material for launching edytlab v0.9.0. Everything here is written
 to be posted as-is, by the owner, from their own accounts. Nothing in this
 folder posts anywhere by itself, and nothing here opens a PR on another repo.
 
@@ -25,7 +25,7 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/show-hn.md`](launch/show-hn.md) | Show HN title, body and the author's first comment, plus answers to the questions HN will ask |
 | [`launch/product-hunt.md`](launch/product-hunt.md) | Tagline, description, maker's first comment, 5 gallery captions, topics |
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
-| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.7.0 release and the DJ demo |
+| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.0 release and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
 | [`social-kit/linkedin/`](social-kit/linkedin/README.md) | The LinkedIn visuals in the website's design: five 1200x1200 images (one per post in `social-kit/linkedin-posts.md`), a seven-page carousel PDF for post 3, the HTML templates, staged screenshots of the real app and the script that renders them |
@@ -175,7 +175,7 @@ getting caught.
 
 ## Before the first post
 
-- [ ] Install the v0.7.0 build on at least one machine per OS you will claim.
+- [ ] Install the v0.9.0 build on at least one machine per OS you will claim.
       Confirm the macOS `xattr` step in the release notes works as written.
 - [ ] Open <https://edytlab.com> on a phone and play the demo.
 - [ ] GitHub repo topics. The repo currently lists `audacity`, `audacity-pro`
@@ -190,7 +190,7 @@ getting caught.
       show fake data; `after-06-settings-dialog.png` was retaken on 2026-10-25 for v0.9.0, so it shows the ChatGPT plan button the others lack); the `before-*` set is the look v0.5.0 and earlier
       shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
-      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.7.0 build.
+      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.0 build.
       The only UI screenshots in the repo are the `docs/brand/` pair above and the staged ones in `social-kit/linkedin/shots/` (fake data, retaken by `social-kit/linkedin/render.mjs --shots`).
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a

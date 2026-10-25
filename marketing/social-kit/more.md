@@ -369,7 +369,7 @@ Answers to have ready:
 
 Subject options:
 
-1. `edytlab v0.9.0: sign in with your ChatGPT plan (a preview), and transcription since v0.7.0`
+1. `edytlab v0.9.0: sign in with your ChatGPT plan (a preview), and transcription from v0.8.0`
 2. `Three DJ jobs, done by chatting with an AI audio agent`
 
 Body:
@@ -400,7 +400,7 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.9.0 is out (macOS, Windows, Linux). New: Sign in with ChatGPT, a preview, so the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.7.0 it can also transcribe, on your computer, once you download the speech model in Settings (checked on one short synthetic English recording only), and edits to a track at a different sample rate land in the right place. Stem separation is still not available. On v0.7.0 or older, update: a batch run could render onto its own inputs. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
+edytlab v0.9.0 is out (macOS, Windows, Linux). New: Sign in with ChatGPT, a preview, so the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, on your computer, once you download the speech model in Settings (checked on one short synthetic English recording only), and edits to a track at a different sample rate land in the right place. Stem separation is still not available. On v0.7.0 or older, update: a batch run could render onto its own inputs. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
 Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 Tell me which edit you'd ask for first.
 ```
