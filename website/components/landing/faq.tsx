@@ -23,24 +23,24 @@ import { SectionHeading } from "@/components/motion/section-heading";
 const faqs = [
   {
     q: "Which LLM models work?",
-    a: "Six API providers plus your ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama. Hosted providers use your own key, stored in the OS keychain; Ollama runs models on your machine and needs no API key; and with a ChatGPT Plus or Pro plan you can choose Continue with ChatGPT to use the plan's usage instead of a key (a preview, v0.9.0 and later). Switch provider and model in Settings at any time.",
+    a: "Six API providers plus your ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama, which runs on your machine and needs no API key. Keys and the plan sign-in are described under Models above.",
   },
   {
     q: "Does my audio leave my machine?",
-    a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and so does transcription, with a speech model you download once (v0.8.0 and later); stem separation is built to run locally too once its model ships. Besides your chat with the LLM provider you've configured, the app contacts only hosts you tell it to (a plugin URL, an MCP server) and, from v0.8.0, Hugging Face when you click Download for the speech model. Your raw audio is never uploaded; the words a transcription finds go to the provider as chat text, and stay on your machine with Ollama.",
+    a: "No. Decode, editing, mixing, rendering and transcription (with a speech model you download once, v0.8.0 and later) all run on your device. Besides your chat with the LLM provider, the app contacts only hosts you tell it to (a plugin URL, an MCP server) and Hugging Face when you click Download for the speech model. Raw audio is never uploaded; transcribed words go to the provider as chat text, and stay local with Ollama.",
     more: { href: "/use-cases/local-ai-audio-editor", label: "See what stays on your machine and what leaves" },
   },
   {
     q: "What are the system requirements?",
-    a: "macOS 11 Big Sur or later — the .dmg is a universal binary, so Apple Silicon and Intel both run it — Windows 10/11, or Linux (.deb / AppImage, x86_64). No GPU is needed: transcription runs on the CPU, and stem separation has not shipped yet.",
+    a: "macOS 11 Big Sur or later (the .dmg is universal: Apple Silicon and Intel), Windows 10/11, or Linux (.deb / AppImage, x86_64). No GPU is needed.",
   },
   {
     q: "Is it free?",
-    a: "The app is free. You pay your LLM provider directly for tokens, or, if you sign in with ChatGPT, the usage comes out of your ChatGPT plan. A hosted subscription that bundles AI inference is on the roadmap; pricing isn't finalized.",
+    a: "The app is free. You pay your LLM provider directly for tokens, or use your ChatGPT plan's usage. A hosted subscription that bundles AI inference is on the roadmap; pricing isn't finalized.",
   },
   {
     q: "Is it open source?",
-    a: "Yes. The desktop app and audio engine live in a public GitHub repository under the MIT License, so you can use, modify and redistribute them, including commercially.",
+    a: "Yes. The desktop app and audio engine are in a public GitHub repository under the MIT License, free to use, modify and redistribute, including commercially.",
   },
 ];
 

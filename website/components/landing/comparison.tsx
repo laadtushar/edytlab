@@ -37,37 +37,37 @@ const rows: Row[] = [
     label: "Audio stays on your machine",
     edytlab: "yes",
     detail:
-      "Only the chat goes to the provider you pick. With Ollama that can stay on your machine too.",
+      "Only the chat goes to your provider.",
   },
   {
     label: "Natural-language input",
     edytlab: "yes",
-    detail: "Describe the edit in chat; the agent calls the audio tools to make it.",
+    detail: "Describe the edit in chat.",
   },
   {
     label: "Session branching",
     edytlab: "yes",
-    detail: "Fork, A/B compare and revert. Undo follows the path you took.",
+    detail: "Fork, A/B compare and revert.",
   },
   {
     label: "Bring your own LLM key",
     edytlab: "yes",
-    detail: "Anthropic, OpenAI, OpenRouter, Groq or Gemini with your key; Ollama needs none. Or use your ChatGPT plan.",
+    detail: "Six API providers plus your ChatGPT plan.",
   },
   {
     label: "MCP client",
     edytlab: "yes",
-    detail: "Register MCP servers in Settings to give the agent more tools.",
+    detail: "Register MCP servers in Settings.",
   },
   {
     label: "Stem separation",
     edytlab: "Not yet",
-    detail: "Not in the app yet. Split stems in another tool, then load each one as a track.",
+    detail: "Split stems elsewhere, then load each as a track.",
   },
   {
     label: "Transcription and text-based editing",
     edytlab: "yes",
-    detail: "From v0.8.0, on your computer, with a speech model you download once. Cut words or filler words from the transcript.",
+    detail: "From v0.8.0, on your computer, after a one-time model download.",
   },
 ];
 
@@ -126,12 +126,12 @@ export function Comparison() {
   );
 
   return (
-    <section id="compare" className="border-y border-border/50 bg-secondary/20 py-20 md:py-28">
+    <section id="compare" className="border-y border-border/50 bg-secondary/20 py-12 md:py-28">
       <div className="container">
         <SectionHeading
           eyebrow="What it does"
           title="What edytlab does today, and what it does not yet."
-          lead="edytlab is an agent layer over a real audio engine: it plans, executes and iterates, in a session you can steer. Everything in the table is about edytlab alone, and can be checked in the app and the docs."
+          lead="edytlab is an agent layer over a real audio engine: it plans, runs tools and iterates, in a session you can steer."
         />
 
         <AgentLoop />
@@ -189,14 +189,14 @@ export function Comparison() {
               </Stagger>
             </table>
           </div>
-          {/* The table above is about edytlab alone. How it stands beside
-              named products is on the hub, where every cell cites a page. */}
+          {/* How edytlab stands beside named products is on the hub,
+              where every cell cites a page. */}
           <p className="mx-auto mt-6 max-w-4xl text-center text-sm text-muted-foreground">
-            Want it beside other tools?{" "}
+            Beside other tools:{" "}
             <Link href="/compare" className="font-medium text-primary underline-offset-4 hover:underline">
               AI audio editors compared
-            </Link>{" "}
-            sets edytlab next to other AI audio editors, with each cell linked to the page that states it and the day it was read.
+            </Link>
+            .
           </p>
         </Reveal>
       </div>

@@ -22,11 +22,10 @@ export function LatestPosts() {
         <SectionHeading
           eyebrow="From the blog"
           title="Workflows you can copy, sentence by sentence."
-          lead="Short how-tos: the sentence to type, and the tool that runs it."
         />
         <LineDraw>
           <Stagger
-            className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3"
+            className="mx-auto grid max-w-5xl gap-3 md:grid-cols-3 md:gap-4"
             each={0.06}
             distance={20}
           >
@@ -37,14 +36,13 @@ export function LatestPosts() {
                 data-lift
                 className="ring-hover group flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 hover:bg-card"
               >
-                <div className="aspect-[1200/630] border-b border-border/60">
+                <div className="hidden aspect-[1200/630] border-b border-border/60 md:block">
                   <BlogCover slug={post.slug} alt={post.coverAlt} />
                 </div>
                 <div className="flex flex-1 flex-col gap-2 p-5">
                   <h3 className="text-base font-semibold leading-snug group-hover:text-primary">
                     {post.title}
                   </h3>
-                  <p className="text-sm text-muted-foreground">{post.description}</p>
                   <div className="mt-auto inline-flex items-center gap-1 pt-3 text-xs font-medium text-primary">
                     Read the post
                     <ArrowRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-0.5" />

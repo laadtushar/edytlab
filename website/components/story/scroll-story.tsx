@@ -68,7 +68,7 @@ const TOOLS = ["load", "silence_finder", "truncate_silence", "set_clip_envelope"
 /** Only pin where there is room for a stage; narrow screens read the stack. */
 const STAGE = `${NO_PREFERENCE} and (min-width: 768px)`;
 
-/** Narrow screens with motion: the stack, with each scene doing its one thing. */
+/** Narrow screens with motion: the stack, each scene settling in as it scrolls up. */
 const STACK = `${NO_PREFERENCE} and (max-width: 767px)`;
 
 /**
@@ -248,9 +248,9 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
       mm.add(STACK, () => {
         intro();
 
-        // Each later scene settles in as it scrolls up, then does the
-        // one thing it is about — the same beats as the stage, played
-        // by position instead of by scrub.
+        // Each later scene settles in as it scrolls up. The waveforms of
+        // scenes 3 and 4 are not drawn below `md` (see `Scene`), so
+        // there is nothing for them to morph or draw here.
         gsap.utils.toArray<HTMLElement>("[data-scene]").slice(1).forEach((scene) => {
           gsap.from(scene.querySelectorAll(":scope > div > *"), {
             opacity: 0,
@@ -260,25 +260,6 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             scrollTrigger: { trigger: scene, start: REVEAL_START, once: true },
           });
         });
-        gsap.to("[data-voice-3]", {
-          morphSVG: morphTo(VOICE_CUT),
-          duration: 1.4,
-          delay: 0.4,
-          ease: "power2.inOut",
-          scrollTrigger: { trigger: "[data-scene='3']", start: "top 60%", once: true },
-        });
-        gsap.fromTo(
-          "[data-duck]",
-          { drawSVG: "0%" },
-          {
-            drawSVG: "100%",
-            duration: 1.4,
-            delay: 0.3,
-            ease: "power1.inOut",
-            onComplete: undash("[data-duck]"),
-            scrollTrigger: { trigger: "[data-scene='4']", start: "top 65%", once: true },
-          },
-        );
       });
 
       return () => mm.revert();
@@ -314,8 +295,8 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             </span>
           </h1>
           <p data-s1-sub className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground">
-            Twenty-two minutes of raw tape. Two speakers, dead air, music
-            that fights the voice. Watch it become an episode.
+            Twenty-two minutes of raw tape, dead air, music that fights
+            the voice. Watch it become an episode.
           </p>
           <Lanes>
             <path
@@ -334,21 +315,18 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
           <p className="font-mono text-xs uppercase tracking-widest text-primary">You say</p>
           <div
             data-bubble
-            className="mx-auto mt-6 max-w-2xl rounded-2xl rounded-br-sm border border-primary/30 bg-primary/10 px-6 py-5 text-left"
+            className="mx-auto mt-4 max-w-2xl md:mt-6 rounded-2xl rounded-br-sm border border-primary/30 bg-primary/10 px-6 py-5 text-left"
           >
             <p data-ask-text className="text-lg leading-relaxed text-foreground sm:text-xl">
               Cut the dead air, duck the music under my voice, and render it.
             </p>
           </div>
-          <p className="mt-6 text-sm text-muted-foreground">
-            No menu hunting. No preset chain. A sentence.
-          </p>
         </Scene>
 
         {/* ── 3 ─────────────────────────────────────────────────── */}
         <Scene n={3}>
           <p className="font-mono text-xs uppercase tracking-widest text-primary">It works</p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 md:mt-6">
             {TOOLS.map((t) => (
               <span
                 key={t}
@@ -359,7 +337,7 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
               </span>
             ))}
           </div>
-          <Lanes>
+          <Lanes className="hidden md:block">
             <path
               data-voice-3
               d={VOICE_RAW}
@@ -370,8 +348,7 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             />
           </Lanes>
           <p data-saved className="mt-4 text-sm text-muted-foreground">
-            Three stretches of silence gone. The tail closes up behind them —
-            one undoable step, not a destructive render.
+            Three stretches of silence gone, in one undoable step.
           </p>
         </Scene>
 
@@ -380,7 +357,7 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
           <p className="font-mono text-xs uppercase tracking-widest text-primary">
             And the music gets out of the way
           </p>
-          <Lanes>
+          <Lanes className="hidden md:block">
             <path d={MUSIC} className="fill-fuchsia-400/40" />
             <path
               data-duck
@@ -391,11 +368,9 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
               vectorEffect="non-scaling-stroke"
             />
           </Lanes>
-          <p data-duck-note className="mx-auto mt-6 max-w-xl text-sm text-muted-foreground">
-            Keyed on where the speech is, not on level: the voiced sound on
-            the voice track, so a breath does not trigger it, and it ducks
-            just before each line, which a live sidechain cannot. The result
-            is an ordinary automation curve you can drag.
+          <p data-duck-note className="mx-auto mt-4 max-w-xl text-sm text-muted-foreground md:mt-6">
+            Keyed on where the speech is, not on level, so a breath does not
+            trigger it. The result is an ordinary automation curve you can drag.
           </p>
         </Scene>
 
@@ -407,11 +382,11 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
           >
             <Words text="Rendered." className="gradient-text-split" />
           </h2>
-          <p className="mx-auto mt-5 max-w-xl text-pretty text-lg text-muted-foreground">
+          <p className="mx-auto mt-4 max-w-xl text-pretty text-lg text-muted-foreground">
             Every step is a node you can undo, branch, or export as a recipe
             and run over the next twelve episodes.
           </p>
-          <DownloadButtons data-done-cta release={release} className="mt-10" />
+          <DownloadButtons data-done-cta release={release} className="mt-6 md:mt-10" />
           <p className="mt-4 text-xs text-muted-foreground">{BUILD_NOTE}</p>
         </Scene>
 
@@ -452,7 +427,7 @@ function Scene({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <section
       data-scene={n}
-      className={`flex min-h-[60vh] flex-col items-center justify-center px-4 pb-16 text-center ${n === 1 ? "pt-24 md:min-h-screen md:pb-0 md:pt-0" : "pt-16"}`}
+      className={`flex flex-col items-center justify-center px-4 text-center ${n === 1 ? "min-h-[60vh] pb-16 pt-24 md:min-h-screen md:pb-0 md:pt-0" : "py-10"}`}
     >
       <div className="mx-auto w-full max-w-4xl">{children}</div>
     </section>
@@ -460,11 +435,11 @@ function Scene({ n, children }: { n: number; children: React.ReactNode }) {
 }
 
 /** The two audio lanes, at a fixed aspect so the paths never distort. */
-function Lanes({ children }: { children: React.ReactNode }) {
+function Lanes({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <svg
       viewBox={`0 0 ${WAVE_W} ${WAVE_H}`}
-      className="mx-auto mt-10 h-24 w-full max-w-3xl sm:h-32"
+      className={`mx-auto mt-10 h-24 w-full max-w-3xl sm:h-32 ${className ?? ""}`}
       role="img"
       aria-label="A waveform of the episode being edited"
     >

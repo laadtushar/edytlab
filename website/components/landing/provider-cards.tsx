@@ -41,7 +41,7 @@ const providers = [
   },
   {
     name: "Ollama",
-    body: "Runs on your own machine. No key, no account — not even the chat leaves the computer. It gets a compact tool set sized for small contexts, and every other tool is still there when you name it; pick a model trained for tool use to drive them reliably.",
+    body: "Runs on your own machine. No key, no account; not even the chat leaves the computer. Pick a model trained for tool use.",
     href: "https://ollama.com",
     cta: "Get Ollama",
     local: true,
@@ -50,19 +50,19 @@ const providers = [
 
 export function ProviderCards() {
   return (
-    <section id="providers" className="border-y border-border/50 bg-secondary/20 py-20 md:py-28">
+    <section id="providers" className="border-y border-border/50 bg-secondary/20 py-12 md:py-28">
       <div className="container">
         <SectionHeading
           eyebrow="Models"
           title="Bring your own key. Switch any time."
-          lead="Keys live in your OS keychain, and we never proxy your audio or your tokens. Change provider, model or per-model agent profile from Settings, without reinstalling. Prefer no key? Use your ChatGPT plan instead."
+          lead="Keys live in your OS keychain, and we never proxy your audio or your tokens."
         />
         {/* Cards stagger in and draw their icons — a cloud where the
             model is hosted, a laptop where it runs on yours — then lift
             and glow under the pointer. */}
         <LineDraw>
           <Stagger
-            className="mx-auto grid max-w-5xl gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            className="mx-auto grid max-w-5xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3"
             each={0.06}
             distance={20}
           >
@@ -75,7 +75,7 @@ export function ProviderCards() {
                   target="_blank"
                   rel="noopener noreferrer"
                   data-lift
-                  className="ring-hover group flex h-full flex-col gap-2 rounded-xl border border-border/60 bg-card/60 p-6 hover:bg-card"
+                  className="ring-hover group flex h-full flex-col gap-2 rounded-xl border border-border/60 bg-card/60 p-4 hover:bg-card sm:p-6"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-lg font-semibold">{p.name}</div>
@@ -84,7 +84,7 @@ export function ProviderCards() {
                     />
                   </div>
                   <p className="text-sm text-muted-foreground">{p.body}</p>
-                  <div className="mt-auto inline-flex items-center gap-1 pt-4 text-xs font-medium text-primary">
+                  <div className="mt-auto inline-flex items-center gap-1 pt-2 text-xs sm:pt-4 font-medium text-primary">
                     {p.cta ?? "Get a key"}
                     <ArrowUpRight className="size-3.5 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                   </div>
@@ -96,11 +96,10 @@ export function ProviderCards() {
         {/* The seventh way in, which is not a key: kept out of the grid so
             the six API providers stay six cards. */}
         <p className="mx-auto mt-8 max-w-3xl text-center text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Your ChatGPT plan</span>{" "}
-          (a preview, v0.9.0 and later) runs the assistant on a ChatGPT Plus or
-          Pro plan&apos;s usage with no API key: Continue with ChatGPT in
-          Settings signs you in through your browser. May not be available on
-          workspace plans.{" "}
+          <span className="font-medium text-foreground">Or your ChatGPT plan</span>{" "}
+          (a preview, v0.9.0 and later): Continue with ChatGPT in Settings
+          signs you in through your browser, with no API key. May not be
+          available on workspace plans.{" "}
           <Link
             href="/docs/user-guide#chatgpt-plan"
             className="font-medium text-primary underline-offset-4 hover:underline"

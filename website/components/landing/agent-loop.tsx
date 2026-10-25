@@ -11,9 +11,9 @@
  * — text, not audio. The dashed box is the machine the audio never
  * leaves.
  *
- * Two layouts of the same diagram — across for a wide screen, down for a
- * phone — because one SVG scaled to 390px would set its labels at five
- * pixels. Only the visible one animates.
+ * It is drawn from `md` up only: scaled to a phone's width its labels
+ * would be five pixels tall, and the table under it says the same
+ * things in words.
  *
  * Motion, with the finished drawing in the markup:
  * - the connectors are drawn in order (DrawSVG), the boxes pop,
@@ -91,29 +91,7 @@ const WIDE: Layout = {
   localLabel: [924, 34],
 };
 
-const TALL: Layout = {
-  viewBox: "0 0 340 600",
-  nodes: { you: [130, 40], agent: [130, 150], tools: [130, 290], engine: [130, 410], render: [130, 540] },
-  edges: {
-    ask: "M130,68 L130,122",
-    call: "M130,178 L130,262",
-    edit: "M130,318 L130,382",
-    result: "M196,410 C300,410 300,150 196,150",
-    done: "M130,438 L130,512",
-  },
-  labels: {
-    ask: [142, 99],
-    call: [142, 224],
-    edit: [142, 354],
-    result: [318, 280],
-    done: [142, 479],
-  },
-  local: [36, 236, 296, 346],
-  localLabel: [324, 598],
-};
-
 function Diagram({ layout, className }: { layout: Layout; className?: string }) {
-  const tall = layout === TALL;
   return (
     <svg
       viewBox={layout.viewBox}
@@ -157,13 +135,8 @@ function Diagram({ layout, className }: { layout: Layout; className?: string }) 
             data-edge-label
             x={layout.labels[id][0]}
             y={layout.labels[id][1]}
-            textAnchor={tall && id !== "result" ? "start" : "middle"}
+            textAnchor="middle"
             className="fill-muted-foreground text-[11px]"
-            transform={
-              tall && id === "result"
-                ? `rotate(90 ${layout.labels[id][0]} ${layout.labels[id][1]})`
-                : undefined
-            }
           >
             {EDGE_LABELS[id]}
           </text>
@@ -321,15 +294,11 @@ function useLoopMotion(query: string) {
 
 export function AgentLoop({ className }: { className?: string }) {
   const wide = useLoopMotion("(min-width: 768px)");
-  const tall = useLoopMotion("(max-width: 767px)");
 
   return (
-    <div className={cn("mx-auto mb-14 max-w-4xl", className)}>
-      <div ref={wide} className="hidden md:block">
+    <div className={cn("mx-auto mb-14 hidden max-w-4xl md:block", className)}>
+      <div ref={wide}>
         <Diagram layout={WIDE} />
-      </div>
-      <div ref={tall} className="mx-auto max-w-[340px] md:hidden">
-        <Diagram layout={TALL} />
       </div>
     </div>
   );

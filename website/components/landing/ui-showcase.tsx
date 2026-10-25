@@ -20,6 +20,9 @@ import { Stagger, TiltCard } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
 import { gsap, useGSAPWhenNear, motionOk, NO_PREFERENCE, undash, whileVisible } from "@/lib/gsap";
 
+/** The panels are drawn from `md` up only (below it they are `hidden`), so only there do they move. */
+const PANELS_SHOWN = `${NO_PREFERENCE} and (min-width: 768px)`;
+
 /**
  * Each panel renders its **finished** state and GSAP animates *from* the
  * starting one. That ordering is the whole trick: with motion reduced,
@@ -88,7 +91,7 @@ function MixerPanel() {
   useGSAPWhenNear(
     () => {
       const mm = motionOk();
-      mm.add(NO_PREFERENCE, () => {
+      mm.add(PANELS_SHOWN, () => {
         const st = panelTrigger(ref.current);
         MIXER_TRACKS.forEach((t, i) => {
           const from = `${pos(t.from)}%`;
@@ -181,7 +184,7 @@ function AutomationPanel() {
   useGSAPWhenNear(
     () => {
       const mm = motionOk();
-      mm.add(NO_PREFERENCE, () => {
+      mm.add(PANELS_SHOWN, () => {
         const path = ref.current?.querySelector<SVGPathElement>("[data-curve]");
         if (path) {
           // Draw the stroke by animating a dash gap the length of the
@@ -275,7 +278,7 @@ function ClipStripPanel() {
   useGSAPWhenNear(
     () => {
       const mm = motionOk();
-      mm.add(NO_PREFERENCE, () => {
+      mm.add(PANELS_SHOWN, () => {
         const st = panelTrigger(ref.current);
         gsap.from("[data-clip-a]", { opacity: 0, duration: 0.4, scrollTrigger: st });
         // The second clip slides from where it sat before the cut, which
@@ -384,7 +387,7 @@ function GraphPanel() {
   useGSAPWhenNear(
     () => {
       const mm = motionOk();
-      mm.add(NO_PREFERENCE, (context) => {
+      mm.add(PANELS_SHOWN, (context) => {
         // History is written in the order it happened: each edge draws,
         // then the node it leads to pops — the trunk first, then the
         // fork into two branches.
@@ -493,25 +496,25 @@ const PANELS = [
   {
     title: "mixer",
     caption:
-      "Gain, pan, mute and solo per track — by hand, without asking the agent. Every move is one undoable step in the session graph.",
+      "Gain, pan, mute and solo per track, by hand.",
     render: <MixerPanel />,
   },
   {
     title: "automation",
     caption:
-      "Draw a volume curve on the clip. Click to add a point, drag to move it, arrows to nudge. The render interpolates between them per frame.",
+      "Draw a volume curve: click to add a point, drag to move it.",
     render: <AutomationPanel />,
   },
   {
     title: "clips",
     caption:
-      "Cut a track and the seam is visible. Select a clip, drag it later, delete it — the waveform and the arrangement stay in step.",
+      "Cut a track and drag a clip later, or delete it.",
     render: <ClipStripPanel />,
   },
   {
     title: "graph",
     caption:
-      "Every edit is a node in the session graph. Click one to hear it; right-click to set it as the head, compare it with another or rename it.",
+      "Every edit is a node. Click one to hear it; right-click to set it as the head or compare it.",
     render: <GraphPanel />,
   },
 ];
@@ -523,11 +526,11 @@ export function UiShowcase() {
         <SectionHeading
           eyebrow="The interface"
           title="Talk to it — or reach in and move things yourself."
-          lead="The agent is the fast path, not the only one. Faders, automation curves and clips are all directly editable, and every change lands in the same undoable session graph the agent writes to."
+          lead="The agent is the fast path, not the only one: faders, curves and clips are directly editable, and every change is an undoable step."
         />
         {/* Each panel animates the interaction it describes, and tilts
             toward the cursor once it has landed. */}
-        <Stagger className="mx-auto grid max-w-5xl gap-5 md:grid-cols-2" each={0.1} distance={28}>
+        <Stagger className="mx-auto hidden max-w-5xl gap-5 md:grid md:grid-cols-2" each={0.1} distance={28}>
           {/* The stagger moves the wrapper and the tilt moves the card
               inside it — two tweens on one element would fight over its
               transform. */}

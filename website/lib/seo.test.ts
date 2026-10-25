@@ -45,7 +45,7 @@ import {
   websiteJsonLd,
 } from "./seo";
 import { siteConfig } from "./site";
-import { demoVideos, getVideo, videoPath, videoPosterSrc, videoSrc, watchVideos } from "./videos";
+import { demoVideos, getVideo, hubVideos, videoPath, videoPosterSrc, videoSrc, watchVideos } from "./videos";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -892,7 +892,7 @@ describe("the videos hub", () => {
     expect(page).toContain("const featured = launchVideo");
     expect(at("<FeaturedVideo")).toBeGreaterThan(-1);
     expect(at("demoVideos.map(")).toBeGreaterThan(at("<FeaturedVideo"));
-    expect(at("reels.map(")).toBeGreaterThan(at("demoVideos.map("));
+    expect(at("hubReels.map(")).toBeGreaterThan(at("demoVideos.map("));
     // A section of what an old release changed reads as stale the day the next one ships.
     expect(page).not.toMatch(/releaseVideo|releaseReels|Earlier releases|v\d+\.\d+\.\d+/);
   });
@@ -912,10 +912,11 @@ describe("the videos hub", () => {
     expect(hub["@type"]).toBe("CollectionPage");
     expect(hub.url).toBe(absoluteUrl("/videos"));
     expect(hub.mainEntity["@type"]).toBe("ItemList");
-    expect(hub.mainEntity.numberOfItems).toBe(watchVideos.length);
-    expect(hub.mainEntity.itemListElement.map((i: { position: number }) => i.position)).toEqual(watchVideos.map((_, i) => i + 1));
+    // The hub's list is the videos it shows as cards; the teaser has a page (and a sitemap entry) but no card.
+    expect(hub.mainEntity.numberOfItems).toBe(hubVideos.length);
+    expect(hub.mainEntity.itemListElement.map((i: { position: number }) => i.position)).toEqual(hubVideos.map((_, i) => i + 1));
     expect(hub.mainEntity.itemListElement.map((i: { url: string }) => i.url)).toEqual(
-      watchVideos.map((v) => absoluteUrl(videoPath(v.slug))),
+      hubVideos.map((v) => absoluteUrl(videoPath(v.slug))),
     );
     expect(page).toContain("<JsonLd data={videosHubJsonLd()} />");
     expectNoSocialProof(videosHubJsonLd(), "CollectionPage");
@@ -924,7 +925,7 @@ describe("the videos hub", () => {
   it("links each demo's card to the demo's own watch page", () => {
     // The card is the same component as for every other video: it links `videoPath(slug)`.
     expect(page).toContain("demoVideos.map((video) => (");
-    expect(page).toContain("<VideoLinkCard key={video.slug} video={video} />");
+    expect(page).toContain("<VideoLinkCard key={video.slug} video={video} disclosure={false} />");
     expect(cards).toContain("href={videoPath(video.slug)}");
     for (const d of demoVideos) expect(videoPath(d.slug)).toBe(`/videos/${d.slug}`);
   });

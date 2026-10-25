@@ -16,8 +16,8 @@ import {
 import {
   demoVideos,
   formatDuration,
+  hubReels,
   launchVideo,
-  reels,
   videoCaptionsSrc,
   videoPath,
   videoPosterSrc,
@@ -54,14 +54,14 @@ export default function VideosPage() {
       wide
       eyebrow="Videos"
       title="Watch edytlab edit audio from a sentence"
-      lead="Ask for a blend, a fade or a loudness target in plain English and see the agent do the work in the real desktop app, from the request to the exported file."
+      lead="Ask for a blend, a fade or a loudness target in plain English and watch the agent do it in the real desktop app."
     >
       <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("Videos", path))} />
       <JsonLd data={videosHubJsonLd()} />
 
-      <VideoActions className="mt-8" />
+      <VideoActions className="mt-6" />
 
-      <section aria-labelledby="videos-featured" className="mt-12">
+      <section aria-labelledby="videos-featured" className="mt-10">
         <FeaturedVideo
           href={videoPath(featured.slug)}
           title={featured.title}
@@ -71,7 +71,7 @@ export default function VideosPage() {
           width={featured.width}
           height={featured.height}
         />
-        <div className="mt-5 max-w-3xl">
+        <div className="mt-4 max-w-3xl">
           <h2 id="videos-featured" className="text-balance text-xl font-semibold sm:text-2xl">
             <Link href={videoPath(featured.slug)} className="hover:text-primary">
               {featured.title}
@@ -89,7 +89,7 @@ export default function VideosPage() {
         title="Full walkthroughs"
         lead={
           <>
-            Three complete DJ jobs, from the request to an exported file. What edytlab does and does not do for a DJ is on the{" "}
+            Three complete DJ jobs, from the request to an exported file. {demoVideos[0].disclosure} More on the{" "}
             <Link href="/use-cases/dj" className="text-primary underline underline-offset-4">
               AI audio editor for DJs
             </Link>{" "}
@@ -97,24 +97,24 @@ export default function VideosPage() {
           </>
         }
       >
-        <div className="grid gap-5 md:grid-cols-3">
+        {/* Three cards: one column on a phone, three from `md`, so no card is alone in a row. */}
+        <div className="grid gap-4 md:grid-cols-3 md:gap-5">
           {demoVideos.map((video) => (
-            <VideoLinkCard key={video.slug} video={video} />
+            <VideoLinkCard key={video.slug} video={video} disclosure={false} />
           ))}
         </div>
       </VideoSection>
 
-      <VideoSection id="videos-clips" title="Short clips" lead="Vertical videos for your phone, each about one idea.">
-        {/* Flex, not a grid, so the last row is centred whatever the count:
-            two across on a phone, and the five in one row from `lg`. */}
-        <div className="flex flex-wrap justify-center gap-4">
-          {reels.map((video) => (
-            <VideoLinkCard
-              key={video.slug}
-              video={video}
-              compact
-              className="w-[calc((100%-1rem)/2)] lg:w-[calc((100%-4rem)/5)]"
-            />
+      <VideoSection
+        id="videos-clips"
+        title="Short clips"
+        lead={`Vertical videos for your phone, each about one idea. ${hubReels[0].disclosure}`}
+      >
+        {/* Four cards: two across on a phone (two rows), four from `lg` (one row). A fifth or a third card
+            leaves one alone, which `videosPage.test.ts` fails. */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {hubReels.map((video) => (
+            <VideoLinkCard key={video.slug} video={video} compact disclosure={false} />
           ))}
         </div>
       </VideoSection>

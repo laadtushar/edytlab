@@ -129,7 +129,7 @@ export const videos: readonly SiteVideo[] = [
     blurb: "Describe a blend in plain English, hear the transition, then master and export the mix.",
     disclosure: "Real screen recordings of the app on short synthetic demo tracks. Waits sped up.",
     caption:
-      "One DJ job from request to exported file, cut from the real recordings of the desktop app: the request is typed in plain English, the agent calls its tools and points out what it noticed, you hear the blend, and the mix is mastered and exported as a WAV. Two more jobs follow, then how it works (the audio stays on your machine, only the chat goes to the provider you choose) and an end card: free and open source, with the installers unsigned. Captions are available.",
+      "One DJ job from request to exported file, cut from the real recordings of the desktop app: the request is typed in plain English, the agent calls its tools and points out what it noticed, you hear the blend, and the mix is mastered and exported as a WAV. Two more jobs follow, then how it works and an end card. Captions are available.",
     description:
       "A one-minute video of the edytlab desktop app: a DJ describes a blend in plain English, the agent calls its tools, and the mix is exported.",
     seconds: 58,
@@ -386,8 +386,20 @@ export const demoVideos: readonly DemoVideo[] = demos.map((d) => ({
 export const launchVideo = videos.find((v) => v.kind === "launch") as SiteVideo;
 export const reels: readonly SiteVideo[] = videos.filter((v) => v.kind === "reel");
 
+/**
+ * The reels the hub shows as cards: four, so the grid is two across on a
+ * phone and four across from `lg` with no card alone in a row. The teaser
+ * is left off because its content is in the highlights reel; it keeps its
+ * page, its sitemap entry and its file, and the other reels' pages still
+ * offer it.
+ */
+export const hubReels: readonly SiteVideo[] = reels.filter((v) => v.slug !== "reel-teaser");
+
 /** Every video that has a page of its own, in the hub's order. */
 export const watchVideos: readonly WatchVideo[] = [launchVideo, ...demoVideos, ...reels];
+
+/** The videos the hub lists, in its order: the ones with a card (the teaser has a page but no card). */
+export const hubVideos: readonly WatchVideo[] = [launchVideo, ...demoVideos, ...hubReels];
 
 export const getVideo = (slug: string): WatchVideo | undefined => watchVideos.find((v) => v.slug === slug);
 

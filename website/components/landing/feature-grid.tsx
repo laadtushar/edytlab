@@ -35,32 +35,32 @@ const features = [
   {
     icon: FileText,
     title: "Text-based editing, after a one-time model download",
-    body: "Transcribe a take on your computer and the transcript becomes the editor. Select a sentence to select the audio; delete it and the audio is cut and the gap closed. The remaining word timings shift to match, so the transcript keeps lining up with what you can hear. It is an ordinary edit underneath — undoable, branchable, and recorded like any other. Transcription needs the Whisper base speech model (about 139 MB), which you download once in Settings, never automatically; the audio never leaves your computer, but the words it finds reach your AI provider as text, unless you use Ollama.",
+    body: "Transcribe a take on your computer and the transcript becomes the editor: delete a sentence and the audio is cut and the gap closed, as an ordinary undoable edit. It needs the speech model (about 139 MB), which you download once in Settings; the words it finds reach your AI provider as text, unless you use Ollama.",
   },
   {
     icon: MessageSquare,
     title: "Conversational multi-track",
-    body: "Match B's tempo to A's, start it eight bars before A ends, crossfade, give me three takes. The agent plans (and can show you the plan first), runs the multi-track mix and renders branches you can A/B — all from a single prompt.",
+    body: "Match B's tempo to A's, start it eight bars before A ends, crossfade, give me three takes. The agent plans (and can show you the plan first) and renders branches you can A/B.",
   },
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "A pure-Rust audio graph (cpal · symphonia · rubato · realfft) with no C dependency in the audio path. Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats.",
+    body: "Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation. Warp a performance onto a beat grid in a single pass.",
   },
   {
     icon: GitBranch,
     title: "Undo, branch & compare",
-    body: "Every state is a DAG node. Ctrl+Z/Y traverse the branch history. Fork, A/B compare, and revert are first-class — not hidden behind a linear undo stack.",
+    body: "Every state is a node in a graph. Fork, A/B compare, and revert are first-class, not hidden behind a linear undo stack.",
   },
   {
     icon: FileDown,
     title: "Export that plays anywhere",
-    body: "WAV when you want the samples, FLAC for lossless at about half the size, MP3 when it has to open on anything. Loudness-normalise to a LUFS target — the number streaming platforms actually use — with a true-peak ceiling so it never clips getting there. On the way in, it opens WAV, MP3, FLAC and OGG.",
+    body: "WAV, FLAC or MP3. Loudness-normalise to a LUFS target with a true-peak ceiling. It opens WAV, MP3, FLAC and OGG.",
   },
   {
     icon: Zap,
     title: "MCP extensibility",
-    body: "Register Model Context Protocol servers from Settings to give the agent new tools. Wire in stdio JSON-RPC servers and extend what edytlab can do without touching core code.",
+    body: "Register Model Context Protocol servers from Settings to give the agent new tools, without touching core code.",
   },
 ];
 
@@ -77,7 +77,7 @@ export function FeatureGrid() {
             once it is there. */}
         <LineDraw>
           <Stagger
-            className="mx-auto grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3"
+            className="mx-auto grid max-w-6xl gap-3 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3"
             each={0.06}
             distance={28}
             scale
@@ -86,14 +86,14 @@ export function FeatureGrid() {
               <div key={f.title} className="group">
                 <TiltCard className="h-full">
                   <Card className="surface h-full border-border/60 backdrop-blur transition-colors group-hover:border-primary/40">
-                    <CardHeader>
-                      <div className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
+                    <CardHeader className="max-sm:p-4 max-sm:pb-2">
+                      <div className="mb-3 hidden size-11 items-center justify-center rounded-lg sm:flex bg-primary/10 text-primary ring-1 ring-primary/20 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
                         <f.icon className="size-5" />
                       </div>
                       <CardTitle>{f.title}</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <CardDescription className="text-[0.95rem] leading-relaxed">
+                    <CardContent className="max-sm:p-4 max-sm:pt-0">
+                      <CardDescription className="text-sm leading-relaxed sm:text-[0.95rem]">
                         {f.body}
                       </CardDescription>
                     </CardContent>

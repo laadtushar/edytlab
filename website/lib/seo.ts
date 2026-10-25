@@ -13,7 +13,7 @@ import {
   absoluteUrl,
   type Crumb,
 } from "./seo-core";
-import { type WatchVideo, videoPath, watchVideos } from "./videos";
+import { type WatchVideo, hubVideos, videoPath } from "./videos";
 import { siteConfig } from "./site";
 
 export * from "./seo-core";
@@ -127,7 +127,7 @@ export function videoBreadcrumbs(video: WatchVideo): Crumb[] {
 
 /**
  * The videos hub as a `CollectionPage` whose `ItemList` points at each
- * video's own page. The hub holds no player, so it carries no
+ * video's own page, for the videos the hub shows. The hub holds no player, so it carries no
  * `VideoObject`: each video's belongs on its page, where the video is
  * the main content.
  */
@@ -141,8 +141,8 @@ export function videosHubJsonLd() {
     inLanguage: "en",
     mainEntity: {
       "@type": "ItemList",
-      numberOfItems: watchVideos.length,
-      itemListElement: watchVideos.map((v, i) => ({
+      numberOfItems: hubVideos.length,
+      itemListElement: hubVideos.map((v, i) => ({
         "@type": "ListItem",
         position: i + 1,
         url: absoluteUrl(videoPath(v.slug)),
