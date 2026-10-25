@@ -171,7 +171,17 @@ export default function GettingStartedPage() {
             <td>Free — runs on your hardware</td>
           </tr>
           <tr>
-            <td>ChatGPT plan (preview, v0.9.0 and later)</td>
+            <td>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/brand/openai/chatgpt-logo-white.svg"
+                alt=""
+                width={16}
+                height={16}
+                style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }}
+              />
+              ChatGPT plan (preview, v0.9.0 and later)
+            </td>
             <td>
               No key. In Settings, choose ChatGPT plan and{" "}
               <strong>Continue with ChatGPT</strong>; edytlab opens your

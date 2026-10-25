@@ -76,9 +76,12 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
   done, or that it is an OpenAI partnership. Call it a preview. Say "Available
   for ChatGPT Plus and Pro. May not be available on workspace plans; that
   depends on OpenAI and your admin", and do not say Team or Business works or
-  does not. Use the words "Continue with ChatGPT" and no OpenAI or ChatGPT
-  logo (OpenAI's marks need its permission,
-  <https://openai.com/brand/>; requests go to partnercomms@openai.com).
+  does not. Use the words "Continue with ChatGPT". The approved Sign in with
+  ChatGPT assets (`website/public/brand/openai/`) may be used as published,
+  unaltered (not recoloured or redrawn), and only for the sign-in
+  (<https://developers.openai.com/siwc/website>; the owner cleared this with
+  OpenAI). No other OpenAI or ChatGPT logo, and no endorsement or partnership
+  claim (other marks: <https://openai.com/brand/>, partnercomms@openai.com).
 - A user count, download count, star count, testimonial, press quote or
   benchmark. None exists in the repo to cite.
 - That the website has no analytics. The desktop app sends no telemetry, but

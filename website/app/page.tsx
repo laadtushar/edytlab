@@ -8,6 +8,7 @@ import { FeatureGrid } from "@/components/landing/feature-grid";
 import { Footer } from "@/components/landing/footer";
 import { ScrollStory } from "@/components/story/scroll-story";
 import { LatestPosts } from "@/components/landing/latest-posts";
+import { ChatGptPlan } from "@/components/landing/chatgpt-plan";
 import { ProviderCards } from "@/components/landing/provider-cards";
 import { Parallax } from "@/components/motion";
 import { RealDemos } from "@/components/landing/real-demos";
@@ -55,6 +56,7 @@ export default async function Home() {
         <ToolCatalogue />
         <UiShowcase />
         <ProviderCards />
+        <ChatGptPlan />
         <FAQ />
         <LatestPosts />
         <CTA release={release} />

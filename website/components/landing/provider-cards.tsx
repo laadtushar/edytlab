@@ -93,20 +93,6 @@ export function ProviderCards() {
             })}
           </Stagger>
         </LineDraw>
-        {/* The seventh way in, which is not a key: kept out of the grid so
-            the six API providers stay six cards. */}
-        <p className="mx-auto mt-8 max-w-3xl text-center text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Or your ChatGPT plan</span>{" "}
-          (a preview, v0.9.0 and later): Continue with ChatGPT in Settings
-          signs you in through your browser, with no API key. May not be
-          available on workspace plans.{" "}
-          <Link
-            href="/docs/user-guide#chatgpt-plan"
-            className="font-medium text-primary underline-offset-4 hover:underline"
-          >
-            How it works
-          </Link>
-        </p>
       </div>
     </section>
   );

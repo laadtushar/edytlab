@@ -390,11 +390,18 @@ fn the_site_words_eligibility_as_the_settings_card_does() {
     }
 }
 
-/// No OpenAI mark on the site until OpenAI has been asked (G14): the button
-/// is the text "Continue with ChatGPT", and the site shows no ChatGPT or
-/// OpenAI logo for it. OpenAI's marks are used only with its permission.
+/// The only OpenAI marks on the site are the two files OpenAI publishes for
+/// the sign-in button, unaltered, in `public/brand/openai/` (the owner cleared
+/// the use with OpenAI; https://developers.openai.com/siwc/website offers the
+/// white and black "Continue with ChatGPT" formats). Any other OpenAI or
+/// ChatGPT image is still refused. `lib/openaiBrand.test.ts` pins the bytes.
+const APPROVED_LOGOS: [&str; 2] = [
+    "/brand/openai/chatgpt-logo-white.svg",
+    "/brand/openai/chatgpt-logo-black.svg",
+];
+
 #[test]
-fn the_site_carries_no_openai_or_chatgpt_logo_asset() {
+fn the_site_carries_no_openai_or_chatgpt_logo_asset_but_the_approved_two() {
     let sources = website_sources();
     assert!(
         sources.len() > 20,
@@ -402,11 +409,57 @@ fn the_site_carries_no_openai_or_chatgpt_logo_asset() {
         sources.len()
     );
     for (file, text) in &sources {
+        // The test that pins the approved files' hashes names them by bare file name.
+        if file.ends_with("openaiBrand.test.ts") {
+            continue;
+        }
+        let mut text = text.clone();
+        for approved in APPROVED_LOGOS {
+            text = text.replace(approved, "");
+        }
         for banned in ["chatgpt-logo", "openai-logo", "sign-in-buttons/"] {
             assert!(
                 !text.contains(banned),
-                "{file} refers to {banned:?}: the OpenAI mark waits for OpenAI's permission (G14)"
+                "{file} refers to {banned:?} other than the approved files under public/brand/openai/"
             );
+        }
+    }
+}
+
+#[test]
+fn public_holds_no_openai_or_chatgpt_image_but_the_approved_two() {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    let public = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../website/public");
+    let mut files = Vec::new();
+    walk(&public, &mut files);
+    assert!(!files.is_empty(), "found no files under website/public");
+    for path in files {
+        let relative = path
+            .strip_prefix(&public)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let lower = relative.to_lowercase();
+        let named = lower.contains("openai") || lower.contains("chatgpt");
+        let allowed = relative.starts_with("brand/openai/")
+            && (APPROVED_LOGOS.iter().any(|a| a.trim_start_matches('/') == relative)
+                || relative == "brand/openai/README.md");
+        if relative.starts_with("brand/openai/") {
+            assert!(allowed, "{relative}: only the two approved logos and the README belong here");
+        } else {
+            assert!(!named, "{relative}: an OpenAI or ChatGPT image outside public/brand/openai/");
         }
     }
 }

@@ -405,6 +405,7 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
 - **Refresh may not work yet.** devkit#5 is open (see [Known preview problems](#known-preview-problems)), so a session may end at about the one-hour mark. The "Session ended" card (§4.5) is the recovery.
 - **Keychain limits.** The Windows limits (1,280 characters for `set_password`, 2,560 bytes for `set_secret`) and the non-durable kernel-keyring fallback on Linux with no Secret Service (#394, largely fixed by #477) are handled by the split in §4.3. Measure real refresh-token lengths.
 - **Brand assets.** openai.com/brand could not be read from this environment. Check the logo and button rules there before shipping the branded button.
+  - **Update 2026-10-25:** the owner cleared logo use with OpenAI, and OpenAI's Sign in with ChatGPT guidance (<https://developers.openai.com/siwc/website>) offers the white and black logo buttons. The approved logo is now used, unaltered, on the website (`website/public/brand/openai/`) and in the app; the "text-only" fallback in §4.5 and the plan above no longer applies. No endorsement or partnership claim.
 - **If edytlab goes paid or hosted** (FAQ roadmap), file the interest form before offering plan usage in that product (§2.2).
 
 ### 4.9 Security requirements (must hold)
