@@ -21,19 +21,27 @@ Post 1, post 4 and the carousel were re-rendered on 2026-10-25 for v0.9.0: the
 stat said "6 providers", and the Settings screenshot in post 4 listed six
 buttons, where v0.9.0 has a seventh, **ChatGPT plan** (#703). The stat now says
 "6 API providers" with "or use your ChatGPT plan" in its label, the wording of the
-site's stats strip (#704). Post 1's pill and the carousel's last page say v0.9.0.
+site's stats strip (#704). Post 1's pill and the carousel's last page said v0.9.0 then; they say v0.9.1 now (below).
 The files they replace are in
 [`../../archive/linkedin/2026-10-22-v0.7.0-six-providers/`](../../archive/README.md).
 Posts 2, 3 (the square) and 5 carry no provider count and were not re-rendered.
 
+Post 1 and the carousel were re-rendered again on 2026-10-25 for v0.9.1 (the
+version is the only change: the pill and the carousel's last page say v0.9.1,
+and the file sizes are the same to the kilobyte). The v0.9.0 files are in
+[`../../archive/linkedin/2026-10-25-v0.9.0/out/`](../../archive/README.md). The
+other four files render to the same picture; a render on Linux sets the text a
+few pixels differently from the Windows render that made posts 2 and 5, so those
+two were left as committed.
+
 | File | Size | Goes with | What it shows |
 |---|---|---|---|
-| `out/post-1-launch.png` | 1200x1200, 576 KB | Post 1, launch | "An audio editor you talk to": a "v0.9.0 · open source" pill, the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 API providers, 94 tools) |
+| `out/post-1-launch.png` | 1200x1200, 576 KB | Post 1, launch | "An audio editor you talk to": a "v0.9.1 · open source" pill, the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 API providers, 94 tools) |
 | `out/post-2-before-after.png` | 1200x1200, 396 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same scripted example conversation in the app's chat panel |
 | `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 203 KB | Post 3, build story | The model reads text and answers with tool calls; the 94 tools and the audio are on your machine |
 | `out/post-4-privacy.png` | 1200x1200, 224 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected (the six API providers and the ChatGPT plan button) |
 | `out/post-5-help-wanted.png` | 1200x1200, 249 KB | Post 5, open source | Four places a contributor would make a difference, with issue numbers |
-| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, each an image (2x, JPEG), 2691 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline (94 tools), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, 6 API providers, 94 tools, and "v0.9.0 for macOS, Windows and Linux. The installers are unsigned") |
+| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, each an image (2x, JPEG), 2691 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline (94 tools), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, 6 API providers, 94 tools, and "v0.9.1 for macOS, Windows and Linux. The installers are unsigned") |
 
 A square can also be the cover of the post's reel, if LinkedIn's uploader offers a
 custom thumbnail (not checked from here). The carousel is a native document post:
@@ -159,7 +167,7 @@ count, a quote or a benchmark.
 | Rubber Band was dropped for a pure-Rust phase vocoder; the cost is smearing on dense material at large changes | `crates/audio-time/src/vocoder.rs`, `README.md` |
 | Eleven effects cannot yet run on a master or bus chain | `NOT_YET_STREAMING` in `crates/audio-engine/src/effect_chain.rs` |
 | #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) | GitHub, checked 2026-10-22: #464, #497, #383, #384 and #385 are all open. The installers carry the ONNX Runtime from v0.7.0 (#615), but no model is downloaded and no inference runs, so "Not shipped yet: ONNX Runtime inference inside a Tauri app" on the post 5 square is still true |
-| v0.9.0 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.9.0 release notes. The last carousel page, the only canvas that mentions a download, says so; post 1's pill names the version. Both were re-rendered on 2026-10-25 and say v0.9.0. The version and the tool count are read at render time, so **run `node render.mjs` after the next release or the next new tool, before posting either** |
+| v0.9.1 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.9.1 release notes. The last carousel page, the only canvas that mentions a download, says so; post 1's pill names the version. Both were re-rendered on 2026-10-25 and say v0.9.1. The version and the tool count are read at render time, so **run `node render.mjs` after the next release or the next new tool, before posting either** |
 
 ## Files
 

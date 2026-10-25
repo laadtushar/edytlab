@@ -6,7 +6,7 @@ with a question. Do not cross-post one text, and do not post two of these on
 the same day (`calendar.md` spaces them out).
 
 This supersedes the v0.3.0-era text in `marketing/launch/reddit.md` for these
-six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's), includes the other two DJ demos, and
+six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's) and for v0.9.1 (2026-10-25; the version and download lines), includes the other two DJ demos, and
 discloses that the demo tracks are synthetic. (That file still has posts for
 r/audioengineering, r/podcasting and r/tauri if you want them later.)
 
@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.0>
+v0.9.1 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.1>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -189,7 +189,7 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.0 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.1 is the current release.
 
 Where I'd like help:
 

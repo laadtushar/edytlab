@@ -17,7 +17,7 @@ come once narration credits are available).
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
 download <https://github.com/laadtushar/edytlab/releases/latest> (the newest
-release, v0.9.0 on 2026-10-25; check before each post that the version a post
+release, v0.9.1 on 2026-10-25; check before each post that the version a post
 names is still the newest)
 
 **Conventions used in every post:** no emoji; 3 to 5 hashtags at the end;
@@ -44,7 +44,7 @@ How it works: the model never hears the audio. It gets text about the session (t
 
 Honest limits: the demo tracks are short synthetic loops I generated, and the agent in the recordings is Claude. It preps files; it isn't a live DJ tool. No stem separation yet. The installers are unsigned, so macOS and Windows warn on first launch.
 
-Free, open source (MIT), v0.9.0 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
+Free, open source (MIT), v0.9.1 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
 
 Demos and downloads: https://edytlab.com
 
@@ -199,7 +199,7 @@ Angle: specific, honest invitations, including the big unshipped piece. About
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 94 audio tools. v0.9.0 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 94 audio tools. v0.9.1 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 

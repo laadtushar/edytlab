@@ -8,7 +8,7 @@ appears, the demo tracks are synthetic loops, no invented numbers.
 **Links:**
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.0> ·
+v0.9.1 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.1> ·
 DJ recordings <https://edytlab.com/use-cases/dj>
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
@@ -278,7 +278,7 @@ The model never hears the audio. It chooses and orders calls to 94 deterministic
 Get it
 Free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch; the release notes have the steps.
 Website and docs: https://edytlab.com
-Download v0.9.0: https://github.com/laadtushar/edytlab/releases/tag/v0.9.0
+Download v0.9.1: https://github.com/laadtushar/edytlab/releases/tag/v0.9.1
 Source: https://github.com/laadtushar/edytlab
 The DJ walkthrough, with the limits: https://edytlab.com/use-cases/dj
 
@@ -293,7 +293,7 @@ edytlab, AI audio editor, beatmatching, DJ prep, extended intro, time stretch, o
 
 ---
 
-## 6. Show HN (refreshed for v0.9.0)
+## 6. Show HN (refreshed for v0.9.1)
 
 Submit <https://edytlab.com>. Post the first comment as soon as it is up and
 stay for several hours. Do not ask anyone to upvote.
@@ -345,7 +345,7 @@ Feedback I'd like:
 2. If you run local models: which ones can drive a tool list this size without losing the thread?
 3. If you do DSP: the vocoder and the limiter are where I expect the most justified criticism.
 
-Download v0.9.0 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.9.0
+Download v0.9.1 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.9.1
 Source: https://github.com/laadtushar/edytlab
 ```
 
@@ -369,15 +369,15 @@ Answers to have ready:
 
 Subject options:
 
-1. `edytlab v0.9.0: sign in with your ChatGPT plan (a preview), and transcription from v0.8.0`
+1. `edytlab v0.9.1: sign in with your ChatGPT plan (a preview), and transcription from v0.8.0`
 2. `Three DJ jobs, done by chatting with an AI audio agent`
 
 Body:
 
 ```
-edytlab v0.9.0 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
+edytlab v0.9.1 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
 
-The new thing is a preview: Sign in with ChatGPT. In Settings, choose ChatGPT plan and press Continue with ChatGPT, and the assistant uses your ChatGPT Plus or Pro plan's usage instead of an API key. Your browser opens OpenAI's sign-in page and edytlab never sees your password. If your plan's limit is reached, the chat says so and stops; it does not switch to another provider. It may not be available on workspace plans, which depends on OpenAI and your admin. Your audio stays on your computer; the chat goes to OpenAI, as it does with any provider.
+The new thing is a preview: Sign in with ChatGPT (new in v0.9.0; its first message after signing in failed in v0.9.0, and v0.9.1 fixes that, so use v0.9.1 or later). In Settings, choose ChatGPT plan and press Continue with ChatGPT, and the assistant uses your ChatGPT Plus or Pro plan's usage instead of an API key. Your browser opens OpenAI's sign-in page and edytlab never sees your password. If your plan's limit is reached, the chat says so and stops; it does not switch to another provider. It may not be available on workspace plans, which depends on OpenAI and your admin. Your audio stays on your computer; the chat goes to OpenAI, as it does with any provider.
 
 What else changed since v0.7.0:
 - Transcription (v0.8.0). Ask the assistant to transcribe a track, or cut words in the Transcript tab. It runs on your computer with the Whisper base speech model (about 139 MB), which you download once with the Download button in Settings → Account; nothing downloads by itself. I've checked it on one short synthetic English recording only, so read the words before you cut on them. The words it finds reach your AI provider as text, never the audio.
@@ -400,7 +400,7 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.9.0 is out (macOS, Windows, Linux). New: Sign in with ChatGPT, a preview, so the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, on your computer, once you download the speech model in Settings (checked on one short synthetic English recording only), and edits to a track at a different sample rate land in the right place. Stem separation is still not available. On v0.7.0 or older, update: a batch run could render onto its own inputs. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
+edytlab v0.9.1 is out (macOS, Windows, Linux). Sign in with ChatGPT, a preview new in v0.9.0, now works from the first message (it failed in v0.9.0), so the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, on your computer, once you download the speech model in Settings (checked on one short synthetic English recording only), and edits to a track at a different sample rate land in the right place. Stem separation is still not available. On v0.7.0 or older, update: a batch run could render onto its own inputs. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
 Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 Tell me which edit you'd ask for first.
 ```
@@ -412,7 +412,7 @@ Tell me which edit you'd ask for first.
 - Release facts (Sign in with ChatGPT as a preview, transcription and its
   download, the sample-rate fix, the render-over-source fix, the noise
   reduction click, and "stem separation is still not available") are from the
-  v0.9.0, v0.8.1 and v0.8.0 entries in `website/app/changelog/page.tsx`. The
+  v0.9.1, v0.9.0, v0.8.1 and v0.8.0 entries in `website/app/changelog/page.tsx`. The
   v0.7.0 version of this section (controls that stay put, the History graph,
   bundled skills, the ONNX Runtime in the installers with no model) and the
   v0.6.0 and v0.6.1 version, which led with the compaction and Save As

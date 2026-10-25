@@ -113,7 +113,7 @@ Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
 3. If you do DSP: the vocoder and the limiter are the two places I expect the
    most justified criticism.
 
-Download (unsigned v0.9.0): https://github.com/laadtushar/edytlab/releases/latest
+Download (unsigned v0.9.1): https://github.com/laadtushar/edytlab/releases/latest
 Source: https://github.com/laadtushar/edytlab
 
 ---

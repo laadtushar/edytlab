@@ -1,4 +1,4 @@
-# X thread: v0.9.0 and the DJ demo
+# X thread: v0.9.1 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -54,7 +54,7 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.9.0 is out. New: Sign in with ChatGPT (a preview), so the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, once you download the speech model, and edits at mixed sample rates land in the right place.
+v0.9.1 is out. It fixes Sign in with ChatGPT (a preview, new in v0.9.0): the assistant uses your ChatGPT Plus or Pro plan instead of an API key, and the first message after signing in now goes through. Since v0.8.0 it can also transcribe, once you download the speech model.
 ```
 
 **7/8**
@@ -81,6 +81,6 @@ Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.9.0 release notes. Check them against
+- Post 6 repeats the v0.9.1 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.

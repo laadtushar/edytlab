@@ -31,7 +31,7 @@ github.com/laadtushar/edytlab.
 
 Every line below was checked against the repository or the GitHub release on
 2026-10-22, for v0.7.0 (the Latest version row was updated on 2026-10-25 for
-v0.9.0 and the telemetry row on 2026-10-24 for the website's cookie banner; the
+v0.9.0 and for v0.9.1 (the version and download lines), and the telemetry row on 2026-10-24 for the website's cookie banner; the
 AI providers, network requests and keys rows describe the ChatGPT sign-in that
 shipped in v0.9.0).
 
@@ -39,7 +39,7 @@ shipped in v0.9.0).
 |---|---|
 | Name | edytlab |
 | What it is | Desktop audio editor driven by an AI agent |
-| Latest version | 0.9.0, published 2026-10-25 |
+| Latest version | 0.9.1, published 2026-10-25 |
 | License | MIT |
 | Repository created | 2026-05-05 |
 | Platforms | macOS (one universal build for Apple Silicon and Intel), Windows 10 and 11, Linux |

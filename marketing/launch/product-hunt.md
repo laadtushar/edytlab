@@ -59,7 +59,7 @@ still made for the site, and `docs/brand/` has before and after screenshots of
 the app's colours (#515, taken with the IPC faked, so they show fake data):
 the `before-*` set is the look v0.5.0 and earlier shipped, and the `after-*`
 set is the violet look the app has had since v0.6.0. Capture the other four
-from the running v0.9.0 app at 1280x776 (the same frame the demo uses) and keep the
+from the running v0.9.1 app at 1280x776 (the same frame the demo uses) and keep the
 filenames out of the repo unless you want them in `website/public`.
 
 | # | Show | Caption |
