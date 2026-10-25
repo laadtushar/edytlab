@@ -54,20 +54,16 @@ function listedFiles(): string[] {
 }
 
 describe("the list", () => {
-  it("has the v0.7.0 video first, then the launch video, then the reels, newest first", () => {
+  it("has the launch video first, then the reels", () => {
     expect(videos.map((v) => v.slug)).toEqual([
-      "whats-new-v070",
       "launch-video",
-      "reel-v070-whats-new",
-      "reel-v070-describe-the-edit",
-      "reel-v070-200-tracks",
       "reel-highlights",
       "reel-teaser",
       "reel-beatmatched-transition",
       "reel-extended-club-intro",
       "reel-mini-mix",
     ]);
-    expect(videos.map((v) => v.kind)).toEqual(["release", "launch", ...Array(8).fill("reel")]);
+    expect(videos.map((v) => v.kind)).toEqual(["launch", ...Array(5).fill("reel")]);
   });
 
   it("uses each slug once, in kebab-case", () => {
@@ -107,34 +103,10 @@ describe("the list", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("names a vertical reel 9:16 and the two long videos 16:9", () => {
+  it("names a vertical reel 9:16 and the launch video 16:9", () => {
     for (const v of videos) {
       const ratio = v.width / v.height;
       expect(ratio, v.slug).toBeCloseTo(v.kind === "reel" ? 9 / 16 : 16 / 9, 3);
-    }
-  });
-
-  it("says, for every v0.7.0 video, that it is the real app with real Claude", () => {
-    // Every shot of app in those videos is labelled "v0.7.0 · real app · real
-    // Claude (Sonnet 5.5)" or "... · recorded live" (marketing/promo-v0.7.0/claims.md).
-    // A caption or description that left that out would claim less than the
-    // video is, and one that said "scripted" would be about the earlier version.
-    const promo = videos.filter((v) => v.source.startsWith("marketing/promo-v0.7.0/"));
-    expect(promo.map((v) => v.slug)).toEqual([
-      "whats-new-v070",
-      "reel-v070-whats-new",
-      "reel-v070-describe-the-edit",
-      "reel-v070-200-tracks",
-    ]);
-    // "Five changes you can see" is the vertical what's-new reel's claim (claims.md, R1). The 16:9
-    // cut shows the typed edit and six changes, so it carries no count of changes.
-    const wide = promo.find((v) => v.slug === "whats-new-v070") as (typeof promo)[number];
-    expect(`${wide.title} ${wide.caption} ${wide.description}`).not.toMatch(/\bfive\b/i);
-    for (const v of promo) {
-      expect(v.description, `${v.slug} description`).toMatch(/Claude/);
-      expect(`${v.caption} ${v.description}`, v.slug).not.toMatch(/scripted/i);
-      expect(v.description, `${v.slug} description`).toMatch(/real (?:edytlab )?app/i);
-      expect(v.caption, `${v.slug} caption`).toMatch(/real app, real Claude \(Sonnet 5\.5\)/i);
     }
   });
 });
@@ -169,9 +141,7 @@ describe("public/videos", () => {
 
 describe("the copies match their sources under marketing/", () => {
   it.each(videos.map((v) => [v.slug, v] as const))("%s names a plain file that exists", (_slug, v) => {
-    expect(v.source).toMatch(
-      /^marketing\/(?:reels\/reel-[a-z-]+|launch-video\/out\/launch-[a-z]+|promo-v0\.7\.0\/out\/edytlab-v0\.7\.0-[a-z0-9-]+)\.mp4$/,
-    );
+    expect(v.source).toMatch(/^marketing\/(?:reels\/reel-[a-z-]+|launch-video\/out\/launch-[a-z]+)\.mp4$/);
     expect(v.source).not.toMatch(/narrated|picture-only|\/audio\/|\/sfx\/|archive|narration|1x1/i);
     expect(isNonEmptyFile(join(REPO, v.source)), `${v.source} is gone: was it re-cut and moved?`).toBe(true);
   });
@@ -184,15 +154,13 @@ describe("the copies match their sources under marketing/", () => {
   });
 
   it("has captions that are the source's own, converted to WebVTT", () => {
-    // The two 16:9 videos; the vertical reels show their words burned in
+    // The 16:9 launch video; the vertical reels show their words burned in
     // and have a cue file or an .srt for their moments instead.
     const withCaptions = videos.filter((v) => v.captionsSource);
-    expect(withCaptions.map((v) => v.slug)).toEqual(["whats-new-v070", "launch-video"]);
+    expect(withCaptions.map((v) => v.slug)).toEqual(["launch-video"]);
     for (const v of withCaptions) {
       const source = v.captionsSource as string;
-      expect(source).toMatch(
-        /^marketing\/(?:launch-video\/out\/launch-[a-z]+|promo-v0\.7\.0\/out\/edytlab-v0\.7\.0-[a-z0-9]+)\.srt$/,
-      );
+      expect(source).toMatch(/^marketing\/launch-video\/out\/launch-[a-z]+\.srt$/);
       expect(source.replace(/\.srt$/, ".mp4"), "the captions are of another cut").toBe(v.source);
       expect(readFileSync(onDisk(videoCaptionsSrc(v.slug)), "utf8")).toBe(srtToVtt(readFileSync(join(REPO, source), "utf8")));
     }
@@ -337,14 +305,10 @@ describe("the three full demos have pages of their own", () => {
 
   it("list every video with a page, in the hub's order, and look each one up", () => {
     expect(watchVideos.map((v) => v.slug)).toEqual([
-      "whats-new-v070",
       "launch-video",
       "dj-beatmatched-transition",
       "dj-extended-club-intro",
       "dj-mini-mix",
-      "reel-v070-whats-new",
-      "reel-v070-describe-the-edit",
-      "reel-v070-200-tracks",
       "reel-highlights",
       "reel-teaser",
       "reel-beatmatched-transition",

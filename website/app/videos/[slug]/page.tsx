@@ -24,7 +24,7 @@ import {
 } from "@/lib/videos";
 
 /** The small label above the title: what sort of video this is, in a visitor's words. */
-const EYEBROW = { launch: "Introduction", release: "Latest release", reel: "Short clip", demo: "Full walkthrough" } as const;
+const EYEBROW = { launch: "Introduction", reel: "Short clip", demo: "Full walkthrough" } as const;
 
 interface Props {
   params: Promise<{ slug: string }>;

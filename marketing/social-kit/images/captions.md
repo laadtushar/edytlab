@@ -10,7 +10,9 @@ computer and never uploaded, only the chat goes to the provider you choose;
 six API providers plus your ChatGPT plan, Ollama runs locally with no key; 94 tools; every edit is a node
 in a history graph. No caption claims anything that has not shipped, and none carries a version
 number, a user count or another product's name. The `edytlab.com/videos/<slug>` pages are the
-site's own watch pages for the videos the frames come from.
+site's own watch pages. The frames of themes 1, 5 and 6 come from the v0.7.0 video
+(`marketing/promo-v0.7.0/out/`), which the site stopped serving after v0.9.1, so theme 1
+links the launch video (a typed request becoming tool calls) and theme 5 the videos page.
 
 Limits checked by script when this file was written: X under 280 characters,
 Threads and Bluesky under 300, YouTube titles under 70. Re-count if you edit.
@@ -19,17 +21,17 @@ Threads and Bluesky under 300, YouTube titles under 70. Re-count if you edit.
 
 ## 1. Describe the edit
 
-Image: `1-describe-the-edit__*`. Video page: <https://edytlab.com/videos/reel-v070-describe-the-edit>
+Image: `1-describe-the-edit__*`. Video page: <https://edytlab.com/videos/launch-video>
 
 **X**
-Type what you want and the assistant edits your audio. "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB" became two edits, each one a version you can go back to. Free, open source, MIT. https://edytlab.com/videos/reel-v070-describe-the-edit
+Type what you want and the assistant edits your audio. "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB" became two edits, each one a version you can go back to. Free, open source, MIT. https://edytlab.com/videos/launch-video
 
 **LinkedIn**
 You can edit audio by describing the edit.
 Here, a plain sentence about a fade and a gain change becomes two edits to your audio.
 The audio is edited on your computer. Only the chat goes to the AI provider you choose.
 edytlab is free and open source (MIT), for macOS, Windows and Linux.
-Watch it happen: https://edytlab.com/videos/reel-v070-describe-the-edit
+Watch it happen: https://edytlab.com/videos/launch-video
 
 **Instagram**
 Describe the edit.
@@ -39,24 +41,24 @@ Free and open source, for macOS, Windows and Linux. Link in bio: edytlab.com
 #audioediting #musicproduction #opensource #aitools #audioengineer #podcasting #producerlife #desktopapp #madewithrust
 
 **Facebook**
-edytlab is a desktop audio editor you talk to. In this clip a plain sentence ("Fade the backing in over the first 4 seconds and bring the vocal down 3 dB") turns into a fade and a volume change made for you. It is free and open source (MIT), runs on macOS, Windows and Linux, and edits your audio on your own computer. The installers are unsigned. See it at https://edytlab.com/videos/reel-v070-describe-the-edit
+edytlab is a desktop audio editor you talk to. In this clip a plain sentence ("Fade the backing in over the first 4 seconds and bring the vocal down 3 dB") turns into a fade and a volume change made for you. It is free and open source (MIT), runs on macOS, Windows and Linux, and edits your audio on your own computer. The installers are unsigned. See it at https://edytlab.com/videos/launch-video
 
 **Threads**
-Describe the edit, and the assistant makes the edit. Real app, real Claude, recorded live. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos/reel-v070-describe-the-edit
+Describe the edit, and the assistant makes the edit. Real app, real Claude, recorded live. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos/launch-video
 
 **Bluesky**
-Type what you want, the assistant edits your audio. One sentence about a fade and a volume change became two edits, filmed live in the real app. Free, open source (MIT). https://edytlab.com/videos/reel-v070-describe-the-edit
+Type what you want, the assistant edits your audio. One sentence about a fade and a volume change became two edits, filmed live in the real app. Free, open source (MIT). https://edytlab.com/videos/launch-video
 
 **TikTok**
 Type the edit, watch it happen. Fade in the backing, vocal down 3 dB, one sentence. Real app, real Claude. Free and open source: edytlab.com #audioediting #musicproduction #opensource #producertok #aitools
 
 **YouTube**
 Title: Describe the edit: an audio editor you talk to
-Description: Type what you want in plain English and the assistant edits your audio. Here a single sentence becomes a fade and a volume change, in the real app with real Claude, recorded live. The audio is edited on your computer; only the chat goes to the AI provider you choose. edytlab is free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned. Watch the full video: https://edytlab.com/videos/whats-new-v070 . Source: https://github.com/laadtushar/edytlab
+Description: Type what you want in plain English and the assistant edits your audio. Here a single sentence becomes a fade and a volume change, in the real app with real Claude, recorded live. The audio is edited on your computer; only the chat goes to the AI provider you choose. edytlab is free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned. More videos: https://edytlab.com/videos . Source: https://github.com/laadtushar/edytlab
 
 **Pinterest**
 Title: Describe the edit: an audio editor you talk to
-Description: Type what you want, and the assistant edits your audio. Free and open source (MIT) for macOS, Windows and Linux. Real app, real Claude. https://edytlab.com/videos/reel-v070-describe-the-edit
+Description: Type what you want, and the assistant edits your audio. Free and open source (MIT) for macOS, Windows and Linux. Real app, real Claude. https://edytlab.com/videos/launch-video
 
 ---
 
@@ -191,17 +193,17 @@ Description: Your audio is edited locally; only the chat goes to the AI provider
 
 ## 5. Every edit is a version
 
-Image: `5-every-edit-is-a-version__*`. Video page: <https://edytlab.com/videos/whats-new-v070>
+Image: `5-every-edit-is-a-version__*`. Videos page: <https://edytlab.com/videos>
 
 **X**
-Every edit is a node in a history graph, so you can go back to any version. Fork, compare, name a version, undo along the path you took. Free and open source (MIT). https://edytlab.com/videos/whats-new-v070
+Every edit is a node in a history graph, so you can go back to any version. Fork, compare, name a version, undo along the path you took. Free and open source (MIT). https://edytlab.com/videos
 
 **LinkedIn**
 Every edit in edytlab is a version.
 Each change, whether you or the assistant made it, is a node in a history graph.
 Go back to any of them, or try another branch from the same point.
 Recorded live in the real app. Free and open source (MIT), for macOS, Windows and Linux.
-https://edytlab.com/videos/whats-new-v070
+https://edytlab.com/videos
 
 **Instagram**
 Every edit is a version.
@@ -211,24 +213,24 @@ Link in bio: edytlab.com
 #audioediting #nondestructive #musicproduction #opensource #versioncontrol #producerlife #aitools #desktopapp #madewithrust
 
 **Facebook**
-Made a change you regret? In edytlab every edit is a node in a history graph, so you can go back to any version, or branch off and try something else from the same point. This is the real app, recorded live. It is free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos/whats-new-v070
+Made a change you regret? In edytlab every edit is a node in a history graph, so you can go back to any version, or branch off and try something else from the same point. This is the real app, recorded live. It is free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos
 
 **Threads**
-Every edit is a node in a history graph, so you can go back to any version. Recorded live in the real app. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos/whats-new-v070
+Every edit is a node in a history graph, so you can go back to any version. Recorded live in the real app. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos
 
 **Bluesky**
-Every edit is a version. Each change is a node in a history graph, and you can go back to any of them. Recorded live in the real app. Free and open source (MIT). https://edytlab.com/videos/whats-new-v070
+Every edit is a version. Each change is a node in a history graph, and you can go back to any of them. Recorded live in the real app. Free and open source (MIT). https://edytlab.com/videos
 
 **TikTok**
 Every edit is a version. Go back to any point in your audio project's history. Real app, recorded live. Free and open source: edytlab.com #audioediting #musicproduction #opensource #producertok #aitools
 
 **YouTube**
 Title: Every edit is a version: the history graph in edytlab
-Description: In edytlab every edit is a node in a history graph, so you can go back to any version. This frame is from a recording of the real app; the full video shows the graph keeping up as a version is named and the history is cleaned up, each by asking the assistant. Free and open source (MIT) for macOS, Windows and Linux; the installers are unsigned. https://edytlab.com/videos/whats-new-v070
+Description: In edytlab every edit is a node in a history graph, so you can go back to any version. This frame is from a recording of the real app. Free and open source (MIT) for macOS, Windows and Linux; the installers are unsigned. https://edytlab.com/videos
 
 **Pinterest**
 Title: A history graph for every audio edit
-Description: Every edit is a node in a history graph, so you can go back to any version of your audio project. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos/whats-new-v070
+Description: Every edit is a node in a history graph, so you can go back to any version of your audio project. Free and open source (MIT) for macOS, Windows and Linux. https://edytlab.com/videos
 
 ---
 

@@ -26,7 +26,7 @@ export const localOllama: BlogPost = {
       text:
         "You need [edytlab](" +
         RELEASES +
-        "), Ollama, and a model you have pulled. edytlab's installers are unsigned, so macOS and Windows warn on first launch ([Getting Started](/docs/getting-started)). The demo videos here, such as the [v0.7.0 video](/videos/whats-new-v070), were recorded with Claude (Sonnet 5.5), not with Ollama.",
+        "), Ollama, and a model you have pulled. edytlab's installers are unsigned, so macOS and Windows warn on first launch ([Getting Started](/docs/getting-started)). The demo videos here, such as the [beatmatch walkthrough](/videos/dj-beatmatched-transition), were recorded with Claude, not with Ollama.",
     },
     { type: "h2", text: "What stays on your computer" },
     {

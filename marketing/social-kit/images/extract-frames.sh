@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Take the app frames for the social images from the site's own videos.
+# Take the app frames for the social images from the site's own videos, and from
+# the v0.7.0 video (marketing/promo-v0.7.0/out/), which the site served until v0.9.1.
 #
 #   bash marketing/social-kit/images/extract-frames.sh
 #
@@ -26,13 +27,13 @@ grab() {
   ffmpeg -v error -y -ss "$3" -i "$2" -frames:v 1 -vf "crop=$6:$7:$4:$5" "$OUT/$1.png"
 }
 
-V=website/public/videos
+V=marketing/promo-v0.7.0/out
 D=website/public/demos
 
-# 1 Describe the edit: whats-new-v070 at 11 s (1920x1080 video; the app's panel is x100 y150 1720x835).
+# 1 Describe the edit: the v0.7.0 video (edytlab-v0.7.0-16x9.mp4) at 11 s (1920x1080 video; the app's panel is x100 y150 1720x835).
 # The typed request, then the Fade and Gain calls. Crops start below the ruler.
-grab t1-chat $V/whats-new-v070.mp4 11 560 165 1250 780
-grab t1-pin  $V/whats-new-v070.mp4 11 900 165 910 760
+grab t1-chat $V/edytlab-v0.7.0-16x9.mp4 11 560 165 1250 780
+grab t1-pin  $V/edytlab-v0.7.0-16x9.mp4 11 900 165 910 760
 
 # 2 A DJ transition in one sentence: dj-beatmatched-transition at 84 s (1280x776 recording).
 # After the turn has ended (the pointer has left the chat): Claude's reply on the filter and the bars.
@@ -49,11 +50,11 @@ grab t3-pin  $D/dj-extended-club-intro.mp4 52 800 112 480 449
 grab t4-chat $D/dj-mini-mix.mp4 72 575 176 705 406
 grab t4-pin  $D/dj-mini-mix.mp4 72 800 176 480 406
 
-# 5 Every edit is a version: whats-new-v070 at 28.5 s (the history graph; the hand pointer is below the crop).
-grab t5-chat $V/whats-new-v070.mp4 28.5 400 170 740 490
-grab t5-pin  $V/whats-new-v070.mp4 28.5 420 170 640 520
+# 5 Every edit is a version: the v0.7.0 video at 28.5 s (the history graph; the hand pointer is below the crop).
+grab t5-chat $V/edytlab-v0.7.0-16x9.mp4 28.5 400 170 740 490
+grab t5-pin  $V/edytlab-v0.7.0-16x9.mp4 28.5 420 170 640 520
 
-# 6 Free and open source: whats-new-v070 at 44 s (the chat's seven Gain calls beside the lanes; the video's
+# 6 Free and open source: the v0.7.0 video at 44 s (the chat's seven Gain calls beside the lanes; the video's
 # "1.7x speed" badge is above the crop).
-grab t6-chat $V/whats-new-v070.mp4 44 620 240 1190 720
-grab t6-pin  $V/whats-new-v070.mp4 44 900 240 910 740
+grab t6-chat $V/edytlab-v0.7.0-16x9.mp4 44 620 240 1190 720
+grab t6-pin  $V/edytlab-v0.7.0-16x9.mp4 44 900 240 910 740

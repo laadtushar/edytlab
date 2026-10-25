@@ -11,8 +11,9 @@
  *
  * - no `.mp4` the site serves (`public/videos/`, `public/demos/`) is
  *   byte-identical to an `.mp4` in an archived scripted folder;
- * - the v0.7.0 footage that the site's v0.7.0 videos are cut from is
- *   live: every clip's notes say `live`, and each clip with an assistant
+ * - the v0.7.0 footage (`marketing/promo-v0.7.0/`, which the site's
+ *   v0.7.0 videos were cut from until v0.9.1) is live: every clip's
+ *   notes say `live`, and each clip with an assistant
  *   in it carries the tool calls the metering proxy recorded from
  *   api.anthropic.com (`toolu_` ids), not a scripted list.
  *

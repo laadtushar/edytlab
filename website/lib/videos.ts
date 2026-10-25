@@ -1,6 +1,6 @@
 /**
- * The videos on `/videos`: the v0.7.0 video, the launch video and eight
- * short vertical reels, which are copies of files under `marketing/`
+ * The videos on `/videos`: the launch video and five short vertical
+ * reels, which are copies of files under `marketing/`
  * (`videos`, below), and the three full demos, which are `lib/demos.ts`
  * and play from `public/demos/` (`demoVideos`). Every one of them has a
  * page of its own, `/videos/<slug>`, where it is the main content
@@ -27,14 +27,14 @@
  * Only the plain files are listed. The narrated cuts, `marketing/reels/audio/`,
  * `sfx/` and `marketing/archive/` carry ElevenLabs free-plan audio, which
  * is not licensed for commercial use. A reel here has the app's own sound
- * and nothing else. The v0.7.0 videos come from `marketing/promo-v0.7.0/out/`
- * (no voice, no stock music); the 1:1 cut is the 16:9 edit again, for
- * LinkedIn, and is not listed.
+ * and nothing else.
  *
- * The v0.7.0 videos are the released app, filmed live, with real Claude
- * as the assistant where there is one, and say so on every shot. Their
- * captions and descriptions here say it too, and claim no more than
- * `marketing/promo-v0.7.0/claims.md` allows.
+ * No video here is about one release. The v0.7.0 release video and its
+ * three reels (`marketing/promo-v0.7.0/out/`) were on the site until
+ * v0.9.1, when a section of what an old release changed read as stale;
+ * their pages and files now redirect to `/videos` (`next.config.mjs`,
+ * pinned by `redirects.test.ts`). A video made for one release dates the
+ * page the day the next one ships.
  *
  * A caption says what the video shows and nothing more, like the demos':
  * nothing that has not shipped, no counts, no ratings, no superlatives.
@@ -47,10 +47,10 @@ export interface WatchVideo {
   /** Kebab-case. Names the files, and the page `/videos/<slug>`. */
   slug: string;
   /**
-   * The launch video and the release video are 16:9; a reel is 9:16; a
-   * demo is a 1280 by 776 screen recording that plays from `public/demos/`.
+   * The launch video is 16:9; a reel is 9:16; a demo is a 1280 by 776
+   * screen recording that plays from `public/demos/`.
    */
-  kind: "launch" | "release" | "reel" | "demo";
+  kind: "launch" | "reel" | "demo";
   title: string;
   /** What it shows, for the page. */
   caption: string;
@@ -63,8 +63,8 @@ export interface WatchVideo {
   /**
    * The one thing a viewer should know about how the video was made,
    * shown in small type wherever the video is (its card, its page): for
-   * example "Real app, real Claude (Sonnet 5.5)." A re-recording changes this
-   * line, not the layout that shows it.
+   * example "Cut from the full recording, with the app's own sound. Waits
+   * sped up." A re-recording changes this line, not the layout that shows it.
    */
   disclosure: string;
   /** One sentence for the video's structured data, which a search result may show. */
@@ -100,10 +100,10 @@ export interface WatchVideo {
 
 /**
  * A video that is a copy of a file under `marketing/`, placed in
- * `public/videos/`: the launch video, the release video and the reels.
+ * `public/videos/`: the launch video and the reels.
  */
 export interface SiteVideo extends WatchVideo {
-  kind: "launch" | "release" | "reel";
+  kind: "launch" | "reel";
   /** The file this is a copy of, from the repository root. */
   source: string;
   /** Where in the video, in seconds, the poster frame was taken. */
@@ -122,39 +122,6 @@ export interface Moment {
 }
 
 export const videos: readonly SiteVideo[] = [
-  {
-    slug: "whats-new-v070",
-    kind: "release",
-    title: "What's new in edytlab v0.7.0",
-    blurb: "From a typed request to a 200-track session: what changed in v0.7.0, shown in the app.",
-    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
-    caption:
-      "What's new in v0.7.0, shown in the real app, filmed live. It starts with a request typed in plain English that Claude turns into a fade and a gain change, which you then hear. Then six changes: faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted, each by asking (#602); a 200-track session where list_session reads what the summary leaves out and twelve string tracks come down 6 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, real Claude (Sonnet 5.5): every shot is the released v0.7.0 app recorded live, the assistant's replies and tool calls are the model's, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
-    description:
-      "A 76-second video of what's new in edytlab v0.7.0, filmed live in the real app with Claude: a typed edit, steady faders, the history graph, 200 tracks.",
-    seconds: 76,
-    uploadDate: "2026-10-22",
-    width: 1920,
-    height: 1080,
-    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.mp4",
-    posterAt: 10,
-    captionsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.srt",
-    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.srt",
-    moments: [
-      { at: 0, text: "Title: edytlab v0.7.0, “Describe the edit. It happens.” Every app shot carries a note: “v0.7.0 · real app · real Claude (Sonnet 5.5)” where the assistant is in the shot, “recorded live” where it is not." },
-      { at: 3.6, text: "Describe the edit in plain English: the request is typed into the chat box (shown at 2.2× speed)." },
-      { at: 6.8, text: "The assistant calls the tools, fade and then gain, and the timeline updates: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB (the wait for Claude shown at 2.5× speed)." },
-      { at: 13.282, text: "Press play and hear it; the demo audio is made in code." },
-      { at: 21.667, text: "Faders that stay where you put them (#596): four key taps on a gain slider step it +0.5, +1.0, +1.5 and +2.0 dB, with no bounce back." },
-      { at: 25.967, text: "Every edit is a node in the history graph." },
-      { at: 29.667, text: "The history graph keeps up (#602): asking Claude to name a version shows at once, and asking it to compact the history removes nodes at once, 20 nodes becoming 8 (shown at 2× and 1.6× speed)." },
-      { at: 36.633, text: "200 tracks? Just ask (#618): list_session reads what the summary left out (shown at up to 2.2× speed), then twelve string tracks sit at −6.0 dB." },
-      { at: 48.267, text: "The ONNX Runtime now ships in every installer: groundwork only, no model yet." },
-      { at: 54.167, text: "Bundled skills update when a release changes them, unless you edited them (#574)." },
-      { at: 58.667, text: "Switch tabs, press play: it still plays, with no error (#607)." },
-      { at: 71.467, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux. The installers are unsigned." },
-    ],
-  },
   {
     slug: "launch-video",
     kind: "launch",
@@ -185,85 +152,6 @@ export const videos: readonly SiteVideo[] = [
       { at: 42.75, text: "And a three-track mini-mix, with four-bar overlaps." },
       { at: 46.5, text: "How it works: your audio files stay on your computer and the app's own engine edits them; only the chat goes to the provider you choose." },
       { at: 53.7, text: "End card: free and open source (MIT), github.com/laadtushar/edytlab, edytlab.com. The installers are unsigned." },
-    ],
-  },
-  {
-    slug: "reel-v070-whats-new",
-    kind: "reel",
-    title: "What's new in v0.7.0 (short reel)",
-    blurb: "Five changes in v0.7.0, in thirty seconds.",
-    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
-    caption:
-      "Five changes you can see in v0.7.0, in under 40 seconds: faders that stay where you put them (#596), the history graph keeping up (#602), a 200-track session where list_session reads what the summary leaves out (#618), playback that survives switching tabs (#607), and bundled skills that stay current (#574). Real app, real Claude (Sonnet 5.5): filmed live, the assistant's replies and tool calls are the model's, as the note on every shot says.",
-    description:
-      "A 39-second vertical video of five changes in edytlab v0.7.0, filmed live in the real app with Claude as the assistant.",
-    seconds: 39,
-    uploadDate: "2026-10-22",
-    width: 1080,
-    height: 1920,
-    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-whats-new-9x16.mp4",
-    posterAt: 17,
-    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-whats-new-9x16.srt",
-    moments: [
-      { at: 0, text: "What's new in v0.7.0: five changes you can see." },
-      { at: 2.6, text: "Faders stay where you put them (#596): four key taps, four steps, +0.5 to +2.0 dB with no bounce back." },
-      { at: 6.7, text: "The history graph keeps up (#602): names and clean-ups show at once; 20 nodes became 8 (shown at 2× and 1.6× speed)." },
-      { at: 13.667, text: "200 tracks? Just ask (#618): list_session reads what the summary left out (shown at up to 2.2× speed), then the strings sit at −6.0 dB." },
-      { at: 23.167, text: "Switch tabs and it still plays, even when the mix is gone from the cache (#607): it plays with no error." },
-      { at: 30.467, text: "Bundled skills stay current (#574): updated when a release changes them, unless you edited them." },
-      { at: 35.067, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
-    ],
-  },
-  {
-    slug: "reel-v070-describe-the-edit",
-    kind: "reel",
-    title: "Describe the edit, and it happens (short reel)",
-    blurb: "Type an edit in plain English and watch the fade and the gain change appear.",
-    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
-    caption:
-      "Describe the edit: a request typed in plain English, Claude calls fade and then gain, the timeline changes (the backing fades in over 4 seconds and the vocal lane reads −3.0 dB), and you press play to hear it, on a synthetic demo track made in code. Real app, real Claude (Sonnet 5.5): filmed live, the assistant's replies and tool calls are the model's, as the note on every shot says.",
-    description:
-      "A 26-second vertical video: an edit typed in plain English, carried out by Claude, then played, filmed live in the real edytlab app.",
-    seconds: 26,
-    uploadDate: "2026-10-22",
-    width: 1080,
-    height: 1920,
-    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-describe-the-edit-9x16.mp4",
-    posterAt: 12.5,
-    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-describe-the-edit-9x16.srt",
-    moments: [
-      { at: 0, text: "Describe the edit." },
-      { at: 1.9, text: "Say it in plain English: the request is typed into the chat box." },
-      { at: 5.467, text: "The assistant calls the tools, fade and then gain (the wait for Claude shown at 2.4× speed)." },
-      { at: 11.767, text: "The timeline changes: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB." },
-      { at: 13.367, text: "Then hear it: press play on a synthetic demo track, with demo audio made in code." },
-      { at: 22.667, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
-    ],
-  },
-  {
-    slug: "reel-v070-200-tracks",
-    kind: "reel",
-    title: "200 tracks? Just ask (short reel)",
-    blurb: "One sentence quiets the twelve string tracks in a 200-track session.",
-    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
-    caption:
-      "A session of 200 tracks and one sentence, “make all the strings quieter”: Claude reads what the session summary left out with list_session, then lowers twelve tracks (violins, viola, cello and contrabass) by 6 dB, each volume change a node on the graph (#618). Real app, real Claude (Sonnet 5.5): filmed live, the assistant's replies and tool calls are the model's, and the sound is interface sounds only.",
-    description:
-      "A 27-second vertical video: one sentence quiets twelve of 200 tracks, filmed live in the real edytlab app with Claude as the assistant.",
-    seconds: 27,
-    uploadDate: "2026-10-22",
-    width: 1080,
-    height: 1920,
-    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-200-tracks-9x16.mp4",
-    posterAt: 11,
-    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-200-tracks-9x16.srt",
-    moments: [
-      { at: 0, text: "200 tracks? Ask." },
-      { at: 3.3, text: "Just say it: “make all the strings quieter”." },
-      { at: 6.767, text: "It reads what the summary left out: list_session, then gain." },
-      { at: 10.167, text: "Twelve strings, one sentence: each change is a node on the graph." },
-      { at: 15.967, text: "All twelve strings 6 dB quieter: violins, viola, cello and contrabass read −6.0 dB." },
-      { at: 23.567, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
     ],
   },
   {
@@ -494,19 +382,12 @@ export const demoVideos: readonly DemoVideo[] = demos.map((d) => ({
   moments: DEMO_MOMENTS[d.slug] ?? [],
 }));
 
-/** The release video, the launch video and the reels, split the way the hub lays them out. */
-export const releaseVideo = videos.find((v) => v.kind === "release") as SiteVideo;
+/** The launch video and the reels, split the way the hub lays them out. */
 export const launchVideo = videos.find((v) => v.kind === "launch") as SiteVideo;
 export const reels: readonly SiteVideo[] = videos.filter((v) => v.kind === "reel");
-/**
- * The reels cut from the v0.7.0 release video, which the hub shows with it
- * under "Earlier releases", apart from the clips that describe no release.
- */
-export const releaseReels: readonly SiteVideo[] = reels.filter((v) => v.slug.startsWith("reel-v070-"));
-export const clipReels: readonly SiteVideo[] = reels.filter((v) => !releaseReels.includes(v));
 
 /** Every video that has a page of its own, in the hub's order. */
-export const watchVideos: readonly WatchVideo[] = [releaseVideo, launchVideo, ...demoVideos, ...reels];
+export const watchVideos: readonly WatchVideo[] = [launchVideo, ...demoVideos, ...reels];
 
 export const getVideo = (slug: string): WatchVideo | undefined => watchVideos.find((v) => v.slug === slug);
 

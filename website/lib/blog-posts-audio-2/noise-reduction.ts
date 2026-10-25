@@ -25,7 +25,7 @@ export const noiseReduction: BlogPost = {
     {
       type: "callout",
       text:
-        "To hear the workflow rather than read it, watch a [typed request become tool calls](/videos/reel-v070-describe-the-edit). For the steps here you need [edytlab](" +
+        "To hear the workflow rather than read it, watch a [typed request become tool calls](/videos/launch-video). For the steps here you need [edytlab](" +
         RELEASES +
         ") and a recording that starts with a second or so of just the noise. The installers are unsigned, so macOS and Windows warn on first launch ([Getting Started](/docs/getting-started)).",
     },

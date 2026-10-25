@@ -19,6 +19,22 @@
 const MEDIA_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800";
 const cacheMedia = [{ key: "Cache-Control", value: MEDIA_CACHE_CONTROL }];
 
+/**
+ * Videos the site no longer serves: the v0.7.0 release video and its
+ * three reels, taken down once v0.9.1 shipped, because a page of what an
+ * old release changed reads as stale. Their sources stay under
+ * `marketing/promo-v0.7.0/out/`. Search engines, the sitemap Google
+ * already read and posts elsewhere still link to their pages and files,
+ * so each of those moves permanently (308) to the hub rather than
+ * answering 404. `lib/redirects.test.ts` pins the list.
+ */
+const REMOVED_VIDEOS = [
+  { slug: "whats-new-v070", files: ["mp4", "jpg", "vtt"] },
+  { slug: "reel-v070-whats-new", files: ["mp4", "jpg"] },
+  { slug: "reel-v070-describe-the-edit", files: ["mp4", "jpg"] },
+  { slug: "reel-v070-200-tracks", files: ["mp4", "jpg"] },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -44,6 +60,15 @@ const nextConfig = {
   },
   images: {
     remotePatterns: [],
+  },
+  async redirects() {
+    return REMOVED_VIDEOS.flatMap(({ slug, files }) =>
+      [`/videos/${slug}`, ...files.map((ext) => `/videos/${slug}.${ext}`)].map((source) => ({
+        source,
+        destination: "/videos",
+        permanent: true,
+      })),
+    );
   },
   async headers() {
     return [

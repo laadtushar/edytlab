@@ -39,7 +39,7 @@ Pair a theme with a community post only where it fits.
 | Week 1 Thu | **4 Your audio stays on your computer** | privacy and local-AI audiences | image only (no video of its own) | r/rust (engineering notes) |
 | Week 1 Fri | none, a reply round | | | r/LocalLLaMA (after Show HN and r/rust) |
 | Week 2 Tue | **3 Extend a club intro** | DJs and producers | `reel-extended-club-intro` | Product Hunt at 12:01am PT (its own day) |
-| Week 2 Wed | **5 Every edit is a version** | producers, editors | `whats-new-v070` (video page) | r/DJs or r/edmproduction |
+| Week 2 Wed | **5 Every edit is a version** | producers, editors | the videos page (`edytlab.com/videos`) | r/DJs or r/edmproduction |
 | Week 2 Thu | **6 Free and open source** | developers, GitHub | image only | r/opensource, if the sidebar allows; link GitHub, not a reel |
 
 Own feeds post Tuesday to Thursday only: weekends are the weakest days on every platform in the sources below.

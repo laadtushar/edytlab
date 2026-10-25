@@ -33,7 +33,6 @@ import {
   formatDuration,
   launchVideo,
   relatedVideos,
-  releaseVideo,
   reels,
   videoPath,
   videos,
@@ -73,11 +72,12 @@ describe("the words under a video's name are data", () => {
     expect(words).not.toMatch(/\\bmashups?\\b|vocals over|isolat|stem separation|\\bstems\\b|\\btranscri|filler/i);
   });
 
-  it("says 'real Claude (Sonnet 5.5)' for every v0.7.0 video, and for no other, and 'scripted' for none", () => {
+  it("says 'scripted' for none, and names no release: a video is not about one version", () => {
     for (const v of videos) {
-      const promo = v.source.startsWith("marketing/promo-v0.7.0/");
-      expect(/real Claude \(Sonnet 5\.5\)/.test(v.disclosure), `${v.slug}: ${v.disclosure}`).toBe(promo);
       expect(/scripted/i.test(v.disclosure), `${v.slug}: ${v.disclosure}`).toBe(false);
+    }
+    for (const v of watchVideos) {
+      expect(`${v.title} ${v.blurb} ${v.disclosure} ${v.description}`, v.slug).not.toMatch(/\bv\d+\.\d+\.\d+\b/);
     }
   });
 
@@ -146,15 +146,17 @@ describe("/videos", () => {
   });
 
   it("has the sections a visitor expects, in order, each with a short heading", () => {
-    const order = ["Full walkthroughs", "Short clips", "Earlier releases", "Try it on your own audio"].map((h) => body.indexOf(`>${h}<`));
+    const order = ["Full walkthroughs", "Short clips", "Try it on your own audio"].map((h) => body.indexOf(`>${h}<`));
     for (const i of order) expect(i).toBeGreaterThan(-1);
     expect([...order].sort((x, y) => x - y)).toEqual(order);
     const headings = [...body.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => textOf(m[1]).trim());
-    expect(headings).toEqual([launchVideo.title, "Full walkthroughs", "Short clips", "Earlier releases", "Try it on your own audio"]);
+    expect(headings).toEqual([launchVideo.title, "Full walkthroughs", "Short clips", "Try it on your own audio"]);
+    // No section for an old release: "Filmed on v0.7.0. v0.8.0 and v0.9.0 have no video yet" read as stale.
+    expect(text).not.toMatch(/Earlier releases|no video yet|Filmed on v\d/i);
   });
 
   it("lists every video once as a card, except the featured one, whose title is its heading", () => {
-    for (const v of [...demoVideos, releaseVideo, ...reels]) {
+    for (const v of [...demoVideos, ...reels]) {
       expect(body.match(new RegExp(`href="${videoPath(v.slug)}"`, "g")), v.slug).toHaveLength(1);
       expect(text, v.slug).toContain(v.blurb);
       expect(text, v.slug).toContain(v.disclosure);
@@ -214,13 +216,14 @@ describe("/videos", () => {
     expect(source).not.toMatch(/<track[^>]*\bdefault\b/);
   });
 
-  it("fills its grids: three walkthroughs across, reels two across on a phone and four from lg, last row centred", () => {
+  it("fills its grids: three walkthroughs across, reels two across on a phone and all in one row from lg, last row centred", () => {
     expect(body).toContain("md:grid-cols-3");
     expect(demoVideos).toHaveLength(3);
     expect(body).toMatch(/flex flex-wrap justify-center gap-4/);
     expect(body).toContain("w-[calc((100%-1rem)/2)]");
-    expect(body).toContain("lg:w-[calc((100%-3rem)/4)]");
-    expect(reels.length % 4 === 0 || reels.length % 2 === 0).toBe(true);
+    // One row of five from `lg`: a reel added or removed has to change the width too.
+    expect(reels).toHaveLength(5);
+    expect(body).toContain("lg:w-[calc((100%-4rem)/5)]");
   });
 
   it("closes with a way to download, and the two limits a downloader meets", () => {

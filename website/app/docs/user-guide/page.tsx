@@ -389,7 +389,7 @@ export default function UserGuidePage() {
 
       <h2>Transcription</h2>
       <p>
-        <strong>New in v0.8.0.</strong> Ask the agent to{" "}
+        From v0.8.0, ask the agent to{" "}
         <code>transcribe track 1</code> and it writes out what was said, with
         the start and end time of every word, as a new version of the session.
         It runs on your computer, on the CPU, with the Whisper base speech

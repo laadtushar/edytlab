@@ -6,7 +6,8 @@ platforms below, and one caption per platform for each theme in
 kit's pipeline (`../linkedin/tokens.mjs`, `base.css`, `lint.mjs`): violet on
 zinc, Inter, the gradient headline, the aurora wash, the cards.
 
-**Every app frame is a frame of one of the site's own videos**: the real app,
+**Every app frame is a frame of one of the site's own videos** (or of the v0.7.0
+video, which the site served until v0.9.1): the real app,
 and where the assistant is in the shot, real Claude. Nothing is scripted or
 staged. The LinkedIn kit's `post-1` and `post-2` use a scripted example
 conversation, so none of their screenshots is used here. Where a frame is shown
@@ -51,7 +52,7 @@ kit, which keeps the files small).
 
 ## Which video and time each frame came from
 
-Videos are in `website/public/videos/` and `website/public/demos/`. Crops are
+Videos are in `website/public/demos/` and `marketing/promo-v0.7.0/out/`. Crops are
 in pixels of the video; [`extract-frames.sh`](extract-frames.sh) holds every
 number. Each crop starts in a clear gap above a line of the chat (found by
 scanning the pixels), so no message is cut through, and none includes the mouse
@@ -60,12 +61,12 @@ the app's version.
 
 | Theme | Video | At | Why that moment |
 |---|---|---|---|
-| 1 | `videos/whats-new-v070.mp4` (16:9, 1920x1080) | 11 s | the request typed into the chat, then the Fade and Gain edits; its own "Describe the edit" moment, 6.8 s to 13 s |
+| 1 | `promo-v0.7.0/out/edytlab-v0.7.0-16x9.mp4` (16:9, 1920x1080; the site served it as `videos/whats-new-v070.mp4` until v0.9.1) | 11 s | the request typed into the chat, then the Fade and Gain edits; its own "Describe the edit" moment, 6.8 s to 13 s |
 | 2 | `demos/dj-beatmatched-transition.mp4` (1280x776) | 84 s | Claude's reply after the blend (the filter, the bars still a beat apart); the "Blend" step starts at 59.6 s and the pointer has left the chat |
 | 3 | `demos/dj-extended-club-intro.mp4` | 52 s | Claude's summary of the 16-bar intro (new length, where the music comes in); the "Extend the intro" step starts at 35.4 s |
 | 4 | `demos/dj-mini-mix.mp4` | 72 s | Claude's reply on loudness and the limiter, with a lane beside it ("Match loudness, limit the master" starts at 46.7 s) |
-| 5 | `videos/whats-new-v070.mp4` | 28.5 s | the history graph, in the graph moment that starts at 25.967 s |
-| 6 | `videos/whats-new-v070.mp4` | 44 s | the chat's run of Gain edits beside the lanes, in the 200-track moment (36.6 s to 48.3 s); the chat and the lanes are both in the frame, so "Real app, real Claude" is true of it |
+| 5 | `promo-v0.7.0/out/edytlab-v0.7.0-16x9.mp4` | 28.5 s | the history graph, in the graph moment that starts at 25.967 s |
+| 6 | `promo-v0.7.0/out/edytlab-v0.7.0-16x9.mp4` | 44 s | the chat's run of Gain edits beside the lanes, in the 200-track moment (36.6 s to 48.3 s); the chat and the lanes are both in the frame, so "Real app, real Claude" is true of it |
 
 ## What the images claim
 

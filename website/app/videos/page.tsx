@@ -17,9 +17,7 @@ import {
   demoVideos,
   formatDuration,
   launchVideo,
-  clipReels,
-  releaseReels,
-  releaseVideo,
+  reels,
   videoCaptionsSrc,
   videoPath,
   videoPosterSrc,
@@ -108,40 +106,14 @@ export default function VideosPage() {
 
       <VideoSection id="videos-clips" title="Short clips" lead="Vertical videos for your phone, each about one idea.">
         {/* Flex, not a grid, so the last row is centred whatever the count:
-            two across on a phone, four from `lg`. */}
+            two across on a phone, and the five in one row from `lg`. */}
         <div className="flex flex-wrap justify-center gap-4">
-          {clipReels.map((video) => (
+          {reels.map((video) => (
             <VideoLinkCard
               key={video.slug}
               video={video}
               compact
-              className="w-[calc((100%-1rem)/2)] lg:w-[calc((100%-3rem)/4)]"
-            />
-          ))}
-        </div>
-      </VideoSection>
-
-      <VideoSection
-        id="videos-releases"
-        title="Earlier releases"
-        lead={
-          <>
-            Filmed on v0.7.0. v0.8.0 and v0.9.0 have no video yet; the{" "}
-            <Link href="/changelog" className="text-primary underline underline-offset-4">
-              changelog
-            </Link>{" "}
-            lists what they changed.
-          </>
-        }
-      >
-        <VideoLinkCard video={releaseVideo} row />
-        <div className="mt-6 flex flex-wrap justify-center gap-4">
-          {releaseReels.map((video) => (
-            <VideoLinkCard
-              key={video.slug}
-              video={video}
-              compact
-              className="w-[calc((100%-1rem)/2)] lg:w-[calc((100%-3rem)/4)]"
+              className="w-[calc((100%-1rem)/2)] lg:w-[calc((100%-4rem)/5)]"
             />
           ))}
         </div>
