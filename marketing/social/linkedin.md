@@ -1,4 +1,4 @@
-# LinkedIn: v0.7.0 and the DJ demo
+# LinkedIn: v0.9.0 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -10,13 +10,13 @@ comment, which you post right after publishing.
 ## Post
 
 ```
-I've released edytlab 0.7.0, a free, open-source desktop audio editor you drive by describing what you want.
+I've released edytlab 0.9.0, a free, open-source desktop audio editor you drive by describing what you want.
 
 The demo is a DJ transition. The request: get both tracks' tempos, time-stretch the incoming track to match, start it 8 bars before the outgoing one ends, crossfade, put a low-pass on the outgoing track, compress and limit the mix, bring it to -14 LUFS, export a WAV. An AI agent turns that into calls to audio tools, step by step. (The recording is 2:45, with sound; the waits for the agent are sped up. In it the agent also points out a spot where the bars land a beat apart.)
 
 Three design choices I'd like feedback on:
 
-1. The model never touches the audio. It chooses and orders 94 tools; the DSP runs locally in Rust, with no model in the audio path. Your audio is not uploaded. Only the chat goes to the AI provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama, which keeps the chat on your machine too.
+1. The model never touches the audio. It chooses and orders 94 tools; the DSP runs locally in Rust, with no model in the audio path. Your audio is not uploaded. Only the chat goes to the AI provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, your ChatGPT plan (a preview, signed in instead of a key), or Ollama, which keeps the chat on your machine too.
 
 2. Every edit is a node in a branching history. You can fork a take, A/B it against the original, and go back. An optional "plan first" mode shows the agent's steps for your approval before it runs them.
 

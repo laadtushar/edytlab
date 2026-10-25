@@ -17,7 +17,7 @@ come once narration credits are available).
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
 download <https://github.com/laadtushar/edytlab/releases/latest> (the newest
-release, v0.7.0 on 2026-10-22; check before each post that the version a post
+release, v0.9.0 on 2026-10-25; check before each post that the version a post
 names is still the newest)
 
 **Conventions used in every post:** no emoji; 3 to 5 hashtags at the end;
@@ -31,7 +31,7 @@ are described as unsigned.
 ## 1. Launch: what it is (attach `reel-highlights.mp4`)
 
 Angle: the one-paragraph product, the three demos in one breath, the honest
-limits. About 230 words.
+limits. About 250 words.
 
 ```
 I built an audio editor you talk to. The video is three DJ jobs, each described in plain English and ending in an exported WAV.
@@ -40,11 +40,11 @@ A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 
 
 What I like best: the agent flags its own edge cases. Bars that run a beat behind, with the fix. An export peaking right at full scale. A loudness reading that counted the fades.
 
-How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 94 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini), or stays local with Ollama.
+How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 94 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini, or your ChatGPT plan, a preview), or stays local with Ollama.
 
 Honest limits: the demo tracks are short synthetic loops I generated, and the agent in the recordings is Claude. It preps files; it isn't a live DJ tool. No stem separation yet. The installers are unsigned, so macOS and Windows warn on first launch.
 
-Free, open source (MIT), v0.7.0 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
+Free, open source (MIT), v0.9.0 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
 
 Demos and downloads: https://edytlab.com
 
@@ -158,14 +158,14 @@ shows: there is no video in that version.
 ## 4. Privacy and local-first, with the Ollama option (attach `reel-extended-club-intro.mp4`)
 
 Angle: answer the first question people ask about AI audio tools, precisely,
-including the part that does not work well yet. About 310 words.
+including the part that does not work well yet. About 330 words.
 
 ```
 "Does my audio get uploaded?" is the first question about any AI audio tool, so here is the exact answer for edytlab.
 
 Your audio files: no. Decoding, editing, mixing and export all run on your computer, in a Rust engine. The extended intro in the video was built that way.
 
-What does leave: the chat. Your messages, plus the text the agent works from (a track's tempo, key and loudness, and the results of its tool calls), go to the AI provider you picked: Anthropic, OpenAI, OpenRouter, Groq or Gemini, using your own API key. The model never receives the audio. When you open Settings, the app also asks that provider for its list of models, with your key and no prompt or audio.
+What does leave: the chat. Your messages, plus the text the agent works from (a track's tempo, key and loudness, and the results of its tool calls), go to the AI provider you picked: Anthropic, OpenAI, OpenRouter, Groq or Gemini, using your own API key, or OpenAI, if you sign in with your ChatGPT plan instead (a preview, no key). The model never receives the audio. When you open Settings, the app also asks that provider for its list of models, with your key or sign-in and no prompt or audio.
 
 With Ollama there's no key, and the chat stays on your machine too.
 
@@ -199,7 +199,7 @@ Angle: specific, honest invitations, including the big unshipped piece. About
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 94 audio tools. v0.7.0 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 94 audio tools. v0.9.0 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 

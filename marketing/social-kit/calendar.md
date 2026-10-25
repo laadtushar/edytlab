@@ -1,6 +1,6 @@
 # Two-week posting plan
 
-Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). v0.6.0 was published on 16 October, v0.6.1 on 17 October and v0.7.0 on 22 October, and the copy now names v0.7.0; if you start later, shift the days. The recordings were re-filmed on a development build just before v0.6.0, in its look, and the reels re-cut from them.
+Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). v0.6.0 was published on 16 October, v0.6.1 on 17 October, v0.7.0 on 22 October, v0.8.0 on 23 October, v0.8.1 on 24 October and v0.9.0 on 25 October, and the copy now names v0.9.0; if you start later, shift the days. The relaunch starts Tuesday 27 October 2026: day 1 below is that Tuesday, and every later day moves with it (the weekday labels in the tables are the original ones). The recordings were re-filmed on a development build just before v0.6.0, in its look, and the reels re-cut from them.
 Every piece is in this folder: `linkedin-posts.md`, `instagram.md`,
 `reddit.md`, `more.md`. Videos are the `reel-*.mp4` files (no narrated
 versions or `.srt` captions yet: they will be regenerated once narration
@@ -30,7 +30,7 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
 - [ ] Confirm the five `reel-*.mp4` files exist, play with sound, and match
       the captions (see the note at the bottom of `instagram.md`: trim any
       caption detail the final edit cuts).
-- [ ] Install v0.7.0 on one machine per OS you will claim. Check the macOS
+- [ ] Install v0.9.0 on one machine per OS you will claim. Check the macOS
       `xattr` step in the release notes works as written.
 - [ ] Set the Instagram bio link and bio line (`instagram.md`).
 - [ ] Decide the Claude Code disclosure (`linkedin-posts.md` post 3 and the

@@ -26,7 +26,7 @@ Alternates:
 ## Description (260 characters or fewer)
 
 ```
-A free, open-source desktop audio editor. Describe an edit in chat and an AI agent runs 94 audio tools to do it. The DSP runs locally in Rust, so your audio is never uploaded. Bring your own key (Anthropic, OpenAI, OpenRouter, Groq, Gemini) or use Ollama.
+A free, open-source desktop audio editor. Describe an edit in chat and an AI agent runs 94 audio tools. The DSP runs locally in Rust, so audio is never uploaded. Bring a key (Anthropic, OpenAI, OpenRouter, Groq, Gemini), a ChatGPT plan (preview) or Ollama.
 ```
 
 ## Maker's first comment
@@ -40,7 +40,7 @@ What I care about:
 
 - Your audio stays on your machine. Decode, DSP, mixing and export run locally in Rust. Only the chat goes to the AI provider you choose. With Ollama there's no key and nothing leaves your computer.
 - You stay in control. An optional "plan first" mode shows the agent's steps for your approval, and every edit is a node in a branchable graph, so you can fork, A/B compare and go back.
-- It's not locked to one model: Anthropic, OpenAI, OpenRouter, Groq, Gemini or Ollama, switchable from Settings.
+- It's not locked to one model: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama or, in a preview, your ChatGPT plan, switchable from Settings.
 
 The clearest example is the demo on the site: a DJ asks for two tracks' tempos, the incoming track is time-stretched to match, crossfaded in 8 bars before the first one ends, and the mix is exported as a WAV at -14 LUFS. (It's a 2:45 recording with sound; the waits for the agent are sped up. The agent also flags a spot where the bars land a beat apart.)
 
@@ -59,7 +59,7 @@ still made for the site, and `docs/brand/` has before and after screenshots of
 the app's colours (#515, taken with the IPC faked, so they show fake data):
 the `before-*` set is the look v0.5.0 and earlier shipped, and the `after-*`
 set is the violet look the app has had since v0.6.0. Capture the other four
-from the running v0.7.0 app at 1280x776 (the same frame the demo uses) and keep the
+from the running v0.9.0 app at 1280x776 (the same frame the demo uses) and keep the
 filenames out of the repo unless you want them in `website/public`.
 
 | # | Show | Caption |

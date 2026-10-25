@@ -6,7 +6,7 @@
 
 HN rules to keep in mind: the title carries the whole pitch, there is no
 marketing language, the thing must be usable without signing up (it is: a
-download, plus a key you already have or Ollama), and nobody is asked to
+download, plus a key you already have, a ChatGPT plan or Ollama), and nobody is asked to
 upvote.
 
 ## Title (80 characters or fewer)
@@ -41,10 +41,12 @@ spot where the bars land a beat apart, which I left in on purpose.
 **Why local-first.** Decode, DSP, mixing and export all run in-process in Rust.
 Your audio is never uploaded. The only things that leave the machine are the
 chat (your prompts, the agent's context and tool results) going to whichever
-provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama; and
-the request Settings makes to that provider for its model list, which carries
-your key and no prompt or audio. With
-Ollama there is no key and the chat stays on your machine too. The app has no
+provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama (or,
+in a preview, your ChatGPT plan through Sign in with ChatGPT, which sends the
+chat to api.openai.com instead of using a key); and the request Settings makes
+to that provider for its model list, which carries your key or sign-in and no
+prompt or audio. With Ollama there is no key and the chat stays on your machine
+too. The app has no
 telemetry. The website, which is separate, uses Vercel's anonymous analytics
 (page views and page performance, no cookies); the privacy page says so.
 
@@ -111,7 +113,7 @@ Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
 3. If you do DSP: the vocoder and the limiter are the two places I expect the
    most justified criticism.
 
-Download (unsigned v0.7.0): https://github.com/laadtushar/edytlab/releases/latest
+Download (unsigned v0.9.0): https://github.com/laadtushar/edytlab/releases/latest
 Source: https://github.com/laadtushar/edytlab
 
 ---
@@ -123,7 +125,7 @@ Source: https://github.com/laadtushar/edytlab
 | "Why not just script ffmpeg/sox?" | You can, and for a fixed pipeline you should. This is for edits you would otherwise do by ear and by hand, with an audible A/B at each step and a graph of what you tried. |
 | "Does the LLM hear the audio?" | No. It gets the session state and tool results such as BPM, key, beat grid and loudness from `analyze_track`, and chooses edits from that. |
 | "What does it cost?" | The app is free (MIT). Hosted providers charge you per token under your own key; Ollama is free; with a ChatGPT Plus or Pro plan (a preview, v0.9.0 and later) the usage comes out of the plan instead. The docs give a rough range, but do not quote it here as a promise. |
-| "Is the audio really never uploaded?" | Yes: there is no server in the loop. The privacy page lists the network traffic: chat requests to your chosen provider, plus the request Settings makes to that provider for its model list (it carries your key, no prompt or audio). You can check it in your OS network tools. |
+| "Is the audio really never uploaded?" | Yes: there is no server in the loop. The privacy page lists the network traffic: chat requests to your chosen provider, plus the request Settings makes to that provider for its model list (it carries your key or sign-in, no prompt or audio). You can check it in your OS network tools. |
 | "Why Tauri and not Electron?" | The back end is Rust, so the UI process and the DSP crates share one workspace. Do not claim size or speed numbers against Electron; none were measured. |
 | "Is there a web version?" | No. A browser SaaS is evaluated in #389 and undecided. |
 | "94 tools is a lot for a model" | It is. For Ollama, the app sends a core set of about 15 tools plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them: Anthropic's prompt cache needs a fixed list. The Capabilities menu and agent profiles can narrow the list, and plan-first keeps a human in the loop. |

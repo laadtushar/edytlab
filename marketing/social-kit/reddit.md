@@ -6,7 +6,7 @@ with a question. Do not cross-post one text, and do not post two of these on
 the same day (`calendar.md` spaces them out).
 
 This supersedes the v0.3.0-era text in `marketing/launch/reddit.md` for these
-six subreddits: it is updated for v0.7.0 (2026-10-22), includes the other two DJ demos, and
+six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's), includes the other two DJ demos, and
 discloses that the demo tracks are synthetic. (That file still has posts for
 r/audioengineering, r/podcasting and r/tauri if you want them later.)
 
@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.7.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.7.0>
+v0.9.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.0>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -79,7 +79,7 @@ What to know before deciding whether it's worth your time:
 - The recordings were made on a development build just before v0.6.0, and v0.6.0 and later do what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; for the compressor in the first demo the agent still mixes the two tracks to a new one.
 - No decks, controllers or live mode. It exports WAV, FLAC or MP3 files and has nothing for rekordbox or Serato. No stem separation or acapellas; that isn't built.
 - A test script types the requests into the real app when I record, and I only publish runs that passed my checks. The agent isn't deterministic, so your results can differ.
-- It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
+- It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, a ChatGPT Plus or Pro plan signed in instead of a key (a preview), or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
 
 Recordings: https://edytlab.com/use-cases/dj
 Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
@@ -189,7 +189,7 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.7.0 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.0 is the current release.
 
 Where I'd like help:
 
@@ -204,7 +204,7 @@ No open issue carries the "good first issue" label right now. If you want a star
 Things an open-source crowd will ask about:
 
 - AI: I develop it with Claude Code. Many commits carry a Co-Authored-By trailer, and the repo has a CLAUDE.md with the working rules.
-- Cost: the app is free. With a hosted provider you pay that provider per token under your own key; Ollama is free. A hosted option that bundles AI inference is on the roadmap with pricing undecided, and issue 389 evaluates a browser-based version. The desktop app and audio engine are MIT today.
+- Cost: the app is free. With a hosted provider you pay that provider per token under your own key; Ollama is free; the ChatGPT plan preview uses your Plus or Pro plan's usage instead. A hosted option that bundles AI inference is on the roadmap with pricing undecided, and issue 389 evaluates a browser-based version. The desktop app and audio engine are MIT today.
 - Telemetry: none in the desktop app.
 - Signing: the installers are unsigned (certificates are not provisioned yet, issue 386), so macOS and Windows warn on first launch.
 
@@ -317,12 +317,14 @@ Demo recordings (DJ jobs, screen-captured from the real app): https://edytlab.co
 
 Facts to re-check on the day:
 
-- Issue numbers and open/closed state. On 2026-10-22: closed are 460 (PR 516),
-  453 (PR 521) and 520 (all in v0.6.0), and 421, 395 and 394 (all in v0.5.0);
-  open are 464, 497, 389, 386, 384 and 385, and 383 (the ONNX Runtime and
-  model delivery): the installers carry the runtime from v0.7.0 (#615), but no
-  model is downloaded and no inference runs, so keep saying "383 to 385". They
-  were all open when this was written (2026-10-10).
+- Issue numbers and open/closed state. On 2026-10-25: closed are 460 (PR 516),
+  453 (PR 521) and 520 (all in v0.6.0), 421, 395 and 394 (all in v0.5.0), and
+  383 and 384 (the ONNX Runtime and model delivery, and Whisper transcription:
+  the installers carry the runtime from v0.7.0, #615, and the model download
+  and transcription come with v0.8.0); open are 464, 497, 389, 386 and 385
+  (stem separation), and 474 (Sign in with ChatGPT, whose preview shipped in
+  v0.9.0). The r/opensource post still says "383 to 385" for the ML pieces as
+  a group. They were all open when this was written (2026-10-10).
 - "No open issue carries the good first issue label": true when checked on
   2026-10-22 (15 open issues, none labelled). Label two issues before posting r/opensource
   and replace that sentence with their numbers.
