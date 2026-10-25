@@ -454,12 +454,20 @@ fn public_holds_no_openai_or_chatgpt_image_but_the_approved_two() {
         let lower = relative.to_lowercase();
         let named = lower.contains("openai") || lower.contains("chatgpt");
         let allowed = relative.starts_with("brand/openai/")
-            && (APPROVED_LOGOS.iter().any(|a| a.trim_start_matches('/') == relative)
+            && (APPROVED_LOGOS
+                .iter()
+                .any(|a| a.trim_start_matches('/') == relative)
                 || relative == "brand/openai/README.md");
         if relative.starts_with("brand/openai/") {
-            assert!(allowed, "{relative}: only the two approved logos and the README belong here");
+            assert!(
+                allowed,
+                "{relative}: only the two approved logos and the README belong here"
+            );
         } else {
-            assert!(!named, "{relative}: an OpenAI or ChatGPT image outside public/brand/openai/");
+            assert!(
+                !named,
+                "{relative}: an OpenAI or ChatGPT image outside public/brand/openai/"
+            );
         }
     }
 }
