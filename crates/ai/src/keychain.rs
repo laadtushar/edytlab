@@ -57,8 +57,10 @@
 //! # A failed read
 //!
 //! A read of the `secrets` item that fails with `PlatformFailure` (what a
-//! macOS Deny comes back as) is remembered for the process and answered the
-//! same way without another keychain call, until a save asks again.
+//! macOS Deny comes back as) is remembered for ten seconds and answered the
+//! same way without another keychain call, so the reads of one startup do not
+//! each prompt again; after that the next read asks the store, and a save
+//! asks at once.
 //!
 //! # No folder registered
 //!
@@ -132,6 +134,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
@@ -809,6 +812,17 @@ fn read_settings_file(dir: &Path) -> FileState {
     }
 }
 
+/// Keep a settings file that is not valid for a look, and let a new one be
+/// started. The secrets are in the keychain, so only the choices (model,
+/// effort, address, provider) are lost.
+fn set_aside_corrupt(dir: &Path) {
+    tracing::warn!("the settings file is not valid; moved aside, starting a new one");
+    let _ = std::fs::rename(
+        dir.join(SETTINGS_FILE),
+        dir.join(format!("{SETTINGS_FILE}.bad")),
+    );
+}
+
 /// Write the file whole: a temporary file beside it, flushed, then renamed
 /// over it, so a crash or a full disk leaves the old file or the new one and
 /// never half of one. Readable by the owner only; it holds no secret, but it
@@ -965,12 +979,20 @@ struct State {
     /// reached).
     secrets: Option<SecretMap>,
     /// A read of the `secrets` item the platform failed (`PlatformFailure`:
-    /// on macOS that is what a Deny comes back as). Remembered for the
-    /// process, as `keychain_refused` is in the desktop (#497): every further
-    /// read answers the same error with no keychain call, since each one
-    /// would raise the prompt again. A save is a user action and asks again.
-    read_failed: Option<KeychainError>,
+    /// on macOS that is what a Deny comes back as), and when. Remembered for
+    /// [`READ_FAILURE_MEMORY`], as `keychain_refused` is in the desktop (#497)
+    /// but not for good: reads inside the window answer the same error with no
+    /// keychain call, since each one would raise the prompt again; after it the
+    /// next read asks the store. A save is a user action and asks at once.
+    read_failed: Option<(KeychainError, Instant)>,
 }
+
+/// How long a failed read of the `secrets` item is remembered
+/// ([`State::read_failed`]): long enough that the reads of one startup do not
+/// each raise the prompt again after a Deny, short enough that a failure that
+/// was only a moment (the keychain just after a sleep, a service still
+/// starting) does not hide the keys for the rest of the process.
+const READ_FAILURE_MEMORY: Duration = Duration::from_secs(10);
 
 /// Why a migration did not finish.
 enum NotMigrated {
@@ -979,6 +1001,13 @@ enum NotMigrated {
     Refused(KeychainError),
     /// Anything else. Every old item is kept and the process runs on them.
     Kept(String),
+    /// The settings file could not be written, but the `secrets` item says an
+    /// earlier migration finished, so it is the truth and the per-slot items
+    /// are leftovers: stay on the current layout, with these settings in
+    /// memory (each save tries the file again) and the item's content, if it
+    /// was read. Never the per-slot items, whose saves the next launch would
+    /// delete.
+    Marked(Settings, Option<SecretMap>),
 }
 
 /// Whether a read of the `secrets` item was answered by the platform's store.
@@ -997,6 +1026,8 @@ struct Store {
     /// See [`read_from`]; per store, for the rest of the process.
     move_refused: AtomicBool,
     unreachable_confirmed: AtomicBool,
+    /// The time, for how long a failed read is remembered. A test moves it.
+    now: Box<dyn Fn() -> Instant + Send + Sync>,
 }
 
 impl Store {
@@ -1012,6 +1043,7 @@ impl Store {
             }),
             move_refused: AtomicBool::new(false),
             unreachable_confirmed: AtomicBool::new(false),
+            now: Box::new(Instant::now),
         }
     }
 
@@ -1128,16 +1160,7 @@ impl Store {
                 return Ok(());
             }
             FileState::Missing => {}
-            FileState::Corrupt => {
-                // Keep it for a look, and start a new one. The secrets are in
-                // the keychain, so only the choices (model, effort, address,
-                // provider) are lost.
-                tracing::warn!("the settings file is not valid; moved aside, starting a new one");
-                let _ = std::fs::rename(
-                    dir.join(SETTINGS_FILE),
-                    dir.join(format!("{SETTINGS_FILE}.bad")),
-                );
-            }
+            FileState::Corrupt => set_aside_corrupt(&dir),
             FileState::Unreadable(kind) => {
                 // Not the per-slot layout: if the migration ran, those items
                 // are gone, and a read of them would find nothing and a save
@@ -1156,6 +1179,16 @@ impl Store {
                 Ok(())
             }
             Err(NotMigrated::Refused(e)) => Err(e),
+            Err(NotMigrated::Marked(settings, secrets)) => {
+                tracing::warn!(
+                    "the settings file cannot be written; settings are kept in memory \
+                     and each save tries the file again"
+                );
+                st.settings = settings;
+                st.secrets = secrets;
+                st.layout = Layout::Current;
+                Ok(())
+            }
             Err(NotMigrated::Kept(reason)) => {
                 tracing::warn!(
                     reason = %reason,
@@ -1296,16 +1329,40 @@ impl Store {
                 let _ = this.delete_item(SECRETS_ACCOUNT);
             }
         };
+        // A failure here keeps the old items, unless the item is marked: then
+        // it is the truth, and the old items are not used (see `Marked`).
+        let stay = |this: &Self, why: String| {
+            undo(this);
+            let marked = !created_item
+                && (written
+                    .as_ref()
+                    .is_some_and(|m| m.contains_key(MIGRATED_MARKER))
+                    || this
+                        .read_item(SECRETS_ACCOUNT)
+                        .ok()
+                        .flatten()
+                        .and_then(|j| parse_secrets(&j).ok())
+                        .is_some_and(|m| m.contains_key(MIGRATED_MARKER)));
+            if marked {
+                NotMigrated::Marked(settings.clone(), written.clone())
+            } else {
+                NotMigrated::Kept(why)
+            }
+        };
         if let Err(e) = write_settings_file(dir, &settings) {
-            undo(self);
-            return Err(kept(format!("the settings file could not be written: {e}")));
+            return Err(stay(
+                self,
+                format!("the settings file could not be written: {e}"),
+            ));
         }
         match read_settings_file(dir) {
             FileState::Present(back) if back == settings => {}
             _ => {
                 let _ = std::fs::remove_file(dir.join(SETTINGS_FILE));
-                undo(self);
-                return Err(kept("the settings file did not read back"));
+                return Err(stay(
+                    self,
+                    "the settings file did not read back".to_string(),
+                ));
             }
         }
 
@@ -1367,8 +1424,11 @@ impl Store {
     /// known: the cache and the kernel keyring's copy, which together are
     /// what this process saw, and it is not cached.
     fn read_secrets(&self, st: &mut State) -> Result<(SecretMap, Reach), KeychainError> {
-        if let Some(failure) = &st.read_failed {
-            return Err(failure.clone());
+        if let Some((failure, at)) = &st.read_failed {
+            if (self.now)().saturating_duration_since(*at) < READ_FAILURE_MEMORY {
+                return Err(failure.clone());
+            }
+            st.read_failed = None;
         }
         let (primary, legacy) = (self.slots)(SECRETS_ACCOUNT)?;
         let (read, reach) = self.read_secrets_item(&*primary, legacy.as_deref());
@@ -1378,7 +1438,7 @@ impl Store {
                 let platform_failure = matches!(e, keyring::Error::PlatformFailure(_));
                 let e = KeychainError::from(e);
                 if platform_failure {
-                    st.read_failed = Some(e.clone());
+                    st.read_failed = Some((e.clone(), (self.now)()));
                 }
                 return Err(e);
             }
@@ -1536,7 +1596,11 @@ impl Store {
             FileState::Present(on_disk) => on_disk,
             // Gone or damaged since it was read: what this process holds is
             // the best there is, and the write puts a good file in its place.
-            FileState::Missing | FileState::Corrupt => st.settings.clone(),
+            FileState::Missing => st.settings.clone(),
+            FileState::Corrupt => {
+                set_aside_corrupt(&dir);
+                st.settings.clone()
+            }
             FileState::Unreadable(_) => {
                 return Err(keyring::Error::PlatformFailure(
                     "the settings file cannot be read".into(),

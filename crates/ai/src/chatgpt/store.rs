@@ -78,7 +78,8 @@ pub enum SecretStoreError {
     /// token share one credential, #734). The session keeps the
     /// token in memory and says it will not survive a restart.
     #[error(
-        "the saved keys and sign-in no longer fit in the system keychain; remove a key you do not use"
+        "the sign-in is too long for this system's credential store; if other keys are saved, \
+         removing one you do not use may make room"
     )]
     TooLong,
     /// The store could not be used: locked, refused, or not there.

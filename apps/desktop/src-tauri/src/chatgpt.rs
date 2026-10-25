@@ -1394,7 +1394,7 @@ mod tests {
         );
         assert_eq!(memory.kind, "memory");
         assert!(!memory.persistent);
-        assert!(memory.reason.unwrap().contains("no longer fit"));
+        assert!(memory.reason.unwrap().contains("too long for this system"));
     }
 
     /// A startup the keychain refused: no read, so no unlock prompt for a
@@ -1564,7 +1564,7 @@ mod tests {
                 "tokenStorage": {
                     "kind": "memory",
                     "persistent": false,
-                    "reason": "the saved keys and sign-in no longer fit in the system keychain; remove a key you do not use"
+                    "reason": "the sign-in is too long for this system's credential store; if other keys are saved, removing one you do not use may make room"
                 },
                 "pendingMessage": true
             })

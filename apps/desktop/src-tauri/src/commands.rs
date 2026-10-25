@@ -53,8 +53,9 @@ pub struct ProjectInfo {
 /// remedy is to remove one. Never carries a stored value.
 pub(crate) fn keychain_error_text(error: &keyring::Error) -> String {
     match error {
-        keyring::Error::TooLong(..) => "the saved keys and sign-in no longer fit in the \
-            system credential store; remove a key you do not use and try again"
+        keyring::Error::TooLong(..) => "this does not fit in this system's credential store, \
+            which holds every saved key and the sign-in together; if other keys are saved, \
+            removing one you do not use may make room"
             .to_string(),
         other => other.to_string(),
     }
@@ -7432,11 +7433,11 @@ mod tests {
     /// The keys and the sign-in share one credential (#734), so a save that no
     /// longer fits says that and what to do, and names no value.
     #[test]
-    fn a_credential_that_is_too_long_says_the_saved_keys_no_longer_fit() {
+    fn a_credential_that_is_too_long_says_what_may_make_room() {
         let text = CommandError::from(keyring::Error::TooLong("secret".into(), 2560)).to_string();
         assert!(text.starts_with("keychain error: "), "{text}");
-        assert!(text.contains("no longer fit"), "{text}");
-        assert!(text.contains("remove a key you do not use"), "{text}");
+        assert!(text.contains("does not fit"), "{text}");
+        assert!(text.contains("may make room"), "{text}");
         assert_eq!(
             CommandError::from(keyring::Error::NoEntry).to_string(),
             format!("keychain error: {}", keyring::Error::NoEntry)

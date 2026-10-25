@@ -1619,3 +1619,192 @@ fn a_failed_secrets_read_is_remembered_until_a_save_tries_again() {
         Some("key-g")
     );
 }
+
+// ---------------------------------------------------------------------------
+// Second-round review fixes on #741.
+// ---------------------------------------------------------------------------
+
+/// The name `write_settings_file` gives its temporary file: a folder of this
+/// name in the way makes every write of the settings file fail, while a read of
+/// it still finds the file missing (the tests run as a user a read-only folder
+/// would not stop).
+fn block_settings_writes(dir: &Path) {
+    std::fs::create_dir(dir.join(format!("{SETTINGS_FILE}.tmp-{}", std::process::id()))).unwrap();
+}
+
+/// A marked item and no settings file that can be written: the item is still
+/// the truth. The launch must not fall back to the per-slot items (the next
+/// launch would delete what was saved there).
+#[test]
+fn a_marked_item_and_a_settings_file_that_cannot_be_written_stay_on_the_item() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    backend.seed(
+        SECRETS_ACCOUNT,
+        &format!(r#"{{"{MIGRATED_MARKER}":"1","anthropic_api_key":"key-a"}}"#),
+    );
+    block_settings_writes(dir.path());
+
+    let store = launch(&backend, dir.path());
+    assert_eq!(
+        store.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+        Some("key-a"),
+        "no Welcome over a stored key"
+    );
+    // A re-entered key lands in the item, not in a per-slot one.
+    store.put(Field::ApiKey("anthropic"), "key-new").unwrap();
+    assert_eq!(backend.secrets()["anthropic_api_key"], "key-new");
+    assert!(backend.item("anthropic_api_key").is_none());
+    // A setting cannot be saved while the file cannot be written, and says so.
+    assert!(store.put(Field::Model("anthropic"), "m").is_err());
+    assert_eq!(store.get(Field::Model("anthropic")).unwrap(), None);
+
+    // The next launch, with the folder unblocked, keeps the new key.
+    std::fs::remove_dir(
+        dir.path()
+            .join(format!("{SETTINGS_FILE}.tmp-{}", std::process::id())),
+    )
+    .unwrap();
+    let next = launch(&backend, dir.path());
+    assert_eq!(
+        next.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+        Some("key-new")
+    );
+    // And the save that failed works now.
+    next.put(Field::Model("anthropic"), "m").unwrap();
+    assert_eq!(
+        settings_json(dir.path())["providers"]["anthropic"]["model"],
+        "m"
+    );
+}
+
+/// The same, with per-slot settings left over: they seed the launch's settings.
+#[test]
+fn a_marked_item_with_leftover_settings_serves_them_while_the_file_cannot_be_written() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    backend.seed(
+        SECRETS_ACCOUNT,
+        &format!(r#"{{"{MIGRATED_MARKER}":"1","anthropic_api_key":"key-a"}}"#),
+    );
+    backend.seed("anthropic_model", "claude-left-over");
+    block_settings_writes(dir.path());
+    let store = launch(&backend, dir.path());
+    assert_eq!(
+        store.get(Field::Model("anthropic")).unwrap().as_deref(),
+        Some("claude-left-over")
+    );
+    assert_eq!(
+        backend.item("anthropic_model").as_deref(),
+        Some("claude-left-over"),
+        "kept until the file can be written"
+    );
+}
+
+/// An item with no marker is not known to be finished: that case keeps the
+/// per-slot items, as before.
+#[test]
+fn an_unmarked_item_and_a_settings_file_that_cannot_be_written_stay_on_the_old_items() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    seed_legacy(&backend);
+    block_settings_writes(dir.path());
+    let store = launch(&backend, dir.path());
+    assert_eq!(everything(&store), expected_after_migration());
+    store.put(Field::ApiKey("groq"), "key-groq-2").unwrap();
+    assert_eq!(backend.item("groq_api_key").as_deref(), Some("key-groq-2"));
+}
+
+/// A launch clock the test moves.
+fn clocked(store: &mut Store) -> Arc<Mutex<std::time::Duration>> {
+    let start = std::time::Instant::now();
+    let moved = Arc::new(Mutex::new(std::time::Duration::ZERO));
+    let seen = Arc::clone(&moved);
+    store.now = Box::new(move || start + *seen.lock().unwrap());
+    moved
+}
+
+/// Finding 2 of round two. A failed read is remembered for a short while (the
+/// startup sequence's reads must not each raise the prompt again after a
+/// Deny), not for the whole process: a transient failure heals.
+#[test]
+fn a_failed_secrets_read_is_remembered_for_a_short_while_only() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    std::fs::write(dir.path().join(SETTINGS_FILE), r#"{"version":1}"#).unwrap();
+    backend.seed(SECRETS_ACCOUNT, r#"{"openai_api_key":"key-o"}"#);
+    backend
+        .down
+        .lock()
+        .unwrap()
+        .insert(SECRETS_ACCOUNT.to_string());
+    let mut store = launch(&backend, dir.path());
+    let clock = clocked(&mut store);
+
+    assert!(store.get(Field::ApiKey("openai")).is_err());
+    *clock.lock().unwrap() = std::time::Duration::from_secs(5);
+    assert!(store.get(Field::ChatGptToken).is_err());
+    assert_eq!(
+        backend.count(Op::Get, SECRETS_ACCOUNT),
+        1,
+        "inside the window: no second backend call"
+    );
+
+    // The store recovers; after the window the next read asks again.
+    backend.down.lock().unwrap().clear();
+    *clock.lock().unwrap() = std::time::Duration::from_secs(11);
+    assert_eq!(
+        store.get(Field::ApiKey("openai")).unwrap().as_deref(),
+        Some("key-o")
+    );
+    assert_eq!(backend.count(Op::Get, SECRETS_ACCOUNT), 2);
+
+    // A failure again starts a new window.
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    std::fs::write(dir.path().join(SETTINGS_FILE), r#"{"version":1}"#).unwrap();
+    backend.seed(SECRETS_ACCOUNT, r#"{"openai_api_key":"key-o"}"#);
+    backend
+        .down
+        .lock()
+        .unwrap()
+        .insert(SECRETS_ACCOUNT.to_string());
+    let mut store = launch(&backend, dir.path());
+    let clock = clocked(&mut store);
+    assert!(store.get(Field::ApiKey("openai")).is_err());
+    *clock.lock().unwrap() = std::time::Duration::from_secs(11);
+    assert!(store.get(Field::ApiKey("openai")).is_err());
+    assert_eq!(backend.count(Op::Get, SECRETS_ACCOUNT), 2);
+    *clock.lock().unwrap() = std::time::Duration::from_secs(15);
+    assert!(store.get(Field::ApiKey("openai")).is_err());
+    assert_eq!(
+        backend.count(Op::Get, SECRETS_ACCOUNT),
+        2,
+        "inside the new window"
+    );
+}
+
+/// A settings file found damaged when a save re-reads it is set aside as
+/// `.bad`, as at launch, before a good one is written over it.
+#[test]
+fn a_settings_file_damaged_under_a_running_store_is_kept_as_bad_before_it_is_replaced() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    installed(&backend, dir.path());
+    let store = launch(&backend, dir.path());
+    assert!(store.get(Field::ActiveProvider).unwrap().is_some());
+    std::fs::write(dir.path().join(SETTINGS_FILE), "{ not json").unwrap();
+
+    store.put(Field::Model("openai"), "gpt-x").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(format!("{SETTINGS_FILE}.bad"))).unwrap(),
+        "{ not json"
+    );
+    let json = settings_json(dir.path());
+    assert_eq!(json["providers"]["openai"]["model"], "gpt-x");
+    assert_eq!(json["providers"]["anthropic"]["model"], "claude-a-model");
+}
+
+/// Finding 4 of round two. The text of the sign-in's `TooLong` holds whether
+/// the keys fill the credential or the sign-in alone is too long for it.
+#[test]
+fn the_sign_in_too_long_text_holds_when_no_key_is_saved_too() {
+    let text = crate::chatgpt::store::SecretStoreError::TooLong.to_string();
+    assert!(text.contains("if other keys are saved"), "{text}");
+    assert!(text.contains("may make room"), "{text}");
+    assert!(!text.contains("no longer fit"), "{text}");
+}

@@ -145,7 +145,8 @@ a type error), and is not overwritten by a save.
   build was unreleased, so no shipped item has to be converted; the per-slot items are still read
   as passwords). Six hosted keys and a long refresh token still fit, and a save that no longer does
   fails with `keyring`'s `TooLong` and changes nothing; the window says the saved keys and sign-in
-  no longer fit and to remove one you do not use. A migration that does not fit stays on the
+  does not fit and that removing a key you do not use may make room (the sign-in's own text says it
+  is too long for the store when no key is saved too). A migration that does not fit stays on the
   per-slot items.
 - **Two processes share one item.** Every save and delete reads the item (and the settings file)
   again before changing it, so a rotated ChatGPT token one process saved is not undone by a key the
@@ -160,8 +161,22 @@ a type error), and is not overwritten by a save.
   bring the key back), so it fails with an error.
 - **A Deny on macOS is remembered.** `keyring` reports it as `PlatformFailure`, which is not cached
   as an answer, and every later read in the launch would prompt again. A failed read of the item is
-  now remembered for the process and answered the same way, with no keychain call, as
-  `keychain_refused` does in the desktop (#497); a save is the user's act and tries again.
+  now remembered for ten seconds and answered the same way, with no keychain call, as
+  `keychain_refused` does in the desktop (#497), but not for good: the reads of one startup do not
+  each prompt again, while a failure that was only a moment (the keychain after a sleep, a service
+  still starting) does not hide the keys for the rest of the process. A save is the user's act and
+  tries again at once.
+- **Every save re-reads the item**, so a macOS user who answered **Allow** rather than **Always
+  Allow** after an update may be prompted on a save, the ChatGPT token refresh included. The tests
+  cannot see macOS's prompts: the owner checks it on a Mac.
+- **Cross-process saves are narrowed, not atomic.** The re-read shrinks the window in which two
+  processes can overwrite each other to the time between the read and the write; there is no lock
+  across processes.
+- **A marked item survives a settings file that cannot be written.** If the file cannot be written
+  at launch but the item carries `__migrated`, the process stays on the current layout: the item
+  serves the secrets, the settings are held in memory (seeded from whatever per-slot settings are
+  left), and each settings save tries the file again and returns the error while it cannot be
+  written. It never switches to the per-slot items, whose saves the next launch would delete.
 - **An MCP server's `<keychain:slot>`** is not a provider's slot and was never in the item. It is the
   per-slot item `<slot>_api_key` that the user makes in the OS store, read on demand when the slot is
   not in the item, and never migrated or deleted. A provider's slot that is not set costs no such read.
