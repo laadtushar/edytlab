@@ -498,6 +498,12 @@ export const demoVideos: readonly DemoVideo[] = demos.map((d) => ({
 export const releaseVideo = videos.find((v) => v.kind === "release") as SiteVideo;
 export const launchVideo = videos.find((v) => v.kind === "launch") as SiteVideo;
 export const reels: readonly SiteVideo[] = videos.filter((v) => v.kind === "reel");
+/**
+ * The reels cut from the v0.7.0 release video, which the hub shows with it
+ * under "Earlier releases", apart from the clips that describe no release.
+ */
+export const releaseReels: readonly SiteVideo[] = reels.filter((v) => v.slug.startsWith("reel-v070-"));
+export const clipReels: readonly SiteVideo[] = reels.filter((v) => !releaseReels.includes(v));
 
 /** Every video that has a page of its own, in the hub's order. */
 export const watchVideos: readonly WatchVideo[] = [releaseVideo, launchVideo, ...demoVideos, ...reels];

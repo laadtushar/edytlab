@@ -56,7 +56,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/alternatives/audacity": "2026-10-24",
   "/alternatives/adobe-audition": "2026-10-24",
   "/compare": "2026-10-24",
-  "/videos": "2026-10-24",
+  "/videos": "2026-10-25",
   "/videos/whats-new-v070": "2026-10-23",
   "/videos/launch-video": "2026-10-24",
   "/videos/dj-beatmatched-transition": "2026-10-23",

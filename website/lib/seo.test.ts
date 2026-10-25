@@ -886,13 +886,14 @@ describe("the videos hub", () => {
     expect(page).toMatch(/const description =\s*"[^"]{60,160}"/);
   });
 
-  it("features the launch video, then lists the three demos, the release video and the reels", () => {
+  it("features the launch video, then lists the three demos, the clips, and the v0.7.0 videos last", () => {
     const at = (needle: string) => page.indexOf(needle);
     expect(page).toContain("const featured = launchVideo");
     expect(at("<FeaturedVideo")).toBeGreaterThan(-1);
     expect(at("demoVideos.map(")).toBeGreaterThan(at("<FeaturedVideo"));
-    expect(at("<VideoLinkCard video={releaseVideo}")).toBeGreaterThan(at("demoVideos.map("));
-    expect(at("reels.map(")).toBeGreaterThan(at("<VideoLinkCard video={releaseVideo}"));
+    expect(at("clipReels.map(")).toBeGreaterThan(at("demoVideos.map("));
+    expect(at("<VideoLinkCard video={releaseVideo}")).toBeGreaterThan(at("clipReels.map("));
+    expect(at("releaseReels.map(")).toBeGreaterThan(at("<VideoLinkCard video={releaseVideo}"));
   });
 
   it("holds no player and no VideoObject: Google indexes a video that is the main content of its page", () => {

@@ -146,11 +146,11 @@ describe("/videos", () => {
   });
 
   it("has the sections a visitor expects, in order, each with a short heading", () => {
-    const order = ["Full walkthroughs", "Release videos", "Short clips", "Try it on your own audio"].map((h) => body.indexOf(`>${h}<`));
+    const order = ["Full walkthroughs", "Short clips", "Earlier releases", "Try it on your own audio"].map((h) => body.indexOf(`>${h}<`));
     for (const i of order) expect(i).toBeGreaterThan(-1);
     expect([...order].sort((x, y) => x - y)).toEqual(order);
     const headings = [...body.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => textOf(m[1]).trim());
-    expect(headings).toEqual([launchVideo.title, "Full walkthroughs", "Release videos", "Short clips", "Try it on your own audio"]);
+    expect(headings).toEqual([launchVideo.title, "Full walkthroughs", "Short clips", "Earlier releases", "Try it on your own audio"]);
   });
 
   it("lists every video once as a card, except the featured one, whose title is its heading", () => {
