@@ -1397,7 +1397,7 @@ surface. The sign-in is OAuth with PKCE through the system browser, which **the
 backend opens** (`tauri-plugin-opener`'s `open_url`, used from Rust and never
 registered as a plugin: the window has no opener command or permission, the CSP
 is unchanged, and the authorization URL, the code and the tokens never reach the
-webview). The refresh token is in the keychain slot `chatgpt_refresh_token`,
+webview). The refresh token is the keychain slot `chatgpt_refresh_token` (an entry of the `secrets` item),
 through the same plumbing as the API keys (the Linux kernel-keyring fallback of
 #394 and a startup the keychain refused, #497, behave the same way). The access
 token is in memory only. The non-secret registration is

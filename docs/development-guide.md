@@ -222,9 +222,9 @@ Which in turn runs the Tauri CLI (`@tauri-apps/cli`, the desktop package's `taur
    - Google Gemini: https://aistudio.google.com/apikey
    - Ollama: no key — run a local Ollama daemon (`ollama serve`, then `ollama pull llama3.2`)
 
-2. In the running app, click the gear icon → pick the provider → enter your key. The key is stored in your OS keychain — never on disk or committed to git.
+2. In the running app, click the gear icon → pick the provider → enter your key. The key is stored in your OS keychain (one item, `secrets`, for all keys) — never on disk or committed to git. The provider, model, base URL and reasoning effort are not secrets: they are in `provider-settings.json` in the app's config folder.
 
-That is six API providers. The seventh way in is not a key: with a ChatGPT Plus or Pro plan, pick **ChatGPT plan** in Settings → Account and choose **Continue with ChatGPT** to sign in through your browser (a preview of OpenAI's Sign in with ChatGPT for open-source apps, v0.9.0 and later). It is for a desktop build: the CLI has no browser to open and refuses `--provider chatgpt`. The sign-in keeps a refresh token in the keychain slot `chatgpt_refresh_token` and a `chatgpt/registration.json` in the app config folder; see `docs/specs/2026-10-10-chatgpt-subscription-sign-in.md` and the "ChatGPT in the desktop" section of `docs/architecture.md`.
+That is six API providers. The seventh way in is not a key: with a ChatGPT Plus or Pro plan, pick **ChatGPT plan** in Settings → Account and choose **Continue with ChatGPT** to sign in through your browser (a preview of OpenAI's Sign in with ChatGPT for open-source apps, v0.9.0 and later). It is for a desktop build: the CLI has no browser to open and refuses `--provider chatgpt`. The sign-in keeps a refresh token in the keychain (the `chatgpt_refresh_token` entry of the `secrets` item) and a `chatgpt/registration.json` in the app config folder; see `docs/specs/2026-10-10-chatgpt-subscription-sign-in.md` and the "ChatGPT in the desktop" section of `docs/architecture.md`.
 
 ---
 
@@ -398,7 +398,7 @@ src/
 ├── approval.rs     # The approval gate shared by a plan and a held first edit (Plan first)
 ├── chatgpt/        # Sign in with ChatGPT: protocol rules, registration store, session (#474; the app does not call it yet)
 ├── context_window.rs  # "The model's context is too small" error (#395)
-├── keychain.rs     # OS credential storage via keyring
+├── keychain.rs     # Secrets: one OS-keychain item (`secrets`) via keyring; settings: a JSON file (ADR 0009)
 ├── models.rs       # Model catalogue + 10-min TTL cache
 ├── oauth/          # Generic OAuth 2.0 / OpenID Connect client: PKCE, loopback listener, OIDC checks, token endpoint (#474)
 ├── plan_gate.rs    # The plan gate: one oneshot per card, one answer, a timeout (ADR 0002)
@@ -786,11 +786,13 @@ Add `-- --test-threads=1` to serialize tests within each binary, as CI does: tes
 
 ### Keychain access dialog on macOS
 
-On macOS, the first `keyring::Entry::get_password()` call triggers a system dialog. In CI, keychain access is pre-authorized. Locally, approve the dialog once.
+On macOS, reading a keychain item the running build was not given access to triggers a system dialog, once for each item. edytlab keeps all its secrets in one item (`secrets`) and reads it once per process, so a launch asks at most once; **Always Allow** keeps it from asking again until the next update (the installers are ad-hoc signed, so each update is a new build, #386). In CI, keychain access is pre-authorized.
+
+The first launch of a build with this layout (#734) also reads the per-slot items an earlier build made (`<provider>_api_key`, `<provider>_model`, `active_provider`, …), and macOS asks once for each that exists: that is the last time. It then writes the `secrets` item and `provider-settings.json`, reads both back and deletes the old items. If it cannot (the keychain refused the write, the config folder is read-only, the Secret Service did not answer), the old items stay, are used as before and the migration is tried again at the next launch; the log says why, without a value. To run it again by hand, delete `provider-settings.json` from the app's config folder while the old items are still there; to start over, delete the `secrets` item too.
 
 ### Linux: settings gone after a restart, or the "No Secret Service" banner
 
-On Linux edytlab keeps keys and settings in the **Secret Service** (GNOME Keyring, KWallet or KeePassXC), which survives a reboot. The banner "No Secret Service … is running" means nothing answered on the session D-Bus, so the app fell back to the kernel keyring, and what you save lasts only until the machine restarts (`get_keychain_persistence` reports `persistent: false` and why). This is common in a bare window manager, a container, an SSH session or a CI box. A Secret Service that goes away *after* launch is not in the banner; the save commands report it instead (each answers `persistent: false` and why for a value that fell back), and Settings shows the same words after the Save that did, then waits for Continue.
+On Linux edytlab keeps its keys (all in one item, `secrets`) in the **Secret Service** (GNOME Keyring, KWallet or KeePassXC), which survives a reboot. The banner "No Secret Service … is running" means nothing answered on the session D-Bus, so the app fell back to the kernel keyring, and what you save lasts only until the machine restarts (`get_keychain_persistence` reports `persistent: false` and why; the model, base URL, effort and provider are in `provider-settings.json`, a file, so they survive either way and their saves report `persistent: true`). This is common in a bare window manager, a container, an SSH session or a CI box. A Secret Service that goes away *after* launch is not in the banner; the save commands report it instead (each answers `persistent: false` and why for a value that fell back), and Settings shows the same words after the Save that did, then waits for Continue.
 
 To get a persistent store on a machine without a desktop, start a throwaway Secret Service for one session and run the app inside it:
 
@@ -808,7 +810,7 @@ The real-keychain tests in `crates/ai/tests/keychain_secret_service.rs` are `#[i
 dbus-run-session -- sh -c 'echo -n dev | XDG_DATA_HOME="$(mktemp -d)" gnome-keyring-daemon --unlock --components=secrets; cargo test -p ai --test keychain_secret_service -- --ignored'
 ```
 
-What CI does pin, with no Secret Service: the store logic against fake slots, and `the_linux_default_store_is_the_secret_service_not_the_kernel_keyring`, which fails if the `keyring` features in `crates/ai/Cargo.toml` stop selecting the Secret Service.
+What CI does pin, with no Secret Service: the store logic and the migration against fake slots that count every call (`crates/ai/src/keychain.rs` and `keychain_layout_tests.rs`), and `the_linux_default_store_is_the_secret_service_not_the_kernel_keyring`, which fails if the `keyring` features in `crates/ai/Cargo.toml` stop selecting the Secret Service.
 
 ### `cannot find crate for X`
 

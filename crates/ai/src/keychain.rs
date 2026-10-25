@@ -1,25 +1,76 @@
-//! OS keychain wrapper for LLM provider API keys.
+//! Where edytlab keeps its provider settings and its secrets (#734, ADR 0009).
+//!
+//! # Two homes
+//!
+//! - **Secrets** are in ONE item of the OS keychain: service
+//!   `app.edytlab.desktop`, account `secrets`, whose value is a JSON object
+//!   from slot name to value, `{"anthropic_api_key": "...",
+//!   "chatgpt_refresh_token": "..."}`. The slot names are the per-slot account
+//!   names earlier builds used, so a key is known by one name everywhere. The
+//!   item is read **once per process** and cached; every save and delete
+//!   updates the item and the cache together, under one lock.
+//! - **Everything else** (the active provider and each provider's model, base
+//!   URL and reasoning effort) is in a JSON file, `provider-settings.json`, in
+//!   the directory the app registers with [`set_settings_dir`]. It is written
+//!   by writing a temporary file beside it and renaming it over the old one.
+//!   It never holds a secret.
+//!
+//! Why: macOS asks for the login password once for each existing keychain
+//! item an app reads when the item's access list does not name that exact
+//! build, and the installers are ad-hoc signed, so every update is a new build
+//! (#734). With one item the cost is one prompt per launch, and a change to a
+//! model, an effort, a base URL or the provider touches no keychain at all.
+//! On Linux one item is also at most one Secret Service unlock (#527).
+//!
+//! # Migration from the per-slot items
+//!
+//! Earlier builds kept every value as an item of its own: `<provider>_api_key`,
+//! `<provider>_model`, `<provider>_base_url`, `<provider>_effort`,
+//! `active_provider` and `chatgpt_refresh_token`. The first time anything is
+//! asked of this module and the settings file is not there, the migration
+//! reads each of those (the last time their prompts appear), writes the
+//! `secrets` item, reads it back, writes the settings file, reads that back,
+//! and only then deletes the old items it found. The settings file is written
+//! last and carries `version`, so a file that is there means the migration
+//! finished. Any failure before that keeps every old item and drops what the
+//! migration had written, and the process then runs on the old items (the
+//! `Legacy` layout below), exactly as the previous build did; the next launch
+//! tries again. A migration is also put off, not run, while the Secret Service
+//! could not be reached (a transient outage would otherwise read as "nothing
+//! stored", and the keys it holds would be left behind), or when the new item
+//! could only be saved to the kernel keyring (the old items would be deleted
+//! for a copy that a reboot erases).
+//!
+//! # No folder registered
+//!
+//! [`set_settings_dir`] has to be called before anything is read or saved. A
+//! process that has not (the CLI never reads the keychain; a test that forgot)
+//! gets an error from every function here, never a file written to a guessed
+//! place and never a keychain item read without knowing whether the migration
+//! has run.
+//!
+//! # The platform stores
 //!
 //! On macOS this resolves to the user's login keychain via
 //! Security.framework; on Windows it lands in the Credential Manager.
-//! Both are unchanged.
 //!
 //! On Linux, values live in the Secret Service (GNOME Keyring, KWallet
 //! from Plasma 5.97 / 6, or KeePassXC), reached over D-Bus with an
 //! encrypted session (the `keyring` crate's `sync-secret-service` and
 //! `crypto-rust` features). So they survive a reboot (#394).
 //!
-//! When no Secret Service answers (no session bus, or nothing owns
-//! `org.freedesktop.secrets`), values fall back to the kernel keyring
-//! (`keyutils`) and last only until the next reboot. [`persistence`]
-//! reports which of the two applies, and the app shows it.
+//! When no Secret Service answers (no session bus, or nothing owning
+//! `org.freedesktop.secrets`), the `secrets` item falls back to the kernel
+//! keyring (`keyutils`) and lasts only until the next reboot. [`persistence`]
+//! reports which of the two applies, and the app shows it. The settings file
+//! is a file, so it is durable either way, and a save of a setting says so.
 //!
-//! Values that earlier builds left in the kernel keyring are moved into
-//! the Secret Service on first read, if they are still there (same
-//! boot, and within the three-day expiry of the persistent keyring). A
-//! move the Secret Service refuses (locked, unlock prompt dismissed) is
-//! not tried again until edytlab restarts, since each try is another
-//! prompt; the value is still read from the kernel keyring meanwhile.
+//! A copy that an earlier build left in the kernel keyring is moved into the
+//! Secret Service on first read, if it is still there (same boot, and within
+//! the three-day expiry of the persistent keyring). A move the Secret Service
+//! refuses (locked, unlock prompt dismissed) is not tried again until edytlab
+//! restarts, since each try is another prompt; the value is still read from
+//! the kernel keyring meanwhile.
 //!
 //! A durable save removes the kernel copy, so a kernel copy next to a
 //! durable one is the newer: it was saved while the Secret Service could
@@ -28,41 +79,39 @@
 //! A locked or refused store is an error, never a silent "nothing
 //! stored": the `try_` readers return it, and the `Option` readers log
 //! it. All I/O is serialized behind one lock, because the Secret Service
-//! mishandles concurrent D-Bus access.
+//! mishandles concurrent D-Bus access, and because a save of a key and a
+//! save of the ChatGPT token each rewrite the one item (read, change, write):
+//! without the lock one would lose the other.
 //!
-//! Keys are never written to disk by edytlab itself. Never log a value,
+//! Secrets are never written to disk by edytlab itself. Never log a value,
 //! and never `{:?}` a [`keyring::Error`]: its `Debug` output can carry
-//! the secret bytes (`BadEncoding`), where its `Display` does not.
+//! the secret bytes (`BadEncoding`), where its `Display` does not. For the
+//! same reason the text of a `serde_json` error is never kept when it was
+//! parsing the secrets item: `invalid type: string "sk-..."` carries the value.
 //!
-//! # Per-provider slots
+//! # Slots
 //!
-//! Each provider stores its key under a separate keychain account so a
-//! user can have credentials for several providers configured at once
-//! and switch between them without re-typing. The account name is
-//! `"<provider_id>_api_key"` (e.g. `"anthropic_api_key"`,
-//! `"openrouter_api_key"`); the chosen model and an overridden base URL
-//! sit beside it as `"<provider_id>_model"` and `"<provider_id>_base_url"`,
-//! and the reasoning effort as `"<provider_id>_effort"`.
+//! A slot is one value with one name: `"<provider_id>_api_key"` (e.g.
+//! `"anthropic_api_key"`, `"openrouter_api_key"`) and `"chatgpt_refresh_token"`
+//! are secrets; `"<provider_id>_model"`, `"<provider_id>_base_url"`,
+//! `"<provider_id>_effort"` and `"active_provider"` are settings. The names
+//! are the per-slot keychain accounts of earlier builds, which is what the
+//! migration reads, and the key of a secret inside the `secrets` item.
+//! Anthropic's key is `"anthropic_api_key"`, the name the build before
+//! multi-provider used, so it is found with no special case.
 //!
-//! # Active provider
-//!
-//! Which provider is currently selected is stored as a tiny string in
-//! its own slot: account `"active_provider"`. `load_active_provider`
-//! returns its id (`Some("anthropic")`, `Some("ollama")`, …); `None`
-//! means "no preference, default to Anthropic" (the historical
-//! behaviour).
-//!
-//! # Back-compat
-//!
-//! Earlier builds stored the Anthropic key under the bare account
-//! `"anthropic_api_key"`, which still matches the new naming scheme — no
-//! migration is required. [`load_api_key("anthropic")`] continues to
-//! return the legacy entry on first launch.
+//! `load_active_provider` returns the active provider's id
+//! (`Some("anthropic")`, `Some("ollama")`, …); `None` means "no preference,
+//! default to Anthropic" (the historical behaviour).
 
+use std::collections::BTreeMap;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use keyring::Entry;
+use serde::{Deserialize, Serialize};
 
 use crate::anthropic::Effort;
 
@@ -71,7 +120,18 @@ use crate::anthropic::Effort;
 /// app correctly.
 const SERVICE: &str = "app.edytlab.desktop";
 
-/// Account slot for the "active provider" preference.
+/// The one keychain account that holds every secret, as a JSON object.
+const SECRETS_ACCOUNT: &str = "secrets";
+
+/// The settings file's name, inside the directory [`set_settings_dir`] was
+/// given.
+pub const SETTINGS_FILE: &str = "provider-settings.json";
+
+/// What [`SETTINGS_FILE`]'s `version` says now. A file with a version of 1 or
+/// more is a finished migration; one without is not a settings file.
+const SETTINGS_VERSION: u32 = 1;
+
+/// The legacy account of the "active provider" preference.
 const ACTIVE_PROVIDER_ACCOUNT: &str = "active_provider";
 
 /// The account [`persistence`] looks up. Nothing is ever written to it, so
@@ -79,22 +139,24 @@ const ACTIVE_PROVIDER_ACCOUNT: &str = "active_provider";
 /// store): the Secret Service unlocks an item only when a search matches
 /// one, so a lookup that matches nothing never raises an unlock prompt,
 /// and reachability is all the probe needs. Probing a slot that holds
-/// something, `active_provider` for one, would raise a second prompt on
+/// something, `secrets` for one, would raise a second prompt on
 /// the same locked collection that startup's first read was refused on.
 ///
-/// Its name must collide with no slot: every real account ends in
+/// Its name must collide with no slot: every slot's name ends in
 /// `_api_key`, `_model`, `_base_url` or `_effort`, or is
-/// [`ACTIVE_PROVIDER_ACCOUNT`] (a test pins this).
+/// [`ACTIVE_PROVIDER_ACCOUNT`], [`CHATGPT_REFRESH_TOKEN_ACCOUNT`] or
+/// [`SECRETS_ACCOUNT`] (a test pins this).
 const PROBE_ACCOUNT: &str = "persistence_probe";
 
 /// Where the values written now will end up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Persistence {
     /// The platform's own store: the login keychain, Credential Manager,
-    /// or a Secret Service on Linux. Survives a reboot.
+    /// or a Secret Service on Linux; or, for a setting, the settings file.
+    /// Survives a reboot.
     Durable,
-    /// Linux with no Secret Service to talk to, so values sit in the
-    /// kernel keyring. They last until the machine restarts.
+    /// Linux with no Secret Service to talk to, so a secret sits in the
+    /// kernel keyring. It lasts until the machine restarts.
     SessionOnly {
         /// Why the Secret Service could not be used, as `keyring`
         /// words it. Never contains a stored value.
@@ -443,31 +505,256 @@ fn probe(primary: &dyn Slot, fallback_available: bool) -> Persistence {
 }
 
 // ---------------------------------------------------------------------------
-// The real stores.
+// The slots, and the two homes they live in.
 // ---------------------------------------------------------------------------
 
-/// The Secret Service mishandles concurrent D-Bus access from several
-/// threads (the `keyring` docs say so), and startup, the agent rebuilds
-/// and the Settings commands all read from different threads. So every
-/// keychain operation takes this lock. It is not reentrant: only the
-/// four `*_account` helpers below take it, and none calls another.
-static KEYCHAIN_LOCK: Mutex<()> = Mutex::new(());
+/// One value this module keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Field<'a> {
+    ActiveProvider,
+    ApiKey(&'a str),
+    Model(&'a str),
+    BaseUrl(&'a str),
+    Effort(&'a str),
+    ChatGptToken,
+}
 
-/// Set once the Secret Service has refused to take a value moved over
-/// from the kernel keyring (see [`read_from`]), for the rest of the
-/// process. Only touched under [`KEYCHAIN_LOCK`].
-static MOVE_REFUSED: AtomicBool = AtomicBool::new(false);
+impl Field<'_> {
+    /// The slot's name: the keychain account of earlier builds, and the key of
+    /// a secret inside the `secrets` item.
+    fn account(&self) -> String {
+        match self {
+            Field::ActiveProvider => ACTIVE_PROVIDER_ACCOUNT.to_string(),
+            Field::ApiKey(p) => account_for(p),
+            Field::Model(p) => model_account_for(p),
+            Field::BaseUrl(p) => base_url_account_for(p),
+            Field::Effort(p) => effort_account_for(p),
+            Field::ChatGptToken => CHATGPT_REFRESH_TOKEN_ACCOUNT.to_string(),
+        }
+    }
 
-/// Set once a read has asked the Secret Service twice and found it
-/// unreachable both times (see [`read_from`]), so the slots read after it
-/// get one look each instead of two. Cleared by the first read the
-/// service answers. Only touched under [`KEYCHAIN_LOCK`].
-static UNREACHABLE_CONFIRMED: AtomicBool = AtomicBool::new(false);
+    /// Whether the value belongs in the keychain. Only a key or the ChatGPT
+    /// token does.
+    fn is_secret(&self) -> bool {
+        matches!(self, Field::ApiKey(_) | Field::ChatGptToken)
+    }
+}
 
-fn lock() -> MutexGuard<'static, ()> {
-    // The guarded data is `()`; a panic elsewhere cannot have left it
-    // in a bad state.
-    KEYCHAIN_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+/// The slots an earlier build could have written, which the migration reads:
+/// every provider's key, model, base URL and effort, the active provider and
+/// the ChatGPT token. The ChatGPT plan has no key and no base-URL slot
+/// (nothing may write one), so none is read for it.
+fn legacy_keys() -> Vec<Field<'static>> {
+    let mut keys = vec![Field::ActiveProvider, Field::ChatGptToken];
+    for id in crate::SUPPORTED_PROVIDER_IDS {
+        let takes_a_key = *id != crate::CHATGPT_ID;
+        if takes_a_key {
+            keys.push(Field::ApiKey(id));
+            keys.push(Field::BaseUrl(id));
+        }
+        keys.push(Field::Model(id));
+        keys.push(Field::Effort(id));
+    }
+    keys
+}
+
+/// The settings file: everything that is not a secret.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+struct Settings {
+    version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    providers: BTreeMap<String, ProviderSettings>,
+    /// Fields a newer build wrote, kept when this one saves.
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+struct ProviderSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+impl ProviderSettings {
+    fn is_empty(&self) -> bool {
+        self.model.is_none()
+            && self.base_url.is_none()
+            && self.effort.is_none()
+            && self.extra.is_empty()
+    }
+}
+
+impl Settings {
+    fn empty() -> Self {
+        Self {
+            version: SETTINGS_VERSION,
+            ..Self::default()
+        }
+    }
+
+    /// The field a setting lives in. Panics on a secret: those are not here.
+    fn field(&mut self, key: &Field<'_>) -> &mut Option<String> {
+        match key {
+            Field::ActiveProvider => &mut self.active_provider,
+            Field::Model(p) => &mut self.providers.entry((*p).to_string()).or_default().model,
+            Field::BaseUrl(p) => &mut self.providers.entry((*p).to_string()).or_default().base_url,
+            Field::Effort(p) => &mut self.providers.entry((*p).to_string()).or_default().effort,
+            Field::ApiKey(_) | Field::ChatGptToken => {
+                unreachable!("a secret is never kept in the settings file")
+            }
+        }
+    }
+
+    fn get(&self, key: &Field<'_>) -> Option<String> {
+        match key {
+            Field::ActiveProvider => self.active_provider.clone(),
+            Field::Model(p) => self.providers.get(*p)?.model.clone(),
+            Field::BaseUrl(p) => self.providers.get(*p)?.base_url.clone(),
+            Field::Effort(p) => self.providers.get(*p)?.effort.clone(),
+            Field::ApiKey(_) | Field::ChatGptToken => None,
+        }
+    }
+
+    fn set(&mut self, key: &Field<'_>, value: &str) {
+        *self.field(key) = Some(value.to_string());
+    }
+
+    fn clear(&mut self, key: &Field<'_>) {
+        if self.get(key).is_none() {
+            return;
+        }
+        *self.field(key) = None;
+        self.providers.retain(|_, p| !p.is_empty());
+    }
+}
+
+/// What reading the settings file found.
+enum FileState {
+    Present(Settings),
+    Missing,
+    /// There, but not a settings file this build can use.
+    Corrupt,
+    /// There, but it cannot be read (permissions, a folder in the way).
+    Unreadable(std::io::ErrorKind),
+}
+
+fn read_settings_file(dir: &Path) -> FileState {
+    let text = match std::fs::read_to_string(dir.join(SETTINGS_FILE)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return FileState::Missing,
+        Err(e) => return FileState::Unreadable(e.kind()),
+    };
+    match serde_json::from_str::<Settings>(&text) {
+        Ok(s) if s.version >= SETTINGS_VERSION => FileState::Present(s),
+        _ => FileState::Corrupt,
+    }
+}
+
+/// Write the file whole: a temporary file beside it, flushed, then renamed
+/// over it, so a crash or a full disk leaves the old file or the new one and
+/// never half of one. Readable by the owner only; it holds no secret, but it
+/// names the user's providers and their servers.
+fn write_settings_file(dir: &Path, settings: &Settings) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let json = serde_json::to_vec_pretty(settings).map_err(std::io::Error::other)?;
+    let tmp = dir.join(format!("{SETTINGS_FILE}.tmp-{}", std::process::id()));
+    let written = (|| {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp)?;
+        file.write_all(&json)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, dir.join(SETTINGS_FILE))
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return written;
+    }
+    // Make the rename itself durable. Best effort: not every platform can
+    // open a directory.
+    #[cfg(unix)]
+    if let Ok(d) = std::fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    Ok(())
+}
+
+type SecretMap = BTreeMap<String, String>;
+
+/// Parse the `secrets` item. The error says nothing of the text: a type
+/// error from `serde_json` quotes the value it found.
+fn parse_secrets(json: &str) -> Result<SecretMap, KeychainError> {
+    serde_json::from_str(json)
+        .map_err(|_| KeychainError::new("the stored secrets entry is not valid JSON"))
+}
+
+fn secrets_json(map: &SecretMap) -> keyring::Result<String> {
+    serde_json::to_string(map).map_err(|_| keyring::Error::PlatformFailure("serialize".into()))
+}
+
+/// A read-side failure as the error a write returns.
+fn write_error(e: KeychainError) -> keyring::Error {
+    if e.is_access_denied() {
+        keyring::Error::NoStorageAccess(e.reason().into())
+    } else {
+        keyring::Error::PlatformFailure(e.reason().into())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The store: one lock, one cache, the two homes.
+// ---------------------------------------------------------------------------
+
+/// The settings directory registered by [`set_settings_dir`].
+static SETTINGS_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Register the directory that holds the settings file ([`SETTINGS_FILE`]),
+/// once, at startup: the app's config directory. Must be called before any
+/// other function of this module is useful (see "No folder registered" above).
+///
+/// Returns whether this call set it. It does not when `dir` is not an absolute
+/// path (a relative one would be wherever the process happened to start) or
+/// when a directory was registered already: the first one stands.
+pub fn set_settings_dir(dir: PathBuf) -> bool {
+    dir.is_absolute() && SETTINGS_DIR.set(dir).is_ok()
+}
+
+/// The directory registered with [`set_settings_dir`], if any.
+pub fn settings_dir() -> Option<&'static Path> {
+    SETTINGS_DIR.get().map(PathBuf::as_path)
+}
+
+/// Where a [`Store`] finds the settings directory.
+enum DirSource {
+    /// What [`set_settings_dir`] registered, looked up at each use.
+    Registered,
+    /// A directory of the test's own.
+    #[cfg(test)]
+    Fixed(PathBuf),
+}
+
+/// An entry of the primary store and, on Linux, of the kernel keyring.
+type SlotPair = (Box<dyn Slot>, Option<Box<dyn Slot>>);
+type SlotFactory = Box<dyn Fn(&str) -> keyring::Result<SlotPair> + Send + Sync>;
+
+fn os_slots(account: &str) -> keyring::Result<SlotPair> {
+    let primary = open_primary(account)?;
+    let legacy = open_legacy(account).map(|e| Box::new(e) as Box<dyn Slot>);
+    Ok((Box::new(primary), legacy))
 }
 
 /// The platform's own store: login keychain, Credential Manager, or on
@@ -493,55 +780,441 @@ fn open_legacy(_account: &str) -> Option<Entry> {
     None
 }
 
-fn read_account(account: &str) -> Result<Option<String>, KeychainError> {
-    let _guard = lock();
-    let primary = open_primary(account)?;
-    let legacy = open_legacy(account);
-    read_from(
-        &primary,
-        legacy.as_ref().map(|e| e as &dyn Slot),
-        &MOVE_REFUSED,
-        &UNREACHABLE_CONFIRMED,
-    )
-    .map_err(KeychainError::from)
+/// Which of the two layouts this process uses, decided once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    /// Not looked at yet.
+    Unknown,
+    /// Settings in the file, secrets in the `secrets` item.
+    Current,
+    /// The migration could not finish, so every slot is still its own
+    /// keychain item, as in the build before this one. Lasts until restart.
+    Legacy,
 }
 
-fn write_account(account: &str, value: &str) -> keyring::Result<Persistence> {
-    let _guard = lock();
-    let primary = open_primary(account)?;
-    let legacy = open_legacy(account);
-    let persistence = write_to(&primary, legacy.as_ref().map(|e| e as &dyn Slot), value)?;
-    if let Persistence::SessionOnly { reason } = &persistence {
-        tracing::warn!(
-            account = %account,
-            reason = %reason,
-            "no Secret Service; stored in the kernel keyring until reboot"
-        );
+struct State {
+    layout: Layout,
+    settings: Settings,
+    /// The `secrets` item, once read or written. `None` until then.
+    secrets: Option<SecretMap>,
+}
+
+/// Why a migration did not finish.
+enum NotMigrated {
+    /// The keychain refused a read. Like every refusal, it is the caller's
+    /// answer and the migration is asked for again at the next call.
+    Refused(KeychainError),
+    /// Anything else. Every old item is kept and the process runs on them.
+    Kept(String),
+}
+
+struct Store {
+    dir: DirSource,
+    slots: SlotFactory,
+    /// Held across a whole operation, keychain I/O included.
+    state: Mutex<State>,
+    /// See [`read_from`]; per store, for the rest of the process.
+    move_refused: AtomicBool,
+    unreachable_confirmed: AtomicBool,
+}
+
+impl Store {
+    fn new(dir: DirSource, slots: SlotFactory) -> Self {
+        Self {
+            dir,
+            slots,
+            state: Mutex::new(State {
+                layout: Layout::Unknown,
+                settings: Settings::empty(),
+                secrets: None,
+            }),
+            move_refused: AtomicBool::new(false),
+            unreachable_confirmed: AtomicBool::new(false),
+        }
     }
-    Ok(persistence)
+
+    fn lock(&self) -> MutexGuard<'_, State> {
+        // Every change to the state is made after the I/O it depends on
+        // worked, so a panic elsewhere cannot have left it half done.
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn dir(&self) -> Option<PathBuf> {
+        match &self.dir {
+            DirSource::Registered => SETTINGS_DIR.get().cloned(),
+            #[cfg(test)]
+            DirSource::Fixed(dir) => Some(dir.clone()),
+        }
+    }
+
+    // --- one keychain item ---
+
+    fn read_item(&self, account: &str) -> keyring::Result<Option<String>> {
+        let (primary, legacy) = (self.slots)(account)?;
+        read_from(
+            &*primary,
+            legacy.as_deref(),
+            &self.move_refused,
+            &self.unreachable_confirmed,
+        )
+    }
+
+    fn write_item(&self, account: &str, value: &str) -> keyring::Result<Persistence> {
+        let (primary, legacy) = (self.slots)(account)?;
+        let persistence = write_to(&*primary, legacy.as_deref(), value)?;
+        if let Persistence::SessionOnly { reason } = &persistence {
+            tracing::warn!(
+                account = %account,
+                reason = %reason,
+                "no Secret Service; stored in the kernel keyring until reboot"
+            );
+        }
+        Ok(persistence)
+    }
+
+    fn delete_item(&self, account: &str) -> keyring::Result<()> {
+        let (primary, legacy) = (self.slots)(account)?;
+        delete_from(&*primary, legacy.as_deref())
+    }
+
+    // --- which layout ---
+
+    /// Decide the layout, once. A settings file that is there means the
+    /// migration ran; one that is not there starts it. A call that finds the
+    /// keychain refusing a read in the migration fails with that refusal and
+    /// asks again next time.
+    fn ensure(&self, st: &mut State) -> Result<(), KeychainError> {
+        if st.layout != Layout::Unknown {
+            return Ok(());
+        }
+        let Some(dir) = self.dir() else {
+            return Err(KeychainError::new(
+                "the folder for edytlab's settings was not set up",
+            ));
+        };
+        match read_settings_file(&dir) {
+            FileState::Present(settings) => {
+                st.settings = settings;
+                st.layout = Layout::Current;
+                return Ok(());
+            }
+            FileState::Missing => {}
+            FileState::Corrupt => {
+                // Keep it for a look, and start a new one. The secrets are in
+                // the keychain, so only the choices (model, effort, address,
+                // provider) are lost.
+                tracing::warn!("the settings file is not valid; moved aside, starting a new one");
+                let _ = std::fs::rename(
+                    dir.join(SETTINGS_FILE),
+                    dir.join(format!("{SETTINGS_FILE}.bad")),
+                );
+            }
+            FileState::Unreadable(kind) => {
+                tracing::warn!(error_kind = ?kind, "the settings file cannot be read; using the per-slot keychain items");
+                st.layout = Layout::Legacy;
+                return Ok(());
+            }
+        }
+        match self.migrate(&dir) {
+            Ok((settings, secrets)) => {
+                st.settings = settings;
+                st.secrets = secrets;
+                st.layout = Layout::Current;
+                Ok(())
+            }
+            Err(NotMigrated::Refused(e)) => Err(e),
+            Err(NotMigrated::Kept(reason)) => {
+                tracing::warn!(
+                    reason = %reason,
+                    "settings and keys stay in their per-slot keychain items; \
+                     the move to one item is tried again at the next launch"
+                );
+                st.layout = Layout::Legacy;
+                Ok(())
+            }
+        }
+    }
+
+    /// Move the per-slot items into the two new homes (see the module docs).
+    /// Returns the settings, and the secrets item's content if it was written.
+    fn migrate(&self, dir: &Path) -> Result<(Settings, Option<SecretMap>), NotMigrated> {
+        fn kept(e: impl std::fmt::Display) -> NotMigrated {
+            NotMigrated::Kept(e.to_string())
+        }
+        fn classify(e: keyring::Error) -> NotMigrated {
+            let e = KeychainError::from(e);
+            if e.is_access_denied() {
+                NotMigrated::Refused(e)
+            } else {
+                NotMigrated::Kept(e.reason().to_string())
+            }
+        }
+
+        // 1. Read every per-slot item. Nothing is moved between the Secret
+        //    Service and the kernel keyring here (`no_moves`): what is found
+        //    goes to its new home, and the old items are deleted at the end.
+        let no_moves = AtomicBool::new(true);
+        let mut settings = Settings::empty();
+        let mut secrets = SecretMap::new();
+        let mut found = Vec::new();
+        for key in legacy_keys() {
+            let account = key.account();
+            let (primary, legacy) = (self.slots)(&account).map_err(classify)?;
+            let value = read_from(
+                &*primary,
+                legacy.as_deref(),
+                &no_moves,
+                &self.unreachable_confirmed,
+            )
+            .map_err(classify)?;
+            // A Secret Service that could not be asked answers "nothing
+            // stored" for every slot, and the keys it holds would be left
+            // behind and then forgotten. Wait until it answers.
+            if self.unreachable_confirmed.load(Ordering::Relaxed) {
+                return Err(kept("the Secret Service did not answer"));
+            }
+            let Some(value) = value else { continue };
+            found.push(account);
+            match key {
+                Field::ActiveProvider => {
+                    if let Some(p) = active_provider_from(Some(value)) {
+                        settings.active_provider = Some(p);
+                    }
+                }
+                Field::Model(_) | Field::BaseUrl(_) => {
+                    if !value.trim().is_empty() {
+                        settings.set(&key, &value);
+                    }
+                }
+                Field::Effort(_) => {
+                    if let Some(effort) = Effort::parse(&value) {
+                        settings.set(&key, effort.as_str());
+                    }
+                }
+                Field::ApiKey(_) | Field::ChatGptToken => {
+                    if !value.trim().is_empty() {
+                        secrets.insert(key.account(), value);
+                    }
+                }
+            }
+        }
+
+        // 2. The secrets item. An item that is already there (an attempt that
+        //    went part of the way) is merged with, the per-slot items winning:
+        //    they are what the app was using.
+        let mut written = None;
+        let mut created_item = false;
+        if !secrets.is_empty() {
+            let mut merged = match self.read_item(SECRETS_ACCOUNT).map_err(classify)? {
+                Some(json) => parse_secrets(&json).map_err(|e| kept(e.reason()))?,
+                None => {
+                    created_item = true;
+                    SecretMap::new()
+                }
+            };
+            merged.extend(secrets);
+            let json = secrets_json(&merged).map_err(|e| kept(KeychainError::from(e).reason()))?;
+            let rollback = |this: &Self| {
+                if created_item {
+                    let _ = this.delete_item(SECRETS_ACCOUNT);
+                }
+            };
+            match self.write_item(SECRETS_ACCOUNT, &json) {
+                Ok(Persistence::Durable) => {}
+                Ok(Persistence::SessionOnly { .. }) => {
+                    // The old items would go for a copy a reboot erases.
+                    rollback(self);
+                    return Err(kept("the Secret Service could not be reached to save"));
+                }
+                // A refused write (the prompt for creating the item was
+                // dismissed) is no reason to ask again: stay on the old items.
+                Err(e) => {
+                    rollback(self);
+                    return Err(kept(KeychainError::from(e).reason()));
+                }
+            }
+            let back = self
+                .read_item(SECRETS_ACCOUNT)
+                .ok()
+                .flatten()
+                .and_then(|j| parse_secrets(&j).ok());
+            if back.as_ref() != Some(&merged) {
+                rollback(self);
+                return Err(kept("the new secrets entry did not read back"));
+            }
+            written = Some(merged);
+        }
+
+        // 3. The settings file, last: its presence says the migration is done.
+        let undo = |this: &Self| {
+            if created_item {
+                let _ = this.delete_item(SECRETS_ACCOUNT);
+            }
+        };
+        if let Err(e) = write_settings_file(dir, &settings) {
+            undo(self);
+            return Err(kept(format!("the settings file could not be written: {e}")));
+        }
+        match read_settings_file(dir) {
+            FileState::Present(back) if back == settings => {}
+            _ => {
+                let _ = std::fs::remove_file(dir.join(SETTINGS_FILE));
+                undo(self);
+                return Err(kept("the settings file did not read back"));
+            }
+        }
+
+        // 4. The per-slot items are not read again. Deleting one that stays
+        //    is a leftover, not a loss.
+        for account in &found {
+            if let Err(e) = self.delete_item(account) {
+                tracing::warn!(account = %account, error = %e, "an old keychain item could not be deleted");
+            }
+        }
+        tracing::info!(
+            moved = found.len(),
+            "provider settings and keys moved to one keychain item and a settings file"
+        );
+        Ok((settings, written))
+    }
+
+    // --- the secrets item ---
+
+    /// The `secrets` item's content: the cache, or one read of the item.
+    ///
+    /// An item that is not there is an empty map, remembered like any other
+    /// answer, except when the reason is a Secret Service that could not be
+    /// asked: that is no answer, and the next call asks again.
+    fn load_secrets(&self, st: &mut State) -> Result<SecretMap, KeychainError> {
+        if let Some(map) = &st.secrets {
+            return Ok(map.clone());
+        }
+        match self.read_item(SECRETS_ACCOUNT)? {
+            Some(json) => {
+                let map = parse_secrets(&json)?;
+                st.secrets = Some(map.clone());
+                Ok(map)
+            }
+            None => {
+                if !self.unreachable_confirmed.load(Ordering::Relaxed) {
+                    st.secrets = Some(SecretMap::new());
+                }
+                Ok(SecretMap::new())
+            }
+        }
+    }
+
+    /// Replace the item with `map` (or remove it when `map` is empty), and the
+    /// cache with it, or neither when the item cannot be written.
+    fn store_secrets(&self, st: &mut State, map: SecretMap) -> keyring::Result<Persistence> {
+        let persistence = if map.is_empty() {
+            self.delete_item(SECRETS_ACCOUNT)?;
+            Persistence::Durable
+        } else {
+            self.write_item(SECRETS_ACCOUNT, &secrets_json(&map)?)?
+        };
+        st.secrets = Some(map);
+        Ok(persistence)
+    }
+
+    // --- the operations the public functions are made of ---
+
+    fn get(&self, key: Field<'_>) -> Result<Option<String>, KeychainError> {
+        let mut st = self.lock();
+        self.ensure(&mut st)?;
+        if st.layout == Layout::Legacy {
+            return Ok(self.read_item(&key.account())?);
+        }
+        if key.is_secret() {
+            Ok(self.load_secrets(&mut st)?.remove(&key.account()))
+        } else {
+            Ok(st.settings.get(&key))
+        }
+    }
+
+    fn put(&self, key: Field<'_>, value: &str) -> keyring::Result<Persistence> {
+        let mut st = self.lock();
+        self.ensure(&mut st).map_err(write_error)?;
+        if st.layout == Layout::Legacy {
+            return self.write_item(&key.account(), value);
+        }
+        if key.is_secret() {
+            let mut map = self.load_secrets(&mut st).map_err(write_error)?;
+            map.insert(key.account(), value.to_string());
+            return self.store_secrets(&mut st, map);
+        }
+        let mut next = st.settings.clone();
+        next.set(&key, value);
+        self.save_settings(&mut st, next)
+    }
+
+    fn remove(&self, key: Field<'_>) -> keyring::Result<()> {
+        let mut st = self.lock();
+        self.ensure(&mut st).map_err(write_error)?;
+        if st.layout == Layout::Legacy {
+            return self.delete_item(&key.account());
+        }
+        if key.is_secret() {
+            let mut map = self.load_secrets(&mut st).map_err(write_error)?;
+            if map.remove(&key.account()).is_none() {
+                return Ok(());
+            }
+            return self.store_secrets(&mut st, map).map(|_| ());
+        }
+        let mut next = st.settings.clone();
+        next.clear(&key);
+        self.save_settings(&mut st, next).map(|_| ())
+    }
+
+    /// Write `next` as the settings file, unless it is what is there already.
+    fn save_settings(&self, st: &mut State, next: Settings) -> keyring::Result<Persistence> {
+        if next == st.settings {
+            return Ok(Persistence::Durable);
+        }
+        let Some(dir) = self.dir() else {
+            return Err(keyring::Error::PlatformFailure(
+                "the folder for edytlab's settings was not set up".into(),
+            ));
+        };
+        write_settings_file(&dir, &next).map_err(|e| {
+            keyring::Error::PlatformFailure(
+                format!("the settings file could not be written: {e}").into(),
+            )
+        })?;
+        st.settings = next;
+        Ok(Persistence::Durable)
+    }
+
+    fn persistence(&self) -> Persistence {
+        let _guard = self.lock();
+        let Ok((primary, legacy)) = (self.slots)(PROBE_ACCOUNT) else {
+            tracing::warn!("could not build the keychain entry to probe persistence");
+            return Persistence::Durable;
+        };
+        probe(&*primary, legacy.is_some())
+    }
 }
 
-fn delete_account(account: &str) -> keyring::Result<()> {
-    let _guard = lock();
-    let primary = open_primary(account)?;
-    let legacy = open_legacy(account);
-    delete_from(&primary, legacy.as_ref().map(|e| e as &dyn Slot))
+/// The store of this process.
+fn store() -> &'static Store {
+    static STORE: OnceLock<Store> = OnceLock::new();
+    STORE.get_or_init(|| Store::new(DirSource::Registered, Box::new(os_slots)))
 }
 
 /// Read for the loaders that answer with an `Option`: an unreadable
 /// keychain is logged and reads as nothing stored. Callers that must
 /// tell the two apart use the `try_` variants.
-fn read_or_warn(account: &str) -> Option<String> {
-    match read_account(account) {
+fn or_warn(key: Field<'_>, read: Result<Option<String>, KeychainError>) -> Option<String> {
+    match read {
         Ok(v) => v,
         Err(e) => {
-            tracing::warn!(account = %account, error = %e, "keychain read failed");
+            tracing::warn!(account = %key.account(), error = %e, "keychain read failed");
             None
         }
     }
 }
 
-/// Whether values saved now survive a reboot.
+/// Whether secrets saved now survive a reboot.
 ///
 /// Always [`Persistence::Durable`] on macOS and Windows. On Linux it is
 /// [`Persistence::SessionOnly`] while no Secret Service answers, which
@@ -551,15 +1224,10 @@ fn read_or_warn(account: &str) -> Option<String> {
 /// Looks up [`PROBE_ACCOUNT`], which nothing writes, so it never raises
 /// an unlock prompt.
 pub fn persistence() -> Persistence {
-    let _guard = lock();
-    let Ok(primary) = open_primary(PROBE_ACCOUNT) else {
-        tracing::warn!("could not build the keychain entry to probe persistence");
-        return Persistence::Durable;
-    };
-    probe(&primary, open_legacy(PROBE_ACCOUNT).is_some())
+    store().persistence()
 }
 
-/// Build the per-provider keychain account name.
+/// Build the per-provider key slot's name.
 ///
 /// Anthropic intentionally lands on `"anthropic_api_key"` — the same
 /// name the pre-multi-provider build used — so existing keychain
@@ -568,9 +1236,9 @@ fn account_for(provider_id: &str) -> String {
     format!("{provider_id}_api_key")
 }
 
-/// Read an API key from the OS keychain for `provider_id`.
+/// Read an API key from the keychain for `provider_id`.
 ///
-/// Returns `Some(key)` when an entry exists and `None` when there is no
+/// Returns `Some(key)` when one is stored and `None` when there is no
 /// stored key. A keychain that cannot be read (locked, access denied,
 /// no service) also reads as `None`, but is logged with the reason and
 /// never the value. Use [`try_load_api_key`] where the difference
@@ -581,16 +1249,17 @@ fn account_for(provider_id: &str) -> String {
 /// `{:?}` of the backend's error, because `Debug` can include the
 /// secret.
 pub fn load_api_key(provider_id: &str) -> Option<String> {
-    read_or_warn(&account_for(provider_id))
+    let key = Field::ApiKey(provider_id);
+    or_warn(key, store().get(key))
 }
 
 /// Like [`load_api_key`], but a keychain that cannot be read is an
 /// error rather than `None`.
 pub fn try_load_api_key(provider_id: &str) -> Result<Option<String>, KeychainError> {
-    read_account(&account_for(provider_id))
+    store().get(Field::ApiKey(provider_id))
 }
 
-/// Persist an API key to the OS keychain for `provider_id`.
+/// Persist an API key to the keychain for `provider_id`.
 ///
 /// Errors propagate via [`keyring::Error`]; callers (the settings UI)
 /// are expected to surface a generic "could not save key" message
@@ -600,30 +1269,34 @@ pub fn try_load_api_key(provider_id: &str) -> Result<Option<String>, KeychainErr
 /// Returns where the key ended up: [`Persistence::SessionOnly`] is a save
 /// that fell back to the kernel keyring because no Secret Service could be
 /// reached, and will not survive a reboot. (The same goes for every
-/// `save_*` below.)
+/// `save_*` below; a setting's save is [`Persistence::Durable`], because the
+/// settings file is a file.)
 pub fn save_api_key(provider_id: &str, key: &str) -> Result<Persistence, keyring::Error> {
-    write_account(&account_for(provider_id), key)
+    store().put(Field::ApiKey(provider_id), key)
 }
 
 /// Remove the stored API key for `provider_id`, if any. Used by the
 /// settings UI's "sign out" affordance. A missing entry is treated as
 /// success — the desired post-state is "no key".
 pub fn delete_api_key(provider_id: &str) -> Result<(), keyring::Error> {
-    delete_account(&account_for(provider_id))
+    store().remove(Field::ApiKey(provider_id))
 }
 
 /// Read the user's active-provider preference. `None` means no
 /// preference is recorded, in which case callers should default to
-/// Anthropic. An unreadable keychain is logged and reads as `None`;
+/// Anthropic. An unreadable store is logged and reads as `None`;
 /// see [`try_load_active_provider`].
 pub fn load_active_provider() -> Option<String> {
-    active_provider_from(read_or_warn(ACTIVE_PROVIDER_ACCOUNT))
+    active_provider_from(or_warn(
+        Field::ActiveProvider,
+        store().get(Field::ActiveProvider),
+    ))
 }
 
-/// Like [`load_active_provider`], but a keychain that cannot be read is
+/// Like [`load_active_provider`], but a store that cannot be read is
 /// an error rather than `None`.
 pub fn try_load_active_provider() -> Result<Option<String>, KeychainError> {
-    read_account(ACTIVE_PROVIDER_ACCOUNT).map(active_provider_from)
+    store().get(Field::ActiveProvider).map(active_provider_from)
 }
 
 /// The stored id, trimmed, with a blank one counting as no preference.
@@ -636,11 +1309,9 @@ fn active_provider_from(raw: Option<String>) -> Option<String> {
     }
 }
 
-/// Persist the active-provider preference. The provider id is stored
-/// alongside API keys so it survives app restarts without leaking into
-/// any plaintext settings file.
+/// Persist the active-provider preference, in the settings file.
 pub fn save_active_provider(provider_id: &str) -> Result<Persistence, keyring::Error> {
-    write_account(ACTIVE_PROVIDER_ACCOUNT, provider_id)
+    store().put(Field::ActiveProvider, provider_id)
 }
 
 /// Account slot for a provider's base-URL override.
@@ -657,22 +1328,21 @@ fn base_url_account_for(provider_id: &str) -> String {
 /// sense for a local server is nonsense for Anthropic, and a single slot
 /// would follow you across a provider switch and fail confusingly.
 ///
-/// This is configuration rather than a secret, and it shares the
-/// keychain with the API keys because `active_provider` already
-/// established that this module is where per-provider settings live.
-/// Standing up a second store for one string would be worse.
+/// This is configuration rather than a secret, so it is in the settings
+/// file and reading it touches no keychain (#734).
 pub fn load_base_url(provider_id: &str) -> Option<String> {
-    base_url_from(read_or_warn(&base_url_account_for(provider_id)))
+    let key = Field::BaseUrl(provider_id);
+    base_url_from(or_warn(key, store().get(key)))
 }
 
-/// Like [`load_base_url`], but a keychain that cannot be read is an error
+/// Like [`load_base_url`], but a store that cannot be read is an error
 /// rather than `None`.
 ///
 /// Settings needs the difference: it saves what it showed, and a blank
 /// that stood for "could not be read" would be saved as "no override",
 /// deleting the one that is stored (#497).
 pub fn try_load_base_url(provider_id: &str) -> Result<Option<String>, KeychainError> {
-    read_account(&base_url_account_for(provider_id)).map(base_url_from)
+    store().get(Field::BaseUrl(provider_id)).map(base_url_from)
 }
 
 /// The stored URL, with a blank one counting as no override.
@@ -682,7 +1352,7 @@ fn base_url_from(raw: Option<String>) -> Option<String> {
 
 /// Store a provider's base-URL override.
 pub fn save_base_url(provider_id: &str, base_url: &str) -> Result<Persistence, keyring::Error> {
-    write_account(&base_url_account_for(provider_id), base_url)
+    store().put(Field::BaseUrl(provider_id), base_url)
 }
 
 /// Forget a provider's override so the built-in URL applies again.
@@ -690,7 +1360,7 @@ pub fn save_base_url(provider_id: &str, base_url: &str) -> Result<Persistence, k
 /// A missing entry is success: the caller asked for "no override", and
 /// that is the state either way.
 pub fn delete_base_url(provider_id: &str) -> Result<(), keyring::Error> {
-    delete_account(&base_url_account_for(provider_id))
+    store().remove(Field::BaseUrl(provider_id))
 }
 
 /// Account slot for a provider's chosen model.
@@ -715,21 +1385,23 @@ fn model_account_for(provider_id: &str) -> String {
 /// means something to Anthropic is meaningless to Ollama, and a single
 /// slot would follow you across a provider switch and fail confusingly.
 pub fn load_model(provider_id: &str) -> Option<String> {
-    read_or_warn(&model_account_for(provider_id)).filter(|m| !m.trim().is_empty())
+    let key = Field::Model(provider_id);
+    or_warn(key, store().get(key)).filter(|m| !m.trim().is_empty())
 }
 
-/// Like [`load_model`], but a keychain that cannot be read is an error
+/// Like [`load_model`], but a store that cannot be read is an error
 /// rather than `None`. Startup reads every provider's model in a row and
 /// needs to tell a locked keychain, where it stops, from a slot that is
 /// empty.
 pub fn try_load_model(provider_id: &str) -> Result<Option<String>, KeychainError> {
-    read_account(&model_account_for(provider_id))
+    store()
+        .get(Field::Model(provider_id))
         .map(|model| model.filter(|m| !m.trim().is_empty()))
 }
 
 /// Store a provider's chosen model.
 pub fn save_model(provider_id: &str, model: &str) -> Result<Persistence, keyring::Error> {
-    write_account(&model_account_for(provider_id), model)
+    store().put(Field::Model(provider_id), model)
 }
 
 /// Forget a provider's choice so its default applies again.
@@ -737,7 +1409,7 @@ pub fn save_model(provider_id: &str, model: &str) -> Result<Persistence, keyring
 /// A missing entry is success: the caller asked for "no override", and
 /// that is the state either way.
 pub fn delete_model(provider_id: &str) -> Result<(), keyring::Error> {
-    delete_account(&model_account_for(provider_id))
+    store().remove(Field::Model(provider_id))
 }
 
 /// Account slot for a provider's reasoning effort.
@@ -757,14 +1429,15 @@ fn effort_account_for(provider_id: &str) -> String {
 /// is ever used today, but a level means nothing to a server that has
 /// no such setting, and a shared slot would follow you across a switch.
 pub fn load_effort(provider_id: &str) -> Option<Effort> {
-    effort_from(read_or_warn(&effort_account_for(provider_id)))
+    let key = Field::Effort(provider_id);
+    effort_from(or_warn(key, store().get(key)))
 }
 
-/// Like [`load_effort`], but a keychain that cannot be read is an error
+/// Like [`load_effort`], but a store that cannot be read is an error
 /// rather than `None`. A stored string that is not a level is still
 /// `Ok(None)`: the store answered, and the answer is "the default".
 pub fn try_load_effort(provider_id: &str) -> Result<Option<Effort>, KeychainError> {
-    read_account(&effort_account_for(provider_id)).map(effort_from)
+    store().get(Field::Effort(provider_id)).map(effort_from)
 }
 
 /// The stored level, with anything that is not one of the five counting
@@ -775,7 +1448,7 @@ fn effort_from(raw: Option<String>) -> Option<Effort> {
 
 /// Store a provider's reasoning effort.
 pub fn save_effort(provider_id: &str, effort: Effort) -> Result<Persistence, keyring::Error> {
-    write_account(&effort_account_for(provider_id), effort.as_str())
+    store().put(Field::Effort(provider_id), effort.as_str())
 }
 
 /// Forget a provider's choice so the model's default applies again.
@@ -783,7 +1456,7 @@ pub fn save_effort(provider_id: &str, effort: Effort) -> Result<Persistence, key
 /// A missing entry is success: the caller asked for "no effort", and
 /// that is the state either way.
 pub fn delete_effort(provider_id: &str) -> Result<(), keyring::Error> {
-    delete_account(&effort_account_for(provider_id))
+    store().remove(Field::Effort(provider_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -796,27 +1469,29 @@ pub fn delete_effort(provider_id: &str) -> Result<(), keyring::Error> {
 /// stored. It is the slot the session's
 /// [`RefreshTokenStore`](crate::chatgpt::store::RefreshTokenStore) names
 /// ([`crate::chatgpt::store::REFRESH_TOKEN_SLOT`]; a test holds the two
-/// together), and it goes through the same plumbing as every other slot, so
-/// the Secret Service, the Linux kernel-keyring fallback (#394) and the
-/// access-refused handling behave exactly as they do for an API key.
+/// together), and it is a secret like an API key: a member of the `secrets`
+/// item, so the Secret Service, the Linux kernel-keyring fallback (#394) and
+/// the access-refused handling behave exactly as they do for an API key.
 const CHATGPT_REFRESH_TOKEN_ACCOUNT: &str = "chatgpt_refresh_token";
 
 /// Read the ChatGPT refresh token. A keychain that cannot be read is an
 /// error and not "no token": the session ends differently for the two.
 pub fn try_load_chatgpt_refresh_token() -> Result<Option<String>, KeychainError> {
-    read_account(CHATGPT_REFRESH_TOKEN_ACCOUNT).map(|t| t.filter(|t| !t.trim().is_empty()))
+    store()
+        .get(Field::ChatGptToken)
+        .map(|t| t.filter(|t| !t.trim().is_empty()))
 }
 
 /// Save the ChatGPT refresh token, replacing any other. Says where it ended
 /// up, like every `save_*`: [`Persistence::SessionOnly`] is the kernel
 /// keyring, gone at the next reboot.
 pub fn save_chatgpt_refresh_token(token: &str) -> Result<Persistence, keyring::Error> {
-    write_account(CHATGPT_REFRESH_TOKEN_ACCOUNT, token)
+    store().put(Field::ChatGptToken, token)
 }
 
 /// Remove the ChatGPT refresh token, from both stores. Missing is success.
 pub fn delete_chatgpt_refresh_token() -> Result<(), keyring::Error> {
-    delete_account(CHATGPT_REFRESH_TOKEN_ACCOUNT)
+    store().remove(Field::ChatGptToken)
 }
 
 #[cfg(test)]
@@ -1839,3 +2514,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "keychain_layout_tests.rs"]
+mod layout_tests;
