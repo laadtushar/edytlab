@@ -15,6 +15,10 @@ crates/session/tests/snapshots/*.json text eol=lf
 crates/tools/tests/snapshots/*.json   text eol=lf
 crates/ai/tests/snapshots/*.snap      text eol=lf
 crates/ai/prompts/*.md                text eol=lf
+# OpenAI's approved Sign in with ChatGPT logos: byte-identical to the
+# official files, pinned by SHA-256 in tests, so never convert them.
+apps/desktop/src/assets/chatgpt/*.svg -text
+website/public/brand/openai/*.svg     -text
 
 # --- Windows-specific scripts: keep CRLF. ---
 *.bat text eol=crlf
