@@ -25,6 +25,16 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.9.0",
+    date: "2026-10",
+    bullets: [
+      "Sign in with ChatGPT (preview). The assistant can use your ChatGPT plan's usage instead of an API key. In Settings, choose ChatGPT plan and press Continue with ChatGPT: your browser opens OpenAI's sign-in page, and edytlab never sees your password. Once signed in you pick a model and, where the model offers one, a reasoning effort. Sign out, Use another account and Start over are on the same card, and Manage usage opens your ChatGPT usage settings. If your plan's limit for apps like edytlab is reached, the chat says so and stops: it does not retry and does not switch to another provider. If your session ends in the middle of a reply, Continue signs you in again and sends your message. Available for ChatGPT Plus and Pro; it may not be available on workspace plans, which depends on OpenAI and your admin. Your audio stays on your computer; the chat, prompts and tool results go to OpenAI as they do with any provider. This is a preview of OpenAI's own preview, so expect rough edges.",
+      "Noise reduction no longer clicks. It put a loud burst in the first few milliseconds of a track (and at the end), up to full scale. The edges are now handled like the rest of the track.",
+      "Tempo and key are read correctly in more cases. A track with hi-hats between the beats was read at double its tempo (90 BPM came out as 179); it is now read at its own tempo, and the beat grid sits on the kick drum, not the hi-hats. A B-flat minor chord was read as F major; minor keys are now told from their relative major more reliably. The analysis also reports how sure it is, with the half and double tempo and the runner-up key, and a track with no beat at all reports no tempo instead of failing. Sections and downbeats are still estimates, and say so.",
+      "Transcription frees the old speech model when you download it again, so a re-download no longer leaves about 136 MB of the old model in memory. It also copies far less data out of the speech engine per word; on the machine we measured that changed memory traffic, not speed.",
+    ],
+  },
+  {
     version: "v0.8.1",
     date: "2026-10",
     bullets: [
