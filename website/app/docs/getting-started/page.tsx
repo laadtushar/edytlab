@@ -22,17 +22,16 @@ export default function GettingStartedPage() {
     >
       <h2>1. Download and install</h2>
       <p>
-        Download the latest build for your platform from the{" "}
+        Download the latest build from the{" "}
         <a href={siteConfig.releases} target="_blank" rel="noopener noreferrer">
           GitHub Releases page
         </a>
         .
       </p>
       <blockquote>
-        <strong>These builds are unsigned.</strong> Code-signing
-        certificates aren&rsquo;t provisioned yet, so macOS and Windows will
-        both object on first launch. Neither download is broken — the steps
-        below get you past it.
+        <strong>These builds are unsigned.</strong> macOS and Windows both
+        object on first launch. Neither download is broken; the steps below get
+        you past it.
       </blockquote>
       <table>
         <thead>
@@ -46,10 +45,7 @@ export default function GettingStartedPage() {
           <tr>
             <td>macOS (Apple Silicon or Intel)</td>
             <td>.dmg (universal)</td>
-            <td>
-              One universal binary covers both architectures. Drag to
-              Applications, then run the command below.
-            </td>
+            <td>Drag to Applications, then run the command below.</td>
           </tr>
           <tr>
             <td>Windows 10 / 11</td>
@@ -66,44 +62,33 @@ export default function GettingStartedPage() {
 
       <h3>macOS: &ldquo;edytlab is damaged and can&rsquo;t be opened&rdquo;</h3>
       <p>
-        The app is not damaged. macOS attaches a quarantine flag to anything
-        downloaded from the internet, and refuses to launch a quarantined app
-        that Apple hasn&rsquo;t notarized. Because the refusal is phrased as
-        damage, the dialog offers only <em>Move to Trash</em> — there is no
-        &ldquo;Open Anyway&rdquo; button to click, and right-click &rarr; Open
-        will not help either.
+        The app is not damaged. macOS quarantines downloads and refuses to
+        launch one Apple hasn&rsquo;t notarized. The dialog offers only{" "}
+        <em>Move to Trash</em>, and right-click &rarr; Open will not help.
+        Remove the flag after dragging the app to Applications:
       </p>
-      <p>Remove the flag after dragging the app to Applications:</p>
       <pre>
         <code>xattr -dr com.apple.quarantine /Applications/edytlab.app</code>
       </pre>
       <p>
-        Then open it normally. You only need to do this once per install. If
-        you see a milder &ldquo;unidentified developer&rdquo; message instead,
-        System Settings &rarr; Privacy &amp; Security &rarr;{" "}
-        <strong>Open Anyway</strong> is enough on its own.
-      </p>
-      <p>
-        This goes away once notarization is set up; until then every release
-        needs the command above.
+        Then open it normally. Once per install, until notarization is set up.
+        If you see a milder &ldquo;unidentified developer&rdquo; message
+        instead, System Settings &rarr; Privacy &amp; Security &rarr;{" "}
+        <strong>Open Anyway</strong> is enough.
       </p>
 
       <h3>Windows: SmartScreen</h3>
       <p>
         Click &ldquo;More info&rdquo; &rarr; &ldquo;Run anyway&rdquo; on first
-        launch. SmartScreen reputation is earned through download volume and
-        cannot be shortcut, so this warning persists until the installers are
-        signed.
+        launch. The warning stays until the installers are signed.
       </p>
 
       <h2>2. Get an API key</h2>
       <p>
-        edytlab uses an LLM to understand your editing instructions. You bring
-        your own API key — it is stored in your OS keychain and never sent to
-        edytlab servers. If you have a ChatGPT Plus or Pro plan you can skip
-        the key (v0.9.0 and later; a preview): see the last row of the table
-        and &ldquo;Using your ChatGPT plan&rdquo; in the{" "}
-        <a href="/docs/user-guide#chatgpt-plan">user guide</a>.
+        You bring your own API key; it is stored in your OS keychain. With a
+        ChatGPT Plus or Pro plan you can skip the key (v0.9.0 and later; a
+        preview): see the last row and &ldquo;Using your ChatGPT plan&rdquo; in
+        the <a href="/docs/user-guide#chatgpt-plan">user guide</a>.
       </p>
       <table>
         <thead>
@@ -184,72 +169,55 @@ export default function GettingStartedPage() {
         </tbody>
       </table>
       <blockquote>
-        <strong>Cost estimate:</strong> A typical 30-minute editing session
-        consumes roughly $0.05–0.50 in LLM tokens depending on the model and
-        session complexity. Haiku-class models cost about 20× less per token
-        than Sonnet-class models. With the ChatGPT plan there is no per-token
-        bill: the usage counts toward your plan, and on Plus the five-hour
-        limit is shared with every other app and tool that uses the plan (it
-        does not apply to Pro).
+        <strong>Cost estimate:</strong> a typical 30-minute editing session
+        uses roughly $0.05–0.50 in LLM tokens, depending on the model and the
+        session. Haiku-class models cost about 20× less per token than
+        Sonnet-class models. With the ChatGPT plan there is no per-token bill:
+        usage counts toward your plan, and on Plus the five-hour limit is
+        shared with every other app and tool that uses the plan (not on Pro).
       </blockquote>
 
-      <h2>3. Enter your API key</h2>
+      <h2>3. Enter your key</h2>
       <ol>
         <li>Launch edytlab.</li>
         <li>Click the gear icon (⚙) in the top-right corner.</li>
+        <li>Pick your provider.</li>
         <li>
-          Pick your provider (Anthropic, OpenRouter, OpenAI, Groq, Google
-          Gemini, Ollama or the ChatGPT plan).
-        </li>
-        <li>
-          Paste your API key into the field (Ollama needs none). For the
-          ChatGPT plan there is no field: choose{" "}
+          Paste your API key (Ollama needs none). For the ChatGPT plan, choose{" "}
           <strong>Continue with ChatGPT</strong> and finish signing in in your
           browser.
         </li>
         <li>
-          Optionally press <strong>Test</strong>: edytlab sends a minimal
-          request to check the key and that the chosen model can call tools.
+          Optionally press <strong>Test</strong>: a minimal request checks the
+          key and that the model can call tools.
         </li>
         <li>Press <strong>Save &amp; Continue</strong>.</li>
       </ol>
       <p>
-        Keys are stored using your OS native keychain (macOS Keychain,
-        Windows Credential Manager, the Secret Service on Linux). On a Linux
-        desktop with no Secret Service running they are kept in memory until
-        you restart your computer, and the app tells you so, at launch and
-        again at Save if the service went away after the app started. They are
-        never written to disk or sent to any edytlab server.
+        Keys go in your OS keychain (macOS Keychain, Windows Credential
+        Manager, the Secret Service on Linux), never to disk or to any edytlab
+        server. On a Linux desktop with no Secret Service running they are
+        kept in memory until you restart, and the app tells you so, at launch
+        and again at Save if the service went away after the app started.
       </p>
 
       <h2>4. Load your first audio file</h2>
-      <p>There are three ways to load audio:</p>
       <ul>
         <li>
-          <strong>Drag and drop</strong> — drag a WAV, MP3, FLAC or Ogg
-          Vorbis file directly onto the timeline area. Drag multiple files at once to create
-          a multi-track session automatically.
+          <strong>Drag and drop</strong> a WAV, MP3, FLAC or Ogg Vorbis file
+          onto the timeline. Several files at once make a multi-track session.
         </li>
         <li>
-          <strong>Open button</strong> — click "Open Audio" in the empty state
-          or the file menu.
+          <strong>Open button</strong>: click &ldquo;Open Audio&rdquo; in the
+          empty state or the file menu.
         </li>
         <li>
-          <strong>Chat</strong> — type a message like{" "}
-          <code>load /path/to/file.wav</code> in the chat panel.
+          <strong>Chat</strong>: type <code>load /path/to/file.wav</code>.
         </li>
       </ul>
-      <p>
-        Once loaded, the waveform appears in the timeline and the session is
-        ready for editing.
-      </p>
 
       <h2>5. Your first edit</h2>
-      <p>
-        Type in the chat panel. Describe what you want in plain English — the
-        agent figures out which tools to run.
-      </p>
-      <p>Example prompts to try:</p>
+      <p>Describe what you want in the chat panel. Some prompts to try:</p>
       <ul>
         <li>
           <code>Remove the silence at the beginning</code>
@@ -268,16 +236,13 @@ export default function GettingStartedPage() {
         </li>
       </ul>
       <p>
-        The agent streams its response in real time, showing tool call badges as
-        it executes each operation. Every change creates a new node in the
-        session graph — nothing is destructive.
+        The agent streams its response and shows a badge for each tool call.
+        Every change is a new node in the session graph; nothing is
+        destructive.
       </p>
 
       <h2>6. Undo and redo</h2>
-      <p>
-        Every edit is stored as a node in a directed acyclic graph (DAG). You
-        can undo and redo freely:
-      </p>
+      <p>Every edit is a node in a directed acyclic graph (DAG), so you can undo and redo freely:</p>
       <ul>
         <li>
           <strong>Ctrl+Z</strong> (Cmd+Z on Mac) — undo
@@ -287,22 +252,15 @@ export default function GettingStartedPage() {
         </li>
       </ul>
       <p>
-        Unlike a linear undo stack, the DAG preserves all branching history.
-        You can fork a session, try a different edit, and switch between
-        branches using the Graph view.
-      </p>
-      <p>
+        Unlike a linear undo stack, the DAG keeps all branches: fork a session,
+        try a different edit, and switch between branches in the Graph view.
         Undo retraces the steps you took, even when an edit returned to an
-        earlier state (mute, then unmute), and the Graph view marks that
-        path. The path is saved with the project, so it is still there
-        after a restart: undo retraces the same steps it would have before.
+        earlier state (mute, then unmute); the Graph view marks that path, and
+        it is saved with the project across restarts.
       </p>
 
       <h2>Keyboard shortcuts</h2>
-      <p>
-        Press <code>?</code> at any time to see the full shortcuts overlay.
-        Key shortcuts:
-      </p>
+      <p>Press <code>?</code> for the full shortcuts overlay.</p>
       <table>
         <thead>
           <tr>
@@ -319,7 +277,6 @@ export default function GettingStartedPage() {
           <tr><td>+</td><td>Zoom in</td></tr>
           <tr><td>−</td><td>Zoom out</td></tr>
           <tr><td>0</td><td>Reset zoom</td></tr>
-          <tr><td>?</td><td>Show shortcuts</td></tr>
           <tr><td>Esc</td><td>Clear selection</td></tr>
         </tbody>
       </table>
@@ -327,16 +284,15 @@ export default function GettingStartedPage() {
       <h2>Next steps</h2>
       <ul>
         <li>
-          <a href="/docs/user-guide">User Guide</a> — full coverage of every
-          feature
+          <a href="/docs/user-guide">User Guide</a> — every feature
         </li>
         <li>
           <a href="/docs/tools">Audio Tools Reference</a> — all 94 tools the
           agent can call
         </li>
         <li>
-          <a href="/docs/developer-guide">Developer Guide</a> — build from
-          source, run tests, contribute
+          <a href="/docs/developer-guide">Developer Guide</a> — build, test,
+          contribute
         </li>
       </ul>
     </DocShell>

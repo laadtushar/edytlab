@@ -674,12 +674,11 @@ export default function ToolsPage() {
       description="All 94 tools the AI agent can call to edit your audio session."
     >
       <p>
-        Tools are deterministic functions the agent calls to manipulate your
-        audio session. You do not invoke tools directly — instead, describe what
-        you want in natural language and the agent selects the right tool chain.
-        Every tool that changes the session creates a new session node
-        (non-destructive); tools that only read, like <code>list_session</code>
-        and <code>analyze_track</code>, change nothing.
+        Tools are the functions the agent calls on your session. You describe
+        what you want and the agent picks the tools. Every tool that changes
+        the session creates a new session node (non-destructive); tools that
+        only read, like <code>list_session</code> and{" "}
+        <code>analyze_track</code>, change nothing.
       </p>
 
       <h2>Prompt tips</h2>

@@ -81,11 +81,8 @@ export default function DeveloperGuidePage() {
 cd edytlab
 pnpm install
 cargo build --workspace    # first build: 5–20 min
-pnpm tauri:dev             # start dev mode`}</code>
+pnpm tauri:dev             # dev mode; incremental builds take under 30 s`}</code>
       </pre>
-      <p>
-        Subsequent incremental builds complete in under 30 seconds.
-      </p>
 
       <h2>Project structure</h2>
       <pre>
@@ -114,7 +111,7 @@ website/              Next.js marketing site (this site)`}</code>
       </pre>
 
       <h2>Running tests</h2>
-      <p>Full acceptance gate (same as CI):</p>
+      <p>The full acceptance gate, as in CI:</p>
       <pre>
         <code>{`cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -125,7 +122,6 @@ pnpm --filter @edytlab/desktop typecheck
 pnpm --filter @edytlab/desktop typecheck:e2e
 pnpm --filter @edytlab/desktop test:e2e    # Playwright, Chromium`}</code>
       </pre>
-      <p>Targeted runs:</p>
       <pre>
         <code>{`cargo test -p ai                          # single crate
 cargo test -p tools test_normalize        # single test
@@ -137,11 +133,10 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
       </blockquote>
 
       <h2>Architecture overview</h2>
-      <p>The system has three layers:</p>
       <ol>
         <li>
           <strong>Frontend</strong> — React 19 + Vite + Tailwind in a Tauri
-          WebView. Thin UI layer; all state lives in Rust.
+          WebView. All state lives in Rust.
         </li>
         <li>
           <strong>Rust application layer</strong> — about 100 Tauri commands in{" "}
@@ -150,20 +145,19 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
         </li>
         <li>
           <strong>Rust crates</strong> — AI subsystem, tool dispatcher,
-          session DAG, audio engine, ML pipeline. Each is independently
-          testable.
+          session DAG, audio engine, ML pipeline, each testable alone.
         </li>
       </ol>
       <p>
-        For the full technical design, see the{" "}
+        Full design:{" "}
         <a
           href={`${siteConfig.github}/blob/main/docs/architecture.md`}
           target="_blank"
           rel="noopener noreferrer"
         >
           architecture.md
-        </a>{" "}
-        in the repository.
+        </a>
+        .
       </p>
 
       <h2>Adding a new audio tool</h2>
@@ -187,7 +181,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
         </li>
       </ol>
       <p>
-        Detailed step-by-step with code examples in{" "}
+        Step by step, with code, in{" "}
         <a
           href={`${siteConfig.github}/blob/main/docs/contributing.md`}
           target="_blank"
@@ -219,16 +213,15 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
         </li>
       </ol>
       <p>
-        The trait handles auth, request serialization, and SSE stream parsing.
-        See{" "}
+        Details in{" "}
         <a
           href={`${siteConfig.github}/blob/main/docs/contributing.md`}
           target="_blank"
           rel="noopener noreferrer"
         >
           contributing.md §7
-        </a>{" "}
-        for full details.
+        </a>
+        .
       </p>
 
       <h2>Commit and PR process</h2>
@@ -250,42 +243,36 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
         </li>
         <li>Open PRs as drafts. Flip to ready when CI passes.</li>
         <li>PRs are squash-merged. One concern per PR.</li>
-        <li>
-          Run the full acceptance gate before pushing. CI blocks merge on any
-          failure.
-        </li>
+        <li>Run the full acceptance gate before pushing; CI blocks merge on any failure.</li>
       </ul>
 
       <h2>CI / release pipeline</h2>
       <p>
         <code>ci.yml</code> runs on every push to main and every PR: fmt →
-        clippy → cargo test → frontend tests → frontend build, on a matrix of
-        macOS 14 · Windows latest · Ubuntu 22.04, plus a Playwright job
-        (Chromium) and the website&rsquo;s own tests.
+        clippy → cargo test → frontend tests → frontend build, on macOS 14,
+        Windows latest and Ubuntu 22.04, plus a Playwright job (Chromium) and
+        the website&rsquo;s tests.
       </p>
       <p>
         On a green main push, <code>auto-release.yml</code> tags{" "}
         <code>v&lt;version&gt;-dev.&lt;run&gt;</code> and dispatches{" "}
         <code>release-dev.yml</code>, which builds unsigned installers for
-        macOS, Windows and Linux. Signed production releases are manual
-        workflow dispatches, waiting on signing certificates — every release so
-        far is unsigned.
+        macOS, Windows and Linux. Signed releases are manual dispatches that
+        wait on signing certificates; every release so far is unsigned.
       </p>
       <p>
         Every installer carries ONNX Runtime 1.23.2 (and, on Windows, the
-        Visual C++ runtime DLLs it imports). Each release build fetches it with{" "}
-        <code>scripts/fetch-ml-runtime.sh</code> and checks it with{" "}
-        <code>scripts/installer-ml-runtime.py check</code> before the installer
-        is uploaded. The pin is in <code>apps/desktop/src-tauri/ml-runtime.json</code>.
-        A build from source has none unless <code>ORT_DYLIB_PATH</code> names
-        one, and Settings says so. The runtime carries no model and runs no
-        inference.
+        Visual C++ runtime DLLs it imports), fetched by{" "}
+        <code>scripts/fetch-ml-runtime.sh</code> and checked by{" "}
+        <code>scripts/installer-ml-runtime.py check</code> before upload. The
+        pin is in <code>apps/desktop/src-tauri/ml-runtime.json</code>. A build
+        from source has none unless <code>ORT_DYLIB_PATH</code> names one, and
+        Settings says so. The runtime carries no model.
       </p>
 
       <h2>Documentation</h2>
       <p>
-        All documentation lives in{" "}
-        <code>docs/</code> in the repository:{" "}
+        All documentation is in <code>docs/</code>:{" "}
         <a
           href={`${siteConfig.github}/tree/main/docs`}
           target="_blank"

@@ -18,254 +18,324 @@ export const metadata: Metadata = {
 interface Entry {
   version: string;
   date: string;
+  summary: string;
   bullets: string[];
 }
 
-// Static stub. Updated manually as releases land. The full git history lives on
-// GitHub Releases — link below.
+// Static, updated by hand as releases land. One line per change; the full
+// list of binaries and tags is on GitHub Releases.
 const entries: Entry[] = [
   {
     version: "v0.9.1",
     date: "2026-10",
+    summary: "Fixes the first message after signing in with ChatGPT.",
     bullets: [
-      "A fix for Sign in with ChatGPT (preview). In v0.9.0 the first message after signing in failed with an error from OpenAI (\"Unsupported content type\"): every request edytlab sent stated its content type twice, which the other providers accept and the ChatGPT plan route does not. Each request now states it once. If OpenAI turns a request away like that again, the chat shows it as a ChatGPT plan card with the request ID you can copy, instead of a bare error.",
+      "Fixed: in v0.9.0 the first message after Sign in with ChatGPT (preview) failed with “Unsupported content type”.",
+      "Changed: a similar OpenAI refusal now shows a ChatGPT plan card with a copyable request ID.",
     ],
   },
   {
     version: "v0.9.0",
     date: "2026-10",
+    summary: "Sign in with ChatGPT (preview), plus fixes to noise reduction, tempo and key.",
     bullets: [
-      "Sign in with ChatGPT (preview). The assistant can use your ChatGPT plan's usage instead of an API key. In Settings, choose ChatGPT plan and press Continue with ChatGPT: your browser opens OpenAI's sign-in page, and edytlab never sees your password. Once signed in you pick a model and, where the model offers one, a reasoning effort. Sign out, Use another account and Start over are on the same card, and Manage usage opens your ChatGPT usage settings. If your plan's limit for apps like edytlab is reached, the chat says so and stops: it does not retry and does not switch to another provider. If your session ends in the middle of a reply, Continue signs you in again and sends your message. Available for ChatGPT Plus and Pro; it may not be available on workspace plans, which depends on OpenAI and your admin. Your audio stays on your computer; the chat, prompts and tool results go to OpenAI as they do with any provider. This is a preview of OpenAI's own preview, so expect rough edges.",
-      "Noise reduction no longer clicks. It put a loud burst in the first few milliseconds of a track (and at the end), up to full scale. The edges are now handled like the rest of the track.",
-      "Tempo and key are read correctly in more cases. A track with hi-hats between the beats was read at double its tempo (90 BPM came out as 179); it is now read at its own tempo, and the beat grid sits on the kick drum, not the hi-hats. A B-flat minor chord was read as F major; minor keys are now told from their relative major more reliably. The analysis also reports how sure it is, with the half and double tempo and the runner-up key, and a track with no beat at all reports no tempo instead of failing. Sections and downbeats are still estimates, and say so.",
-      "Transcription frees the old speech model when you download it again, so a re-download no longer leaves about 136 MB of the old model in memory. It also copies far less data out of the speech engine per word; on the machine we measured that changed memory traffic, not speed.",
+      "New: Sign in with ChatGPT (preview). The assistant uses your ChatGPT plan's usage instead of an API key.",
+      "In Settings, choose ChatGPT plan, then Continue with ChatGPT. Your browser opens OpenAI's sign-in; edytlab never sees your password.",
+      "Pick a model and, where offered, a reasoning effort. Sign out, Use another account, Start over and Manage usage are on the same card.",
+      "At your plan's limit for apps, the chat says so and stops: no retry, no switch to another provider.",
+      "If your session ends mid-reply, Continue signs you in again and resends your message.",
+      "Available for ChatGPT Plus and Pro; it may not be available on workspace plans, which depends on OpenAI and your admin.",
+      "Your audio stays on your computer; prompts and tool results go to OpenAI as with any provider. A preview of OpenAI's own preview, so expect rough edges.",
+      "Fixed: noise reduction put a loud click, up to full scale, at the start and end of a track.",
+      "Fixed: hi-hats between beats doubled the tempo (90 BPM read as 179); the beat grid now sits on the kick.",
+      "Fixed: a B-flat minor chord read as F major; minor keys are now told from their relative major more reliably.",
+      "New: analysis reports its confidence, the half and double tempo and the runner-up key. A track with no beat reports no tempo instead of failing. Sections and downbeats are still estimates.",
+      "Fixed: downloading the speech model again left about 136 MB of the old one in memory.",
+      "Changed: transcription copies far less data out of the speech engine per word; on our machine that changed memory traffic, not speed.",
     ],
   },
   {
     version: "v0.8.1",
     date: "2026-10",
+    summary: "Fixes editing a voice recorded at a different sample rate from the project.",
     bullets: [
-      "Editing a voice recorded at a different sample rate from the project. With a voice track at another rate than the project (a 16 kHz recording under a 48 kHz bed, say), nine tools turned seconds into the wrong number of frames. time_shift moved the track too far (three times too far for 16 kHz under 48 kHz); split_clip refused split points that were inside the clip; split_by_speaker dropped the later turns; punch_in refused a take at the track's own rate and spliced in one at another rate. cut_range, trim and truncate_silence moved labels and transcript words to the wrong place. With sync-lock on, insert_silence and paste_region opened gaps of the wrong length in the other tracks. They now count in the track's own frames, so the same seconds land in the same place on every track. A track whose clips are at two different rates is refused by the tools that need one number for it, instead of being guessed at.",
-      "A clip's volume envelope follows the clip. On such a clip an envelope, such as a duck under speech, landed at the wrong time, and so did one after a cut or a split. Envelope points are now counted in the clip's own frames, so they stay with the audio they were set on. Projects made by earlier versions play as they did.",
-      "The session length is its longest track's length. With tracks at different rates it could come out as a third of the real length (a voice running past the bed counted as the shorter track), or too long when the lower-rate track loaded first. It is now the length of a full render.",
+      "Fixed: with a track at another rate than the project (16 kHz voice under a 48 kHz bed), nine tools turned seconds into the wrong number of frames.",
+      "time_shift moved the track too far (3x for 16 kHz under 48 kHz); split_clip refused valid split points; split_by_speaker dropped later turns.",
+      "punch_in refused a take at the track's own rate and spliced in one at another rate.",
+      "cut_range, trim and truncate_silence put labels and transcript words in the wrong place.",
+      "With sync-lock on, insert_silence and paste_region opened gaps of the wrong length in other tracks.",
+      "Changed: tools count in each track's own frames, so the same seconds land in the same place on every track. A track whose clips are at two rates is refused where one number is needed.",
+      "Fixed: on such clips a volume envelope, such as a duck under speech, landed at the wrong time, also after a cut or split. Earlier projects play as before.",
+      "Fixed: with mixed rates the session length could be a third of the real length, or too long. It is now the length of a full render.",
     ],
   },
   {
     version: "v0.8.0",
     date: "2026-10",
+    summary: "Transcription, editing by transcript, and a fix that stops renders overwriting your audio.",
     bullets: [
-      "Transcription. Ask the assistant to \"transcribe track 1\" and it writes out what was said, with the time of every word, as a new version of the session. It runs on your computer, on the CPU, with the Whisper base speech model (about 139 MB) that you download once: Settings → Account has a Download button beside the Speech model row, with Cancel, resume and Remove. Nothing downloads unless you press it, not at launch, not when Settings opens and not when the assistant asks. If the model is not there yet, the chat shows a card that says so and opens Settings. The assistant can be told the language (a two-letter code such as en, de, fr or es) or left to detect it. A progress strip counts the 30-second windows and Cancel stops it. On the machine we measured, seven seconds of audio took about three seconds the first time; yours depends on its CPU. We checked it on a short synthetic English recording of twelve words: none was wrong and every word started within 0.23 s of its true time. That is one recording, not a range of voices, so listen before you cut on the words.",
-      "Edit audio by editing its transcript. The Transcript tab shows the words with their times; select words and press Delete to cut that audio and close the gap, or ask the assistant to cut a passage or to remove the filler words (it reports what it found first and changes nothing until you say so). A transcript remembers the track it is of, so a cut lands on that track and another track is refused. Asking the assistant to find a phrase (\"select where he talks about latency\") now works from the transcript. Ollama's small request offers these tools too.",
-      "What reaches your AI provider. Transcribing sends no audio anywhere and makes no network request. But the words it finds come back to the assistant as a tool result, so the text of what was said (a bounded amount for each call) goes to the provider you chose, and stays on your computer with Ollama. Settings says so beside the model, and the privacy page has the details. Stem separation is still not available.",
-      "A render can no longer be written over audio the project reads. With the default output_dir and a render format equal to an input's own extension, batch_apply rendered each file onto its input, and three 12-second WAV files were left as 44-byte headers (#653). render_final, export_recipe, export_multiple and Export Selection could do the same to a recording you had loaded. They now refuse, name the file and ask for another file name or folder, and batch_apply refuses the whole batch before it starts any file. The check covers the audio any version in the history reads, not only the current one, so undo still plays what it did. If you are on v0.7.0 or earlier, set output_dir to another folder, and keep copies of originals.",
-      "batch_apply gives inputs that differ after a dot a render each. take.1.wav and take.2.wav both rendered to take.wav, the second over the first, and the report said both succeeded (#667). Each now renders to its own name (take.1.wav), and two inputs that would share one project folder, such as take.wav and take.flac, are refused before anything starts.",
-      "Accept B in A/B compare, and the assistant's edits, release a lane control you were still holding and re-read the tracks. After Accept B the lanes kept side A's track list, and a fader you had moved and not let go of stayed laid over the assistant's value.",
-      "The missing-runtime error is accurate. It no longer says edytlab does not ship the ONNX Runtime: the release installers include it; a build from source does not.",
+      "New: transcription. Ask for “transcribe track 1” to get every word with its time, as a new session version.",
+      "It runs on your CPU with the Whisper base model (about 139 MB), downloaded once from Settings → Account (Download, Cancel, resume, Remove).",
+      "Nothing downloads unless you press Download: not at launch, not when Settings opens, not when the assistant asks. Without the model, the chat shows a card that opens Settings.",
+      "Name the language with a two-letter code (en, de, fr, es) or let it detect. A progress strip counts 30-second windows; Cancel stops it.",
+      "Speed: seven seconds of audio took about three seconds on our machine; yours depends on its CPU.",
+      "Checked on one short synthetic English recording of twelve words: none wrong, every start within 0.23 s. That is one recording, not a range of voices, so listen before you cut.",
+      "New: edit by transcript. In the Transcript tab, select words and press Delete to cut that audio and close the gap.",
+      "Or ask the assistant to cut a passage, remove filler words (it reports first and changes nothing until you say so), or find a phrase (“select where he talks about latency”).",
+      "A transcript remembers its track: cuts land there and another track is refused. Ollama's small request offers these tools too.",
+      "Transcribing sends no audio and makes no network request. The words go to your AI provider as a tool result (a bounded amount per call), and stay local with Ollama. Settings says so; the privacy page has details.",
+      "Stem separation is still not available.",
+      "Fixed: a render could overwrite audio the project reads. batch_apply with the default output_dir and an input's own format left three 12-second WAVs as 44-byte headers; render_final, export_recipe, export_multiple and Export Selection could overwrite a loaded recording.",
+      "They now refuse and ask for another name or folder; batch_apply refuses the whole batch first. The check covers every version in the history.",
+      "If you are on v0.7.0 or earlier, set output_dir to another folder and keep copies of originals.",
+      "Fixed: batch_apply rendered inputs that differ after a dot (take.1.wav, take.2.wav) to one name and reported success. Each keeps its own name; inputs that would share a project folder (take.wav, take.flac) are refused first.",
+      "Fixed: after Accept B in A/B compare, or the assistant's edits, lanes kept side A's tracks and a fader you were holding stayed over the assistant's value.",
+      "Fixed: the missing-runtime error wrongly said edytlab does not ship ONNX Runtime. Release installers include it; a build from source does not.",
     ],
   },
   {
     version: "v0.7.0",
     date: "2026-10",
+    summary: "Installers carry the ONNX Runtime, plus fixes to controls, the graph and large sessions.",
     bullets: [
-      "The installers carry the ONNX Runtime. Every installer now ships ONNX Runtime 1.23.2 and its notices (with the Visual C++ runtime it needs on Windows), and Settings → Account says it is bundled. No speech or stem model ships with it yet, so stem separation and transcription are still not available.",
-      "A setting you change is not undone by the app catching up. Tapping a fader or pan slider, or clicking mute or solo, could be put back for a moment, or lost, when an earlier change's read-back arrived late. A control you have set now stays as you set it until the session confirms it.",
-      "The History graph keeps up. It now redraws when the head moves, when the assistant's turn ends (so a label it set shows at once) and after a compaction, instead of keeping nodes that were removed until the next edit.",
-      "The mix you play stays playable. Switching to the Graph or Transcript tab and back could fail with 'Could not load the mix' once enough other previews had been made. The window's mix is now kept in the preview cache, and if it is lost anyway it is rendered again once.",
-      "Bundled skills update. Fixes and new skills that ship with the app now reach an existing install, not only a new one. A skill you have edited or deleted is left alone; an edited one gets the new text beside it as <name>.bundled.md.",
-      "Large sessions. The assistant can list every track, bus and marker of a big session page by page, including on Ollama's small context, and the session summary it is sent is capped so a big project still fits.",
-      "The assistant is told each effect's setting names (a gain's level is db, a limiter's ceiling_db and release_ms), so it no longer guesses a name the effect does not have.",
-      "Audio the app writes is named by its sample rate and channel count as well as its samples, so two edits with the same samples in different layouts no longer share one file. Projects made by earlier versions keep working: their files still verify and rebuild under their old names.",
-      "One project folder, one writer. A batch run no longer writes into a project you have open, and a project folder restored from a backup (or trashed and made again) while the assistant still works in the old one waits until the turn ends before it opens.",
-      "The libraries that check secure connections (rustls-webpki and webpki-roots) are updated past two published security advisories about distrusted certificates.",
+      "New: installers ship ONNX Runtime 1.23.2 and its notices (plus the Visual C++ runtime on Windows); Settings → Account says bundled. No speech or stem model ships with it, so stem separation and transcription are still unavailable.",
+      "Fixed: a fader, pan, mute or solo you set could be put back, or lost, when an earlier change's read-back arrived late.",
+      "Fixed: the History graph kept removed nodes until the next edit.",
+      "Fixed: switching to the Graph or Transcript tab and back could fail with “Could not load the mix”. It is now kept and re-rendered once if lost.",
+      "Changed: fixes and new bundled skills reach existing installs. A skill you edited or deleted is left alone; an edited one gets the new text beside it as <name>.bundled.md.",
+      "New: the assistant lists every track, bus and marker of a big session page by page, including on Ollama's small context; the session summary is capped so a big project fits.",
+      "Fixed: the assistant guessed effect setting names. It is now told them (a gain's level is db; a limiter has ceiling_db and release_ms).",
+      "Changed: audio the app writes is named by sample rate and channel count as well as samples, so different layouts no longer share a file. Earlier projects keep working.",
+      "Fixed: a batch run could write into an open project.",
+      "Fixed: a project folder restored from backup (or trashed and recreated) opened while the assistant still worked in the old one. It now waits for the turn to end.",
+      "Security: updated rustls-webpki and webpki-roots past two published advisories about distrusted certificates.",
     ],
   },
   {
     version: "v0.6.1",
     date: "2026-10",
+    summary: "Fixes Save As copies, A/B compare renders and speech analysis stalls.",
     bullets: [
-      "A Save As copy keeps its own audio. Opening a copy made with Save As cleaned out the copy's own audio files, because the copy still pointed at the original project's; deleting or moving the original then left the copy silent. A copy now plays from its own folder, including tones and mixdowns the app generated. A copy made with v0.6.0 is repaired the first time v0.6.1 opens it while the original is still there: the audio it needs is copied back in, never overwriting anything and stopping before the disk is nearly full. Open such a copy once before deleting its original. On exFAT, FAT and some network drives the repair cannot run safely and copies nothing, so open those copies from a local disk.",
-      "Save As copies a consistent snapshot. The copy was made with nothing held, so an edit or a cleanup landing at the same moment could leave the copy naming audio it did not have. It now takes the project as it was when you clicked, and leaves out cached previews and auditions, which are rebuilt when needed.",
-      "A/B compare keeps its renders inside the project. Each comparison wrote two full-length WAV files to the system's temporary folder and never removed them. They now go in the project's preview cache, and the pair stays available while you compare, so a long mix can still be compared.",
-      "Selecting a spoken passage or ducking music under speech no longer holds up your edits. The faders, mute and undo answer while the voice track is analysed. Selecting a passage can now join speech separated by short gaps, as ducking does, and when a phrase occurs more than once, the assistant is told which occurrence it found and of how many.",
-      "Settings → Account shows whether the ONNX Runtime is installed. This build does not ship it, so the line says it is not installed. Stem separation and transcription are still not shipped.",
-      "The library the app uses to unpack plugin archives (zip) is updated past three published security advisories. The app was not exposed: it never used the affected functions.",
+      "Fixed: opening a Save As copy cleaned out its own audio, so deleting or moving the original left the copy silent. Copies now play from their own folder, generated tones and mixdowns included.",
+      "A v0.6.0 copy is repaired the first time v0.6.1 opens it while the original is still there. Open it once before deleting the original.",
+      "The repair copies needed audio back, overwrites nothing and stops before the disk is nearly full.",
+      "On exFAT, FAT and some network drives the repair copies nothing; open those copies from a local disk.",
+      "Fixed: an edit or cleanup during Save As could leave the copy naming audio it lacked. The copy is now the project as it was at your click, without cached previews and auditions (rebuilt when needed).",
+      "Fixed: A/B compare wrote two full-length WAVs to the system temp folder and never removed them. They now go in the project's preview cache.",
+      "Fixed: selecting a spoken passage or ducking music under speech held up your edits. Faders, mute and undo now answer meanwhile.",
+      "Changed: selecting a passage can join speech separated by short gaps. When a phrase occurs more than once, the assistant is told which occurrence it found and how many there are.",
+      "New: Settings → Account shows whether ONNX Runtime is installed; this build ships none. Stem separation and transcription are still not shipped.",
+      "Security: updated the zip library for plugin archives past three published advisories. The app never used the affected functions.",
     ],
   },
   {
     version: "v0.6.0",
     date: "2026-10",
+    summary: "Master and bus effects, many undo and project-opening fixes, and a safer history compaction.",
     bullets: [
-      "Compacting history no longer deletes your own recordings. A WAV file you load stays where you keep it, and compacting the session (asking the assistant to reclaim disk space) could delete it from your disk once the versions that used it were pruned. Compaction now deletes only audio the project made itself, inside its own folder, and checks each file again before deleting it. Earlier releases, v0.5.0 included, have this bug, so update before you compact a project.",
-      "Effects on the master bus and on buses. Ask for a limiter on the master and the assistant puts it on the master bus, where it keeps working as the tracks change; it used to render the mix into a new \"Master\" track that later edits did not reach. It can also put an effect on a bus, let you hear one on the master or a bus before adding it, and knows the session's buses by name. A bus effect is heard only when a track sends to that bus.",
-      "A saved effect the app cannot run in a chain no longer breaks playback. So far only gain, the limiter and the low-pass, high-pass and notch filters run in a chain. A project holding another kind there, such as a reverb an earlier version let the assistant add to a track, failed every preview, playback and export until you found and removed it. That effect is now left out, the rest plays, and the window names what was left out: on Play, after an export and in A/B compare.",
-      "The assistant no longer puts an effect in a chain that cannot run it. Reverb, EQ, echo and the others still work as edits to a track's audio. A setting the effect does not have, such as \"gain_db\" on a gain whose level is \"db\", is refused instead of being saved and ignored, and the command palette no longer suggests a reverb bus.",
-      "Delete waits for your answer. In the installed app, deleting an agent profile, a skill or an MCP server in Settings went ahead at once, without waiting for you to confirm, so Cancel did nothing.",
-      "After Save As, the assistant edits the copy. It went on editing the original project while the window showed the copy.",
-      "Opening a project no longer takes it back to an older version. Opening one from Recent projects or Open project went to the version saved with its zoom and selection, which could be a step behind, and the newest edits dropped off the timeline.",
-      "Opening a project while the assistant is working on it, including the one already open, no longer splits it in two. The window and the assistant could each go on with their own idea of the latest version, and the cleanup that runs when a project opens could delete audio a tool had just written.",
-      "Undo and Plan first survive a restart. Undo retraces the steps you took after the app is closed and opened again; it used to fall back on each version's first parent and could skip a step, such as a mute you had turned off again. Plan first stays on if you left it on: it was off at every launch, so the first edits after a restart ran without asking.",
-      "Undo follows the version the assistant leaves you on. When the assistant named a version, the window moved to that version although the project had not, so the next undo went to the wrong place. When it made alternative takes in one step or applied a recipe, the window was not told, so the track list stayed out of date and undo skipped the new version.",
-      "Undo keeps working after the assistant compacts history. Compaction could remove a version that undo or redo still pointed at, such as a mute you had turned off again, and every press of undo then failed with the same error until a restart. Undo and redo now step past a version that is gone.",
-      "A click on a version in the Graph view previews it and leaves your place alone. It used to move the window to that version without moving the project, so undo after the next edit went to the previewed version, and after a restart undo lost the steps you took. Set as head still moves you there.",
-      "Adding a label works on macOS, and regions keep their shape. A new label is named in a box in the label lane, whether you add it there or from the ruler; the name used to be asked for in a dialog the macOS app cannot show, so no label was added. Dragging a region moves all of it instead of turning it into a single marker, a region shows its whole length, a click on a label no longer moves it, and labels move with pasted audio as they do with other edits that shift time.",
-      "Select a spoken passage without a transcript. Ask for \"the last thing said\" on a voice track and the assistant finds it in the track's audio, as ducking already does. It finds where there is speech, not what is said, so finding a phrase still needs a transcript, which this build cannot make.",
-      "With sync-lock on, a paste moves the other tracks too. Pasting made one track longer and left the rest where they were, so everything after the paste drifted out of line. The other tracks now open the same gap, and one undo puts them all back.",
-      "The assistant's previews stay inside the project, in a cache with a size limit. A preview of part of the session was written to the system's temporary folder and left there, about 55 MB for five minutes of stereo. With Plan first on, previews and effect auditions no longer wait for approval, since they change nothing in the session. A track the assistant loads from a preview keeps its audio when the cache makes room.",
-      "With Plan first on, a held recipe or batch shows the edits it will run. The card showed only the recipe's file path; it now lists each step in order, and says so when the recipe cannot be read.",
-      "Keychain problems are reported instead of hidden. On Linux, a key saved after the Secret Service went away lasts only until restart, and Settings now says so before it closes; a key saved while the service was briefly away is no longer replaced by an older copy when it comes back. After you decline to unlock the keyring at launch, the app asks nothing more until you save in Settings, Save leaves your chosen model alone instead of writing the default over it, and the chat says why there is no assistant.",
-      "The app looks like the website: violet on zinc instead of amber, the edytlab wordmark, and small motions on buttons, cards, banners and messages. Motion is off when your system asks for reduced motion.",
-      "The library behind the app's secure connections (rustls) is updated past four published security advisories.",
+      "Fixed: compacting history could delete a WAV you loaded from your own folder. It now deletes only audio the project made in its own folder. Earlier releases, v0.5.0 included, have this bug: update before you compact a project.",
+      "New: effects on the master bus and on buses. A limiter on the master keeps working as tracks change; it used to render the mix into a new “Master” track.",
+      "The assistant can put an effect on a bus, let you hear one before adding it, and knows buses by name.",
+      "A bus effect is heard only when a track sends to that bus.",
+      "Fixed: a saved effect the app cannot run (such as a reverb in a chain) failed every preview, playback and export. It is now left out, the rest plays, and the window names it.",
+      "Only gain, limiter and the low-pass, high-pass and notch filters run in a chain. Reverb, EQ and echo still work as edits to a track's audio.",
+      "Changed: the assistant no longer puts an unrunnable effect in a chain, and refuses a setting an effect lacks (“gain_db” for “db”). The command palette no longer suggests a reverb bus.",
+      "Fixed: in the installed app, deleting an agent profile, skill or MCP server in Settings ignored Cancel.",
+      "Fixed: after Save As, the assistant kept editing the original while the window showed the copy.",
+      "Fixed: opening a project from Recent projects or Open project could land a step behind and drop the newest edits.",
+      "Fixed: opening a project while the assistant worked on it, including the open one, split it in two, and the cleanup at open could delete audio a tool had just written.",
+      "Fixed: undo retraces your steps after a restart (it could skip one, such as a mute you turned off again). Plan first stays on if you left it on; it was off at every launch.",
+      "Fixed: after the assistant named a version, made alternative takes in one step or applied a recipe, the window and project disagreed: the next undo went wrong or skipped the new version.",
+      "Fixed: compaction could remove a version undo or redo pointed at, so every press failed until a restart. They now step past a missing version.",
+      "Fixed: clicking a version in the Graph view moved the window but not the project, so the next undo went to the previewed version. A click now only previews; Set as head still moves you.",
+      "Fixed: adding a label on macOS. The name is now typed in a box in the label lane, from the lane or the ruler.",
+      "Fixed: dragging a region turned it into a marker. It now moves whole and shows its full length, a click on a label no longer moves it, and labels move with pasted audio.",
+      "New: select a spoken passage without a transcript: “the last thing said” on a voice track is found from its audio.",
+      "It finds where there is speech, not what is said; finding a phrase still needs a transcript, which this build cannot make.",
+      "Fixed: with sync-lock on, a paste lengthened one track and left the rest, so later audio drifted. Other tracks now open the same gap, and one undo restores them.",
+      "Changed: the assistant's previews stay in the project, in a size-limited cache. They used to be left in the system temp folder (about 55 MB for five minutes of stereo).",
+      "A track loaded from a preview keeps its audio when the cache makes room.",
+      "Changed: with Plan first on, previews and effect auditions no longer wait for approval, and a held recipe or batch lists each step in order (it showed only the file path).",
+      "Fixed: keychain problems were hidden. On Linux, a key saved after the Secret Service went away lasts only until restart, and Settings says so before it closes. A later-returning service no longer replaces it with an older copy.",
+      "If you decline to unlock the keyring at launch, the app asks nothing more until you save in Settings. Save no longer overwrites your chosen model with the default, and the chat says why there is no assistant.",
+      "Changed: the app matches the website: violet on zinc instead of amber, the edytlab wordmark, small motions (off when your system asks for reduced motion).",
+      "Security: updated rustls past four published advisories.",
       "Stem separation and transcription are still not shipped.",
     ],
   },
   {
     version: "v0.5.0",
     date: "2026-10",
+    summary: "Current models by default, plus fixes to chats, plan cards, Ollama and Linux keychain handling.",
     bullets: [
-      "Current models by default. Anthropic's chat model is now Claude Sonnet 5.5 and its classifier Claude Haiku 5.5, and the list of Anthropic models in Settings is fetched live from Anthropic instead of being written into the app. OpenAI, OpenRouter and Gemini defaults move to current models too; Gemini's old default was shut down in June. A saved model that its provider has retired now says so and points to Settings, instead of failing with a raw 404.",
-      "Chats keep working on models that think by default. The second message of a chat on a 5.x model could fail with \"Invalid signature in thinking block\", because earlier thinking was sent back under a changed system prompt. Earlier turns' thinking is no longer sent back, and each model's output is capped at that model's own limit.",
-      "Edits you make while the assistant is working are kept, in the order you made them. A long tool such as a time-stretch no longer locks the session, so the faders, mute, markers and undo answer while it runs. If you change a track the tool is working on, the tool notices and stops rather than editing the wrong track. Edits from the timeline, mixer, markers, undo and file loads go out one after another, so two quick fader moves cannot land in the wrong order.",
-      "The window no longer freezes on track edits. Twelve track commands, from gain and mute to rename and remove, waited on the session on the app's main thread.",
-      "Plan cards say what each step does. A step showed only a tool name, sometimes a dangling dash, and could name a tool that does not exist. Steps now read as sentences with their values, steps naming unknown tools are dropped, and steps for tools that are not shipped yet are marked \"not available in this build\".",
-      "A question is never held at a plan gate. The request classifier could read a question as an edit and hold it for approval.",
-      "After a failed tool call, the next message works. A turn that ended on a tool-argument error left a tool call unanswered, and the provider then refused every later message in the chat.",
-      "Local models (Ollama) get a request they can take. A small-context model was sent every tool's full description, about 15,000 tokens before the first word; it now gets a core set plus the tools the message asks for, with the rest listed by name.",
-      "Ducking music under speech works without a transcript. Name the voice track and the music ducks under its audio.",
-      "On Linux, API keys survive a reboot. They are stored in the Secret Service (GNOME Keyring, KWallet or KeePassXC); with none running, the app says the key lasts only until restart. A keychain that cannot be read says so, Settings no longer erases what it could not read, and the window opens while the keyring asks to be unlocked.",
-      "Settings fits small windows. The tab strip scrolls when the window is narrow, and when it is short the dialog scrolls while Save stays in view.",
-      "Signed macOS builds can record from the microphone.",
-      "A missing ONNX Runtime is an error instead of a hang. The code that downloads a speech model and checks it against a pinned checksum is in the app, but nothing calls it yet and no model is pinned, so nothing is downloaded. Stem separation and transcription are still not shipped.",
-      "Set as head in the graph is a step undo can return from, and the label lane follows undo and redo.",
+      "Changed: Anthropic's chat model is Claude Sonnet 5.5, its classifier Claude Haiku 5.5, and Settings fetches the model list live. OpenAI, OpenRouter and Gemini defaults move to current models (Gemini's old default was shut down in June).",
+      "A saved model its provider has retired now says so and points to Settings, instead of a raw 404.",
+      "Fixed: the second message of a chat on a 5.x model could fail with “Invalid signature in thinking block”. Each model's output is also capped at its own limit.",
+      "Fixed: edits you make while the assistant works are kept, in order. Faders, mute, markers and undo answer during a long tool such as a time-stretch.",
+      "The tool stops if you change a track it is working on.",
+      "Fixed: twelve track commands (gain, mute, rename, remove and more) froze the window.",
+      "Fixed: plan steps showed only a tool name and could name a tool that does not exist. They now read as sentences with values, unknown tools are dropped, and unshipped tools say “not available in this build”.",
+      "Fixed: the request classifier could read a question as an edit and hold it at a plan gate.",
+      "Fixed: a turn ending on a tool-argument error made the provider refuse every later message in the chat.",
+      "Changed: local models (Ollama) get a core set of tools plus those the message asks for, instead of about 15,000 tokens of descriptions before the first word.",
+      "New: ducking music under speech works without a transcript; name the voice track.",
+      "Fixed: on Linux, API keys survive a reboot (Secret Service: GNOME Keyring, KWallet or KeePassXC). With none running, the app says the key lasts only until restart.",
+      "An unreadable keychain says so, Settings no longer erases what it could not read, and the window opens while the keyring asks to be unlocked.",
+      "Fixed: Settings fits small windows (the tab strip scrolls; the dialog scrolls with Save in view).",
+      "Fixed: signed macOS builds can record from the microphone.",
+      "Fixed: a missing ONNX Runtime is an error instead of a hang. Model download code is in the app, but nothing calls it and no model is pinned. Stem separation and transcription are still not shipped.",
+      "Changed: Set as head in the graph is a step undo can return from, and the label lane follows undo and redo.",
     ],
   },
   {
     version: "v0.4.0",
     date: "2026-10",
+    summary: "Play works straight away, undo follows your path, and the limiter limits instead of clipping.",
     bullets: [
-      "Play straight after opening a file or making an edit. Playback plays a rendered preview of the mix, and only the Preview button made one, so Space did nothing and the Play button stayed disabled until you found it. Play now renders the preview when there is none and starts as soon as it has loaded. After an edit it plays the new version; it used to play the one before.",
-      "Play, pause and place the playhead with the mouse. The toolbar has a Play button, and a click on the ruler or a lane moves the playhead there. Playback used to be keyboard-only.",
-      "The assistant's replies are formatted. Lists, bold, headings, code and tables render as such instead of showing their asterisks, dashes and backticks. HTML in a reply stays text, and a link shows its address beside it rather than opening in the app window.",
-      "A request with many steps finishes. A request was capped at 10 tool calls without the model being told, and one mastering pass takes seven to ten, so an ordinary request could end in an error after its edits had already been made. The cap is now 20, the model knows it, and a request that reaches it ends with the assistant saying what it did and what is left.",
-      "The limiter limits instead of clipping. It turned every sample over the ceiling into the ceiling, which on a sine 6 dB over a −6 dBFS ceiling is 23% distortion. It now turns the gain down at once and lets it recover over a release time you can set (80 ms by default): 0.19% on the same 1 kHz sine. It works on sample peaks, with no look-ahead.",
-      "With Plan first on, nothing changes before you approve it. A request the model answered with an edit and no plan used to run straight away; the first step that would change the session is now held and shown as the plan.",
-      "Undo retraces the steps you took. A version is named after its content, so an edit that returns to an earlier state, such as mute then unmute, lands on the old version, and undo used to go to that version's first parent: after loading a track, muting and unmuting, undo made the track vanish. Undo and redo now follow the path you actually took, a new edit after an undo clears redo, and opening another project starts its history fresh.",
-      "A reasoning-effort setting for Anthropic models, from low to max, in Settings. Higher effort gives the model more room to think before it edits. Only Anthropic receives it, and leaving it unset sends exactly what was sent before.",
-      "The window no longer freezes after the assistant's edits on Linux. Every timeline lane carried an audio player that it never plays, and on Linux each one streamed through its own media pipeline; an edit swapped them all at once, and tearing them down could deadlock the window. Lanes now draw their waveform without loading a player.",
-      "A request the assistant took for a mashup is carried out. It used to print a plan as raw text in the chat and stop without making the edit.",
-      "Changing the zoom while an edited track is still loading no longer breaks the timeline.",
+      "Fixed: Space did nothing and Play stayed disabled until you made a preview. Play now renders one when there is none, and after an edit plays the new version.",
+      "New: a Play button on the toolbar; a click on the ruler or a lane places the playhead.",
+      "Changed: replies render lists, bold, headings, code and tables. HTML stays text, and a link shows its address rather than opening in the app window.",
+      "Fixed: requests were capped at 10 tool calls without the model knowing, and one mastering pass takes seven to ten. The cap is now 20, the model knows it, and a request reaching it ends with a summary of what is left.",
+      "Fixed: the limiter clipped (23% distortion on a 1 kHz sine 6 dB over a −6 dBFS ceiling).",
+      "It now turns gain down at once and recovers over a settable release (80 ms default): 0.19% on the same sine. It works on sample peaks, with no look-ahead.",
+      "Fixed: with Plan first on, a request answered with an edit and no plan ran at once. The first changing step is now held and shown as the plan.",
+      "Fixed: undo went to a version's first parent when an edit returned to an earlier state (load, mute, unmute, undo removed the track).",
+      "Undo and redo now follow your path, a new edit after undo clears redo, and a new project starts fresh history.",
+      "New: a reasoning-effort setting for Anthropic models, low to max, in Settings. Only Anthropic receives it; unset sends what was sent before.",
+      "Fixed: on Linux the window could freeze after the assistant's edits. Lanes now draw waveforms without an audio player each.",
+      "Fixed: a request taken for a mashup printed a plan as raw text and made no edit.",
+      "Fixed: changing zoom while an edited track loaded broke the timeline.",
     ],
   },
   {
     version: "v0.3.0",
     date: "2026-10",
+    summary: "Playback on Linux and macOS, and an assistant that knows the session it is editing.",
     bullets: [
-      "Playback works on Linux and macOS. The rendered mix and the chat's auditions live in a hidden folder that the narrowed file scope in 0.2.0 could not reach through, so pressing Space played nothing and showed \"403 Forbidden\". Windows was not affected.",
-      "The assistant knows the session it is editing: every track's name, where its audio sits on the timeline, its level, pan and effects, and the current version. \"Fade out the last two seconds\" now fades, and \"export the current mix\" exports, where before the assistant had nothing to place them with.",
-      "Ask for a track's tempo, key or loudness by name. The analysis tool took only a file path, so the assistant asked you for one.",
-      "Plan first works with Ollama, Groq and Gemini, and after the first edit of a conversation. Their plan requests were sent in the wrong format, and any turn after one that used a tool sent an empty message the provider rejected, so the plan was skipped and the edit ran unapproved.",
-      "A request that fails stops showing \"Thinking\", errors name the provider that failed rather than Anthropic, and a rejected API key offers Open Settings with a plain explanation instead of raw JSON.",
-      "A tool call with no arguments no longer ends the turn with an error.",
-      "The window stays responsive while the assistant runs a long edit. Reading the track list, editing a marker and renaming a version waited for the edit on the app's main thread, so the whole window froze until the edit finished.",
-      "Edited audio is named after its track. After an edit, the clip and the status bar showed a 64-character file hash.",
-      "History stays under 2 GiB. Audio that only older versions use is removed once the app has proved it can rebuild it, and it is rebuilt on demand when you undo to it, preview it or export it.",
-      "Switching between A and B crossfades from the same moment instead of cutting, and a volume curve the assistant writes draws itself on.",
-      "Undo works with a gain or pan slider focused, and no longer writes the slider's old value back after undoing.",
-      "Opening a file the app cannot read says which file and why, instead of adding an empty track.",
+      "Fixed: Space played nothing and showed “403 Forbidden” on Linux and macOS, after the file scope narrowed in 0.2.0. Windows was not affected.",
+      "New: the assistant knows every track's name, position, level, pan and effects, and the current version, so “fade out the last two seconds” and “export the current mix” work.",
+      "Fixed: ask for a track's tempo, key or loudness by name; the assistant used to ask you for a file path.",
+      "Fixed: Plan first works with Ollama, Groq and Gemini, and after the first edit of a conversation. Before, the edit ran unapproved.",
+      "Fixed: a failed request stops showing “Thinking”, errors name the failing provider, and a rejected key offers Open Settings instead of raw JSON.",
+      "Fixed: a tool call with no arguments ended the turn with an error.",
+      "Fixed: the window froze during a long edit.",
+      "Fixed: after an edit, the clip and status bar showed a 64-character hash. Edited audio is named after its track.",
+      "Changed: history stays under 2 GiB. Audio only older versions use is removed and rebuilt on demand when you undo to it, preview it or export it.",
+      "Changed: switching between A and B crossfades instead of cutting, and a volume curve the assistant writes draws itself.",
+      "Fixed: undo works with a gain or pan slider focused, and no longer writes the slider's old value back.",
+      "Fixed: opening an unreadable file says which and why, instead of adding an empty track.",
     ],
   },
   {
     version: "v0.2.0",
     date: "2026-09",
+    summary: "Transcript editing, one track per speaker, region descriptions, a shared timeline axis and security hardening.",
     bullets: [
-      "Edit audio by editing its transcript. The transcript pane shows the words with their times; cut a word from the text and the audio goes with it. It needs a transcript, and the on-device transcription that makes one has not shipped yet — in this release the transcript pane stays empty.",
-      "Split an interview into one track per speaker. Each voice gets its own gain, EQ and noise treatment, and because every speaker's clips point at the same source file, playing them together is sample-identical to the original.",
-      "Describe a region instead of dragging it: \"select where he talks about latency\", \"the last thirty seconds of speech\", \"bars 9 to 16\". The selection appears for you to check before anything acts on it, and a description that cannot be resolved says so rather than guessing. Phrases and speech need a transcript, so for now only bar ranges resolve.",
-      "Timer record starts and stops a recording unattended, and punch-in replaces a selected region with a new take while leaving the rest untouched.",
-      "Every row of the timeline shares one time axis. A shorter track, or a clip moved along the timeline, now sits under the ruler where it plays — each lane used to stretch its own audio across the pane. Zoomed in, the selection, the playhead and a drag follow what is on screen, and one scrollbar (or a horizontal swipe) pans every track, the clips, the automation and the labels together.",
-      "A label lane you type into. Chapter marks are added, renamed, moved and deleted next to the audio, survive edits that shift time, and round-trip through label export.",
-      "Opening a file loads it straight into the session. It used to be sent to the agent as a sentence, so with no model set up yet the waveform appeared and every edit afterwards failed.",
-      "A returning user opens into their project where they left it — zoom, selection and playhead — instead of the empty state, and an edit made in the last moment before quitting is no longer undone by the saved view.",
-      "Undo and redo work on macOS, and redo works at all. Labels, template applications and batch loads now move the session head they create, so undo undoes them rather than the edit before.",
-      "Destructive edits keep every clip's volume automation, labels and the transcript move with cuts, silences, speed changes and stretches, and a whole track shifts together instead of clamping clip by clip.",
-      "Audio fixes: the resampler's latency is compensated, the leveler applies its gain continuously rather than per block, a clip's frames are read at its own sample rate, and the effect chain is built per track so it no longer restarts at every clip.",
-      "A drawn track made of several clips is written by streaming its sources a chunk at a time, instead of decoding a whole recording into memory — over a gigabyte for an hour of stereo audio.",
-      "Derived audio that no version of the project refers to any more is removed when the project opens. Audio that undo history still needs is kept.",
-      "Security: the app ships a Content Security Policy, the webview can read only the project's own audio rather than any file on disk, and the capability whitelist is enforced when a tool runs, not only in the list the model sees.",
-      "The typefaces are bundled with the app, so it no longer contacts Google Fonts on launch.",
-      "Auditions play instead of printing a file path, the spectrogram toggle draws a spectrogram, an undecodable file says so, and A/B comparison keeps the playhead when you switch sides.",
-      "Project metadata — title, artist, album and more — carries through to the tags on exported MP3 and FLAC files.",
+      "New: edit audio by editing its transcript; cut a word and the audio goes with it. On-device transcription had not shipped, so in this release the pane stays empty.",
+      "New: split an interview into one track per speaker, each with its own gain, EQ and noise treatment. Played together they are sample-identical to the original.",
+      "New: describe a region (“select where he talks about latency”, “the last thirty seconds of speech”, “bars 9 to 16”).",
+      "You check the selection before anything acts; an unresolvable description says so. Phrases and speech need a transcript, so only bar ranges resolve for now.",
+      "New: timer record runs a recording unattended; punch-in replaces a selected region with a new take.",
+      "Fixed: every timeline row shares one time axis, so a shorter track or moved clip sits where it plays. Zoomed in, the selection, playhead and drag follow the screen, and one scrollbar or swipe pans everything.",
+      "New: a label lane you type into. Chapter marks are added, renamed, moved and deleted beside the audio, survive time-shifting edits and round-trip through label export.",
+      "Fixed: opening a file loads it straight into the session. It was sent to the agent as a sentence, so with no model set up every edit failed.",
+      "Changed: a returning user opens into their project where they left it (zoom, selection, playhead). An edit made just before quitting is no longer undone by the saved view.",
+      "Fixed: undo and redo work on macOS, and redo works at all. Labels, template applications and batch loads are undone as themselves.",
+      "Fixed: destructive edits keep every clip's volume automation. Labels and the transcript move with cuts, silences, speed changes and stretches, and a whole track shifts together.",
+      "Fixed: resampler latency compensated, leveler gain applied continuously, a clip's frames read at its own sample rate, effect chain built per track so it no longer restarts at every clip.",
+      "Fixed: a drawn track of several clips streams its sources instead of decoding a whole recording into memory (over a gigabyte for an hour of stereo).",
+      "Changed: derived audio no version refers to is removed when the project opens; audio undo history needs is kept.",
+      "Security: the app ships a Content Security Policy, the webview reads only the project's own audio rather than any file on disk, and the capability whitelist is enforced when a tool runs.",
+      "Changed: typefaces are bundled, so the app no longer contacts Google Fonts on launch.",
+      "Fixed: auditions play instead of printing a file path, the spectrogram toggle draws a spectrogram, an undecodable file says so, and A/B comparison keeps the playhead when you switch sides.",
+      "New: project metadata (title, artist, album and more) carries into the tags of exported MP3 and FLAC files.",
     ],
   },
   {
     version: "v0.1.0",
     date: "2026-08",
+    summary: "Effect chains, mixer controls, bus routing, MP3 and FLAC export, and vocoder and time-stretch fixes.",
     bullets: [
-      "Per-track effect chains. Track.effects round-tripped through save/load since Phase 1 and the render path refused the moment anything populated it, so a field in the model was unreachable in practice. Chains now reach the audio, with five tools to operate them — and because the processors are built once per render rather than per chunk, there is no click at the second boundary.",
-      "Phase locking in the vocoder. Every bin's phase advanced independently, so bins belonging to one partial stopped agreeing and the partial alternately reinforced and cancelled itself. On a steady 2 kHz tone stretched 2x that was an envelope swinging 2.09x — 6 dB of warble on a flat input. Identity phase locking brings the same measurement to 1.003x.",
-      "A stretched feature now lands where the ratio says. time_stretch put everything up to 41 ms off its mark, and the error was exactly zero at ratio 1, which is why every existing test missed it: the lead-in trim named the frame holding sample 0 at its left edge, where the analysis window weight is zero, rather than the frame holding it at its centre.",
-      "storage_report. Every destructive edit writes a content-addressed WAV and none are ever deleted, so a long session grows without bound. The report splits the cost three ways — what the current version needs, what only undo is holding, and what nothing references — because collapsing them into one number is what would make a sweep look safe when it is not.",
-      "Nodes record how they were made. A node carried a human label and the transform was an anonymous closure, so nothing could replay an edit. tool, parameters and engine version are now recorded — by the dispatcher, so all 81 tools are covered by one code path — which is the prerequisite for treating derived audio as a cache rather than as data.",
-      "A real logo. Every icon in the repo was still the stock Tauri mark while the brand colour had been violet since the site was written.",
-      "Point any provider anywhere. A base URL field per provider, so a local server on another port, a gateway or a proxy all work — LM Studio, llama.cpp and vLLM included. The model catalogue follows the same endpoint the agent uses, because listing one server's models while chat talks to another is worse than not listing.",
-      "Mixer controls. Gain, pan, mute and solo are editable per track without asking the agent — none of them had a command before, so every mixing decision went through a sentence and a model round trip. Pan in particular had a balance law in the render engine and nothing in the product able to reach it.",
-      "Volume automation is visible and editable. The curve, its persistence and the render integration all existed; there was no way to see or touch it. Draw points on the lane, drag them, nudge with arrows — one gesture is one undoable step, not one per pixel.",
-      "Clip timeline. A track split by an interior cut used to render as one continuous lane, so the seam was invisible. Clips now appear as chips you can select, move and delete, with move_clip and remove_clip available to the agent too.",
-      "align_to_beat warps audio. It recorded a beat grid that nothing read and reported success while changing nothing — the last tool in the repo doing that. It now stretches each inter-beat segment by its own ratio in a single vocoder pass, so there is no seam at the beats.",
-      "Formant preservation. preserve_formants was a documented, accepted, ignored flag on two tools. Shifted voices now keep the resonances of the vocal tract where they were instead of travelling with the pitch.",
-      "MP3 export, on a pure-Rust encoder — no LAME, no C dependency, no licence interaction. Bitrate is settable and defaults to 192 kbps CBR.",
-      "normalize_loudness targets LUFS rather than a peak. Two files peak-normalised to the same value can differ by 10 LUFS, so peak normalisation cannot answer 'make this as loud as everything else'. Gain is capped at a true-peak ceiling and the shortfall is reported when the cap bites.",
-      "Bus routing. Sends, per-bus effect chains, and the tools to reach them, so one reverb can serve several tracks.",
-      "FLAC export — lossless, about half the size of WAV, sample-identical to the WAV of the same render.",
-      "A time-stretch bug that could produce a full-scale output. A steady 2 kHz sine stretched 2x came back peaking at 740x the input: the overlap-add divided phase-rewritten frames by a window energy that ramps to zero at the edges. Fixed, with tests asserting that stretching redistributes energy in time and never creates any.",
-      "A timing drift in every long stretch. Rounding each synthesis hop to an integer accumulated — measured on a 120-to-100 BPM warp, that put the fifth beat 10.5 ms early. Positions are now accumulated in floating point and rounded once.",
-      "Ollama joins Anthropic, OpenAI, Gemini, Groq and OpenRouter — six providers, and the local one needs no key at all.",
+      "New: per-track effect chains reach the audio, with five tools to operate them and no click at chunk boundaries.",
+      "Fixed: vocoder phase locking. A steady 2 kHz tone stretched 2x swung 2.09x in level (6 dB of warble); it now measures 1.003x.",
+      "Fixed: time_stretch put features up to 41 ms off their mark.",
+      "Fixed: a time-stretch bug could produce full-scale output (a 2 kHz sine stretched 2x peaked at 740x the input). Stretching never creates energy now.",
+      "Fixed: timing drift in long stretches. On a 120-to-100 BPM warp the fifth beat came 10.5 ms early.",
+      "New: storage_report splits disk use three ways: what the current version needs, what only undo holds, and what nothing references.",
+      "Changed: every history node records the tool, parameters and engine version that made it, across all 81 tools.",
+      "Changed: a real logo replaces the stock Tauri icons.",
+      "New: a base URL field per provider, for a local server on another port, a gateway or a proxy (LM Studio, llama.cpp and vLLM included). The model list follows the endpoint chat uses.",
+      "New: gain, pan, mute and solo are editable per track without asking the agent.",
+      "New: volume automation is visible and editable: draw points on the lane, drag them, nudge with arrows. One gesture is one undo step.",
+      "New: clips appear as chips you can select, move and delete, with move_clip and remove_clip for the agent too. A track split by an interior cut no longer looks continuous.",
+      "Fixed: align_to_beat recorded a beat grid and changed nothing. It now stretches each inter-beat segment by its own ratio in one vocoder pass, with no seam.",
+      "Fixed: preserve_formants was accepted and ignored on two tools. Shifted voices now keep their vocal-tract resonances.",
+      "New: MP3 export on a pure-Rust encoder (no LAME, no C dependency); bitrate settable, default 192 kbps CBR.",
+      "New: normalize_loudness targets LUFS, not peak (two peak-normalised files can differ by 10 LUFS). Gain is capped at a true-peak ceiling and the shortfall reported.",
+      "New: bus routing: sends, per-bus effect chains and tools to reach them, so one reverb can serve several tracks.",
+      "New: FLAC export, lossless, about half the size of WAV and sample-identical to it.",
+      "New: Ollama joins Anthropic, OpenAI, Gemini, Groq and OpenRouter: six providers, and the local one needs no key.",
     ],
   },
   {
     version: "v0.1.0-dev (earlier)",
     date: "2026-08",
+    summary: "69 built-in tools, MCP, skills, profiles, memory and recording, with many audio fixes.",
     bullets: [
-      "Audio fidelity: five tools — fade, reverse, insert_silence, copy_region and paste_region — converted seconds straight into a sample index with no interleave stride. On a stereo track that halved every span, and an odd sample count swapped left and right for the rest of the track. All five now count in frames.",
-      "stereo_to_mono and mono_to_stereo wrote the source's channel count into the WAV header rather than the converted buffer's, so the result played at double speed an octave high, or half speed an octave low. The conversion maths was right all along; only the write-back was wrong.",
-      "Filters no longer diverge above Nyquist. low_pass_filter(cutoff_hz: 30000) on a 44.1 kHz track put the biquad poles outside the unit circle and the render saturated into a full-scale square wave. Frequencies are now held just below Nyquist across every filter and every EQ band.",
-      "Seven tools panicked outright on a reversed time range (end before start) instead of returning an error.",
-      "Renders no longer drop everything after an interior cut. A track is a list of clips and the render graph only ever read the first one, so cutting ten thousand frames out of the middle of a one-second track rendered 12 000 frames instead of 38 000. Clips now mix the way tracks do, with gaps as silence.",
-      "Destructive edits cover every clip of a split track. A reverb applied after an interior cut used to treat the first half and leave the second half dry, with a hard seam at the join.",
-      "Cutting or splitting a clip keeps its volume automation. split_clip copied the curve across without re-basing it, so a fade-out restarted at full volume after the split; cut_range discarded the curve entirely.",
-      "Extensibility: MCP servers now start automatically at launch, so a registered server contributes its tools without a manual restart. Requests are deadline-bounded and server stderr is surfaced in error messages.",
-      "Agent profiles that pin a model on another provider now authenticate against that provider instead of reusing the active provider's key.",
-      "MCP server editor: the args, env, and headers fields accept multi-line input correctly.",
-      "Plugins: install skills and agent profiles from a GitHub repo (github:org/repo) or a local path.",
-      "Eight audio skills ship pre-installed — podcast cleanup, vocal chain, loudness mastering, noise reduction, dialog enhancement, music mixing, silence cleanup, and an export guide.",
-      "Agent profiles: save a model override, a tool whitelist, and a system-prompt addition, then switch between them.",
-      "Skills: markdown files with always/keyword/regex triggers, editable in Settings.",
-      "Memory: global and per-project notes spliced into the system prompt.",
-      "Microphone recording via CPAL, captured straight to WAV.",
-      "Spectrogram view toggle in the timeline.",
-      "Plan steps can be edited inline before you approve them.",
-      "Individual tools can be disabled from the capabilities menu.",
-      "69 built-in audio tools, including reverb, echo, noise gate, limiter, de-esser, tone and noise generators, Audacity-format label import/export, and per-track export.",
-      "OpenAI provider added alongside Anthropic and OpenRouter; model picker is catalogue-backed.",
-      "Per-provider keychain slots; legacy unsuffixed Anthropic key still read for back-compat.",
+      "Fixed: fade, reverse, insert_silence, copy_region and paste_region ignored the interleave stride: on stereo every span halved, and an odd sample count swapped left and right. They count in frames now.",
+      "Fixed: stereo_to_mono and mono_to_stereo wrote the wrong channel count into the WAV header, so results played at double speed an octave high, or half speed an octave low.",
+      "Fixed: low_pass_filter(cutoff_hz: 30000) on a 44.1 kHz track saturated into a full-scale square wave. Frequencies are now held just below Nyquist in every filter and EQ band.",
+      "Fixed: seven tools panicked on a reversed time range (end before start) instead of returning an error.",
+      "Fixed: renders dropped everything after an interior cut (cutting 10,000 frames from a one-second track rendered 12,000 frames instead of 38,000). Clips mix like tracks, gaps as silence.",
+      "Fixed: destructive edits cover every clip of a split track; a reverb after an interior cut used to leave the second half dry.",
+      "Fixed: split_clip did not re-base a clip's volume automation (a fade-out restarted at full volume) and cut_range discarded it. Both keep it now.",
+      "New: MCP servers start automatically at launch and contribute their tools without a restart. Requests have deadlines and server stderr appears in errors.",
+      "Fixed: agent profiles that pin a model on another provider use that provider's key, not the active provider's.",
+      "Fixed: the MCP server editor's args, env and headers fields accept multi-line input.",
+      "New: install skills and agent profiles from a GitHub repo (github:org/repo) or a local path.",
+      "New: eight audio skills ship pre-installed: podcast cleanup, vocal chain, loudness mastering, noise reduction, dialog enhancement, music mixing, silence cleanup and an export guide.",
+      "New: agent profiles save a model override, a tool whitelist and a system-prompt addition.",
+      "New: skills are markdown files with always, keyword or regex triggers, editable in Settings.",
+      "New: global and per-project memory notes are spliced into the system prompt.",
+      "New: microphone recording, captured straight to WAV.",
+      "New: a spectrogram toggle in the timeline.",
+      "New: plan steps can be edited inline before you approve them.",
+      "New: individual tools can be disabled from the capabilities menu.",
+      "New: 69 built-in audio tools, including reverb, echo, noise gate, limiter, de-esser, tone and noise generators, Audacity-format label import/export and per-track export.",
+      "New: OpenAI joins Anthropic and OpenRouter, with a catalogue-backed model picker.",
+      "Changed: per-provider keychain slots; a legacy unsuffixed Anthropic key is still read.",
     ],
   },
 ];
 
+/** The newest releases are shown in full; older ones start collapsed. */
+const OPEN_RELEASES = 3;
+
+function Bullets({ items }: { items: string[] }) {
+  return (
+    <ul>
+      {items.map((b, i) => (
+        <li key={i}>{b}</li>
+      ))}
+    </ul>
+  );
+}
+
 export default function ChangelogPage() {
+  const recent = entries.slice(0, OPEN_RELEASES);
+  const older = entries.slice(OPEN_RELEASES);
   return (
     <LegalShell title="Changelog" path="/changelog">
       <p>
-        Recent landed work. The authoritative list of binaries and tags lives
-        on{" "}
+        Newest first. Installers and tags are on{" "}
         <a href="https://github.com/laadtushar/edytlab/releases">
           GitHub Releases
         </a>
         .
       </p>
-      {/* Flat — heading, list, heading, list — so the shell's cascade
-          reveals each bullet as it arrives instead of a whole release
-          at once. */}
-      {entries.map((e) => (
+      {/* Flat — heading, summary, list — so the shell's cascade reveals
+          each part as it arrives instead of a whole release at once. */}
+      {recent.map((e) => (
         <Fragment key={e.version}>
           <h2>
             {e.version}
@@ -273,12 +343,24 @@ export default function ChangelogPage() {
               {e.date}
             </span>
           </h2>
-          <ul>
-            {e.bullets.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
-          </ul>
+          <p>{e.summary}</p>
+          <Bullets items={e.bullets} />
         </Fragment>
+      ))}
+      <h2>Older releases</h2>
+      {older.map((e) => (
+        <details key={e.version} className="mt-3 rounded-lg border border-border/50 px-4 py-2">
+          <summary className="cursor-pointer font-semibold">
+            {e.version}
+            <span className="ml-3 text-sm font-normal text-muted-foreground">
+              {e.date}
+            </span>
+            <span className="ml-3 text-sm font-normal text-muted-foreground">
+              {e.summary}
+            </span>
+          </summary>
+          <Bullets items={e.bullets} />
+        </details>
       ))}
     </LegalShell>
   );

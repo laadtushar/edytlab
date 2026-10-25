@@ -24,25 +24,21 @@ export default function PrivacyPage() {
   return (
     <LegalShell title="Privacy" path="/privacy" updated="2026-10-25">
       <p>
-        edytlab is a local-first desktop application. This page describes what
-        data the app handles and how it handles it, and what the website you
-        are reading records about its visitors. The app is intentionally
-        simple: it has no server of ours behind it, it sends no telemetry, and
-        we do not handle your audio. The website is separate from the app and
-        does use analytics, described under &ldquo;Telemetry and
-        analytics&rdquo; below.
+        edytlab is a local-first desktop application. It has no server of ours
+        behind it, it sends no telemetry, and we do not handle your audio. The
+        website is separate from the app and does use analytics, described
+        under &ldquo;Telemetry and analytics&rdquo; below.
       </p>
 
       <h2>Audio files</h2>
       <p>
         Every audio file you load is decoded, processed, and rendered on your
-        machine. Editing, mixing, and rendering all run locally in the desktop
-        app, and so does transcription, once you have downloaded the speech
-        model (v0.8.0 and later); it sends no audio anywhere. Stem separation
-        has not shipped; it is built to run locally too once it does. We do
-        not upload, copy, mirror, or
-        otherwise transmit your audio. There are no &ldquo;cloud projects&rdquo;
-        and there is no server-side processing.
+        machine. Editing, mixing, and rendering run locally, and so does
+        transcription, once you have downloaded the speech model (v0.8.0 and
+        later); it sends no audio anywhere. Stem separation has not shipped; it
+        is built to run locally too once it does. We do not upload, copy,
+        mirror, or otherwise transmit your audio. There are no &ldquo;cloud
+        projects&rdquo; and there is no server-side processing.
       </p>
 
       <h2>LLM API keys</h2>
@@ -50,11 +46,13 @@ export default function PrivacyPage() {
         edytlab supports six API providers (Anthropic, OpenAI, Google Gemini, Groq, and OpenRouter,
         plus Ollama for a local model, which needs no key) and, from v0.9.0, your ChatGPT plan,
         which has no API key (see &ldquo;Signing in with ChatGPT&rdquo; below).
-        When you add an API key, it is stored in your operating system&apos;s
-        secure credential store: macOS Keychain on Mac, Credential Manager on
-        Windows, and the Secret Service (GNOME Keyring, KWallet or KeePassXC) on Linux; on a Linux
-        desktop with no Secret Service running, keys are held in the kernel keyring until you restart your computer, and
-        the app tells you so, at launch and again at Save if the service went away after the app started. Keys are never written to plain-text files and never sent
+        An API key you add is stored in your operating system&apos;s secure
+        credential store: macOS Keychain, Credential Manager on Windows, or the
+        Secret Service (GNOME Keyring, KWallet or KeePassXC) on Linux. On a
+        Linux desktop with no Secret Service running, keys are held in the
+        kernel keyring until you restart your computer, and the app tells you
+        so, at launch and again at Save if the service went away after the app
+        started. Keys are never written to plain-text files and never sent
         anywhere except directly to the provider whose key it is.
       </p>
 
@@ -63,23 +61,20 @@ export default function PrivacyPage() {
         During normal use, the app&apos;s outbound network traffic goes to the
         LLM provider you have selected. Chat requests contain your
         prompt text, agent context, and tool-call results — never your raw
-        audio. A tool-call result can carry text taken from your audio: after
-        you ask for a transcript, the words the speech model found go to the
-        provider as text, a bounded amount for each call, and with Ollama they
-        stay on your computer (see &ldquo;Transcripts&rdquo; below). When you
-        open Settings, the app also asks the provider shown
-        there for its list of models; that request carries your API key (the
-        saved one, or one you have typed) but no prompt and no audio, and for
-        Ollama it goes to the address you gave it. With the ChatGPT plan the
+        audio. A tool-call result can carry text taken from your audio, the
+        words of a transcript (see &ldquo;Transcripts&rdquo; below). When you
+        open Settings, the app also asks the provider shown there for its list
+        of models; that request carries your API key (the saved one, or one you
+        have typed) but no prompt and no audio, and for Ollama it goes to the
+        address you gave it. With the ChatGPT plan the
         provider is OpenAI, the requests carry your ChatGPT access token in
         place of a key, and signing in, staying signed in and signing out also
         contact <code>auth.openai.com</code> (see &ldquo;Signing in with
-        ChatGPT&rdquo; below). Beyond that, the app connects only
-        where you tell it to: a plugin you install from a URL is downloaded
-        from that URL, an MCP server you add is contacted at the address
-        you gave it, and, from v0.8.0, the speech model is
-        downloaded from Hugging Face when you click Download (below). You can inspect the full set of requests in
-        your OS network tools at any time.
+        ChatGPT&rdquo; below). Beyond that, the app connects only where you tell
+        it to: a plugin you install from a URL is downloaded from that URL, an
+        MCP server you add is contacted at the address you gave it, and, from
+        v0.8.0, the speech model is downloaded from Hugging Face when you click
+        Download (below). Your OS network tools show every request.
       </p>
       <p>
         <strong>The speech model download</strong> (in v0.8.0 and later;
@@ -109,19 +104,17 @@ export default function PrivacyPage() {
         nothing back to us about the download, and we run no server that sees
         it. Hugging Face handles the requests under{" "}
         <a href="https://huggingface.co/privacy">its own privacy policy</a>.
-        Using the model is a separate step from downloading it: transcribing
-        makes no network request of its own, and the model is only read from
-        your computer.
+        Transcribing makes no network request of its own; the model is only
+        read from your computer.
       </p>
       <p>
         <strong>Transcripts.</strong> Transcription runs on your computer with
         the model you downloaded, and your audio is not sent anywhere. But the
-        assistant needs the words to work with them, so the words the model
-        finds come back to it as a tool result, like the result of any other
-        tool, and go to the AI provider you chose in the chat. That is text,
-        never audio, and it is bounded for each call: the words come
-        back one by one with their times when they fit, and as
-        sentence-length segments when they do not. With Ollama the chat stays on your computer, so the words do
+        words the model finds come back to the assistant as a tool result, like
+        any other tool&apos;s, and go to the AI provider you chose in the chat.
+        That is text, never audio, bounded for each call: word by word with
+        their times when they fit, and as sentence-length segments when they
+        do not. With Ollama the chat stays on your computer, so the words do
         too. If you do not want what was said in a recording to reach a hosted
         provider, do not ask the assistant to transcribe it, or use Ollama.
       </p>
@@ -136,9 +129,8 @@ export default function PrivacyPage() {
         for open-source apps, which OpenAI documents as a preview. v0.8.1 and
         earlier have no ChatGPT sign-in and make none of the requests below.
         Until you click Continue with ChatGPT, v0.9.0 makes none of them
-        either. edytlab has no server of its own in any of this: every
-        request goes from your computer to OpenAI, and nothing is reported to
-        us.
+        either. Every request goes from your computer to OpenAI, and nothing
+        is reported to us.
       </p>
       <p>
         <strong>Signing in.</strong> Continue with ChatGPT opens your default

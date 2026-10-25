@@ -14,6 +14,25 @@ export const metadata: Metadata = {
   ...pageSocial("/docs/api-reference", `${title} · edytlab`, description),
 };
 
+// Below the sm breakpoint a row is a block (CSS only, the markup stays one
+// table): the name as a monospace heading, what it returns under it, then the
+// description as a paragraph. From sm up this is the ordinary table.
+const stackedBase =
+  [
+    "max-sm:!block max-sm:!overflow-visible",
+    "max-sm:[&_thead]:hidden max-sm:[&_tbody]:block max-sm:[&_tr]:block",
+    "max-sm:[&_tr]:border-b max-sm:[&_tr]:border-border/50 max-sm:[&_tr]:py-3",
+    "max-sm:[&_td]:block max-sm:[&_td]:border-0 max-sm:[&_td]:px-0 max-sm:[&_td]:py-0.5",
+    "max-sm:[&_td:first-child]:text-base max-sm:[&_td:first-child]:font-semibold",
+    "max-sm:[&_td:first-child_code]:break-words max-sm:[&_td:first-child_code]:bg-transparent max-sm:[&_td:first-child_code]:p-0 max-sm:[&_td:first-child_code]:font-mono",
+    "max-sm:[&_td:nth-child(2)]:text-muted-foreground",
+    "max-sm:[&_td:nth-child(2)_code]:break-words",
+    "max-sm:[&_td:nth-child(3)]:mt-1 max-sm:[&_td:nth-child(3)]:leading-6",
+  ].join(" ");
+// The label before the second cell. Whole class names, so Tailwind sees them.
+const stackedCommands = `${stackedBase} max-sm:[&_td:nth-child(2)]:before:content-['Returns_']`;
+const stackedEvents = `${stackedBase} max-sm:[&_td:nth-child(2)]:before:content-['Payload_']`;
+
 const commands = [
   {
     group: "Project",
@@ -702,8 +721,7 @@ export default function ApiReferencePage() {
       description="All Tauri commands, TypeScript bridge types, and events."
     >
       <blockquote>
-        This page covers the public API consumed by the edytlab frontend. For
-        the full Rust implementation, see{" "}
+        The public API the frontend uses. The Rust implementation is in{" "}
         <a
           href={`${siteConfig.github}/blob/main/apps/desktop/src-tauri/src/commands.rs`}
           target="_blank"
@@ -719,7 +737,7 @@ export default function ApiReferencePage() {
         >
           tauri-bridge.ts
         </a>
-        . The complete reference is in{" "}
+        . The complete reference is{" "}
         <a
           href={`${siteConfig.github}/blob/main/docs/api-reference.md`}
           target="_blank"
@@ -740,7 +758,7 @@ export default function ApiReferencePage() {
       {commands.map((group) => (
         <div key={group.group}>
           <h3>{group.group}</h3>
-          <table>
+          <table className={stackedCommands}>
             <thead>
               <tr>
                 <th>Function</th>
@@ -777,7 +795,7 @@ export default function ApiReferencePage() {
 // cleanup:
 return () => { unlisten(); };`}</code>
       </pre>
-      <table>
+      <table className={stackedEvents}>
         <thead>
           <tr>
             <th>Event</th>

@@ -22,35 +22,35 @@ const cards = [
     href: "/docs/getting-started",
     icon: Zap,
     title: "Getting Started",
-    desc: "Install edytlab, set up your API key, and load your first audio file in under 5 minutes.",
+    desc: "Install edytlab, set up your API key, and load your first audio file.",
     audience: "User",
   },
   {
     href: "/docs/user-guide",
     icon: BookOpen,
     title: "User Guide",
-    desc: "Sessions, the DAG, tracks, chat interface, markers, A/B compare, export, memory, and skills.",
+    desc: "Sessions, tracks, chat, markers, A/B compare, export, memory and skills.",
     audience: "User",
   },
   {
     href: "/docs/tools",
     icon: Wrench,
     title: "Audio Tools Reference",
-    desc: "All 94 tools the agent can call — cut, normalize, time-stretch, render, and more.",
+    desc: "All 94 tools the agent can call.",
     audience: "User",
   },
   {
     href: "/docs/developer-guide",
     icon: Terminal,
     title: "Developer Guide",
-    desc: "Build from source, run tests, understand the architecture, and contribute new tools or providers.",
+    desc: "Build from source, run tests, add tools or providers.",
     audience: "Developer",
   },
   {
     href: "/docs/api-reference",
     icon: FileCode2,
     title: "API Reference",
-    desc: "Every Tauri command, TypeScript bridge type, and event — complete with signatures and examples.",
+    desc: "Every Tauri command, bridge type and event.",
     audience: "Developer",
   },
 ];
@@ -59,7 +59,7 @@ export default function DocsPage() {
   return (
     <DocShell
       title="Documentation"
-      description="Everything you need to use edytlab and build on top of it."
+      description="Use edytlab and build on it."
     >
       <div className="not-prose mt-8 grid gap-4 sm:grid-cols-2" data-cascade-items>
         {cards.map((card) => (
@@ -92,24 +92,23 @@ export default function DocsPage() {
       <h2>About edytlab</h2>
       <p>
         edytlab is a local-first, open-source desktop audio editor where you
-        chat with an AI agent to load, cut, mix, and render audio.
-        The DSP engine runs entirely on your machine — your audio never leaves
-        your device. The app&apos;s network traffic is the text you send to
-        your chosen LLM provider, plus the requests you start yourself: a
-        plugin you install from a URL, an MCP server you add and, from
-        v0.8.0, the speech model you download from Hugging Face
-        by clicking Download in Settings and, from v0.9.0, the sign-in to
-        OpenAI when you choose Continue with ChatGPT.
+        chat with an AI agent to load, cut, mix, and render audio. The DSP
+        engine runs on your machine and your audio never leaves it. The app
+        sends the text you write to your chosen LLM provider, plus requests
+        you start yourself: a plugin you install from a URL, an MCP server you
+        add, the speech model you download from Hugging Face (from v0.8.0) and
+        the sign-in to OpenAI when you choose Continue with ChatGPT (from
+        v0.9.0). See <a href="/privacy">privacy</a>.
       </p>
       <p>
-        edytlab supports six API providers plus your ChatGPT plan out of the
-        box: <strong>Anthropic</strong>, <strong>OpenAI</strong>,{" "}
+        edytlab supports six API providers plus your ChatGPT plan:{" "}
+        <strong>Anthropic</strong>, <strong>OpenAI</strong>,{" "}
         <strong>Google Gemini</strong>, <strong>Groq</strong>,{" "}
         <strong>OpenRouter</strong>, and <strong>Ollama</strong> for a local
-        model. You bring your own API key, stored in your OS keychain — Ollama
-        needs none — or, from v0.9.0, sign in with ChatGPT to use your Plus or
-        Pro plan instead of a key (a preview). You can switch providers at any
-        time from Settings without reinstalling.
+        model. You bring your own API key, stored in your OS keychain (Ollama
+        needs none), or, from v0.9.0, sign in with ChatGPT to use your Plus or
+        Pro plan instead of a key (a preview). Switch providers any time in
+        Settings.
       </p>
 
       <h2>Platform support</h2>
@@ -142,9 +141,8 @@ export default function DocsPage() {
 
       <h2>License and source</h2>
       <p>
-        edytlab is open source.{" "}
         <a href={siteConfig.github} target="_blank" rel="noopener noreferrer">
-          View the source on GitHub
+          The source is on GitHub
         </a>
         , released under the{" "}
         <a
