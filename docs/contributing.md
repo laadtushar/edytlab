@@ -44,7 +44,7 @@ For any change larger than a bug fix, **open an issue first** to discuss the app
 A good bug report includes:
 
 ```markdown
-**edytlab version:** v0.9.0
+**edytlab version:** v0.9.1
 **OS:** macOS 14.3 (arm64)
 **Provider:** Anthropic / claude-sonnet-5-5
 
@@ -387,7 +387,7 @@ See [architecture.md §14](./architecture.md#14-extension-points) for the full g
 5. Write unit tests for request serialization and stream parsing
 6. Test with a real API key against the provider's sandbox/test environment
 
-Keychain slots need no code: they are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`).
+Keychain slots need no code: they are keyed by provider id (`<id>_api_key` in the one `secrets` keychain item; `<id>_model`, `<id>_base_url` in `provider-settings.json`).
 
 A provider for small-context (local) models overrides `tool_set()` to return `ToolSet::Slim`, so it is sent a core of tools plus the ones a message names rather than every tool, and the system prompt names the rest so the model knows they exist. Leave it at the default for a hosted provider; Anthropic must stay on the full list for its prompt cache. `cargo test -p ai --test request_size -- --nocapture` prints how big a first request is.
 

@@ -8,7 +8,7 @@ appears, the demo tracks are synthetic loops, no invented numbers.
 **Links:**
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.7.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.7.0> ·
+v0.9.1 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.1> ·
 DJ recordings <https://edytlab.com/use-cases/dj>
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
@@ -273,12 +273,12 @@ What happens in each
 3. A warm-up mix at 124 BPM. Two tracks are time-stretched to 124, keeping their pitch. The agent checks that their beats now line up and sequences them so each comes in about 4 bars before the one before it ends, with a crossfade over each overlap; it brings the last track in on the bar line before it rather than at the exact 4-bar mark. Each track is brought to about -14 LUFS, with a limiter at -1 dBFS on the master, and the mix is exported as a 79-second WAV. (TODO: step timestamps)
 
 How it works
-The model never hears the audio. It chooses and orders calls to 94 deterministic audio tools; the signal processing runs on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI provider you pick (Anthropic, OpenAI, OpenRouter, Groq, Gemini), or stays local with Ollama.
+The model never hears the audio. It chooses and orders calls to 94 deterministic audio tools; the signal processing runs on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI provider you pick (Anthropic, OpenAI, OpenRouter, Groq, Gemini, or your ChatGPT plan, a preview), or stays local with Ollama.
 
 Get it
 Free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch; the release notes have the steps.
 Website and docs: https://edytlab.com
-Download v0.7.0: https://github.com/laadtushar/edytlab/releases/tag/v0.7.0
+Download v0.9.1: https://github.com/laadtushar/edytlab/releases/tag/v0.9.1
 Source: https://github.com/laadtushar/edytlab
 The DJ walkthrough, with the limits: https://edytlab.com/use-cases/dj
 
@@ -293,7 +293,7 @@ edytlab, AI audio editor, beatmatching, DJ prep, extended intro, time stretch, o
 
 ---
 
-## 6. Show HN (refreshed for v0.7.0)
+## 6. Show HN (refreshed for v0.9.1)
 
 Submit <https://edytlab.com>. Post the first comment as soon as it is up and
 stay for several hours. Do not ask anyone to upvote.
@@ -316,7 +316,7 @@ There are three screen recordings of DJ jobs on the site (2:45, 1:55 and 1:58, w
 - A test script types the requests into the real app. The agent's replies and edits are live, with Claude as the model, and I only publish runs that passed my checks. The model isn't deterministic, so yours will differ.
 - The agent flags its own edge cases in them: bars that run a beat behind where it was told to start a track, an export peaking right at full scale, a loudness reading that counted the fades. I left those in on purpose.
 
-Where things run. Decode, DSP, mixing and export run in-process in Rust. Audio files are never uploaded. The chat (your prompts, the context and the tool results) goes to the provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama, which needs no key and keeps the chat on your machine. Settings also asks that provider for its model list, with your key and no prompt or audio. The desktop app has no telemetry.
+Where things run. Decode, DSP, mixing and export run in-process in Rust. Audio files are never uploaded. The chat (your prompts, the context and the tool results) goes to the provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama, which needs no key and keeps the chat on your machine. In a preview you can instead sign in with your ChatGPT plan, and the chat goes to api.openai.com on that sign-in. Settings also asks that provider for its model list, with your key or sign-in and no prompt or audio. The desktop app has no telemetry.
 
 How it's built:
 
@@ -345,7 +345,7 @@ Feedback I'd like:
 2. If you run local models: which ones can drive a tool list this size without losing the thread?
 3. If you do DSP: the vocoder and the limiter are where I expect the most justified criticism.
 
-Download v0.7.0 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.7.0
+Download v0.9.1 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.9.1
 Source: https://github.com/laadtushar/edytlab
 ```
 
@@ -355,8 +355,8 @@ Answers to have ready:
 |---|---|
 | Why not script ffmpeg or sox? | For a fixed pipeline you should. This is for edits you would otherwise do by ear and by hand, with an audible A/B at each step and a history of what you tried. |
 | Does the LLM hear the audio? | No. It gets the session state and tool results such as BPM, key, beat grid and loudness from `analyze_track`. |
-| What does it cost? | The app is free. A hosted provider charges you per token under your own key; Ollama is free. Don't quote a per-edit price; none was measured. |
-| Is the audio really never uploaded? | There is no server of mine in the loop. The traffic is the chat to your chosen provider, plus the request Settings makes to it for its model list (your key, no prompt or audio). You can check it with your OS network tools. |
+| What does it cost? | The app is free. A hosted provider charges you per token under your own key; Ollama is free; with a ChatGPT Plus or Pro plan (a preview, v0.9.0 and later) the usage comes out of the plan instead. Don't quote a per-edit price; none was measured. |
+| Is the audio really never uploaded? | There is no server of mine in the loop. The traffic is the chat to your chosen provider, plus the request Settings makes to it for its model list (your key or sign-in, no prompt or audio). You can check it with your OS network tools. |
 | Why Tauri and not Electron? | The back end is Rust, so the UI process and the DSP crates share one workspace. Don't claim size or speed numbers; none were measured. |
 | Is there a web version? | No. A browser-based version is being evaluated in #389 and is undecided. |
 | 94 tools is a lot for a model. | It is. For Ollama, the app sends a core set of about 15 plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them; Anthropic's prompt cache needs a fixed list. Agent profiles and a capabilities blacklist can narrow the list, and plan first keeps a human in the loop. |
@@ -369,25 +369,25 @@ Answers to have ready:
 
 Subject options:
 
-1. `edytlab v0.7.0: controls that stay put, a History graph that keeps up, and skills that update`
+1. `edytlab v0.9.1: sign in with your ChatGPT plan (a preview), and transcription from v0.8.0`
 2. `Three DJ jobs, done by chatting with an AI audio agent`
 
 Body:
 
 ```
-edytlab v0.7.0 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
+edytlab v0.9.1 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
 
-This one is mostly about things staying where you put them. A gain or pan slider, mute or solo is no longer put back, or lost, when an earlier change's read-back arrives late. The History graph now redraws on every head move, when the assistant's turn ends and after a compaction. The mix the window plays is held in the preview cache, and a lost one is rendered again once.
+The new thing is a preview: Sign in with ChatGPT (new in v0.9.0; in v0.9.0 its first message after signing in failed with "Unsupported content type"; v0.9.1 fixes that error, so use v0.9.1 or later). In Settings, choose ChatGPT plan and press Continue with ChatGPT, and the assistant uses your ChatGPT Plus or Pro plan's usage instead of an API key. Your browser opens OpenAI's sign-in page and edytlab never sees your password. If your plan's limit is reached, the chat says so and stops; it does not switch to another provider. It may not be available on workspace plans, which depends on OpenAI and your admin. Your audio stays on your computer; the chat goes to OpenAI, as it does with any provider.
 
-What else changed:
-- The installers carry the ONNX Runtime (1.23.2), and Settings says it is bundled. No model ships with it, nothing is downloaded and no inference runs, so stem separation and transcription are still not available.
-- Bundled skills update in an existing install. One you edited is left alone and the new text goes beside it as <name>.bundled.md; one you deleted is not put back.
-- The assistant can page through the tracks, buses and markers of a big session, the session summary it is sent is capped, and it is told each effect's setting names instead of guessing them.
-- One writer per project folder: a batch run no longer writes into a project you have open, and a project folder replaced while the assistant still works in the old one waits until the turn ends before it opens.
-- Audio the app writes is named by its sample rate and channel count as well as its samples. Projects from earlier versions keep working.
-- The libraries that check secure connections are updated past two published security advisories.
+What else changed since v0.7.0:
+- Transcription (v0.8.0). Ask the assistant to transcribe a track, or cut words in the Transcript tab. It runs on your computer with the Whisper base speech model (about 139 MB), which you download once with the Download button in Settings → Account; nothing downloads by itself. I've checked it on one short synthetic English recording only, so read the words before you cut on them. The words it finds reach your AI provider as text, never the audio.
+- Edits to a track recorded at a different sample rate from the project land in the right place (v0.8.1).
+- Noise reduction no longer clicks at the start and end of a track, and tempo and key are read correctly in more cases (v0.9.0).
+- A render can no longer be written over audio your project reads, and a batch run no longer renders two inputs onto one file (v0.8.0).
 
-If you are on v0.6.0 or older, update before you compact a project or delete the original of a Save As copy: those versions could lose audio.
+Stem separation is still not available.
+
+If you are on v0.7.0 or older, update: a batch run could render onto its own inputs. If you are on v0.6.0 or older, update before you compact a project or delete the original of a Save As copy: those versions could lose audio.
 
 The three DJ demos were recorded with sound in the app's violet look, with the limiter on the master bus: a beatmatched blend, an extended club intro and a three-track mini-mix. The tracks are short synthetic loops, and it's for prepping files, not playing live: https://edytlab.com/#demos
 
@@ -400,7 +400,7 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.7.0 is out (macOS, Windows, Linux). Gain and pan sliders, mute and solo no longer get put back by a late read-back, the History graph keeps up, bundled skills update, and the assistant can page through big sessions. The installers now carry the ONNX Runtime, but no model and no inference yet. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
+edytlab v0.9.1 is out (macOS, Windows, Linux). It fixes Sign in with ChatGPT, a preview new in v0.9.0, whose first message failed in v0.9.0. With it the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, on your computer, once you download the speech model in Settings (checked on one short synthetic English recording only), and edits to a track at a different sample rate land in the right place. Stem separation is still not available. On v0.7.0 or older, update: a batch run could render onto its own inputs. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
 Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 Tell me which edit you'd ask for first.
 ```
@@ -409,14 +409,14 @@ Tell me which edit you'd ask for first.
 
 ## Notes (not part of the posts)
 
-- Release facts (controls not undone by a late read-back, the History graph
-  redrawing on every head move, the mix held in the preview cache, bundled
-  skills updating, paging through large sessions, effect setting names, audio
-  file names, one writer per project folder, the security update, and the
-  ONNX Runtime in the installers with no model and no inference) are from the
-  v0.7.0 entry in `website/app/changelog/page.tsx`. The v0.6.0 and v0.6.1
-  version of this section, which led with the compaction and Save As
-  data-loss fixes, is in git history (`git log -p -- marketing/social-kit/more.md`).
+- Release facts (Sign in with ChatGPT as a preview, transcription and its
+  download, the sample-rate fix, the render-over-source fix, the noise
+  reduction click, and "stem separation is still not available") are from the
+  v0.9.1, v0.9.0, v0.8.1 and v0.8.0 entries in `website/app/changelog/page.tsx`. The
+  v0.7.0 version of this section (controls that stay put, the History graph,
+  bundled skills, the ONNX Runtime in the installers with no model) and the
+  v0.6.0 and v0.6.1 version, which led with the compaction and Save As
+  data-loss fixes, are in git history (`git log -p -- marketing/social-kit/more.md`).
   The "update if you are on v0.6.0 or older" line is the data-loss advice
   that still applies (#589 compaction, fixed in v0.6.0; #612 Save As, fixed in
   v0.6.1). The v0.6.0 notes' "adding a label works on macOS" is still left out
@@ -431,7 +431,7 @@ Tell me which edit you'd ask for first.
   set; those three files name it, and none of them says "no cookies" without
   scoping it to Vercel's pair.
 - The newsletter and Discord text list release changes only, and not all of
-  them (the Discord post names five): the full list is on the changelog page
-  if your audience wants it.
+  them (the Discord post names the headline ones): the full list is on the
+  changelog page if your audience wants it.
 - Where the YouTube chapters come from: durations in `website/lib/demos.ts`.
   Recheck them against the real upload.

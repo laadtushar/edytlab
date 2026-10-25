@@ -392,7 +392,6 @@ impl LlmProvider for ChatGptProvider {
         // `bearer_auth` marks the header sensitive: a debug print of the
         // request or its headers shows no token.
         req.bearer_auth(bearer)
-            .header("content-type", "application/json")
     }
 
     fn endpoint_path(&self) -> &str {

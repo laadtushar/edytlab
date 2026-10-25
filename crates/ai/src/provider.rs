@@ -360,6 +360,12 @@ pub trait LlmProvider: Send + Sync + Debug {
     fn translate_model(&self, model: &str) -> String;
 
     /// Apply authentication + provider-specific headers.
+    ///
+    /// Never `Content-Type`: every body goes out with `.json()`, which sets
+    /// it once, and `RequestBuilder::header` appends, so a second one is sent
+    /// as `application/json, application/json`. Most APIs read past that;
+    /// the ChatGPT plan's route answers 400 "Unsupported content type".
+    /// `every_request_carries_one_content_type` holds it.
     fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder;
 
     /// Endpoint path appended to [`base_url`]. Defaults to Anthropic's
@@ -566,7 +572,6 @@ impl LlmProvider for AnthropicProvider {
     fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
         req.header("x-api-key", api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
     }
 }
 
@@ -601,7 +606,6 @@ impl LlmProvider for OpenRouterProvider {
         req.header("authorization", format!("Bearer {api_key}"))
             .header("HTTP-Referer", "https://edytlab.app")
             .header("X-Title", "edytlab")
-            .header("content-type", "application/json")
     }
 }
 
@@ -764,7 +768,6 @@ impl LlmProvider for OpenAIProvider {
     }
     fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
         req.header("authorization", format!("Bearer {api_key}"))
-            .header("content-type", "application/json")
     }
     fn endpoint_path(&self) -> &str {
         "/v1/chat/completions"
@@ -1172,7 +1175,6 @@ impl LlmProvider for GroqProvider {
     }
     fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
         req.header("authorization", format!("Bearer {api_key}"))
-            .header("content-type", "application/json")
     }
     fn endpoint_path(&self) -> &str {
         "/v1/chat/completions"
@@ -1231,7 +1233,6 @@ impl LlmProvider for GeminiProvider {
     }
     fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
         req.header("authorization", format!("Bearer {api_key}"))
-            .header("content-type", "application/json")
     }
     fn endpoint_path(&self) -> &str {
         "/chat/completions"
@@ -1305,7 +1306,7 @@ impl LlmProvider for OllamaProvider {
         // No Authorization header at all. An empty `Bearer ` is worse
         // than none: it looks like a malformed credential rather than
         // an absent one.
-        req.header("content-type", "application/json")
+        req
     }
     fn credential_kind(&self) -> CredentialKind {
         CredentialKind::None
@@ -1458,6 +1459,46 @@ mod tests {
         assert_eq!(p.id(), OLLAMA_ID, "the factory fell through to Anthropic");
         assert!(!p.requires_api_key());
         assert!(SUPPORTED_PROVIDER_IDS.contains(&OLLAMA_ID));
+    }
+
+    /// A chat request is `post(url).json(body)` and then `apply_auth`
+    /// (`LlmConfig::post_json`); the probe is `apply_auth` and then `.json`.
+    /// Either way exactly one `Content-Type` goes out. Two (one from `.json`,
+    /// one appended by `apply_auth`) were sent by every provider, and the
+    /// ChatGPT plan's route refused them: 400 `{"detail":"Unsupported content
+    /// type"}`.
+    #[test]
+    fn every_request_carries_one_content_type() {
+        let body = serde_json::json!({ "model": "m" });
+        for id in SUPPORTED_PROVIDER_IDS {
+            let p = provider_from_id(id);
+            let url = format!("https://example.invalid{}", p.endpoint_path());
+            let client = reqwest::Client::new();
+            let chat = p
+                .apply_auth(client.post(&url).json(&body), "k")
+                .build()
+                .expect("request builds");
+            let probe = p
+                .apply_auth(client.post(&url), "k")
+                .json(&body)
+                .build()
+                .expect("request builds");
+            for (how, req) in [("chat", &chat), ("probe", &probe)] {
+                let values: Vec<_> = req.headers().get_all("content-type").iter().collect();
+                assert_eq!(values, ["application/json"], "{id} {how}: {values:?}");
+            }
+            let models = p
+                .apply_auth(
+                    client.get(format!("https://example.invalid{}", p.list_models_path())),
+                    "k",
+                )
+                .build()
+                .expect("request builds");
+            assert!(
+                models.headers().get("content-type").is_none(),
+                "{id}: a GET has no body, so no Content-Type"
+            );
+        }
     }
 
     /// An empty `Bearer` reads as a malformed credential rather than an

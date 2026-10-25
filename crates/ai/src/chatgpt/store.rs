@@ -73,10 +73,14 @@ pub trait RefreshTokenStore: Send + Sync {
 /// a token: build it from a keychain error's `Display`, never its `Debug`.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SecretStoreError {
-    /// The store cannot hold a value this long (`keyring::Error::TooLong`:
-    /// Windows' Credential Manager holds 2,560 bytes). The session keeps the
+    /// The store cannot hold the value (`keyring::Error::TooLong`: Windows'
+    /// Credential Manager holds 2,560 bytes in all, and every key and this
+    /// token share one credential, #734). The session keeps the
     /// token in memory and says it will not survive a restart.
-    #[error("the refresh token is too long for the system keychain")]
+    #[error(
+        "the sign-in is too long for this system's credential store; if other keys are saved, \
+         removing one you do not use may make room"
+    )]
     TooLong,
     /// The store could not be used: locked, refused, or not there.
     #[error("the system keychain could not be used: {0}")]

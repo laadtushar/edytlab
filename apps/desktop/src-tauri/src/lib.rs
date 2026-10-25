@@ -177,6 +177,13 @@ pub fn run() {
             let agents_dir = resolve_global_agent_profiles_dir(app);
             app_state.install_agent_profile_library(agents_dir);
 
+            // Where the provider settings file lives (the active provider
+            // and each provider's model, address and effort), registered
+            // before anything reads the keychain module: it fails every call
+            // until it has one (#734, ADR 0009). The ChatGPT session's
+            // `registration.json` is in the same folder.
+            register_keychain_settings_dir(app);
+
             // Read the settings file (~/.edytlab/settings.json). On this
             // thread, before the window can ask for anything: Plan first is
             // an approval gate, and the first message of the launch has to
@@ -471,6 +478,28 @@ pub fn run() {
         ])
         .run(context)
         .expect("error while running tauri application");
+}
+
+/// Register the folder `ai::keychain` keeps its settings file in (#734): the
+/// app's config directory, or the app data directory where the platform has
+/// none. Without one the keychain module answers every call with an error
+/// (and the app says so where it says a keychain cannot be read), so this is
+/// logged loudly rather than a reason to stop.
+fn register_keychain_settings_dir<R: tauri::Runtime>(app: &tauri::App<R>) {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .or_else(|_| app.path().app_data_dir());
+    match dir {
+        Ok(dir) => {
+            if !ai::keychain::set_settings_dir(dir.clone()) {
+                tracing::error!(dir = %dir.display(), "could not register the settings folder for keys and provider settings");
+            }
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "no config folder: keys and provider settings cannot be read or saved");
+        }
+    }
 }
 
 /// Resolve `~/.edytlab/memory.md`. Uses Tauri's path resolver so the

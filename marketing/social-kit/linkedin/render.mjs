@@ -9,7 +9,7 @@
  * Needs `pnpm install` at the repo root (Playwright is apps/desktop's
  * dev dependency) and the Chromium Playwright installs. Nothing else, and
  * no network. Writes into `out/`: five 1200x1200 PNGs and one carousel PDF
- * of 1080x1350 pages.
+ * of 1080x1350 pages, each page an image (`carouselPdf`).
  *
  * Every canvas goes through `lint.mjs` before it is written: safe area,
  * clipping, minimum text size and 4.5:1 contrast. A canvas that fails
@@ -94,74 +94,39 @@ async function ready(page) {
 }
 
 /**
- * The site's gradient headline is `background-clip: text`, which the PDF
- * writer draws as a clipped box, and a viewer can show the box's bottom
- * edge as a hairline under the line. For the PDF only, each gradient span
- * becomes an inline SVG `<text>` filled with the same gradient (read from
- * the computed style, so it is still the site's): vector, selectable text,
- * no clip, same size and place.
+ * The carousel PDF is built from images of its pages, not printed from the
+ * HTML (#643). The site's gradient headline is `background-clip: text`, and
+ * however it reaches a PDF (Chromium prints it as a clipping pattern; an SVG
+ * `<text>` with a gradient fill fared no better) some viewers do not paint
+ * it: PDFium left the gradient half out and poppler drew a solid magenta box
+ * over it. A page image looks the same in every viewer. It is taken at
+ * `PDF_SCALE` so the text stays sharp on a high-density screen, and stored
+ * as a JPEG to keep the file small; the PNGs the linter reads are 1x.
  */
-async function gradientTextAsSvg(page) {
-  const replaced = await page.evaluate(() => {
-    const NS = "http://www.w3.org/2000/svg";
-    const ctx = document.createElement("canvas").getContext("2d");
-    let n = 0;
-    for (const span of document.querySelectorAll(".gradient-text")) {
-      const style = getComputedStyle(span);
-      const rects = [...span.getClientRects()];
-      if (rects.length !== 1) throw new Error(`gradient text wraps, cannot be made an SVG: "${span.textContent}"`);
-      const stops = [...style.backgroundImage.matchAll(/(rgba?\([^)]+\))\s*([\d.]+%)?/g)].map((m) => ({ color: m[1], at: m[2] }));
-      const angle = /(\d+)deg/.exec(style.backgroundImage)?.[1] ?? "180";
-      ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-      ctx.letterSpacing = style.letterSpacing;
-      const text = span.textContent;
-      const m = ctx.measureText(text);
-      const ascent = m.fontBoundingBoxAscent;
-      const descent = m.fontBoundingBoxDescent;
-      const width = Math.ceil(m.width + 1);
-      const height = Math.ceil(ascent + descent);
+const PDF_SCALE = 2;
+const PDF_JPEG_QUALITY = 90;
 
-      const svg = document.createElementNS(NS, "svg");
-      svg.setAttribute("width", width);
-      svg.setAttribute("height", height);
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      // Take the line box the span took: an inline box is its content area
-      // plus half the leading (line-height minus content) above and below.
-      const lineHeight = parseFloat(style.lineHeight) || (ascent + descent);
-      const halfLeading = (lineHeight - (ascent + descent)) / 2;
-      // An inline replaced box sits on its bottom *margin* edge, which the
-      // negative margin lifts by the half-leading: lower it by that much.
-      svg.style.cssText = `display:inline-block;vertical-align:${-(descent + halfLeading)}px;overflow:visible;margin:${halfLeading}px 0`;
-      const id = `gt${n++}`;
-      const defs = document.createElementNS(NS, "defs");
-      const grad = document.createElementNS(NS, "linearGradient");
-      grad.setAttribute("id", id);
-      grad.setAttribute("gradientUnits", "objectBoundingBox");
-      // CSS angles run clockwise from "up"; an SVG gradient vector from (x1,y1) to (x2,y2).
-      const a = (Number(angle) * Math.PI) / 180;
-      grad.setAttribute("x1", 0.5 - Math.sin(a) / 2);
-      grad.setAttribute("y1", 0.5 + Math.cos(a) / 2);
-      grad.setAttribute("x2", 0.5 + Math.sin(a) / 2);
-      grad.setAttribute("y2", 0.5 - Math.cos(a) / 2);
-      for (const s of stops) {
-        const stop = document.createElementNS(NS, "stop");
-        stop.setAttribute("offset", s.at ?? "0%");
-        stop.setAttribute("stop-color", s.color);
-        grad.appendChild(stop);
-      }
-      defs.appendChild(grad);
-      const t = document.createElementNS(NS, "text");
-      t.setAttribute("x", 0);
-      t.setAttribute("y", ascent);
-      t.setAttribute("fill", `url(#${id})`);
-      t.setAttribute("style", `font:${style.fontWeight} ${style.fontSize} ${style.fontFamily};letter-spacing:${style.letterSpacing};white-space:pre`);
-      t.textContent = text;
-      svg.append(defs, t);
-      span.replaceWith(svg);
-    }
-    return n;
-  });
-  return replaced;
+async function carouselPdf(browser, file, count) {
+  const { w, h } = CAROUSEL.pages;
+  const shots = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: PDF_SCALE });
+  const source = await shots.newPage();
+  await source.goto(compose(CAROUSEL.id));
+  await ready(source);
+  const images = [];
+  for (let i = 0; i < count; i++) {
+    const jpeg = await source.locator(".canvas.page").nth(i).screenshot({ type: "jpeg", quality: PDF_JPEG_QUALITY });
+    images.push(`data:image/jpeg;base64,${jpeg.toString("base64")}`);
+  }
+  const pages = images
+    .map((src) => `<img src="${src}" width="${w}" height="${h}" alt="">`)
+    .join("\n");
+  const doc = await shots.newPage();
+  await doc.setContent(
+    `<!doctype html><html><head><style>@page { size: ${w}px ${h}px; margin: 0; } html, body { margin: 0; } img { display: block; break-after: page; }</style></head><body>${pages}</body></html>`,
+  );
+  await doc.evaluate(() => Promise.all([...document.images].map((i) => i.decode())));
+  await doc.pdf({ path: file, width: `${w}px`, height: `${h}px`, printBackground: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
+  await shots.close();
 }
 
 const kb = (file) => `${(statSync(file).size / 1024).toFixed(0)} KB`;
@@ -208,10 +173,7 @@ async function main() {
         }
       }
       const file = join(HERE, "out", `${CAROUSEL.id}.pdf`);
-      // Print media, as the PDF is made.
-      await page.emulateMedia({ media: "print" });
-      await gradientTextAsSvg(page);
-      await page.pdf({ path: file, width: `${w}px`, height: `${h}px`, printBackground: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
+      await carouselPdf(browser, file, count);
       const pdfPages = (readFileSync(file, "latin1").match(/\/Type\s*\/Page[^s]/g) ?? []).length;
       if (pdfPages !== count) failures.push(`${CAROUSEL.id}.pdf has ${pdfPages} pages, the template has ${count}`);
       written.push(`${file} (${kb(file)}, ${pdfPages} pages)`);

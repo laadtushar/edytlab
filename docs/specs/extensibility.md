@@ -321,7 +321,10 @@ follow-up branch by itself.
 Two transports: stdio (local subprocess) and SSE (remote URL). Secrets
 in `env` use the `<keychain:slot>` placeholder; the value is fetched
 from the OS keychain at server-launch time so secrets never live in
-plain text on disk. Matches the Claude Code `.mcp.json` shape closely
+plain text on disk. The secret is a per-slot item the user makes in the OS
+store (service `app.edytlab.desktop`, account `<slot>_api_key`), read on
+demand; edytlab's own keys and sign-in are in its single `secrets` item
+(ADR 0009) and these are not. Matches the Claude Code `.mcp.json` shape closely
 enough that users can lift configs between the two.
 
 ### Runtime

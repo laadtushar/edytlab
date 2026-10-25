@@ -47,6 +47,20 @@ pub struct ProjectInfo {
     pub head: Option<String>,
 }
 
+/// A keychain failure in the words the window shows. The keys, the sign-in and
+/// the ChatGPT token share one credential, so the platform's size limit
+/// (`TooLong`, Windows' Credential Manager) is about all of them, and the
+/// remedy is to remove one. Never carries a stored value.
+pub(crate) fn keychain_error_text(error: &keyring::Error) -> String {
+    match error {
+        keyring::Error::TooLong(..) => "this does not fit in this system's credential store, \
+            which holds every saved key and the sign-in together; if other keys are saved, \
+            removing one you do not use may make room"
+            .to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// Internal error type for the commands layer. Converts to `String`
 /// at the IPC boundary because Tauri's return values must implement
 /// `Serialize`, and `Display`-derived strings carry exactly as much
@@ -65,7 +79,7 @@ pub enum CommandError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("keychain error: {0}")]
+    #[error("keychain error: {}", keychain_error_text(.0))]
     Keychain(#[from] keyring::Error),
 
     /// Plan first was turned on or off for this launch, but the choice could
@@ -7408,12 +7422,27 @@ pub(crate) fn open_project_for_test(
 
 #[cfg(test)]
 mod tests {
+
     //! Pure state / helper tests. The Tauri-IPC happy path is covered
     //! by the integration test under `tests/commands_mock.rs`.
 
     use super::*;
     use session::SessionState;
     use tempfile::tempdir;
+
+    /// The keys and the sign-in share one credential (#734), so a save that no
+    /// longer fits says that and what to do, and names no value.
+    #[test]
+    fn a_credential_that_is_too_long_says_what_may_make_room() {
+        let text = CommandError::from(keyring::Error::TooLong("secret".into(), 2560)).to_string();
+        assert!(text.starts_with("keychain error: "), "{text}");
+        assert!(text.contains("does not fit"), "{text}");
+        assert!(text.contains("may make room"), "{text}");
+        assert_eq!(
+            CommandError::from(keyring::Error::NoEntry).to_string(),
+            format!("keychain error: {}", keyring::Error::NoEntry)
+        );
+    }
 
     fn step(tool: &str, description: &str) -> EditedStep {
         EditedStep {
