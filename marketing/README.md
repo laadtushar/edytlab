@@ -176,8 +176,12 @@ getting caught.
 ## Before the first post
 
 - [ ] Install the v0.9.1 build on at least one machine per OS you will claim
-      (not v0.9.0: its first message after Continue with ChatGPT failed, so
-      v0.9.1 is the first build where the sign-in works).
+      (not v0.9.0: its first message after Continue with ChatGPT failed with
+      "Unsupported content type", which v0.9.1 fixes).
+- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.1 and send a message.
+      Until that has worked once, leave every line about the ChatGPT plan out
+      of the posts: the fix was checked against a mock of OpenAI's API, not a
+      real account.
       Confirm the macOS `xattr` step in the release notes works as written.
 - [ ] Open <https://edytlab.com> on a phone and play the demo.
 - [ ] GitHub repo topics. The repo currently lists `audacity`, `audacity-pro`

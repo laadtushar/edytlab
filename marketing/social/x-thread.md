@@ -54,7 +54,7 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.9.1 is out. It fixes Sign in with ChatGPT (a preview, new in v0.9.0): the assistant uses your ChatGPT Plus or Pro plan instead of an API key, and the first message after signing in now goes through. Since v0.8.0 it can also transcribe, once you download the speech model.
+v0.9.1 is out. It fixes the "Unsupported content type" error that stopped the first message after Sign in with ChatGPT (a preview from v0.9.0: your Plus or Pro plan instead of an API key). Since v0.8.0 it also transcribes, once you download the speech model.
 ```
 
 **7/8**
