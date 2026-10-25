@@ -1207,6 +1207,14 @@ impl Store {
         fn kept(e: impl std::fmt::Display) -> NotMigrated {
             NotMigrated::Kept(e.to_string())
         }
+        /// The `secrets` item could not be read. Whether it carries the
+        /// marker is unknown, so the per-slot items cannot be trusted: a
+        /// leftover would be served over a newer key, and a key saved per slot
+        /// deleted by the next launch. Reads reject and the migration is asked
+        /// for again at the next call.
+        fn unreadable(e: keyring::Error) -> NotMigrated {
+            NotMigrated::Refused(KeychainError::from(e))
+        }
         fn classify(e: keyring::Error) -> NotMigrated {
             let e = KeychainError::from(e);
             if e.is_access_denied() {
@@ -1274,7 +1282,10 @@ impl Store {
         let mut created_item = false;
         let mut wrote_item = false;
         if !secrets.is_empty() {
-            let existing = match self.read_item(SECRETS_ACCOUNT).map_err(classify)? {
+            // Any failure to read it is the caller's answer, never the old
+            // items: an item that could not be read may be marked, and then
+            // the old items are leftovers (see `unreadable`).
+            let existing = match self.read_item(SECRETS_ACCOUNT).map_err(unreadable)? {
                 Some(json) => Some(parse_secrets(&json).map_err(|e| kept(e.reason()))?),
                 None => None,
             };
@@ -1337,12 +1348,12 @@ impl Store {
                 && (written
                     .as_ref()
                     .is_some_and(|m| m.contains_key(MIGRATED_MARKER))
-                    || this
-                        .read_item(SECRETS_ACCOUNT)
-                        .ok()
-                        .flatten()
-                        .and_then(|j| parse_secrets(&j).ok())
-                        .is_some_and(|m| m.contains_key(MIGRATED_MARKER)));
+                    || match this.read_item(SECRETS_ACCOUNT) {
+                        Ok(json) => json
+                            .and_then(|j| parse_secrets(&j).ok())
+                            .is_some_and(|m| m.contains_key(MIGRATED_MARKER)),
+                        Err(e) => return unreadable(e),
+                    });
             if marked {
                 NotMigrated::Marked(settings.clone(), written.clone())
             } else {

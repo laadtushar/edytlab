@@ -1808,3 +1808,66 @@ fn the_sign_in_too_long_text_holds_when_no_key_is_saved_too() {
     assert!(text.contains("may make room"), "{text}");
     assert!(!text.contains("no longer fit"), "{text}");
 }
+
+/// A migration that cannot read the `secrets` item cannot tell whether it is
+/// marked, so it must not fall back to the per-slot items: if it is marked, a
+/// leftover would be served over the newer key, and a key saved per slot would
+/// be deleted by the next launch. Reads reject instead, and are asked again.
+#[test]
+fn a_migration_that_cannot_read_the_item_rejects_rather_than_serving_leftovers() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    backend.seed(
+        SECRETS_ACCOUNT,
+        &format!(r#"{{"{MIGRATED_MARKER}":"1","anthropic_api_key":"key-new"}}"#),
+    );
+    backend.seed("anthropic_api_key", "key-old");
+    backend
+        .down
+        .lock()
+        .unwrap()
+        .insert(SECRETS_ACCOUNT.to_string());
+
+    let store = launch(&backend, dir.path());
+    assert!(
+        store.get(Field::ApiKey("anthropic")).is_err(),
+        "a leftover is never served over an item that could not be read"
+    );
+    assert!(store.put(Field::ApiKey("anthropic"), "key-typed").is_err());
+    assert_eq!(
+        backend.item("anthropic_api_key").as_deref(),
+        Some("key-old")
+    );
+
+    // Once the item can be read, the marked item wins and nothing was lost.
+    backend.down.lock().unwrap().clear();
+    let next = launch(&backend, dir.path());
+    assert_eq!(
+        next.get(Field::ApiKey("anthropic")).unwrap().as_deref(),
+        Some("key-new")
+    );
+}
+
+/// The same when there is no leftover and the settings file cannot be
+/// written: the check for the marker cannot read the item either.
+#[test]
+fn an_unreadable_item_and_an_unwritable_settings_file_reject_rather_than_fall_back() {
+    let (backend, dir) = (Backend::new(), tempfile::tempdir().unwrap());
+    backend.seed(
+        SECRETS_ACCOUNT,
+        &format!(r#"{{"{MIGRATED_MARKER}":"1","anthropic_api_key":"key-a"}}"#),
+    );
+    block_settings_writes(dir.path());
+    backend
+        .down
+        .lock()
+        .unwrap()
+        .insert(SECRETS_ACCOUNT.to_string());
+
+    let store = launch(&backend, dir.path());
+    assert!(store.get(Field::ApiKey("anthropic")).is_err());
+    assert!(store.put(Field::ApiKey("anthropic"), "key-typed").is_err());
+    assert!(
+        backend.item("anthropic_api_key").is_none(),
+        "nothing saved per slot"
+    );
+}
