@@ -9,10 +9,10 @@
 //!
 //! * [`split_segments`] is the block of `transcribe()` that cuts the sampled
 //!   tokens into segments at every pair of consecutive timestamps
-//!   ([`transcribe.py` lines 359 to 399][transcribe]), and says where the next
+//!   ([`transcribe.py` lines 339 to 416][transcribe]), and says where the next
 //!   window would start from the timestamps alone;
 //! * [`place_words`] is `add_word_timestamps` after `find_alignment`
-//!   ([`timing.py` lines 290 to 388][timing]): words that run on across a
+//!   ([`timing.py` lines 279 to 388][timing]): words that run on across a
 //!   sentence end or a pause are cut back to twice the median word, and the
 //!   first word of a segment starts at the segment's own start when the aligner
 //!   put it more than half a second early.
@@ -20,11 +20,17 @@
 //! The aligner (`timing.rs`) lays words end to end, so silence belongs to a word
 //! and, measured on the real model, all of it to the word **after** it: the
 //! first word of a window began at 0.0 s whatever the lead-in, and a word after
-//! a 6.7 s pause began 6.7 s early. The segment timestamps are the model's own
-//! account of where speech starts and stops, and are what fixes that.
+//! a 6.7 s pause began 6.7 s early. What the timestamps give is where the speech
+//! before a window ended (the pause rule of [`place_words`] needs it) and where
+//! the last finished word ended (where the next window starts). What they do not
+//! give, on the pinned `whisper-base`, is where speech starts after a pause: its
+//! segments run end to end, each starting where the one before it ended and the
+//! first at 0.0 s, so the rule that moves a first word to its segment's start
+//! never fired on the recordings measured (#659), and `refine.rs` still does
+//! that part.
 //!
-//! [transcribe]: https://github.com/openai/whisper/blob/31243bad24cc746f07d4c8bfdd2d974872cb1803/whisper/transcribe.py#L359-L399
-//! [timing]: https://github.com/openai/whisper/blob/31243bad24cc746f07d4c8bfdd2d974872cb1803/whisper/timing.py#L290-L388
+//! [transcribe]: https://github.com/openai/whisper/blob/31243bad24cc746f07d4c8bfdd2d974872cb1803/whisper/transcribe.py#L339-L416
+//! [timing]: https://github.com/openai/whisper/blob/31243bad24cc746f07d4c8bfdd2d974872cb1803/whisper/timing.py#L279-L388
 
 use std::ops::Range;
 
