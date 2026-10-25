@@ -333,7 +333,7 @@ export default function UserGuidePage() {
         this: the decoder is what is missing, not the model file.
       </p>
 
-      <h2>Transcription</h2>
+      <h2 id="transcription">Transcription</h2>
       <p>
         From v0.8.0, ask the agent to <code>transcribe track 1</code> and it
         writes what was said, with the start and end time of every word, as a
