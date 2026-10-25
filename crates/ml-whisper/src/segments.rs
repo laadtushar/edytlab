@@ -180,10 +180,10 @@ pub(crate) struct SegmentText {
 pub(crate) struct Placed {
     /// In order, seconds from the window's start, inside it.
     pub words: Vec<Word>,
-    /// Where the last segment that has words ended (a word's end, or the
-    /// segment's own when the last word ran past it), or `last_speech_s` as
-    /// given if there was none.
-    pub last_speech_s: f32,
+    /// Where the last word ends (upstream's `get_end`), if there is one. The
+    /// speech before the next window ends there, and so does the audio the
+    /// next window can skip.
+    pub last_word_end: Option<f32>,
 }
 
 /// The median of `values`, the mean of the two middle ones for an even count.
@@ -203,31 +203,24 @@ fn median(values: &mut [f32]) -> f32 {
 /// The text of the segments of a decoded window, which is what the aligner is
 /// given: the tokens under `<|endoftext|>` (a timestamp, language or task token
 /// is not text and has no bytes to spell; upstream's `token < tokenizer.eot`),
-/// their probabilities, and how many each segment holds.
+/// and how many each segment holds.
 pub(crate) fn text_of_segments(
     segments: &[Segment],
     tokens: &[u32],
-    token_probs: &[f32],
     eot: u32,
-) -> (Vec<u32>, Vec<f32>, Vec<SegmentText>) {
+) -> (Vec<u32>, Vec<SegmentText>) {
     let mut text = Vec::new();
-    let mut probs = Vec::new();
     let mut spans = Vec::with_capacity(segments.len());
     for segment in segments {
         let before = text.len();
-        for i in segment.tokens.clone() {
-            if tokens[i] < eot {
-                text.push(tokens[i]);
-                probs.push(token_probs.get(i).copied().unwrap_or(0.0));
-            }
-        }
+        text.extend(tokens[segment.tokens.clone()].iter().filter(|&&t| t < eot));
         spans.push(SegmentText {
             start_s: segment.start_s,
             end_s: segment.end_s,
             text_tokens: text.len() - before,
         });
     }
-    (text, probs, spans)
+    (text, spans)
 }
 
 /// A word being placed: `WordTiming` with the text trimmed.
@@ -257,7 +250,7 @@ pub(crate) fn place_words(
     if alignment.is_empty() {
         return Placed {
             words: Vec::new(),
-            last_speech_s,
+            last_word_end: None,
         };
     }
     let mut durations: Vec<f32> = alignment
@@ -338,8 +331,8 @@ pub(crate) fn place_words(
         out.extend(words.into_iter().map(|w| inside(w, window_s)));
     }
     Placed {
+        last_word_end: out.last().map(|w| w.end_s),
         words: out,
-        last_speech_s,
     }
 }
 
@@ -445,11 +438,9 @@ mod tests {
         // below the timestamps) in the middle of the first segment.
         let (eot, de) = (900, 950);
         let tokens = [ts(0.0), 5, de, 6, ts(2.0), ts(2.0), 7, ts(3.0)];
-        let probs = [0.9, 0.1, 0.2, 0.3, 0.9, 0.9, 0.4, 0.9];
         let s = split(&tokens, false);
-        let (text, p, spans) = text_of_segments(&s.segments, &tokens, &probs, eot);
+        let (text, spans) = text_of_segments(&s.segments, &tokens, eot);
         assert_eq!(text, vec![5, 6, 7]);
-        assert_eq!(p, vec![0.1, 0.3, 0.4]);
         assert_eq!(
             spans.iter().map(|s| s.text_tokens).collect::<Vec<_>>(),
             vec![2, 1]
@@ -492,7 +483,7 @@ mod tests {
         let times: Vec<(f32, f32)> = p.words.iter().map(|w| (w.start_s, w.end_s)).collect();
         assert_eq!(times, vec![(1.0, 1.4), (1.4, 1.8), (1.8, 2.2)]);
         assert_eq!(p.words[0].text, "one", "the leading space is trimmed");
-        assert!(near(p.last_speech_s, 2.2));
+        assert!(near(p.last_word_end.unwrap(), 2.2));
     }
 
     #[test]
@@ -565,7 +556,7 @@ mod tests {
         let last = p.words.last().unwrap();
         // 2.6 + 0.5 < 5.0: ends at max(2.2 + median, 2.6) = 2.6.
         assert!(near(last.end_s, 2.6), "{last:?}");
-        assert!(near(p.last_speech_s, 2.6));
+        assert!(near(p.last_word_end.unwrap(), 2.6));
     }
 
     #[test]
@@ -614,7 +605,7 @@ mod tests {
             p.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
             vec!["a", "b", "c"]
         );
-        assert!(near(p.last_speech_s, 4.4));
+        assert!(near(p.last_word_end.unwrap(), 4.4));
     }
 
     #[test]
@@ -631,9 +622,9 @@ mod tests {
     }
 
     #[test]
-    fn no_words_leaves_the_last_speech_where_it_was() {
+    fn no_words_has_no_last_word_end() {
         let p = place(Vec::new(), &[], 12.5);
         assert!(p.words.is_empty());
-        assert!(near(p.last_speech_s, 12.5));
+        assert_eq!(p.last_word_end, None);
     }
 }

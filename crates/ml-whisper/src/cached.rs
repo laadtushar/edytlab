@@ -217,12 +217,19 @@ impl<'c, R: DecoderRun> CachedDecoder<'c, R> {
     }
 
     /// The attention the aligner wants for `text`, the text tokens of a
-    /// decoded window: `prompt` and `text` are fed as **one new sequence** (the
-    /// cache and the attention of what was decoded before are dropped), and the
-    /// rows from the last prompt position on are returned, `text.len() + 1` of
-    /// them, each rescaled over the first `content_frames` (see
-    /// [`CachedDecoder::attention`]). `prompt` is `[SOT, language, transcribe,
-    /// notimestamps]`.
+    /// decoded window, and the probability of each: `prompt` and `text` are fed
+    /// as **one new sequence** (the cache and the attention of what was decoded
+    /// before are dropped), and the rows from the last prompt position on are
+    /// returned, `text.len() + 1` of them, each rescaled over the first
+    /// `content_frames` (see [`CachedDecoder::attention`]). `prompt` is `[SOT,
+    /// language, transcribe, notimestamps]`.
+    ///
+    /// The probability of a text token is the softmax of the logits of the row
+    /// that predicts it, over the tokens under `eot` (the text and the special
+    /// tokens before `<|endoftext|>`), as `find_alignment` takes
+    /// `logits[len(sot_sequence):, :tokenizer.eot]`. That is not the decode's
+    /// own probability (a softmax over the whole vocabulary, in a sequence with
+    /// timestamps in it).
     ///
     /// A causal decoder's row for a position does not depend on later
     /// positions, so one pass over the whole sequence gives the rows that
@@ -231,13 +238,23 @@ impl<'c, R: DecoderRun> CachedDecoder<'c, R> {
         &mut self,
         prompt: &[u32],
         text: &[u32],
+        eot: u32,
         encoder: &EncoderStates,
         content_frames: usize,
-    ) -> Result<Vec<Matrix>, crate::WhisperError> {
+    ) -> Result<(Vec<Matrix>, Vec<f32>), crate::WhisperError> {
         let mut sequence = prompt.to_vec();
         sequence.extend_from_slice(text);
-        self.step(&sequence, 0, encoder)?;
-        Ok(self.attention(prompt.len() - 1, prompt.len() + text.len(), content_frames)?)
+        let logits = self.step(&sequence, 0, encoder)?;
+        let probs = text
+            .iter()
+            .enumerate()
+            .map(|(i, &token)| {
+                let row = logits.row(prompt.len() - 1 + i);
+                crate::decode::softmax_prob(&row[..eot as usize], token)
+            })
+            .collect();
+        let heads = self.attention(prompt.len() - 1, prompt.len() + text.len(), content_frames)?;
+        Ok((heads, probs))
     }
 
     /// The collected attention as one matrix per alignment head: rows
@@ -1027,7 +1044,9 @@ mod tests {
         let before = dec.run.seen.len();
 
         let prompt = [SOT, EN, TRANSCRIBE, NO_TIMESTAMPS];
-        let m = dec.alignment_attention(&prompt, &[3, 4], &enc, 6).unwrap();
+        let (m, probs) = dec
+            .alignment_attention(&prompt, &[3, 4], EOT, &enc, 6)
+            .unwrap();
         // One call, no cache, the whole sequence.
         let calls = &dec.run.seen[before..];
         assert_eq!(calls.len(), 1, "one forward pass, not one step per token");
@@ -1040,6 +1059,12 @@ mod tests {
         // And the attention is that of the new sequence, not the earlier one.
         let again = dec.attention(3, 3 + 2 + 1, 6).unwrap();
         assert_eq!(again[0].as_slice(), m[0].as_slice());
+        // The probabilities are the softmax over the tokens under EOT of the
+        // row that predicts each: the favourite has logit 10 against nine
+        // zeros, whatever the 29 tokens past EOT hold.
+        let want = (10f64.exp() / (10f64.exp() + 9.0)) as f32;
+        assert_eq!(probs.len(), 2);
+        assert!(probs.iter().all(|p| (p - want).abs() < 1e-6), "{probs:?}");
     }
 
     #[test]

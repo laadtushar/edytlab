@@ -393,12 +393,7 @@ impl WindowTranscriber for ModelWindows<'_> {
         );
         // The text of the segments that are kept, which is what is aligned:
         // upstream gives `find_alignment` the text tokens of the segments.
-        let (text_tokens, text_probs, segments) = text_of_segments(
-            &split.segments,
-            &decoded.tokens,
-            &decoded.token_probs,
-            ids.eot,
-        );
+        let (text_tokens, segments) = text_of_segments(&split.segments, &decoded.tokens, ids.eot);
         if text_tokens.is_empty() {
             // Timestamps and no text: nothing was said that can be written down.
             let mut result = no_words(decoded.language);
@@ -411,9 +406,10 @@ impl WindowTranscriber for ModelWindows<'_> {
         // aligner was built on (`find_alignment` feeds `sot_sequence +
         // no_timestamps + text`). One forward pass, not one per token.
         let content_frames = encoder_frames(audio.len().min(N_SAMPLES)).clamp(1, m.layout.frames);
-        let heads = decoder.alignment_attention(
+        let (heads, text_probs) = decoder.alignment_attention(
             &[ids.sot, decoded.language, ids.transcribe, ids.no_timestamps],
             &text_tokens,
+            ids.eot,
             &encoder,
             content_frames,
         )?;
@@ -437,6 +433,9 @@ impl WindowTranscriber for ModelWindows<'_> {
             PREPEND_PUNCTUATIONS,
             APPEND_PUNCTUATIONS,
         );
+        // Upstream's `get_end`: the speech so far ends where the last word
+        // does, before the sound pulls its edge in.
+        let last_word_end = placed.last_word_end;
         let mut words = placed.words;
         // The timestamps do not say where speech starts after a pause or a
         // lead-in (the model's segments run end to end), so the sound does.
@@ -445,14 +444,13 @@ impl WindowTranscriber for ModelWindows<'_> {
         // Where the next window starts: upstream seeks to the end of the last
         // word of the finished segments, or, with no words, to the last
         // timestamp; a window the model closed moves on whole.
-        let last_word_end = words.last().map(|w| w.end_s).filter(|&e| e > 0.0);
         let next = if split.single_timestamp_ending {
             None
         } else {
-            last_word_end.or(split.seek_s)
+            last_word_end.filter(|&e| e > 0.0).or(split.seek_s)
         };
         Ok(WindowResult {
-            last_speech_s: (!words.is_empty()).then_some(placed.last_speech_s),
+            last_speech_s: last_word_end,
             words,
             language: decoded.language,
             speech: true,

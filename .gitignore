@@ -81,3 +81,6 @@ assets/demos/*.mov
 # licence notices, one folder per platform). The pin is
 # apps/desktop/src-tauri/ml-runtime.json; the download is never committed.
 ml-runtime/
+
+# Python bytecode
+__pycache__/

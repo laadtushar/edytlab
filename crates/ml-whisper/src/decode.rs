@@ -40,7 +40,9 @@
 //!    confidence.
 //! 5. **Stop** at `<|endoftext|>`, at [`DecodeConfig::max_new_tokens`] (224,
 //!    half of Whisper's 448-token context), or when the output starts to loop
-//!    ([`RepetitionRule`]). A loop is cut back to its first occurrence.
+//!    ([`RepetitionRule`]). A loop is cut back to its first occurrence. In
+//!    timestamp mode the text is compared and the timestamps are not, since
+//!    they only go up.
 //!
 //! ## Timestamp tokens
 //!
@@ -236,7 +238,11 @@ pub struct DecodeConfig {
     /// ([`WindowDecode::token_probs`]), and leaves out `<|endoftext|>`; upstream's
     /// takes the log-softmax of the filtered logits and counts the end token. So
     /// this is a little stricter than upstream's, and the threshold was
-    /// measured with this mean.
+    /// measured with this mean. In timestamp mode the timestamp tokens are in
+    /// it, as in upstream's. (Measured on four 8-minute recordings of read speech, the four
+    /// windows the model called empty had a mean of -0.09 to -0.25 over the text
+    /// and -0.19 to -0.30 over every token: the timestamps are the less likely,
+    /// and neither is near the threshold.)
     pub logprob_threshold: Option<f32>,
     /// `None` never aborts on repetition.
     pub repetition: Option<RepetitionRule>,
@@ -548,11 +554,13 @@ pub fn decode_window<D: DecoderStep>(
         tokens.push(next);
         token_probs.push(softmax_prob(&logits, next));
 
-        if let Some(keep) = config
-            .repetition
-            .as_ref()
-            .and_then(|rule| repeated_tail(&tokens, rule))
-        {
+        if let Some(keep) = config.repetition.as_ref().and_then(|rule| {
+            if config.with_timestamps {
+                repeated_text_tail(&tokens, rule, ids.timestamp_begin)
+            } else {
+                repeated_tail(&tokens, rule)
+            }
+        }) {
             tokens.truncate(keep);
             token_probs.truncate(keep);
             break StopReason::Repetition;
@@ -570,20 +578,7 @@ pub fn decode_window<D: DecoderStep>(
     // A window that sounds empty is still believed if it reads confidently;
     // one with no text at all has nothing to be confident about.
     if let (true, Some(limit)) = (sounds_empty, config.logprob_threshold) {
-        // In timestamp mode the mean is over the text, as the threshold was
-        // measured: a timestamp is nearly always likely, and would lift the
-        // mean of a window that is mostly noise.
-        let text_probs: Vec<f32> = if config.with_timestamps {
-            tokens
-                .iter()
-                .zip(&token_probs)
-                .filter(|(&t, _)| t < ids.timestamp_begin)
-                .map(|(_, &p)| p)
-                .collect()
-        } else {
-            token_probs.clone()
-        };
-        if average_log_probability(&text_probs) <= limit {
+        if average_log_probability(&token_probs) <= limit {
             return Ok(result(Vec::new(), Vec::new(), StopReason::NoSpeech));
         }
     }
@@ -623,7 +618,7 @@ fn check_logits(
 }
 
 /// The softmax probability of `id` in `row`.
-fn softmax_prob(row: &[f32], id: u32) -> f32 {
+pub(crate) fn softmax_prob(row: &[f32], id: u32) -> f32 {
     let max = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let total: f64 = row.iter().map(|&l| f64::from(l - max).exp()).sum();
     (f64::from(row[id as usize] - max).exp() / total) as f32
@@ -746,6 +741,26 @@ fn repeated_tail(tokens: &[u32], rule: &RepetitionRule) -> Option<usize> {
         }
     }
     None
+}
+
+/// [`repeated_tail`] for a decode that writes timestamp tokens: only the text
+/// is compared. A looped hallucination in timestamp mode is `<t1> Thank you.
+/// <t2> <t2> Thank you. <t3> ...`, and the timestamps always go up, so no block
+/// of the whole sequence repeats. Returns how many tokens to keep: up to and
+/// including the last token of the first occurrence of the repeated text (the
+/// timestamps inside it stay, the one after it goes).
+fn repeated_text_tail(
+    tokens: &[u32],
+    rule: &RepetitionRule,
+    timestamp_begin: u32,
+) -> Option<usize> {
+    let at: Vec<usize> = (0..tokens.len())
+        .filter(|&i| tokens[i] < timestamp_begin)
+        .collect();
+    let text: Vec<u32> = at.iter().map(|&i| tokens[i]).collect();
+    let keep = repeated_tail(&text, rule)?;
+    // `keep` is at least one: a block has a token.
+    Some(at[keep - 1] + 1)
 }
 
 #[cfg(test)]
@@ -1433,22 +1448,55 @@ mod tests {
     }
 
     #[test]
-    fn in_timestamp_mode_the_no_speech_mean_is_over_the_text_not_the_timestamps() {
-        // P(nospeech) 0.95; one text token at 0.25, between two timestamps the
-        // model is sure of. The mean over the text is -1.39 (skipped); over all
-        // three tokens it would be -0.47, and a window of noise would be kept
-        // because the model is sure where its segment ends.
-        let mut prompt = prompt_rows(3, with_prob(TS, 0.99));
-        prompt[0] = vec![(NO_SPEECH, logit_for(0.95))];
-        let script = vec![
-            prompt,
-            vec![with_prob(3, 0.25)],
-            vec![with_prob(TS + 3, 0.99)],
-            vec![favour(EOT)],
-        ];
-        let (out, _) = run(script, &timestamped(), Some(EN));
-        assert_eq!(out.stop, StopReason::NoSpeech);
-        assert!(average_log_probability(&[0.99, 0.25, 0.99]) > -1.0);
+    fn a_looped_hallucination_with_timestamps_is_cut_back_to_its_first_occurrence() {
+        // "Thank you." (text 3, 4, 5) said again and again, each time in a
+        // segment of its own with later timestamps: <0> 3 4 5 <2> <2> 3 4 5
+        // <4> <4> ... No block of the whole sequence repeats, because the
+        // timestamps go up; the text does.
+        let mut say: Vec<u32> = vec![TS];
+        for i in 1..9u32 {
+            say.extend([3, 4, 5, TS + 2 * i, TS + 2 * i]);
+        }
+        let mut script = vec![prompt_rows(3, favour(say[0]))];
+        script.extend(say[1..].iter().map(|&t| vec![favour(t)]));
+        let mut config = timestamped();
+        config.repetition = Some(RepetitionRule {
+            max_period: 4,
+            min_repeats: 3,
+            min_tokens: 9,
+        });
+        config.max_new_tokens = 200;
+        let (out, calls) = run(script, &config, Some(EN));
+
+        assert_eq!(out.stop, StopReason::Repetition);
+        assert_eq!(out.tokens, [TS, 3, 4, 5], "the first occurrence, once");
+        assert_eq!(out.token_probs.len(), out.tokens.len());
+        // And it stopped on the third repeat, not at the length limit.
+        assert!(calls.len() < 20, "{} decoder calls", calls.len());
+
+        // The same loop with the rule that compares every token would have run on.
+        assert_eq!(
+            repeated_tail(
+                &[
+                    TS,
+                    3,
+                    4,
+                    5,
+                    TS + 2,
+                    TS + 2,
+                    3,
+                    4,
+                    5,
+                    TS + 4,
+                    TS + 4,
+                    3,
+                    4,
+                    5
+                ],
+                &config.repetition.unwrap()
+            ),
+            None
+        );
     }
 
     // ---- errors --------------------------------------------------------------

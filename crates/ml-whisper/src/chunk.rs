@@ -13,14 +13,18 @@
 //!   on. Text the model had not finished (a segment with no closing
 //!   timestamp) is not in the result, and the next window hears it from the
 //!   start of its first word;
-//! * if the next window would start no later than [`MIN_ADVANCE_S`] into this
-//!   one (it decoded to a hallucination, or nothing past the first fraction of
-//!   a second), it starts a **whole window** on, as `whisper.transcribe` does
-//!   when its seek would not move. Advancing by [`MIN_ADVANCE_S`] instead would
-//!   decode the same hopeless audio sixty times over, writing a word each
-//!   time;
-//! * a window that decoded to nothing, or was skipped as no speech, is passed
-//!   over whole.
+//! * the next window starts where the result says, however little that is (at
+//!   least one frame). `whisper.transcribe` seeks to `last_word_end` whenever
+//!   it is past the window's start ([`transcribe.py` lines 401 to 416][seek]),
+//!   with no floor, so a window whose only finished word is a short one at its
+//!   start is followed by a window that starts just after it, and the text the
+//!   model had not finished is heard again. Upstream has nothing to stop a
+//!   window that finishes the same hallucinated word at its start from being
+//!   decoded again 0.2 s on, over and over; this port does: more than
+//!   [`MAX_SMALL_ADVANCES`] advances of [`MIN_ADVANCE_S`] or less in a row, and
+//!   the next window starts a **whole window** on;
+//! * a result with no start for the next window (the model closed its last
+//!   segment, or the window decoded to nothing) also moves on a whole window;
 //!
 //! This replaced a rule of this module's own (#659). Without timestamp tokens a
 //! window had no way to say which word it had finished, so a word within half
@@ -37,6 +41,8 @@
 //! The windows themselves are decoded by a [`WindowTranscriber`], which the
 //! model implements and the tests fake: the rule above is checked on 75 s of
 //! made-up audio in CI.
+//!
+//! [seek]: https://github.com/openai/whisper/blob/31243bad24cc746f07d4c8bfdd2d974872cb1803/whisper/transcribe.py#L401-L416
 
 use crate::mel::{N_SAMPLES, SAMPLE_RATE};
 use crate::{Result, WhisperError, Word};
@@ -45,9 +51,12 @@ use crate::{Result, WhisperError, Word};
 pub(crate) const WINDOW_SAMPLES: usize = N_SAMPLES;
 /// A window shorter than this (0.1 s) is not worth an encoder pass.
 const MIN_WINDOW_SAMPLES: usize = SAMPLE_RATE / 10;
-/// The next window starts a word's end later only if that is more than this
-/// many seconds into the window; otherwise it starts a whole window on.
+/// An advance of this many seconds or less is a small one ([`MAX_SMALL_ADVANCES`]).
 pub(crate) const MIN_ADVANCE_S: f32 = 0.5;
+/// The most small advances in a row; the next one is a whole window.
+pub(crate) const MAX_SMALL_ADVANCES: usize = 3;
+/// The least a window advances when it advances at all: one encoder frame.
+const MIN_STEP_S: f32 = 0.02;
 
 /// What one window is asked.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -95,12 +104,6 @@ pub(crate) struct Chunked {
     pub windows: usize,
 }
 
-/// `Some(seconds)` if the next window starts that far into this one, `None`
-/// (a whole window on) if that is [`MIN_ADVANCE_S`] or less.
-fn advance(seconds: f32) -> Option<f32> {
-    (seconds > MIN_ADVANCE_S).then_some(seconds)
-}
-
 /// Transcribe `audio` (16 kHz mono) window by window.
 ///
 /// `cancel` is asked before each window. [`run_windows_observed`] without
@@ -145,6 +148,8 @@ pub(crate) fn run_windows_observed<T: WindowTranscriber>(
     let mut seek = 0usize;
     // Where the speech so far ended, in seconds from the start of the audio.
     let mut last_speech_s = 0.0f32;
+    // Advances of MIN_ADVANCE_S or less since the last bigger one.
+    let mut small = 0usize;
     while total - seek >= MIN_WINDOW_SAMPLES {
         if cancel() {
             return Err(WhisperError::Cancelled);
@@ -174,14 +179,23 @@ pub(crate) fn run_windows_observed<T: WindowTranscriber>(
         if end == total {
             break;
         }
-        seek = match result.next.and_then(advance) {
+        seek = match result.next.filter(|&s| s > 0.0) {
             Some(s) => {
-                let advance = (s * rate).round() as usize;
-                // A word's end can lie past the window's if the aligner
-                // overshoots; the window's end is as far as it can go.
-                seek + advance.min(end - seek)
+                let s = s.max(MIN_STEP_S);
+                small = if s > MIN_ADVANCE_S { 0 } else { small + 1 };
+                if small > MAX_SMALL_ADVANCES {
+                    small = 0;
+                    end
+                } else {
+                    // A word's end can lie past the window's if the aligner
+                    // overshoots; the window's end is as far as it can go.
+                    seek + ((s * rate).round() as usize).min(end - seek)
+                }
             }
-            None => end,
+            None => {
+                small = 0;
+                end
+            }
         };
     }
     Ok(Chunked {
@@ -507,12 +521,13 @@ mod tests {
     }
 
     /// A model that writes two words in the first 0.2 s of every window and
-    /// says the next window starts at the end of the second.
-    struct Hallucinates(usize);
+    /// says the next window starts at the end of the second. It records where
+    /// each window began.
+    struct Hallucinates(Vec<f32>);
 
     impl WindowTranscriber for Hallucinates {
-        fn window(&mut self, _: &[f32], _: WindowRequest) -> Result<WindowResult> {
-            self.0 += 1;
+        fn window(&mut self, audio: &[f32], _: WindowRequest) -> Result<WindowResult> {
+            self.0.push(audio[0] / RATE as f32);
             let word = |text: &str, start_s: f32| Word {
                 text: text.into(),
                 start_s,
@@ -530,25 +545,78 @@ mod tests {
     }
 
     #[test]
-    fn a_hallucinating_window_costs_a_whole_window_not_half_a_second() {
-        // The next window would start 0.2 s on, and must not: it would decode
-        // the same hopeless audio sixty times over. It advances a whole
-        // window, as `whisper.transcribe` does when its seek would not move.
-        let mut model = Hallucinates(0);
+    fn a_window_that_keeps_finishing_the_same_word_at_its_start_is_not_decoded_sixty_times() {
+        // The next window would start 0.2 s on, every time. Upstream would do
+        // that for as long as the audio lasts; this stops after
+        // MAX_SMALL_ADVANCES of them in a row and moves a whole window.
+        let mut model = Hallucinates(Vec::new());
         let out = run_windows(&mut model, &ramp(60.0), None, &never).unwrap();
-        // [0, 30) then [30, 60), which is the last and keeps both its words.
-        assert_eq!(model.0, 2, "{} windows", model.0);
-        assert_eq!(out.windows, 2);
-        assert_eq!(texts(&out.words), vec!["a", "b", "a", "b"]);
-        let starts: Vec<f32> = out.words.iter().map(|w| w.start_s).collect();
-        assert!((starts[0] - 0.0).abs() < 1e-3 && (starts[2] - 30.0).abs() < 1e-3);
+        let want = [0.0, 0.2, 0.4, 0.6, 30.6];
+        assert_eq!(model.0.len(), want.len(), "{:?}", model.0);
+        for (got, want) in model.0.iter().zip(want) {
+            assert!((got - want).abs() < 1e-3, "{:?}", model.0);
+        }
+        assert_eq!(out.windows, want.len());
     }
 
     #[test]
-    fn advancing_by_the_minimum_or_less_is_a_whole_window() {
-        assert_eq!(advance(MIN_ADVANCE_S), None, "the boundary is not past it");
-        assert_eq!(advance(0.1), None);
-        assert_eq!(advance(MIN_ADVANCE_S + 0.01), Some(MIN_ADVANCE_S + 0.01));
+    fn a_short_word_at_the_start_of_a_window_moves_the_next_window_just_past_it() {
+        // Upstream's seek has no floor: one finished word that ends 0.3 s in
+        // is followed by a window that starts 0.3 s in, and whatever the model
+        // had not finished is heard again. It used to be a whole window, and
+        // 30 s of speech went with it.
+        struct OneShort(Vec<f32>);
+        impl WindowTranscriber for OneShort {
+            fn window(&mut self, audio: &[f32], _: WindowRequest) -> Result<WindowResult> {
+                let start = audio[0] / RATE as f32;
+                self.0.push(start);
+                let words = if start == 0.0 {
+                    vec![Word {
+                        text: "yes".into(),
+                        start_s: 0.0,
+                        end_s: 0.3,
+                        confidence: 1.0,
+                    }]
+                } else {
+                    Vec::new()
+                };
+                Ok(WindowResult {
+                    language: 1,
+                    speech: true,
+                    next: Some(0.3),
+                    last_speech_s: Some(0.3),
+                    words,
+                })
+            }
+        }
+        let mut model = OneShort(Vec::new());
+        run_windows(&mut model, &ramp(40.0), None, &never).unwrap();
+        assert!((model.0[1] - 0.3).abs() < 1e-3, "{:?}", model.0);
+    }
+
+    #[test]
+    fn a_next_start_of_nothing_is_a_whole_window_and_a_tiny_one_is_a_frame() {
+        struct Says(Option<f32>, Vec<f32>);
+        impl WindowTranscriber for Says {
+            fn window(&mut self, audio: &[f32], _: WindowRequest) -> Result<WindowResult> {
+                self.1.push(audio[0] / RATE as f32);
+                Ok(WindowResult {
+                    words: Vec::new(),
+                    language: 1,
+                    speech: true,
+                    next: self.0,
+                    last_speech_s: None,
+                })
+            }
+        }
+        for next in [None, Some(0.0), Some(-1.0)] {
+            let mut model = Says(next, Vec::new());
+            run_windows(&mut model, &ramp(40.0), None, &never).unwrap();
+            assert!((model.1[1] - 30.0).abs() < 1e-3, "{next:?}: {:?}", model.1);
+        }
+        let mut model = Says(Some(0.001), Vec::new());
+        run_windows(&mut model, &ramp(40.0), None, &never).unwrap();
+        assert!((model.1[1] - MIN_STEP_S).abs() < 1e-3, "{:?}", model.1);
     }
 
     #[test]
