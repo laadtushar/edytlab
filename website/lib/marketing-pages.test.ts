@@ -81,7 +81,7 @@ describe("footer and marketing pages", () => {
   });
 
   it("links the hub from the header and from the home page's 'What it does' section", () => {
-    expect(read(join(WEBSITE, "components/landing/site-header.tsx"))).toContain('href: "/compare"');
+    expect(read(join(WEBSITE, "components/landing/site-nav.ts"))).toContain('href: "/compare"');
     expect(read(join(WEBSITE, "components/landing/comparison.tsx"))).toContain('href="/compare"');
   });
 

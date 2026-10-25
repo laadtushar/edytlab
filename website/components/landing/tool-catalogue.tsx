@@ -90,26 +90,19 @@ const GROUPS = [
     tools: ["time_stretch", "pitch_shift", "change_speed", "align_to_beat"],
   },
   {
-    name: "Arrangement",
-    tools: [
-      "cut_range",
-      "trim",
-      "split_clip",
-      "move_clip",
-      "remove_clip",
-      "copy_region",
-      "paste_region",
-      "insert_silence",
-      "repeat_selection",
-      "time_shift",
-      "set_clip_envelope",
-    ],
+    name: "Cut & move",
+    tools: ["cut_range", "trim", "split_clip", "move_clip", "remove_clip", "time_shift"],
+  },
+  {
+    name: "Copy & fill",
+    tools: ["copy_region", "paste_region", "insert_silence", "repeat_selection"],
   },
   {
     name: "Mixing",
     tools: [
       "set_track_gain",
       "set_pan",
+      "set_clip_envelope",
       "mute_track",
       "solo_track",
       "create_bus",
@@ -172,17 +165,17 @@ export function ToolCatalogue() {
   return (
     <section
       id="tools"
-      className="border-y border-border/50 bg-secondary/20 py-20 md:py-28"
+      className="border-y border-border/50 bg-secondary/20 py-12 md:py-28"
     >
       <div className="container">
         <SectionHeading
           eyebrow="The toolbox"
           title="Named, not counted."
-          lead="Ask in plain language and the agent picks the tool. These are the ones you will reach for most; the tools reference lists every one, and if something is not there the agent cannot do it — and will tell you so rather than pretend."
+          lead="Ask in plain language and the agent picks the tool. If it is not in the tools reference, the agent cannot do it."
         />
 
         <Cascade
-          className="mx-auto mb-10 flex max-w-4xl flex-wrap justify-center gap-1.5"
+          className="mx-auto mb-10 hidden max-w-4xl flex-wrap justify-center gap-1.5 sm:flex"
           each={0.02}
           distance={8}
         >
@@ -209,7 +202,7 @@ export function ToolCatalogue() {
 
         <div ref={grid}>
           <Cascade
-            className="mx-auto grid max-w-6xl gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3"
+            className="mx-auto grid max-w-6xl grid-cols-2 gap-x-4 gap-y-6 sm:gap-x-8 sm:gap-y-8 lg:grid-cols-3"
             selector=":scope > [data-group] > h3, :scope > [data-group] li"
             each={0.012}
             distance={8}
@@ -224,11 +217,11 @@ export function ToolCatalogue() {
                 <h3 className="mb-3 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
                   {g.name}
                 </h3>
-                <ul className="flex flex-wrap gap-1.5">
+                <ul className="flex flex-wrap gap-1 sm:gap-1.5">
                   {g.tools.map((t) => (
                     <li
                       key={t}
-                      className="rounded border border-border/60 bg-card px-2 py-1 font-mono text-[11px] text-foreground/80 transition-colors hover:border-primary/50 hover:text-foreground"
+                      className="rounded border border-border/60 bg-card px-1.5 py-0.5 font-mono text-[11px] sm:px-2 sm:py-1 text-foreground/80 transition-colors hover:border-primary/50 hover:text-foreground"
                     >
                       {t}
                     </li>
@@ -241,9 +234,7 @@ export function ToolCatalogue() {
 
         <Reveal className="mx-auto mt-12 max-w-2xl text-center text-sm text-muted-foreground" distance={12}>
           <p>
-            Plus track and format management — add, remove, rename and duplicate
-            tracks, resample, mono/stereo conversion, tone and noise
-            generators, markers and label import/export.
+            Plus track and format management, generators, markers and labels.
           </p>
           <Link
             href="/docs/tools"

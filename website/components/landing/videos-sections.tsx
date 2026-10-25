@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, Download, Github } from "lucide-react";
+import { BookOpen, Download } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -22,14 +22,14 @@ export function VideoSection({
   children: ReactNode;
 }) {
   return (
-    <section aria-labelledby={id} className="mt-20">
+    <section aria-labelledby={id} className="mt-14">
       <h2 id={id} className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
         {title}
       </h2>
       {lead ? (
         <p className="mt-3 max-w-2xl text-pretty leading-relaxed text-muted-foreground">{lead}</p>
       ) : null}
-      <div className="mt-8">{children}</div>
+      <div className="mt-6">{children}</div>
     </section>
   );
 }
@@ -64,27 +64,21 @@ export function VideosCta({ heading = "Try it on your own audio" }: { heading?: 
   return (
     <section
       aria-labelledby="videos-cta"
-      className="mt-24 rounded-2xl border border-border/60 bg-secondary/20 px-6 py-10 text-center sm:px-12 sm:py-14"
+      className="mt-16 rounded-2xl border border-border/60 bg-secondary/20 px-6 py-8 text-center sm:px-12 sm:py-12"
     >
       <h2 id="videos-cta" className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
         {heading}
       </h2>
       <p className="mx-auto mt-3 max-w-xl text-pretty leading-relaxed text-muted-foreground">
-        edytlab is free and open source (MIT) for macOS, Windows and Linux. You bring your own AI provider key, or run Ollama on
-        your own machine.
+        edytlab is free and open source (MIT) for macOS, Windows and Linux.
       </p>
-      <VideoActions className="mt-8 justify-center" />
-      <p className="mx-auto mt-6 max-w-xl text-pretty text-xs leading-relaxed text-muted-foreground">
+      <VideoActions className="mt-6 justify-center" />
+      <p className="mx-auto mt-5 max-w-xl text-pretty text-xs leading-relaxed text-muted-foreground">
         The installers are unsigned, so macOS and Windows warn the first time you open edytlab; the{" "}
         <Link href="/docs/getting-started" className="text-primary underline underline-offset-4">
           setup guide
         </Link>{" "}
-        has the steps. Stem separation is not built yet. The source is on{" "}
-        <a href={siteConfig.github} className="text-primary underline underline-offset-4" target="_blank" rel="noopener noreferrer">
-          <Github className="mr-0.5 inline size-3.5 align-[-2px]" aria-hidden />
-          GitHub
-        </a>
-        .
+        has the steps. Stem separation is not built yet.
       </p>
     </section>
   );

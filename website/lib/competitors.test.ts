@@ -581,8 +581,10 @@ describe("/alternatives/audacity", () => {
     expect(better, "no 'Where Audacity is better' heading").toBeGreaterThan(-1);
     expect(differs, "no 'Where edytlab differs' heading").toBeGreaterThan(-1);
     expect(better).toBeLessThan(differs);
-    // In the first third of the page, as the research asks.
-    expect(better / body.length).toBeLessThan(0.45);
+    // Early in the page's own content, as the research asks. Measured
+    // inside <main>, so the site header and its phone menu do not count.
+    const main = body.slice(body.indexOf("<main"), body.lastIndexOf("</main>"));
+    expect(main.indexOf("Where Audacity is better") / main.length).toBeLessThan(0.45);
   });
 
   it("states Audacity's AI plugins from its plugin page, and edytlab's lack of music separation in the same breath", () => {
@@ -898,7 +900,9 @@ describe("/alternatives/adobe-audition", () => {
     const differs = body.indexOf("Where edytlab differs");
     expect(better, "no 'Where Adobe Audition is better' heading").toBeGreaterThan(-1);
     expect(differs).toBeGreaterThan(better);
-    expect(better / body.length).toBeLessThan(0.45);
+    // Measured inside <main>, so the site header and its phone menu do not count.
+    const main = body.slice(body.indexOf("<main"), body.lastIndexOf("</main>"));
+    expect(main.indexOf("Where Adobe Audition is better") / main.length).toBeLessThan(0.45);
   });
 
   it("states the price as the page showed it, with the day, and passes no judgement on it", () => {

@@ -71,7 +71,7 @@ export default async function VideoPage({ params }: Props) {
 
       {/* A vertical video sits beside its words from `lg` up, so the page is not a phone-wide
           strip in a wide black box; a landscape one is full width, with its words below. */}
-      <div className={vertical ? "mt-10 lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start lg:gap-14" : "mt-10"}>
+      <div className={vertical ? "mt-8 lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start lg:gap-14" : "mt-8"}>
         <div className={vertical ? "mx-auto w-full max-w-[22rem] lg:sticky lg:top-24 lg:mx-0" : undefined}>
           <WatchPlayer video={video} />
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground/80">
@@ -80,20 +80,18 @@ export default async function VideoPage({ params }: Props) {
           </p>
         </div>
 
-        <div className={vertical ? "mt-14 space-y-14 lg:mt-0" : "mt-14 max-w-3xl space-y-14"}>
-          <section aria-labelledby="video-shows">
-            <h2 id="video-shows" className="text-2xl font-semibold tracking-tight">
-              About this video
-            </h2>
-            <p className="mt-4 leading-relaxed text-foreground/90">{forViewers(video.caption)}</p>
-          </section>
+        <div className={vertical ? "mt-8 space-y-6 lg:mt-0" : "mt-8 max-w-3xl space-y-6"}>
+          <p className="leading-relaxed text-foreground/90">{forViewers(video.caption)}</p>
 
-          <section aria-labelledby="video-happens">
-            <h2 id="video-happens" className="text-2xl font-semibold tracking-tight">
+          {/* Collapsed, not left out: the list is in the page's HTML for a
+              reader who opens it and for a search engine, and the video's
+              structured data does not depend on it. */}
+          <details className="rounded-xl border border-border/60 bg-card">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium sm:px-5">
               What you will see
-            </h2>
-            <p className="mt-4 leading-relaxed text-muted-foreground">Each line is a moment, with the time it starts.</p>
-            <ol className="mt-5 divide-y divide-border/40 rounded-xl border border-border/60 bg-card">
+              <span className="font-normal text-muted-foreground"> · {video.moments.length} moments</span>
+            </summary>
+            <ol className="divide-y divide-border/40 border-t border-border/60">
               {video.moments.map((m) => (
                 <li key={m.at} className="flex gap-4 px-4 py-3 text-sm leading-relaxed sm:px-5">
                   <span className="w-10 shrink-0 font-mono tabular-nums text-muted-foreground">{formatMoment(m.at)}</span>
@@ -101,15 +99,15 @@ export default async function VideoPage({ params }: Props) {
                 </li>
               ))}
             </ol>
-          </section>
+          </details>
         </div>
       </div>
 
-      <section aria-labelledby="video-more" className="mt-20">
-        <h2 id="video-more" className="text-2xl font-semibold tracking-tight sm:text-3xl">
+      <section aria-labelledby="video-more" className="mt-14">
+        <h2 id="video-more" className="text-xl font-semibold tracking-tight sm:text-2xl">
           More to watch
         </h2>
-        <div className={vertical ? "mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4" : "mt-8 grid gap-5 md:grid-cols-3"}>
+        <div className={vertical ? "mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4" : "mt-6 grid gap-4 md:grid-cols-3 md:gap-5"}>
           {related.map((v) => (
             <VideoLinkCard key={v.slug} video={v} compact={vertical} />
           ))}

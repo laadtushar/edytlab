@@ -111,11 +111,14 @@ export function VideoLinkCard({
   video,
   compact = false,
   row = false,
+  disclosure = true,
   className,
 }: {
   video: WatchVideo;
   compact?: boolean;
   row?: boolean;
+  /** Under the blurb. The hub says it once for a whole row of cards instead. */
+  disclosure?: boolean;
   className?: string;
 }) {
   return (
@@ -172,7 +175,9 @@ export function VideoLinkCard({
         >
           {video.blurb}
         </p>
-        <p className={cn("mt-auto pt-1 text-xs leading-relaxed text-muted-foreground/80", row && "md:mt-2")}>{video.disclosure}</p>
+        {disclosure ? (
+          <p className={cn("mt-auto pt-1 text-xs leading-relaxed text-muted-foreground/80", row && "md:mt-2")}>{video.disclosure}</p>
+        ) : null}
       </div>
     </article>
   );

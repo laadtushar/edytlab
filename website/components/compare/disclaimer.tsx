@@ -43,8 +43,7 @@ export function Disclaimer({
         <a href={`${siteConfig.github}/issues`} target="_blank" rel="noopener noreferrer">
           Tell us
         </a>{" "}
-        and we will correct it (<Link href="/about#corrections">how corrections work</Link>,{" "}
-        <Link href="/about#how-we-compare">how we compare</Link>).
+        and we will correct it (<Link href="/about#corrections">how corrections work</Link>).
       </div>
     </div>
   );

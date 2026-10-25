@@ -88,7 +88,7 @@ export function CTA({ release }: { release: ReleaseAssets }) {
   return (
     <section
       ref={ref}
-      className="relative overflow-hidden border-t border-border/50 bg-secondary/20 py-24 md:py-32"
+      className="relative overflow-hidden border-t border-border/50 bg-secondary/20 py-16 md:py-32"
     >
       <div
         data-orb-drift

@@ -101,7 +101,7 @@ const sources: Source[] = [...new Set(leaned.map((l) => l.url))].map((url) => ({
 const rows: FactRow[] = [
   {
     label: "Price",
-    ours: "The app is free. A hosted AI provider bills you for tokens; Ollama is free and runs on your machine.",
+    ours: "The app is free. A hosted provider bills you for tokens; Ollama is free and runs on your machine.",
     oursSource: { href: "/docs/getting-started", label: "Getting started" },
     theirs: audacity.pricing.text,
     source: { href: audacity.pricing.url },
@@ -117,7 +117,7 @@ const rows: FactRow[] = [
   },
   {
     label: "Platforms",
-    ours: "macOS (universal), Windows and Linux. The installers are unsigned.",
+    ours: "macOS (universal), Windows and Linux.",
     oursSource: { href: "/docs/getting-started", label: "Getting started" },
     theirs: audacity.platforms.text,
     source: { href: audacity.platforms.url },
@@ -165,7 +165,7 @@ export default function AudacityAlternativePage() {
         <>
           edytlab is a free, MIT-licensed desktop editor in which an AI agent runs local audio tools from a sentence you type; a
           hosted AI provider bills you for tokens unless you use Ollama. Audacity is also free and open source, and is the better
-          fit if you record, use audio plugins or edit waveforms by hand. They suit different jobs.
+          fit if you record, use audio plugins or edit waveforms by hand.
         </>
       }
     >
@@ -174,27 +174,17 @@ export default function AudacityAlternativePage() {
       <JsonLd data={articleJsonLd({ path, headline: title, description, datePublished: published })} />
       <Prose>
         <h2 id="quick-facts">Quick facts</h2>
-        <p>
-          Each row links the page that states Audacity&apos;s side and the day we read it. edytlab&apos;s side links to its own
-          docs. How the pages are made is on <Link href="/about#how-we-compare">the about page</Link>.
-        </p>
         <FactsTable theirName="Audacity" rows={rows} />
 
         <h2 id="where-audacity-is-better">Where Audacity is better</h2>
-        <p>These are the places where, by Audacity&apos;s own pages, it does more than edytlab does.</p>
         <ul>
           <li>
             <strong>Audio plugins.</strong>{" "}
-            Audacity&apos;s home page lists{" "}
-            <a href={href("plugins-vst")} target="_blank" rel="noopener noreferrer">
-              &ldquo;a vast selection of third-party plugins, including VST3, Nyquist and more&rdquo;
-            </a>
-            , and its{" "}
+            Besides the table row, Audacity&apos;s{" "}
             <a href={href("plugins-lv2")} target="_blank" rel="noopener noreferrer">
               Audacity 4 page
             </a>{" "}
-            says LV2 plugins load &ldquo;right alongside VST3 and Audio Units&rdquo;. edytlab hosts none of these: its README
-            says it has no plugin hosting.
+            says LV2 plugins load &ldquo;right alongside VST3 and Audio Units&rdquo;. edytlab has no plugin hosting.
           </li>
           <li>
             <strong>Local AI plugins today.</strong>{" "}
@@ -202,11 +192,7 @@ export default function AudacityAlternativePage() {
             <a href={href("ai-plugin-list")} target="_blank" rel="noopener noreferrer">
               plugin page
             </a>{" "}
-            lists Intel OpenVINO plugins named &ldquo;Music Separation&rdquo; (it splits a track into drums, bass, vocals and
-            other instruments), &ldquo;Noise Suppression&rdquo;, &ldquo;Music Generation and continuation&rdquo; and
-            &ldquo;Whisper Transcription&rdquo;, and says these features &ldquo;run 100% locally on your PC&rdquo; with no
-            internet connection necessary. edytlab has not shipped stem separation. From v0.8.0 it transcribes with Whisper base on your
-            computer, after you download that model once. A{" "}
+            lists a &ldquo;Music Separation&rdquo; plugin among its local ones; edytlab has not shipped stem separation. A{" "}
             <a href={href("ai-macos-beta")} target="_blank" rel="noopener noreferrer">
               June 2025 post
             </a>{" "}
@@ -220,8 +206,7 @@ export default function AudacityAlternativePage() {
               home page
             </a>{" "}
             also promotes MuseHub plugins, one described as &ldquo;Clean up spoken voice and create instant transcripts&rdquo;
-            and another as &ldquo;Automatically split mixed-speaker audio into separate tracks&rdquo;. Audacity has AI tools of
-            its own.
+            and another as &ldquo;Automatically split mixed-speaker audio into separate tracks&rdquo;.
           </li>
           <li>
             <strong>Recording and hand editing.</strong>{" "}
@@ -233,23 +218,18 @@ export default function AudacityAlternativePage() {
             <a href={href("anniversary")} target="_blank" rel="noopener noreferrer">
               blog
             </a>{" "}
-            marked the project&apos;s 25th anniversary in May 2025. If your work is recording and cutting by hand, it is the
-            long-established tool for it. edytlab is a new project.
+            marked the project&apos;s 25th anniversary in May 2025. edytlab is a new project.
           </li>
           <li>
             <strong>No AI provider needed.</strong>{" "}
-            Audacity does its work without an AI provider, a key or a model. edytlab&apos;s
-            chat needs one: a hosted provider with your own key, or Ollama running on your machine.
+            Audacity works without an AI provider or a key. edytlab&apos;s chat needs one: a hosted provider with your own key,
+            or Ollama running on your machine.
           </li>
         </ul>
 
         <NotBuiltYet />
 
         <h2 id="where-edytlab-differs">Where edytlab differs</h2>
-        <p>
-          edytlab&apos;s approach is to describe a job and let an agent run the tools. These are the differences, each one about
-          edytlab and checkable in its docs.
-        </p>
         <ul>
           <li>
             <strong>Describe a multi-step job in words.</strong>{" "}
@@ -265,9 +245,8 @@ export default function AudacityAlternativePage() {
           <li>
             <strong>Loudness targets by name.</strong>{" "}
             <Code>normalize_loudness</Code>{" "}
-            takes a preset: Spotify and YouTube
-            −14 LUFS, Apple Podcasts −16, broadcast −23. It sets a track&apos;s gain to reach the target, capped at a peak
-            ceiling (−1 dBFS by default).
+            takes a preset (Spotify and YouTube −14 LUFS, Apple Podcasts −16, broadcast −23) and sets a track&apos;s gain to
+            reach it, capped at a peak ceiling (−1 dBFS by default).
           </li>
           <li>
             <strong>Recipes you can replay over a folder.</strong>{" "}
@@ -277,35 +256,16 @@ export default function AudacityAlternativePage() {
             runs that file on every audio file in a folder, each
             file becoming its own project.
           </li>
-          <li>
-            <strong>Tempo and beat tools in the same place.</strong>{" "}
-            <Code>analyze_track</Code>{" "}
-            returns BPM, key, beat grid and
-            EBU R128 loudness. <Code>time_stretch</Code>{" "}
-            changes length without changing pitch, and <Code>align_to_beat</Code>{" "}
-            warps a track so its beat positions land on a grid. Both run on a phase vocoder written for edytlab.
-          </li>
-          <li>
-            <strong>Local processing.</strong>{" "}
-            Decoding, editing and rendering run in-process in Rust. The AI provider sees your
-            chat and the tools&apos; results, never your audio. The{" "}
-            <Link href="/use-cases/local-ai-audio-editor">local-first page</Link> lists what stays and what leaves, and what to
-            expect from local models.
-          </li>
         </ul>
-        <p>
-          The three-track mini-mix recording ({formatDuration(demo.seconds)}) shows one such job from request to exported
-          WAV. Waits for the assistant are sped up; every playback is in real time.
-        </p>
         <div className="not-prose mt-6 max-w-xl">
           <VideoLinkCard video={demo} />
         </div>
 
         <h2 id="use-both">Use both: exports and labels</h2>
         <p>
-          Nothing stops you using both. edytlab loads WAV, MP3, FLAC and other common audio formats and exports WAV, FLAC or MP3,
-          so audio moves between the two as ordinary files. It has no importer for Audacity&apos;s own project files, so export
-          the audio from Audacity first and load that.
+          edytlab loads WAV, MP3, FLAC and other common audio formats and exports WAV, FLAC or MP3, so audio moves between the
+          two as ordinary files. It has no importer for Audacity&apos;s own project files, so export the audio from Audacity
+          first and load that.
         </p>
         <p>
           Labels are the one place the two share a format. Audacity&apos;s{" "}
@@ -313,19 +273,14 @@ export default function AudacityAlternativePage() {
             manual
           </a>{" "}
           says label tracks export to and import from tab-delimited plain text: start time in seconds, end time, then the
-          label&apos;s text. edytlab&apos;s <Code>import_labels</Code>{" "}
-            and <Code>export_labels</Code>{" "}
-            read and write that
-          layout. <Code>export_labels</Code>{" "}
-            returns the text in the chat and writes no file, so save it as a .txt file to bring
-          it into Audacity (File, Import, Labels), and paste Audacity&apos;s exported text to the agent to bring labels the other
-          way.
+          label&apos;s text. edytlab&apos;s <Code>import_labels</Code> and <Code>export_labels</Code> read and write that
+          layout. <Code>export_labels</Code> returns the text in the chat and writes no file, so save it as a .txt file to
+          import into Audacity (File, Import, Labels); paste Audacity&apos;s exported text to the agent to go the other way.
         </p>
 
         <h2 id="chat-control-in-audacity">Chat control inside Audacity</h2>
         <p>
-          If you like Audacity and want an assistant inside it, third-party projects connect MCP-capable AI assistants to it. One
-          of them, AudacityMCP, says in its{" "}
+          Third-party projects connect MCP-capable AI assistants to Audacity. One of them, AudacityMCP, says in its{" "}
           <a href={href("mcp-third-party")} target="_blank" rel="noopener noreferrer">
             README
           </a>{" "}
@@ -339,35 +294,27 @@ export default function AudacityAlternativePage() {
           <a href={href("privacy-notice")} target="_blank" rel="noopener noreferrer">
             privacy notice
           </a>{" "}
-          for Audacity 4 and newer, last updated 31 August 2026, says all of its network features are optional and lists three:
-          update checking, which is on by default; error reporting; and a randomly generated identifier that is stored only if
-          you opt in. It says each can be disabled in preferences, and audio is not among the data it lists. This page says
-          nothing about Audacity&apos;s privacy beyond that notice.
+          for Audacity 4 and newer, last updated 31 August 2026, is summarised in the table above. This page says nothing about
+          Audacity&apos;s privacy beyond that notice.
         </p>
         <p>
-          edytlab keeps your audio on your computer. The chat, with the results of the tools the agent calls, goes to the AI
-          provider you pick, or stays on your machine with Ollama. The app has no update check and sends no telemetry. This
-          website does record visits with anonymous Vercel analytics{GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}; the <Link href="/privacy">privacy page</Link> says what.
+          edytlab&apos;s side is in the table too, and the <Link href="/use-cases/local-ai-audio-editor">local-first page</Link>{" "}
+          lists what stays, what leaves, and what to expect from local models. The app has no update check. This website records
+          visits with anonymous Vercel analytics{GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}; the <Link href="/privacy">privacy page</Link> says what.
         </p>
 
         <h2 id="platforms-and-cost">An Audacity alternative for Linux, macOS and Windows, and what each costs</h2>
         <p>
-          Both run on all three. If you would rather describe an edit than do each step by hand, edytlab is an Audacity alternative
-          for Linux, an Audacity alternative on macOS and an Audacity alternative for Windows. Looking for a free Audacity
-          alternative that is also open source? edytlab is an open-source Audacity alternative under the MIT license; Audacity
-          itself is GPL v3, per its{" "}
+          Both run on all three. edytlab is an Audacity alternative for Linux, an Audacity alternative on macOS and an Audacity
+          alternative for Windows, and a free Audacity alternative that is also an open-source Audacity alternative, under the
+          MIT license. Audacity itself is GPL v3, per its{" "}
           <a href={audacity.openSource.url} target="_blank" rel="noopener noreferrer">
             Audacity 4 page
           </a>
-          . edytlab&apos;s installers are unsigned, so macOS and Windows warn on first launch (the{" "}
-          <Link href="/docs/getting-started">getting started guide</Link> has the steps).
+          .
         </p>
         <p>
-          Audacity is free: its home page says it{" "}
-          <a href={href("free-open-source")} target="_blank" rel="noopener noreferrer">
-            &ldquo;has always been and will always remain free for everyone&rdquo;
-          </a>
-          . Its{" "}
+          Audacity is free, though its{" "}
           <a href={href("cloud-storage")} target="_blank" rel="noopener noreferrer">
             FAQ
           </a>{" "}
@@ -375,9 +322,8 @@ export default function AudacityAlternativePage() {
           <a href={href("musehub-paid")} target="_blank" rel="noopener noreferrer">
             Audacity 4 page
           </a>{" "}
-          says MuseHub lists free and paid plugins. edytlab&apos;s app is free too, but a hosted provider bills you for tokens, at
-          the rates on that provider&apos;s own price list. Ollama is free and runs on your machine, so nothing is billed if you
-          use it; local models have limits of their own, which the local-first page lists.
+          says MuseHub lists free and paid plugins. edytlab&apos;s app is free too; a hosted provider bills you for tokens, at
+          the rates on that provider&apos;s own price list.
         </p>
 
         <Verdict
@@ -386,7 +332,7 @@ export default function AudacityAlternativePage() {
             "you record audio, or edit waveforms by hand and want that to be the main way you work;",
             "you rely on VST3, LV2, Audio Unit or Nyquist plugins;",
             "you want Audacity's local AI plugins today, and have checked that they support the version you run;",
-            "you want no AI provider, key or model involved at all.",
+            "you want no AI provider or key involved at all.",
           ]}
           ours={[
             "you would rather describe a multi-step job in a sentence than do each step by hand;",
@@ -394,39 +340,18 @@ export default function AudacityAlternativePage() {
             "you are happy to bring an AI provider's key, or run Ollama on your machine;",
             "you can work without audio plugins, and without stem separation, which has not shipped.",
           ]}
-          closing={
-            <p>
-              You can also use both: export audio from one and load it in the other, and share labels as described above.
-            </p>
-          }
         />
 
-        <h2 id="questions">Common questions</h2>
-        <h3>Is edytlab a drop-in replacement for Audacity?</h3>
-        <p>
-          No. Audacity hosts audio plugins and has optional local AI plugins that edytlab does not match, since stem separation
-          has not shipped here. edytlab suits jobs you can say in a sentence.
-        </p>
-        <h3>Can I open my Audacity projects in edytlab?</h3>
-        <p>
-          Not directly. edytlab loads audio files and has no importer for Audacity&apos;s project files, so export the audio from
-          Audacity and load that.
-        </p>
-        <h3>Does edytlab need an internet connection?</h3>
-        <p>
-          The editing does not: it runs on your computer. The chat does, unless you use Ollama on your own machine.
-        </p>
-        <h3>Why does my computer warn me when I open edytlab?</h3>
+        <h2 id="install-warning">Why macOS and Windows warn when you open edytlab</h2>
         <p>
           The installers are{" "}
           <a href={`${siteConfig.github}/issues/386`} target="_blank" rel="noopener noreferrer">
             not signed
           </a>
-          , so macOS and Windows warn on first launch. The source is public, and the{" "}
-          <Link href="/docs/getting-started">getting started guide</Link> has the steps.
+          . The source is public, and the <Link href="/docs/getting-started">getting started guide</Link> has the steps.
         </p>
 
-        <SourcesList competitor="Audacity" sources={sources} />
+        <SourcesList sources={sources} />
         <Disclaimer competitor="Audacity" checkedOn={checkedOn} />
       </Prose>
       <PageLinks />

@@ -24,9 +24,9 @@ import "@/lib/gsap-text";
  * registry's, as a quoted `"N"`.
  */
 const stats = [
-  { value: "0", unit: "bytes", label: "of your audio uploaded — the DSP runs on your machine" },
-  { value: "6", unit: "API providers", label: "bring your own key or run a local model, or use your ChatGPT plan" },
-  { value: "94", unit: "tools", label: "the agent can call, from fade to beat-warp" },
+  { value: "0", unit: "bytes", label: "of your audio uploaded" },
+  { value: "6", unit: "API providers", label: "plus your ChatGPT plan" },
+  { value: "94", unit: "tools", label: "the agent can call" },
 ];
 
 export function StatsStrip() {
@@ -51,11 +51,11 @@ export function StatsStrip() {
   );
 
   return (
-    <section ref={ref} className="relative py-14 md:py-16">
+    <section ref={ref} className="relative py-10 md:py-16">
       <div className="container">
         <Stagger
           as="dl"
-          className="mx-auto grid max-w-4xl gap-x-8 gap-y-10 sm:grid-cols-3"
+          className="mx-auto grid max-w-4xl gap-x-8 gap-y-6 sm:grid-cols-3"
           each={0.09}
           scale
         >
@@ -89,7 +89,7 @@ export function StatsStrip() {
           ))}
         </Stagger>
       </div>
-      <div className="rule-fade container mt-14 max-w-5xl" />
+      <div className="rule-fade container mt-10 max-w-5xl md:mt-14" />
     </section>
   );
 }

@@ -82,7 +82,7 @@ export function SectionHeading({ eyebrow, title, lead, className }: SectionHeadi
   );
 
   return (
-    <div ref={ref} className={cn("mx-auto mb-12 max-w-2xl text-center", className)}>
+    <div ref={ref} className={cn("mx-auto mb-8 max-w-2xl text-center md:mb-12", className)}>
       {eyebrow ? (
         // An invisible copy holds the line; the visible label sits over
         // it, so the scramble cannot change the line's width.
@@ -109,7 +109,7 @@ export function SectionHeading({ eyebrow, title, lead, className }: SectionHeadi
         />
       </svg>
       {lead ? (
-        <p data-lead className="mt-4 text-pretty text-lg text-muted-foreground">
+        <p data-lead className="mt-3 text-pretty text-base text-muted-foreground md:mt-4 md:text-lg">
           {lead}
         </p>
       ) : null}

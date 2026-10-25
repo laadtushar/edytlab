@@ -20,6 +20,15 @@ const links = [
   // Social handles intentionally omitted until accounts exist.
 ];
 
+/** The home page's sections, which the header leaves out. */
+export const homeSections = [
+  { href: "/#demos", label: "Demos" },
+  { href: "/#features", label: "Features" },
+  { href: "/#tools", label: "Tools" },
+  { href: "/#interface", label: "Interface" },
+  { href: "/#faq", label: "FAQ" },
+];
+
 /**
  * The foot of every page. The mark builds itself as it scrolls into
  * view, the links arrive left to right, the rule draws out from the
@@ -62,6 +71,25 @@ export function Footer() {
             </Stagger>
           </LineDraw>
         </div>
+        {/* The sections of the home page. The header no longer lists
+            them (it keeps to five links), so this is where they stay one
+            tap from any page. */}
+        <nav
+          aria-label="On the home page"
+          className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
+        >
+          <span className="font-medium">On the home page</span>
+          {homeSections.map((s) => (
+            <Link
+              key={s.href}
+              href={s.href}
+              data-sweep
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {s.label}
+            </Link>
+          ))}
+        </nav>
         <nav
           aria-label="Use cases"
           className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"

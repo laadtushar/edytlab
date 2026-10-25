@@ -33,6 +33,7 @@ import {
   formatDuration,
   launchVideo,
   relatedVideos,
+  hubReels,
   reels,
   videoPath,
   videos,
@@ -156,12 +157,20 @@ describe("/videos", () => {
   });
 
   it("lists every video once as a card, except the featured one, whose title is its heading", () => {
-    for (const v of [...demoVideos, ...reels]) {
+    // One reel is left off the hub's cards so the clip grid has no card alone in a row (see the
+    // grid test below); its page, sitemap entry and file stay, and the other reels' pages offer it.
+    expect(reels.filter((v) => !hubReels.includes(v)).map((v) => v.slug)).toEqual(["reel-teaser"]);
+    for (const v of [...demoVideos, ...hubReels]) {
       expect(body.match(new RegExp(`href="${videoPath(v.slug)}"`, "g")), v.slug).toHaveLength(1);
       expect(text, v.slug).toContain(v.blurb);
-      expect(text, v.slug).toContain(v.disclosure);
       expect(text, v.slug).toContain(formatDuration(v.seconds));
     }
+    for (const v of reels.filter((r) => !hubReels.includes(r))) {
+      expect(body, v.slug).not.toContain(`href="${videoPath(v.slug)}"`);
+    }
+    // The disclosure is said once for the row of cards (cards carry none each), not eight times.
+    expect(text).toContain(demoVideos[0].disclosure);
+    expect(text).toMatch(/Waits sped up/);
     // Two links to the featured video: its poster and its title.
     expect(body.match(new RegExp(`href="${videoPath(launchVideo.slug)}"`, "g"))).toHaveLength(2);
   });
@@ -216,14 +225,26 @@ describe("/videos", () => {
     expect(source).not.toMatch(/<track[^>]*\bdefault\b/);
   });
 
-  it("fills its grids: three walkthroughs across, reels two across on a phone and all in one row from lg, last row centred", () => {
-    expect(body).toContain("md:grid-cols-3");
-    expect(demoVideos).toHaveLength(3);
-    expect(body).toMatch(/flex flex-wrap justify-center gap-4/);
-    expect(body).toContain("w-[calc((100%-1rem)/2)]");
-    // One row of five from `lg`: a reel added or removed has to change the width too.
-    expect(reels).toHaveLength(5);
-    expect(body).toContain("lg:w-[calc((100%-4rem)/5)]");
+  it("fills whole rows in both grids, on a phone and on a desktop: no card alone in a row", () => {
+    // The columns are read from each grid's own classes, and the cards counted in its section, so a
+    // card added or removed, or a column count changed, fails here instead of leaving one alone.
+    const grid = (id: string) => {
+      const start = body.indexOf(`id="${id}"`);
+      const section = body.slice(start, body.indexOf("</section>", start));
+      const classes = section.match(/<div class="([^"]*\bgrid\b[^"]*)"/)?.[1] ?? "";
+      const cols = (prefix: string) => Number(classes.match(new RegExp(`(?:^|\\s)${prefix}grid-cols-(\\d)`))?.[1]);
+      return { cards: section.match(/<article\b/g)?.length ?? 0, phone: cols("") || 1, wide: cols("lg:") || cols("md:") };
+    };
+    const walkthroughs = grid("videos-walkthroughs");
+    expect(walkthroughs).toEqual({ cards: 3, phone: 1, wide: 3 });
+    const clips = grid("videos-clips");
+    expect(clips).toEqual({ cards: 4, phone: 2, wide: 4 });
+    for (const g of [walkthroughs, clips]) {
+      expect(g.cards % g.phone, "a card alone on a phone").toBe(0);
+      expect(g.cards % g.wide, "a card alone on a desktop").toBe(0);
+    }
+    expect(clips.cards).toBe(hubReels.length);
+    expect(walkthroughs.cards).toBe(demoVideos.length);
   });
 
   it("closes with a way to download, and the two limits a downloader meets", () => {
@@ -251,7 +272,10 @@ describe("each video's page", () => {
     // One player, one VideoObject, and the player before every section.
     expect(body.match(/<video\b/g)).toHaveLength(1);
     expect(html.match(/"@type":"VideoObject"/g)).toHaveLength(1);
-    expect(body.indexOf("<video")).toBeLessThan(body.indexOf("About this video"));
+    expect(body.indexOf("<video")).toBeLessThan(body.indexOf("What you will see"));
+    // One paragraph about the video, straight after the player; the moments are collapsed under it.
+    expect(text).toContain(forViewers(video.caption));
+    expect(body).toMatch(/<details\b[^>]*>\s*<summary\b/);
     // The one line of honesty is under the player, with the length.
     expect(text).toContain(`${formatDuration(video.seconds)}`);
     expect(text).toContain(video.disclosure);
@@ -261,7 +285,9 @@ describe("each video's page", () => {
     expect(text).not.toMatch(/\(#\d+/);
     // What happens, as a list a viewer can follow.
     expect(text).toContain("What you will see");
+    // Every moment is in the HTML, inside the collapsed list, for a search engine and a reader who opens it.
     expect(body.match(/<li class="flex gap-4/g)).toHaveLength(video.moments.length);
+    expect(body).not.toMatch(/<details\b[^>]*\bopen\b/);
     // More to watch: cards that link to pages, not players, then the way to download.
     const more = body.slice(body.indexOf("More to watch"));
     expect(more).not.toMatch(/<video\b/);

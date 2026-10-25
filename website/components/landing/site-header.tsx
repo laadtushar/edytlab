@@ -2,39 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { Download, Github } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { MobileMenu } from "@/components/landing/mobile-menu";
+import { currentFor, navLinks, sectionId } from "@/components/landing/site-nav";
 import { Logo } from "@/components/motion/logo";
 import { gsap, useGSAP, motionOk, NO_PREFERENCE, ScrollTrigger } from "@/lib/gsap";
 import { siteConfig } from "@/lib/site";
 
-/**
- * In page order, so the highlight walks left to right as you scroll.
- *
- * `fromLg` keeps a link out of the bar below 1024 px, where the bar is
- * already full: with Videos in it the links touch the logo and the
- * buttons up to about 860 px. The footer links the same page.
- */
-const links: { href: string; label: string; fromLg?: boolean }[] = [
-  { href: "/#demos", label: "Demos" },
-  { href: "/#features", label: "Features" },
-  { href: "/#tools", label: "Tools" },
-  { href: "/#interface", label: "Interface" },
-  { href: "/#faq", label: "FAQ" },
-  { href: "/blog", label: "Blog" },
-  { href: "/videos", label: "Videos", fromLg: true },
-  { href: "/compare", label: "Compare", fromLg: true },
-  { href: "/docs", label: "Docs" },
-];
-
-/** The section id a home-page link points at, if it is one. */
-function sectionId(href: string) {
-  return href.startsWith("/#") ? href.slice(2) : undefined;
-}
-
 export function SiteHeader() {
   const ref = useRef<HTMLElement>(null);
+  const pathname = usePathname();
 
   useGSAP(
     () => {
@@ -79,14 +59,18 @@ export function SiteHeader() {
           .timeline()
           .from(ref.current, { y: -60, opacity: 0, duration: 0.6 })
           .from("[data-nav] > a", { y: -8, opacity: 0, duration: 0.4, stagger: 0.04 }, "-=0.3")
-          .from("[data-header-actions] > *", { y: -8, opacity: 0, duration: 0.4, stagger: 0.06 }, "<");
+          // Not the phone menu: a transform left on it would make
+          // its panel position against the menu button, not the bar.
+          .from("[data-header-actions] > :not([data-menu])", { y: -8, opacity: 0, duration: 0.4, stagger: 0.06 }, "<");
       });
       return () => mm.revert();
     },
     { scope: ref },
   );
 
-  // Which section the reader is in, marked on its link. This is state,
+  // Which home-page section the reader is in, marked on its link
+  // (Features, the one anchor in the bar; a page is marked by
+  // `aria-current` from the route instead). This is state,
   // not motion, so it runs for everyone; the underline it raises is a
   // CSS transition, which the reduced-motion rule already flattens.
   //
@@ -136,24 +120,34 @@ export function SiteHeader() {
           <Logo className="size-6" />
           edytlab
         </Link>
-        <nav data-nav className="hidden items-center gap-6 text-sm text-muted-foreground sm:flex">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              data-spy={sectionId(l.href)}
-              // An underline that grows from the left rather than
-              // appearing all at once — the same gesture as the scroll
-              // progress bar at the top of the window. Hover raises it
-              // briefly; being in the section holds it up.
-              className={`relative transition-colors after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-300 hover:text-foreground hover:after:scale-x-100 data-[active]:text-foreground data-[active]:after:scale-x-100${l.fromLg ? " hidden lg:inline" : ""}`}
-            >
-              {l.label}
-            </Link>
-          ))}
+        {/* From `md`: below it the bar has room for the logo and the
+            menu button only, and the links are in the menu. */}
+        <nav
+          aria-label="Main"
+          data-nav
+          className="hidden items-center gap-5 text-sm text-muted-foreground md:flex lg:gap-6"
+        >
+          {navLinks.map((l) => {
+            const current = currentFor(l.href, pathname);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                data-spy={sectionId(l.href)}
+                aria-current={current}
+                // An underline that grows from the left rather than
+                // appearing all at once — the same gesture as the scroll
+                // progress bar at the top of the window. Hover raises it
+                // briefly; being in the section, or on the page, holds it up.
+                className="relative transition-colors after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-300 hover:text-foreground hover:after:scale-x-100 data-[active]:text-foreground data-[active]:after:scale-x-100 aria-[current]:text-foreground aria-[current]:after:scale-x-100"
+              >
+                {l.label}
+              </Link>
+            );
+          })}
         </nav>
         <div data-header-actions className="flex items-center gap-2">
-          <Button asChild size="sm" variant="outline">
+          <Button asChild size="sm" variant="outline" className="hidden md:inline-flex">
             <Link href={siteConfig.github} target="_blank" rel="noopener noreferrer">
               <Github className="size-4" />
               GitHub
@@ -163,12 +157,13 @@ export function SiteHeader() {
               buttons live in the final scene. This keeps the primary
               action reachable from anywhere on the page rather than
               only at the end of the sequence. */}
-          <Button asChild size="sm" className="hidden sm:inline-flex">
+          <Button asChild size="sm" className="hidden md:inline-flex">
             <Link href={siteConfig.releases}>
               <Download className="size-4" />
               Download
             </Link>
           </Button>
+          <MobileMenu />
         </div>
       </div>
     </header>
