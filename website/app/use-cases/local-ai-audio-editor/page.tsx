@@ -11,6 +11,7 @@ import {
   pageBreadcrumbs,
 } from "@/lib/seo";
 import { GA_MEASUREMENT_ID } from "@/lib/consent";
+import { localOllama } from "@/lib/blog-posts-audio-2/local-ollama";
 import { siteConfig } from "@/lib/site";
 
 const title = "Local-first AI audio editor: audio stays local";
@@ -62,12 +63,8 @@ export default function LocalAiUseCasePage() {
           </thead>
           <tbody>
             <tr>
-              <td>Your audio files</td>
-              <td>Nowhere. Decoded, processed and rendered locally.</td>
-            </tr>
-            <tr>
-              <td>The edits themselves (EQ, fades, time-stretch, export)</td>
-              <td>Nowhere. They run in-process in a Rust engine.</td>
+              <td>Your audio files, and the edits made to them (EQ, fades, time-stretch, export)</td>
+              <td>Nowhere. Decoded, processed and rendered on your computer.</td>
             </tr>
             <tr>
               <td>Your chat messages and the agent&apos;s tool results</td>
@@ -89,15 +86,15 @@ export default function LocalAiUseCasePage() {
               <td>Signing in with ChatGPT (v0.9.0 and later; optional)</td>
               <td>
                 Only if you click Continue with ChatGPT. Your browser goes to
-                auth.openai.com, and edytlab exchanges and renews the sign-in
-                with the same host and asks it to revoke it when you sign out.
-                The assistant then talks to api.openai.com with your ChatGPT
-                access token instead of a key: the same text as for any
-                provider, never your raw audio. The refresh token stays in your
-                operating system&apos;s credential store, and a small
-                registration file (host ID, client ID, your email as a label)
-                stays in the app&apos;s config folder. Signing out in edytlab
-                does not disconnect it in ChatGPT; the{" "}
+                auth.openai.com, which edytlab also uses to exchange and renew
+                the sign-in and to revoke it when you sign out. The assistant
+                then talks to api.openai.com with your ChatGPT access token
+                instead of a key: the same text as for any provider, never your
+                raw audio. The refresh token stays in your operating system&apos;s
+                credential store, and a small registration file (host ID,
+                client ID, your email as a label) stays in the app&apos;s config
+                folder. Signing out in edytlab does not disconnect it in
+                ChatGPT; the{" "}
                 <Link href="/privacy#signing-in-with-chatgpt">privacy page</Link>{" "}
                 says how.
               </td>
@@ -128,64 +125,42 @@ export default function LocalAiUseCasePage() {
           </tbody>
         </table>
         <p>
-          The details are on the <Link href="/privacy">privacy page</Link>, and
-          the source is public, so you can check the claims rather than take
-          them on trust.
+          The <Link href="/privacy">privacy page</Link> has the details, and the{" "}
+          <a href={siteConfig.github} target="_blank" rel="noopener noreferrer">
+            source is public
+          </a>
+          , so you can check the claims.
         </p>
 
         <h2>Why the AI does not need your audio</h2>
         <p>
-          The model never sees or hears samples. It is given a description of
-          the session, with measurements such as tempo, key, beat grid and
-          loudness, and a list of 94 deterministic audio tools. It chooses
-          which tools to call and in what order. The tools do the signal
-          processing, in pure Rust, with no Python in the audio path. That
-          split is what makes local-first practical: the heavy, private part
-          stays on your machine, and the part that needs a language model is
-          only text.
+          The model never sees or hears samples. It is given a description of the session (tempo, key, beat grid, loudness)
+          and a list of deterministic audio tools, and chooses which to call and in what order. The tools do the signal
+          processing on your machine, so the private part stays local and the part that needs a language model is only text.
         </p>
 
         <h2>Run it with Ollama</h2>
         <p>
-          Ollama needs no account and no key. To use it:
-        </p>
-        <ul>
-          <li>
-            Install <a href="https://ollama.com" target="_blank" rel="noopener noreferrer">Ollama</a>{" "}
-            and pull a model that supports tool calling.
-          </li>
-          <li>Open Settings in edytlab (the gear icon) and choose Ollama.</li>
-          <li>
-            Press Test. edytlab sends a minimal request to check that the model
-            can call tools, then save.
-          </li>
-        </ul>
-        <p>
-          The <Link href="/docs/getting-started">getting started guide</Link>{" "}
-          walks through it. You can also switch between Ollama and a hosted
-          provider (Anthropic, OpenAI, OpenRouter, Groq or Gemini, or your
-          ChatGPT plan) at any time, without reinstalling.
+          Ollama needs no account and no key. Install <a href="https://ollama.com" target="_blank" rel="noopener noreferrer">Ollama</a>{" "}
+          and pull a model that supports tool calling, then choose Ollama in edytlab&apos;s Settings and press Test, which sends a
+          minimal request to check that the model can call tools. The{" "}
+          <Link href="/docs/getting-started">getting started guide</Link> walks through it, and you can switch between Ollama
+          and a hosted provider at any time, without reinstalling.
         </p>
 
         <h2>Be realistic about local models</h2>
         <ul>
           <li>
             With Ollama the agent sends a smaller set of tools: the common
-            editing tools, plus any tool you have named or the assistant has
-            just proposed, with shortened descriptions. The names of the rest
-            go in the prompt, so the model knows they exist and can call them.
-            That keeps a first request small enough for an 8,192-token
-            context. The summary of your session in that request is capped
-            too, at 2,300 bytes; a big project&apos;s track and marker lists
-            are cut to fit, and the model reads the rest a page at a time
-            with a tool that only reads. A long conversation can still outgrow
-            a small context.
-            If the server refuses an over-long request, as llama.cpp does, the
-            app says so and how to raise the context. Ollama trims an
-            over-long prompt instead, and the app shows nothing, so if replies
-            start to forget earlier messages, raise the model&apos;s context
-            length or reopen the project to start the conversation afresh. Use
-            a model with reliable tool calling.
+            editing tools, plus any you have named or the assistant has just
+            proposed. The names of the rest go in the prompt, so the model can
+            still call them. A big project&apos;s session summary is cut to fit
+            too, and the model reads the rest a page at a time. Ollama trims
+            an over-long prompt and the app shows nothing, so if replies start
+            to forget earlier messages, raise the model&apos;s context length or
+            reopen the project to start the conversation afresh. The{" "}
+            <Link href={`/blog/${localOllama.slug}`}>Ollama post</Link> has the
+            limits in full.
           </li>
           <li>
             On a CPU, a large request means a long wait for the first reply.
@@ -202,25 +177,11 @@ export default function LocalAiUseCasePage() {
           </li>
         </ul>
 
-        <h2>Open source, so you can verify it</h2>
-        <p>
-          edytlab is released under the MIT license. The audio engine, the tool
-          list and the privacy behaviour are all in the{" "}
-          <a href={siteConfig.github} target="_blank" rel="noopener noreferrer">
-            repository
-          </a>
-          , and the repository&apos;s tools reference is generated from the
-          same registry the agent calls, so that document cannot drift from
-          what the app does.
-        </p>
-
         <h2>Where next</h2>
         <p>
-          See it work in the <Link href="/use-cases/dj">DJ blend demo</Link>,
-          browse the <Link href="/docs/tools">94 tools</Link>, or read the{" "}
-          <Link href="/blog">blog</Link>. The builds are unsigned for now, so
-          macOS and Windows will warn on first launch; the{" "}
-          <Link href="/docs/getting-started">setup guide</Link> has the steps.
+          See it work in the <Link href="/use-cases/dj">DJ blend demo</Link> or browse the{" "}
+          <Link href="/docs/tools">tools reference</Link>. The builds are unsigned for now, so macOS and Windows will warn on
+          first launch; the <Link href="/docs/getting-started">setup guide</Link> has the steps.
         </p>
       </Prose>
       <PageLinks />

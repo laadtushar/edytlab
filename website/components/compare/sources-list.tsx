@@ -14,20 +14,17 @@ export interface Source {
  * down; the facts above carry the same links beside them.
  */
 export function SourcesList({
-  competitor,
   sources,
   heading = "Sources",
 }: {
-  competitor: string;
+  /** Kept for callers; the disclaimer below the list says whose pages these are. */
+  competitor?: string;
   sources: Source[];
   heading?: string;
 }) {
   return (
     <section aria-labelledby="sources">
       <h2 id="sources">{heading}</h2>
-      <p>
-        Everything stated about {competitor} comes from these pages, read on the dates shown.
-      </p>
       <ol className="!mt-4 list-decimal space-y-2 pl-6 text-sm">
         {sources.map((s) => (
           <li key={s.href}>

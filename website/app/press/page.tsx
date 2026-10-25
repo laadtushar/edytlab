@@ -55,7 +55,7 @@ export default function PressPage() {
     <PageShell
       eyebrow="Press"
       title="edytlab press kit"
-      lead="Everything in one place for writing about edytlab: a paragraph you can paste, facts that have been checked against the source, and the logo and demo files. There is no press office; questions go to GitHub."
+      lead="A paragraph you can paste, facts checked against the source, and the logo and demo files. There is no press office; questions go to GitHub."
     >
       <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("Press kit", "/press"))} />
       <Prose>
@@ -83,10 +83,6 @@ export default function PressPage() {
         <table>
           <tbody>
             <tr>
-              <th scope="row">What it is</th>
-              <td>A desktop audio editor driven by an AI agent</td>
-            </tr>
-            <tr>
               <th scope="row">Platforms</th>
               <td>
                 macOS (one universal build for Apple Silicon and Intel),
@@ -110,14 +106,7 @@ export default function PressPage() {
             </tr>
             <tr>
               <th scope="row">Built with</th>
-              <td>Tauri 2, Rust, React</td>
-            </tr>
-            <tr>
-              <th scope="row">Audio engine</th>
-              <td>
-                Pure-Rust DSP, including a phase vocoder written for the
-                project for time-stretch and pitch-shift
-              </td>
+              <td>Tauri 2, Rust, React; pure-Rust audio DSP</td>
             </tr>
             <tr>
               <th scope="row">Tools</th>
@@ -133,9 +122,8 @@ export default function PressPage() {
                 OpenAI, OpenRouter, Groq, Gemini, and Ollama (local, no key),
                 and, from v0.9.0, Continue with ChatGPT, which uses a ChatGPT
                 Plus or Pro plan&apos;s included usage instead of a key (a
-                preview; available for ChatGPT Plus and Pro, and may not be
-                available on workspace plans, which depends on OpenAI and your
-                admin)
+                preview; it may not be available on workspace plans, which
+                depends on OpenAI and your admin)
               </td>
             </tr>
             <tr>
@@ -154,10 +142,6 @@ export default function PressPage() {
                 {GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}; see{" "}
                 <Link href="/privacy">Privacy</Link>.
               </td>
-            </tr>
-            <tr>
-              <th scope="row">History</th>
-              <td>Branchable graph of edits with fork, A/B compare and undo</td>
             </tr>
             <tr>
               <th scope="row">Safety option</th>
@@ -232,26 +216,11 @@ export default function PressPage() {
           on GitHub.
         </p>
 
-        <h2>More</h2>
-        <ul>
-          <li>
-            <Link href="/docs">Documentation</Link>
-          </li>
-          <li>
-            <Link href="/blog">Blog</Link>
-          </li>
-          <li>
-            <Link href="/use-cases/dj">AI audio editor for DJs</Link>
-          </li>
-          <li>
-            <Link href="/use-cases/local-ai-audio-editor">
-              Local-first AI audio editor
-            </Link>
-          </li>
-          <li>
-            <Link href="/privacy">Privacy</Link>
-          </li>
-        </ul>
+        <p>
+          More: <Link href="/use-cases/dj">AI audio editor for DJs</Link>,{" "}
+          <Link href="/use-cases/local-ai-audio-editor">local-first AI audio editor</Link> and{" "}
+          <Link href="/privacy">privacy</Link>.
+        </p>
       </Prose>
       <PageLinks />
     </PageShell>

@@ -101,7 +101,7 @@ export const matrix: readonly MatrixRow[] = [
     detail: { href: "/alternatives/audacity#chat-control-in-audacity", label: "Chat control inside Audacity" },
     cells: {
       runs: cell(
-        "Drives Audacity on your computer through its named pipe, with no cloud for audio processing, per its README. The assistant is your own MCP client.",
+        "Drives Audacity on your computer, with no cloud for audio processing, per its README. The assistant is your own MCP client.",
         AUDACITY_MCP,
       ),
       license: cell("Apache License 2.0.", AUDACITY_MCP),

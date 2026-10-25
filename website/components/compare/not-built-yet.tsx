@@ -19,12 +19,11 @@ export function NotBuiltYet() {
       </div>
       <div className="mt-2 leading-relaxed">
         Stem separation has not shipped in edytlab. Its tool exists but returns an error today, so edytlab does not offer vocal
-        isolation. Where another product does this, it does it and edytlab does not. It is not finished; progress is tracked
-        on GitHub:{" "}
+        isolation. Progress is tracked in{" "}
         <a href={`${siteConfig.github}/issues/385`} target="_blank" rel="noopener noreferrer">
-          stem separation
-        </a>
-        .
+          issue #385
+        </a>{" "}
+        on GitHub.
       </div>
     </div>
   );

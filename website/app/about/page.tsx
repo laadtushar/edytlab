@@ -58,7 +58,7 @@ export default function AboutPage() {
     <PageShell
       eyebrow="About"
       title="About edytlab"
-      lead="edytlab is an open-source desktop audio editor you drive in plain English. This page says who builds it, what it is and is not, how the comparison pages are made, how AI tools are used in writing, and how to report a mistake."
+      lead="edytlab is an open-source desktop audio editor you drive in plain English."
     >
       <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("About", path))} />
       <JsonLd data={aboutPageJsonLd()} />
@@ -77,22 +77,22 @@ export default function AboutPage() {
         <h2>What edytlab is, and is not</h2>
         <p>
           edytlab is a desktop app for macOS, Windows and Linux in which you describe an edit in a chat and an AI agent calls
-          local audio tools to make it. The audio is decoded, edited and rendered on your computer. Only the chat goes to the AI
-          provider you choose: Anthropic, OpenAI, OpenRouter, Groq or Gemini with your own key, your ChatGPT plan, or Ollama on
-          your own machine with no key. The app sends no telemetry. Using it costs nothing, but a hosted AI provider bills you for
-          tokens unless you use Ollama, and your ChatGPT plan counts the usage toward the plan. The <Link href="/privacy">privacy page</Link> has the details, including what this website records.
+          local audio tools to make it. Audio is processed on your computer; only the chat goes to the AI provider you choose,
+          one of six API providers (Ollama runs on your own machine and needs no key) or your ChatGPT plan. The app sends no
+          telemetry. It costs nothing, but a hosted AI provider bills you for tokens unless you use Ollama, and your ChatGPT plan
+          counts the usage toward the plan. The <Link href="/privacy">privacy page</Link> has the details, including what this
+          website records.
         </p>
         <p>What it is not:</p>
         <ul>
           <li>It is not a DAW. It edits audio files, with no MIDI, no instruments and no plugin hosting.</li>
           <li>It is not a live DJ tool. It prepares and exports files.</li>
           <li>
-            Stem separation has not shipped. The tool exists and returns an error today, so nothing built on it is available. It
-            is not finished; progress is tracked on GitHub:{" "}
+            Stem separation has not shipped. The tool exists and returns an error today. Progress is tracked in{" "}
             <a href={`${siteConfig.github}/issues/385`} target="_blank" rel="noopener noreferrer">
-              stem separation
-            </a>
-            . Transcription runs on your computer from v0.8.0, after you download the speech model once.
+              issue #385
+            </a>{" "}
+            on GitHub. Transcription runs on your computer from v0.8.0, after you download the speech model once.
           </li>
           <li>
             The installers are{" "}
@@ -105,47 +105,44 @@ export default function AboutPage() {
 
         <h2 id="how-we-compare">How comparisons are made</h2>
         <p>
-          Pages that compare edytlab with another product, such as the{" "}
-          <Link href="/alternatives/audacity">Audacity alternative</Link> and{" "}
-          <Link href="/alternatives/adobe-audition">Adobe Audition alternative</Link> pages, or with several at once, as{" "}
-          <Link href="/compare">the comparison hub</Link> does, follow these rules. The site&apos;s automated checks cover the
-          ones a machine can check.
+          The <Link href="/alternatives/audacity">Audacity alternative</Link> and{" "}
+          <Link href="/alternatives/adobe-audition">Adobe Audition alternative</Link> pages and{" "}
+          <Link href="/compare">the comparison hub</Link> follow these rules. The site&apos;s automated checks cover the ones
+          a machine can check.
         </p>
         <ul>
           <li>
-            Every fact about another product comes from that product&apos;s own pages. The link sits beside the fact, with the
-            day we read it.
+            Every fact about another product comes from that product&apos;s own pages, linked beside the fact with the day we
+            read it.
           </li>
           <li>
-            Facts are re-checked at least every {REFRESH_AFTER_DAYS} days. The site&apos;s automated checks fail when any fact
-            is more than 100 days old, so a stale page cannot go unnoticed.
+            Facts are re-checked at least every {REFRESH_AFTER_DAYS} days. The automated checks fail when any fact is more than
+            100 days old.
           </li>
           <li>
             Where the other product is better comes first, in a section of its own, before we say where edytlab differs.
           </li>
           <li>
-            We say a product lacks something only when its own pages say so. Otherwise we write that its pages do not
+            We say a product lacks something only when its own pages say so; otherwise we write that its pages do not
             describe it.
           </li>
           <li>
-            No unqualified superlatives: nothing is &ldquo;best&rdquo; or &ldquo;cheapest&rdquo; here. The site&apos;s automated checks fail when such a
-            word appears outside a quotation.
+            No unqualified superlatives: nothing is &ldquo;best&rdquo; or &ldquo;cheapest&rdquo; here, outside a quotation.
           </li>
           <li>
-            Product names appear as plain text, only to identify the product. We use no logos, screenshots or other branding
-            of the products we compare, and no page implies that their makers sponsor or endorse edytlab.
+            Product names are plain text, used only to identify the product: no logos, screenshots or other branding, and no
+            implication that their makers sponsor or endorse edytlab.
           </li>
           <li>
             There are no affiliate links, sponsorships or paid placement on these pages. If that ever changes, the link will
             say so beside it.
           </li>
           <li>
-            We publish no ratings or scores. Unless a page says it reports a test of our own, it reports what a
-            product&apos;s pages say, not how the product performed for us.
+            No ratings or scores. Unless a page says it reports a test of our own, it reports what a product&apos;s pages say,
+            not how the product performed for us.
           </li>
           <li>
-            A price is the price shown on the day we read it, in the currency shown, for the plan named. Yours may differ,
-            and it may change tomorrow, so check the product&apos;s site before you decide.
+            A price is the price shown on the day we read it, in the currency shown, for the plan named.
           </li>
         </ul>
 
@@ -156,9 +153,8 @@ export default function AboutPage() {
           its date: you can check it against the product&apos;s own page without trusting us.
         </p>
         <p>
-          The app is a separate matter. Its agent is a language model you choose, and it calls deterministic audio tools,
-          which the <Link href="/docs/tools">tools reference</Link> lists and which are generated from the code that runs
-          them.
+          In the app, the agent is a language model you choose; it calls deterministic audio tools, which the{" "}
+          <Link href="/docs/tools">tools reference</Link> lists.
         </p>
 
         <h2 id="corrections">Corrections</h2>
@@ -168,9 +164,8 @@ export default function AboutPage() {
             GitHub issue tracker
           </a>
           . Say which page, quote the sentence, and link the page that shows the right fact. We correct a mistake as soon as
-          we have checked it against that source. We move a page&apos;s checked date only after reading its sources again,
-          never to make a page look newer. If you work on a product we name and a fact about it is out of date, tell us the
-          same way.
+          we have checked it against that source, and move a page&apos;s checked date only after reading its sources again,
+          never to make a page look newer.
         </p>
       </Prose>
       <PageLinks />
