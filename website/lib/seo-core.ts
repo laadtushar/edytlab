@@ -20,7 +20,7 @@ import { siteConfig } from "./site";
  * `<lastmod>` only "if it's consistently and verifiably" accurate, and
  * one date on every page is not verifiable for any of them.
  */
-export const SITE_UPDATED = "2026-10-24";
+export const SITE_UPDATED = "2026-10-25";
 
 /**
  * The day each page's content last changed in substance, by path, for
@@ -43,16 +43,16 @@ export const SITE_UPDATED = "2026-10-24";
  * signs for helpful-content review.
  */
 export const PAGE_UPDATED: Readonly<Record<string, string>> = {
-  "/": "2026-10-24",
-  "/docs": "2026-10-24",
-  "/docs/getting-started": "2026-10-24",
-  "/docs/user-guide": "2026-10-24",
+  "/": "2026-10-25",
+  "/docs": "2026-10-25",
+  "/docs/getting-started": "2026-10-25",
+  "/docs/user-guide": "2026-10-25",
   "/docs/tools": "2026-10-23",
   "/docs/developer-guide": "2026-10-23",
   "/docs/api-reference": "2026-10-24",
-  "/use-cases/dj": "2026-10-24",
-  "/use-cases/local-ai-audio-editor": "2026-10-24",
-  "/about": "2026-10-24",
+  "/use-cases/dj": "2026-10-25",
+  "/use-cases/local-ai-audio-editor": "2026-10-25",
+  "/about": "2026-10-25",
   "/alternatives/audacity": "2026-10-24",
   "/alternatives/adobe-audition": "2026-10-24",
   "/compare": "2026-10-24",
@@ -71,9 +71,9 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/videos/reel-extended-club-intro": "2026-10-23",
   "/videos/reel-mini-mix": "2026-10-23",
   "/changelog": "2026-10-23",
-  "/press": "2026-10-24",
-  "/privacy": "2026-10-24",
-  "/terms": "2026-10-24",
+  "/press": "2026-10-25",
+  "/privacy": "2026-10-25",
+  "/terms": "2026-10-25",
 };
 
 /** When a page last changed in substance: its own date, else the site's. */
