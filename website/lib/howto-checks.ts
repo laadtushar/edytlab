@@ -69,9 +69,14 @@ export interface HowtoBatch {
   read: string;
   /** The commit the edytlab links point at. */
   commit: string;
+  /**
+   * A later day on which a post's edytlab sources were read again, for an
+   * update (a source item may say `read <this day>` in place of `read <read>`).
+   */
+  reread?: string;
 }
 
-export function describeHowtoPosts({ name, batch, expected, read, commit }: HowtoBatch): void {
+export function describeHowtoPosts({ name, batch, expected, read, commit, reread }: HowtoBatch): void {
   describe(name, () => {
     it("are these, on the blog, dated the day their sources were read", () => {
       expect(batch.map((p) => p.slug).sort()).toEqual(expected.map(([s]) => s).sort());
@@ -153,7 +158,11 @@ export function describeHowtoPosts({ name, batch, expected, read, commit }: Howt
           const links = linksIn(item);
           expect(links.length, item).toBeGreaterThan(0);
           for (const l of links) expect(l, item).toMatch(/^https:\/\//);
-          expect(item, "no read date").toContain(`read ${read}`);
+          const days = reread ? [read, reread] : [read];
+          expect(
+            days.some((d) => item.includes(`read ${d}`)),
+            `no read date in ${item}`,
+          ).toBe(true);
         }
         // Only a closing note may follow the list.
         for (const b of after) expect(b.type).toBe("p");

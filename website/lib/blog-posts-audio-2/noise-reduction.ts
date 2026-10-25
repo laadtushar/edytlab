@@ -1,6 +1,6 @@
 import type { BlogPost } from "../blog";
 import { siteConfig } from "../site";
-import { SRC, source } from "./shared";
+import { SRC_V090, UPDATED, source, sourceUpdated } from "./shared";
 
 const RELEASES = siteConfig.releases;
 
@@ -8,18 +8,19 @@ export const noiseReduction: BlogPost = {
   slug: "remove-background-noise-from-audio",
   title: "Remove Background Noise From Audio: How It Works",
   date: "2026-10-24",
+  dateModified: UPDATED,
   description:
-    "Spectral noise reduction needs a noise-only stretch and can leave musical noise. How edytlab's noise_reduction works, with its limits and one known defect.",
+    "Spectral noise reduction needs a noise-only stretch and can leave musical noise. How edytlab's noise_reduction works, its limits, and a click fixed in v0.9.0.",
   coverAlt:
     "A noisy waveform whose first stretch is bracketed as the noise profile, and below it the same waveform with the noise cut down and a few isolated spikes left over",
   excerpt:
-    "Removing steady background noise is subtraction: measure the noise, take it away. It works only as well as the measurement and it leaves a particular kind of residue when pushed. This is how edytlab's noise_reduction does it, with a run on synthetic audio and one defect it found.",
-  readTime: 9,
+    "Removing steady background noise is subtraction: measure the noise, take it away. It works only as well as the measurement and it leaves a particular kind of residue when pushed. This is how edytlab's noise_reduction does it, with a run on synthetic audio and a click at the start of the output that the run found and v0.9.0 fixed.",
+  readTime: 10,
   tags: ["noise reduction", "spectral subtraction", "musical noise", "noise_reduction"],
   body: [
     {
       type: "p",
-      text: "To remove background noise from audio, give the tool a stretch of the recording that holds only the noise, so it can measure what the noise looks like, and it subtracts that from the whole recording. In edytlab you tell the assistant how many seconds at the start of a track are noise-only, and it calls `noise_reduction` with that length as `noise_duration_sec`. The method works on steady noise such as hiss, fans and hum, and it has limits you can hear: it leaves a residue called musical noise when pushed hard, it damages speech if the profile includes speech, and it does little for noise that changes. This post explains the method, runs it on synthetic audio, and reports a click at the start of the output that the run turned up.",
+      text: "To remove background noise from audio, give the tool a stretch of the recording that holds only the noise, so it can measure what the noise looks like, and it subtracts that from the whole recording. In edytlab you tell the assistant how many seconds at the start of a track are noise-only, and it calls `noise_reduction` with that length as `noise_duration_sec`. The method works on steady noise such as hiss, fans and hum, and it has limits you can hear: it leaves a residue called musical noise when pushed hard, it damages speech if the profile includes speech, and it does little for noise that changes. This post explains the method, runs it on synthetic audio, and reports a click at the start of the output that the first run turned up in v0.8.1 and that v0.9.0 fixed.",
     },
     {
       type: "callout",
@@ -43,7 +44,7 @@ export const noiseReduction: BlogPost = {
         "**Cut the audio into overlapping windows** of 2,048 samples with a Hann (bell-shaped) fade, each starting 512 samples after the last. At 44.1 kHz a window is about 46 ms.",
         "**Measure the noise.** Each window inside the first `noise_duration_sec` seconds is turned into a spectrum, and the magnitude of each frequency bin is averaged across those windows. That average is the noise profile. If the stretch is shorter than one window, the first window is used.",
         "**Subtract.** For every window of the whole track, each bin's magnitude becomes its old magnitude minus `strength` times the profile's, but never less than `floor` times its old magnitude. The phase is kept.",
-        "**Put it back together.** An inverse transform and an overlap-add rebuild the audio. Stereo is done one channel at a time, each with its own profile.",
+        "**Put it back together.** An inverse transform and an overlap-add rebuild the audio. Since v0.9.0 the signal is first read as if one window of it were mirrored beyond each end, and the result is trimmed back to the original length, so the first and last samples are covered by the full overlap. Stereo is done one channel at a time, each with its own profile.",
       ],
     },
     {
@@ -62,16 +63,16 @@ export const noiseReduction: BlogPost = {
     { type: "h2", text: "What a run on synthetic audio showed" },
     {
       type: "p",
-      text: "The input was an 8-second mono file at 44.1 kHz: white noise at -34 dBFS RMS throughout, a harmonic, voice-like tone with a changing pitch from 1.0 to 3.0 s and from 3.6 to 6.0 s at about -19 dBFS, and silence under the noise elsewhere. The tools were called directly, then the result rendered to WAV and measured with a script. These are one synthetic file and one machine. They show the direction of each effect and are not a measure of how it sounds on a real recording.",
+      text: "The input was an 8-second mono file at 44.1 kHz: white noise at -34 dBFS RMS throughout, a harmonic, voice-like tone with a changing pitch from 1.0 to 3.0 s and from 3.6 to 6.0 s at about -19 dBFS, and silence under the noise elsewhere. The tools were called directly, then the result rendered to WAV and measured with a script. The run was first made on v0.8.1 and repeated on v0.9.0 with a regenerated file of the same kind, and the numbers below are from the second run. These are one synthetic file and one machine. They show the direction of each effect and are not a measure of how it sounds on a real recording.",
     },
     {
       type: "ul",
       items: [
-        "**Default settings, profile from the first 0.9 s:** the noise in the pauses fell from -34.1 dBFS to -42.0, about 8 dB. The voice region read -19.2 before and -19.4 after.",
-        "**Strength 1.0, floor 0.0:** the pauses fell to -43.9, about 10 dB. **Strength 0.5:** -38.2, about 4 dB.",
-        "**How spiky the residue is:** a rough measure made for this post, the share of a pause's energy that sits in the strongest 1% of its time-frequency cells (a 2,048-point spectrogram). White noise measured 0.056. After the default settings it measured 0.113, and after strength 1.0 and floor 0.0 it measured 0.137. The same energy sits in fewer places, which fits the isolated spikes that musical noise is. Strength 0.5 gave 0.079.",
-        "**A profile that includes speech:** with the voice starting at 0.2 s and a 1.0 s profile, the noise in the pauses still fell about 8.5 dB, but the voice itself fell from -19.3 to -22.4 dBFS, 3.1 dB, against 0.3 dB with a clean profile.",
-        "**Noise that changes:** with the noise made 6 dB louder after 4 s, the pause at the end fell only 3.4 dB, from -28.0 to -31.4, against 7.8 dB when the noise matched the profile.",
+        "**Default settings, profile from the first 0.9 s:** the noise in the pauses fell from -34.0 dBFS to -41.8, about 8 dB. The voice region read -18.9 before and -19.1 after.",
+        "**Strength 1.0, floor 0.0:** the pauses fell to -43.7, about 10 dB. **Strength 0.5:** -38.1, about 4 dB.",
+        "**How spiky the residue is:** a rough measure made for this post, the share of a pause's energy that sits in the strongest 1% of its time-frequency cells (a 2,048-point spectrogram). White noise measured 0.057. After the default settings it measured 0.113, and after strength 1.0 and floor 0.0 it measured 0.136. The same energy sits in fewer places, which fits the isolated spikes that musical noise is. Strength 0.5 gave 0.080.",
+        "**A profile that includes speech:** with the voice starting at 0.2 s and a 1.0 s profile, the noise in the pauses still fell about 8 dB, but the voice itself fell from -18.9 to -23.1 dBFS, 4.2 dB, against 0.2 dB with a clean profile.",
+        "**Noise that changes:** with the noise made 6 dB louder after 4 s, the pause at the end fell only 3.4 dB, from -28.0 to -31.3, against 7.8 dB when the noise matched the profile.",
       ],
     },
     { type: "h2", text: "Where the noise profile comes from" },
@@ -83,10 +84,14 @@ export const noiseReduction: BlogPost = {
       type: "p",
       text: "When recording, hold still and record a second or two of the room before the first word. The two failures above, speech in the profile and noise that changes, both come from a profile that does not match the noise.",
     },
-    { type: "h2", text: "A click at the start of the output (issue #692)" },
+    { type: "h2", text: "A click at the start of the output, fixed in v0.9.0" },
     {
       type: "p",
-      text: "The run found a defect. In the synthetic file, whose samples never exceeded 0.40, 16 of the output's first samples were at full scale, and the level stayed above 0.1 for about 2.5 ms and above 0.03 for about 7 ms, where the noise itself is about 0.005. It was the same with other settings. The end of the track was clean. The likely cause is in the overlap-add: the first few samples are covered by one window whose value is almost zero, and dividing by it magnifies the error. It is filed as [issue 692](https://github.com/laadtushar/edytlab/issues/692) and is not fixed in this post's version. Until it is, trimming the first 512 samples after noise reduction removed it: the first 2,048 samples then peaked at 0.026, about the noise.",
+      text: "The first run, on v0.8.1, found a defect. In the synthetic file, whose samples never exceeded 0.40, 16 of the output's first samples were at full scale, and the level stayed above 0.1 for about 2.5 ms and above 0.03 for about 7 ms, where the noise itself is about 0.005. It was the same with other settings. The end of the track was clean. The cause was in the overlap-add: the first few samples are covered by one window whose value is almost zero, and dividing by it magnifies the error. It was filed as [issue 692](https://github.com/laadtushar/edytlab/issues/692) and fixed in v0.9.0 by the mirrored margin described above. Until then, trimming the first 512 samples after noise reduction removed the click; that is no longer needed.",
+    },
+    {
+      type: "p",
+      text: "In the run on v0.9.0, the first 2,048 samples of the output peak at 0.021 against 0.035 in the input, and their RMS is 0.008 against 0.020: lower than the input, as a noise reduction should leave them. The last 2,048 samples read the same, and the loudest sample in the whole output is 0.23, below the input's 0.25. Audio that v0.8.1 already wrote into a project keeps its click; the fix applies to noise reduction run from v0.9.0 on.",
     },
     { type: "h2", text: "Remove background noise in edytlab" },
     {
@@ -124,7 +129,7 @@ export const noiseReduction: BlogPost = {
     { type: "h2", text: "Sources" },
     {
       type: "p",
-      text: "Outside pages were read on 2026-10-24. The run used synthetic audio generated for this post, with the edytlab tools called directly and the output measured with a script; the click was seen on that file and the numbers are from that run. edytlab's own behaviour is stated from its source at the commit linked.",
+      text: "Outside pages were read on 2026-10-24. The run used synthetic audio generated for this post, with the edytlab tools called directly and the output measured with a script; the click was seen on that file in v0.8.1 and was gone on v0.9.0, and the numbers are from the second run. edytlab's own behaviour is stated from its source at the commit linked, re-read on 2026-10-25 for the update.",
     },
     {
       type: "ul",
@@ -134,9 +139,10 @@ export const noiseReduction: BlogPost = {
         source("O. Cappé, \"Elimination of the musical noise phenomenon with the Ephraim and Malah noise suppressor\", IEEE Transactions on Speech and Audio Processing 2(2), 345-349, 1994 (DOI; abstract read on IEEE Xplore)", "https://doi.org/10.1109/89.279283"),
         source("Audacity manual: Noise Reduction", "https://manual.audacityteam.org/man/noise_reduction.html"),
         source("FFmpeg documentation: afftdn filter", "https://ffmpeg.org/ffmpeg-filters.html#afftdn"),
-        source("edytlab source: noise_reduction tool", SRC("crates/tools/src/tool/noise_reduction.rs"), "at commit 8bf752ff"),
-        source("edytlab tool reference (noise_reduction, notch_filter, click_removal, noise_gate)", SRC("docs/tools-reference.md"), "at commit 8bf752ff"),
-        source("edytlab issue 692: noise_reduction puts a full-scale click in the first samples", "https://github.com/laadtushar/edytlab/issues/692"),
+        sourceUpdated("edytlab source: noise_reduction tool", SRC_V090("crates/tools/src/tool/noise_reduction.rs"), "at commit aa9f6cd0"),
+        sourceUpdated("edytlab test: noise_reduction_edges.rs (the ends of the track stay at the noise level)", SRC_V090("crates/tools/tests/noise_reduction_edges.rs"), "at commit aa9f6cd0"),
+        sourceUpdated("edytlab tool reference (noise_reduction, notch_filter, click_removal, noise_gate)", SRC_V090("docs/tools-reference.md"), "at commit aa9f6cd0"),
+        sourceUpdated("edytlab issue 692: noise_reduction puts a full-scale click in the first samples (fixed in v0.9.0)", "https://github.com/laadtushar/edytlab/issues/692"),
       ],
     },
   ],

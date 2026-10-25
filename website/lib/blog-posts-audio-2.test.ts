@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { audioHowtoPosts2 } from "./blog-posts-audio-2";
-import { COMMIT, READ } from "./blog-posts-audio-2/shared";
+import { COMMIT, READ, UPDATED } from "./blog-posts-audio-2/shared";
 import { allText, describeHowtoPosts } from "./howto-checks";
 import { stripInline } from "./inline";
 
@@ -35,6 +35,7 @@ describeHowtoPosts({
   expected: EXPECTED,
   read: READ,
   commit: COMMIT,
+  reread: UPDATED,
 });
 
 const post = (slug: string) => audioHowtoPosts2.find((p) => p.slug === slug)!;
@@ -105,15 +106,29 @@ describe("what each post says plainly about the tool", () => {
     expect(t).toMatch(/\bsections\b[\s\S]*placeholder/);
     expect(t).toMatch(/downbeats[\s\S]*every fourth beat[\s\S]*assumes 4\/4/);
     expect(t).toMatch(/one tempo, one key/);
-    // A wrong answer the run produced is reported, not left out.
-    expect(t).toMatch(/179\.0 BPM/);
+    // The wrong answers v0.8.1 gave are reported as such, not left out, and the post says
+    // v0.9.0 fixed them (#696) and what the fix returns.
+    expect(t).toMatch(/read this track as 179\.0/);
     expect(t).toMatch(/F major/);
+    expect(t).toMatch(/v0\.8\.1[\s\S]*v0\.9\.0 reworked the tempo, beat grid and key detection/);
+    expect(t).toMatch(/90\.0 BPM/);
+    expect(t).toMatch(/A# minor/);
+    expect(t).toMatch(/bpm_confidence[\s\S]*bpm_alternatives/);
+    expect(t).toMatch(/key_runner_up/);
+    // What v0.9.0 does not do is still said: no real sections, no detected downbeats.
+    expect(t).toMatch(/assumed_4_4/);
+    expect(t).toMatch(/whole_track/);
+    expect(post("how-to-find-the-bpm-and-key-of-a-song").dateModified).toBe(UPDATED);
   });
 
-  it("noise reduction: says the profile is the start of the track, and names the click and its issue", () => {
+  it("noise reduction: says the profile is the start of the track, and that the click of issue 692 was fixed in v0.9.0", () => {
     const t = text("remove-background-noise-from-audio");
     expect(t).toMatch(/profile is always the start of the track/);
     expect(t).toMatch(/issues\/692/);
+    expect(t).toMatch(/fixed in v0\.9\.0/);
+    // It no longer calls the defect open or tells the reader to work around it.
+    expect(t).not.toMatch(/is not fixed in this post's version|one known defect|Until it is, trimming/);
+    expect(post("remove-background-noise-from-audio").dateModified).toBe(UPDATED);
     expect(t).toMatch(/musical noise/i);
     expect(t).toMatch(/no smoothing of either kind/);
   });

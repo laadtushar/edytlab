@@ -429,8 +429,8 @@ const groups = [
       {
         name: "analyze_track",
         prompt: 'analyze track 1',
-        what: "Detect BPM, musical key, integrated loudness (LUFS), true peak, and transient count.",
-        output: "bpm, key, loudness_lufs, peak_dbfs, transient_count",
+        what: "Detect BPM (with a confidence and the half and double as alternatives), musical key (with the runner-up key), a beat grid, an RMS curve and integrated loudness (LUFS). Downbeats are assumed every fourth beat and sections are one whole-track section: neither is detected. BPM is null for audio with no steady beat.",
+        output: "bpm, bpm_confidence, bpm_alternatives, key, key_score, key_runner_up, beats, downbeats, sections, rms_curve, lufs_integrated",
       },
       {
         name: "align_to_beat",
