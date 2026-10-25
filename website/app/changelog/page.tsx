@@ -25,6 +25,13 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.9.1",
+    date: "2026-10",
+    bullets: [
+      "A fix for Sign in with ChatGPT (preview). In v0.9.0 the first message after signing in failed with an error from OpenAI (\"Unsupported content type\"): every request edytlab sent stated its content type twice, which the other providers accept and the ChatGPT plan route does not. Each request now states it once. If OpenAI turns a request away like that again, the chat shows it as a ChatGPT plan card with the request ID you can copy, instead of a bare error.",
+    ],
+  },
+  {
     version: "v0.9.0",
     date: "2026-10",
     bullets: [
