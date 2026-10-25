@@ -47,9 +47,14 @@
 //! [`CachedDecoder::attention`] cuts out the rows `timing::align_words` wants.
 //! Row `k` is the step that predicts text token `k`, so the first is the **last
 //! prompt position**, and there is one row more than there are tokens (the one
-//! that predicts `<|endoftext|>`). A window that stopped on its length limit
-//! never fed its last token, so [`CachedDecoder::complete_for`] feeds it, for
-//! the row it owns.
+//! that predicts `<|endoftext|>`).
+//!
+//! The window is decoded in timestamp mode, whose prompt has no
+//! `<|notimestamps|>` and whose sequence holds timestamp tokens, so its own
+//! attention is not what the aligner was built on. [`CachedDecoder::alignment_attention`]
+//! runs the text tokens again as a fresh sequence, in one pass, with
+//! `<|notimestamps|>` in the prompt: what `find_alignment` in openai/whisper
+//! does (#659).
 
 use crate::decode::{DecodeError, DecoderStep, EncoderStates, Logits};
 use crate::export::ExportLayout;
@@ -211,32 +216,28 @@ impl<'c, R: DecoderRun> CachedDecoder<'c, R> {
         self.rows = 0;
     }
 
-    /// Feed the last sampled token if the window stopped before doing so, so
-    /// that the row that predicts `<|endoftext|>` exists. `prompt_len` is the
-    /// length of the prompt, `tokens` the sampled text.
-    pub(crate) fn complete_for(
+    /// The attention the aligner wants for `text`, the text tokens of a
+    /// decoded window: `prompt` and `text` are fed as **one new sequence** (the
+    /// cache and the attention of what was decoded before are dropped), and the
+    /// rows from the last prompt position on are returned, `text.len() + 1` of
+    /// them, each rescaled over the first `content_frames` (see
+    /// [`CachedDecoder::attention`]). `prompt` is `[SOT, language, transcribe,
+    /// notimestamps]`.
+    ///
+    /// A causal decoder's row for a position does not depend on later
+    /// positions, so one pass over the whole sequence gives the rows that
+    /// feeding it a token at a time would.
+    pub(crate) fn alignment_attention(
         &mut self,
-        tokens: &[u32],
-        prompt_len: usize,
+        prompt: &[u32],
+        text: &[u32],
         encoder: &EncoderStates,
-    ) -> Result<(), DecodeError> {
-        let needed = prompt_len + tokens.len();
-        // More rows than needed is fine (a loop that was cut back fed tokens
-        // that were then thrown away); `attention` takes the rows it wants.
-        if self.rows >= needed {
-            return Ok(());
-        }
-        match (self.rows + 1 == needed, tokens.last()) {
-            (true, Some(&last)) => {
-                self.step(&[last], self.rows, encoder)?;
-                Ok(())
-            }
-            _ => Err(DecodeError::Backend(format!(
-                "the decoder was fed {} positions for a prompt of {prompt_len} and {} tokens",
-                self.rows,
-                tokens.len()
-            ))),
-        }
+        content_frames: usize,
+    ) -> Result<Vec<Matrix>, crate::WhisperError> {
+        let mut sequence = prompt.to_vec();
+        sequence.extend_from_slice(text);
+        self.step(&sequence, 0, encoder)?;
+        Ok(self.attention(prompt.len() - 1, prompt.len() + text.len(), content_frames)?)
     }
 
     /// The collected attention as one matrix per alignment head: rows
@@ -994,8 +995,6 @@ mod tests {
         assert_eq!(dec.fed(), 4 + 3);
         // Rows 3.. = the position before the first token up to the last token's:
         // tokens + 1 of them.
-        dec.complete_for(&out.tokens, 4, &enc).unwrap();
-        assert_eq!(dec.fed(), 7, "nothing to add");
         let m = dec.attention(3, 3 + 3 + 1, 6).unwrap();
         assert_eq!(m[0].rows(), 4);
         // The calls: language was given, so prompt then one token at a time.
@@ -1017,51 +1016,30 @@ mod tests {
     }
 
     #[test]
-    fn a_window_cut_by_its_length_is_completed_with_the_last_token() {
+    fn the_alignment_pass_is_one_new_sequence_with_its_own_prompt() {
+        let mut dec = decoder(Fake::new(say(vec![3, 4, 5])), &no_cancel);
+        let enc = encoder();
+        // A decode that left a sequence and its attention behind, cut by its
+        // length as a window with timestamp tokens in it may be.
         let mut config = config();
-        config.max_new_tokens = 3;
-        let mut dec = decoder(Fake::new(say(vec![3, 4, 5, 6, 7])), &no_cancel);
-        let enc = encoder();
-        let out = decode_window(&mut dec, &enc, &config, Some(EN)).unwrap();
-        assert_eq!(out.tokens, vec![3, 4, 5]);
-        assert_eq!(out.stop, StopReason::MaxLength);
-        // The last token was sampled but never fed.
-        assert_eq!(dec.fed(), 4 + 2);
-        dec.complete_for(&out.tokens, 4, &enc).unwrap();
-        assert_eq!(dec.fed(), 4 + 3);
-        let last = dec.run.seen.last().unwrap();
-        assert_eq!(last.input_ids, vec![5]);
-        assert!(last.use_cache);
-        assert!(dec.attention(3, 7, 6).is_ok());
-    }
+        config.max_new_tokens = 5;
+        decode_window(&mut dec, &enc, &config, Some(EN)).unwrap();
+        let before = dec.run.seen.len();
 
-    #[test]
-    fn a_window_cut_back_by_repetition_already_has_its_rows() {
-        let mut config = config();
-        config.repetition = Some(crate::decode::RepetitionRule {
-            max_period: 1,
-            min_repeats: 3,
-            min_tokens: 3,
-        });
-        let mut dec = decoder(Fake::new(say(vec![3, 3, 3, 3, 3, 3])), &no_cancel);
-        let enc = encoder();
-        let out = decode_window(&mut dec, &enc, &config, Some(EN)).unwrap();
-        assert_eq!(out.stop, StopReason::Repetition);
-        assert_eq!(out.tokens, vec![3]);
-        // The loop fed tokens it then cut away, so there are rows to spare.
-        assert!(dec.fed() > 4);
-        dec.complete_for(&out.tokens, 4, &enc).unwrap();
-        assert!(dec.attention(3, 3 + 1 + 1, 6).is_ok());
-    }
-
-    #[test]
-    fn completing_a_window_that_is_further_behind_is_an_error() {
-        let mut dec = decoder(Fake::new(|_| 0), &no_cancel);
-        let enc = encoder();
-        dec.step(&[SOT, EN, TRANSCRIBE, NO_TIMESTAMPS], 0, &enc)
-            .unwrap();
-        // Three tokens claimed but none fed: two behind.
-        assert!(dec.complete_for(&[3, 4, 5], 4, &enc).is_err());
+        let prompt = [SOT, EN, TRANSCRIBE, NO_TIMESTAMPS];
+        let m = dec.alignment_attention(&prompt, &[3, 4], &enc, 6).unwrap();
+        // One call, no cache, the whole sequence.
+        let calls = &dec.run.seen[before..];
+        assert_eq!(calls.len(), 1, "one forward pass, not one step per token");
+        assert_eq!(calls[0].input_ids, vec![11, 12, 15, 17, 3, 4]);
+        assert!(!calls[0].use_cache);
+        // Rows from the last prompt position: two tokens and the end.
+        assert_eq!(dec.fed(), 6);
+        assert_eq!(m.len(), dec.heads.len(), "one matrix per alignment head");
+        assert!(m.iter().all(|h| h.rows() == 3));
+        // And the attention is that of the new sequence, not the earlier one.
+        let again = dec.attention(3, 3 + 2 + 1, 6).unwrap();
+        assert_eq!(again[0].as_slice(), m[0].as_slice());
     }
 
     #[test]

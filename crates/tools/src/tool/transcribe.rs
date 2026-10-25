@@ -423,7 +423,7 @@ pub fn answer(error: &SpeechError) -> String {
 /// Bumped when a change to the decoder, the aligner or the windowing would
 /// give different words for the same audio and model, so that an entry written
 /// before it is not read as an answer to the question asked after it.
-const TRANSCRIPT_FORMAT: u32 = 1;
+const TRANSCRIPT_FORMAT: u32 = 2;
 
 /// The most the words in a result may take, in bytes of JSON. The result goes
 /// to the model provider (and into the model's context for the rest of the

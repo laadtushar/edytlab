@@ -52,7 +52,12 @@
 //! timestamps come in pairs (except directly before the end), never go
 //! backwards, the first is at most [`DecodeConfig::max_initial_timestamp_index`]
 //! steps in, and a timestamp is forced when their total probability beats
-//! every text token. Segment splitting on those tokens is the chunking step's.
+//! every text token. `WhisperModel` decodes in this mode (#659), and
+//! `segments.rs` splits the tokens into segments on those timestamps. The
+//! prompt of this mode has no `<|notimestamps|>`, so the attention of the
+//! decode is not the one the aligner was built on: the model runs the text
+//! tokens again with `<|notimestamps|>` for the alignment, as upstream's
+//! `find_alignment` does.
 //!
 //! ## What is not here
 //!
@@ -565,7 +570,20 @@ pub fn decode_window<D: DecoderStep>(
     // A window that sounds empty is still believed if it reads confidently;
     // one with no text at all has nothing to be confident about.
     if let (true, Some(limit)) = (sounds_empty, config.logprob_threshold) {
-        if average_log_probability(&token_probs) <= limit {
+        // In timestamp mode the mean is over the text, as the threshold was
+        // measured: a timestamp is nearly always likely, and would lift the
+        // mean of a window that is mostly noise.
+        let text_probs: Vec<f32> = if config.with_timestamps {
+            tokens
+                .iter()
+                .zip(&token_probs)
+                .filter(|(&t, _)| t < ids.timestamp_begin)
+                .map(|(_, &p)| p)
+                .collect()
+        } else {
+            token_probs.clone()
+        };
+        if average_log_probability(&text_probs) <= limit {
             return Ok(result(Vec::new(), Vec::new(), StopReason::NoSpeech));
         }
     }
@@ -1412,6 +1430,25 @@ mod tests {
         config.max_initial_timestamp_index = None;
         let (out, _) = run(script, &config, Some(EN));
         assert_eq!(out.tokens, [TS, 3, TS + 1]);
+    }
+
+    #[test]
+    fn in_timestamp_mode_the_no_speech_mean_is_over_the_text_not_the_timestamps() {
+        // P(nospeech) 0.95; one text token at 0.25, between two timestamps the
+        // model is sure of. The mean over the text is -1.39 (skipped); over all
+        // three tokens it would be -0.47, and a window of noise would be kept
+        // because the model is sure where its segment ends.
+        let mut prompt = prompt_rows(3, with_prob(TS, 0.99));
+        prompt[0] = vec![(NO_SPEECH, logit_for(0.95))];
+        let script = vec![
+            prompt,
+            vec![with_prob(3, 0.25)],
+            vec![with_prob(TS + 3, 0.99)],
+            vec![favour(EOT)],
+        ];
+        let (out, _) = run(script, &timestamped(), Some(EN));
+        assert_eq!(out.stop, StopReason::NoSpeech);
+        assert!(average_log_probability(&[0.99, 0.25, 0.99]) > -1.0);
     }
 
     // ---- errors --------------------------------------------------------------

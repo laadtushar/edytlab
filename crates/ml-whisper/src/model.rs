@@ -11,8 +11,12 @@
 //! 3. For each window: log-mel (`MelExtractor::log_mel_window`, the Hugging
 //!    Face convention: pad the audio to 30 s, then transform), the encoder, the
 //!    greedy decode loop ([`decode_window`]) over the cached decoder
-//!    ([`CachedDecoder`]), and [`align_words`] on the cross-attention of the
-//!    alignment heads.
+//!    ([`CachedDecoder`]) **with timestamp tokens**, the segments those cut the
+//!    tokens into ([`crate::segments::split_segments`]), one more pass of the
+//!    text tokens for the cross-attention of the alignment heads
+//!    ([`CachedDecoder::alignment_attention`]), [`align_words`], and the words
+//!    placed in their segments ([`crate::segments::place_words`]) as
+//!    `whisper.timing.add_word_timestamps` does (#659).
 //!
 //! ## Where things run
 //!
@@ -34,15 +38,16 @@ use std::sync::OnceLock;
 use ml_pipeline::{ExecProvider, ModelRegistry, SharedSession};
 
 use crate::cached::CachedDecoder;
-use crate::chunk::{run_windows_observed, WindowResult, WindowTranscriber};
-use crate::decode::{decode_window, DecodeConfig, StopReason, TokenIds, WindowDecode};
+use crate::chunk::{run_windows_observed, WindowRequest, WindowResult, WindowTranscriber};
+use crate::decode::{decode_window, DecodeConfig, StopReason, TokenIds};
 use crate::export::{self, alignment_heads, ExportLayout};
 use crate::mel::{MelExtractor, N_SAMPLES};
 use crate::ort_io::{lock_session, run_encoder, specs, OrtDecoder};
 use crate::refine::{is_silent, trim_to_sound};
+use crate::segments::{place_words, split_segments, text_of_segments};
 use crate::timing::{
-    align_words, encoder_frames, merge_punctuations, AlignmentInput, Matrix, WordSplit, WordTiming,
-    APPEND_PUNCTUATIONS, PREPEND_PUNCTUATIONS, SECONDS_PER_FRAME,
+    align_words, encoder_frames, AlignmentInput, WordSplit, APPEND_PUNCTUATIONS,
+    PREPEND_PUNCTUATIONS,
 };
 use crate::tokenizer::{Piece, Tokenizer};
 use crate::{resample_to_16khz_mono, Result, WhisperError, Word};
@@ -56,9 +61,6 @@ pub const ENCODER_FILE: &str = "onnx/encoder_model.onnx";
 pub const DECODER_FILE: &str = "onnx/decoder_model_merged_int8.onnx";
 /// Where the tokenizer is, inside the model folder.
 pub const TOKENIZER_FILE: &str = "tokenizer.json";
-
-/// `[SOT, language, transcribe, notimestamps]`.
-const PROMPT_LEN: usize = 4;
 
 /// The words of a recording.
 #[derive(Debug, Clone, PartialEq)]
@@ -231,6 +233,10 @@ impl WhisperModel {
         // the config's, upstream's, and lives in `decode.rs`.
         let config = DecodeConfig {
             tokens: ids,
+            // Timestamp tokens (#659): the model says where each segment starts
+            // and stops, and the window uses that for its first word and for
+            // where the next window starts.
+            with_timestamps: true,
             ..DecodeConfig::multilingual()
         };
         Ok(Self {
@@ -345,15 +351,17 @@ struct ModelWindows<'a> {
 }
 
 impl WindowTranscriber for ModelWindows<'_> {
-    fn window(&mut self, audio: &[f32], language: Option<u32>) -> Result<WindowResult> {
+    fn window(&mut self, audio: &[f32], request: WindowRequest) -> Result<WindowResult> {
         let m = self.model;
+        let language = request.language;
         if is_silent(audio) {
             // Nothing to hear, so nothing to ask the model, and no language to learn.
             return Ok(WindowResult {
                 words: Vec::new(),
                 language: language.unwrap_or(m.config.tokens.languages.start),
                 speech: false,
-                finished: true,
+                next: None,
+                last_speech_s: None,
             });
         }
         let mel = m.mel.log_mel_window(audio).into_vec();
@@ -363,153 +371,94 @@ impl WindowTranscriber for ModelWindows<'_> {
         let mut decoder = CachedDecoder::new(run, m.layout, m.heads, self.cancel);
         let decoded = decode_window(&mut decoder, &encoder, &m.config, language)
             .map_err(WhisperError::from)?;
+        let no_words = |language| WindowResult {
+            words: Vec::new(),
+            language,
+            speech: false,
+            next: None,
+            last_speech_s: None,
+        };
 
         if decoded.stop == StopReason::NoSpeech || decoded.tokens.is_empty() {
-            return Ok(WindowResult {
-                words: Vec::new(),
-                language: decoded.language,
-                speech: false,
-                finished: true,
-            });
+            return Ok(no_words(decoded.language));
         }
 
-        decoder.complete_for(&decoded.tokens, PROMPT_LEN, &encoder)?;
+        let ids = &m.config.tokens;
+        let window_s = audio.len() as f32 / crate::mel::SAMPLE_RATE as f32;
+        let split = split_segments(
+            &decoded.tokens,
+            ids.timestamp_begin,
+            window_s,
+            request.to_end,
+        );
+        // The text of the segments that are kept, which is what is aligned:
+        // upstream gives `find_alignment` the text tokens of the segments.
+        let (text_tokens, text_probs, segments) = text_of_segments(
+            &split.segments,
+            &decoded.tokens,
+            &decoded.token_probs,
+            ids.eot,
+        );
+        if text_tokens.is_empty() {
+            // Timestamps and no text: nothing was said that can be written down.
+            let mut result = no_words(decoded.language);
+            result.next = split.seek_s;
+            return Ok(result);
+        }
+
+        // The alignment pass: the text again, as one sequence with
+        // `<|notimestamps|>` in its prompt, so the attention is the one the
+        // aligner was built on (`find_alignment` feeds `sot_sequence +
+        // no_timestamps + text`). One forward pass, not one per token.
         let content_frames = encoder_frames(audio.len().min(N_SAMPLES)).clamp(1, m.layout.frames);
-        let heads = decoder.attention(
-            PROMPT_LEN - 1,
-            PROMPT_LEN + decoded.tokens.len(),
+        let heads = decoder.alignment_attention(
+            &[ids.sot, decoded.language, ids.transcribe, ids.no_timestamps],
+            &text_tokens,
+            &encoder,
             content_frames,
         )?;
 
         let code = language_code(&m.tokenizer, decoded.language).unwrap_or_default();
-        let window_s = audio.len() as f32 / crate::mel::SAMPLE_RATE as f32;
-        let mut words = words_of(
-            &decoded,
-            heads,
-            content_frames,
-            m.config.tokens.eot,
+        let alignment = align_words(
+            &AlignmentInput {
+                heads: &heads,
+                content_frames,
+                tokens: &text_tokens,
+                token_probs: &text_probs,
+            },
             |t| m.tokenizer.token_bytes(t),
             WordSplit::for_language(&code),
-            window_s,
         )?;
+        let placed = place_words(
+            alignment,
+            &segments,
+            request.last_speech_s,
+            window_s,
+            PREPEND_PUNCTUATIONS,
+            APPEND_PUNCTUATIONS,
+        );
+        let mut words = placed.words;
+        // The timestamps do not say where speech starts after a pause or a
+        // lead-in (the model's segments run end to end), so the sound does.
         trim_to_sound(&mut words, audio);
+
+        // Where the next window starts: upstream seeks to the end of the last
+        // word of the finished segments, or, with no words, to the last
+        // timestamp; a window the model closed moves on whole.
+        let last_word_end = words.last().map(|w| w.end_s).filter(|&e| e > 0.0);
+        let next = if split.single_timestamp_ending {
+            None
+        } else {
+            last_word_end.or(split.seek_s)
+        };
         Ok(WindowResult {
+            last_speech_s: (!words.is_empty()).then_some(placed.last_speech_s),
             words,
             language: decoded.language,
             speech: true,
-            finished: decoded.stop == StopReason::EndOfText,
+            next,
         })
     }
-}
-
-/// The text tokens of a decoded window, with their probabilities and the
-/// attention rows that belong to them.
-///
-/// `whisper.timing.add_word_timestamps` keeps only the tokens under
-/// `<|endoftext|>` for the alignment (`token < tokenizer.eot`): a language,
-/// task or timestamp token is not text and has no bytes to spell. The decode
-/// loop does not sample them any more, so this is for a decoder that does
-/// (one a caller supplies, or a mask that is missing), and so that a stray
-/// token costs a word at worst, not the transcription.
-///
-/// `heads` has `tokens.len() + 1` rows each: row `r` is the attention of the
-/// position that predicts token `r`, which is the position of token `r - 1`
-/// (row 0 is the last position of the prompt), and the last predicts the end.
-/// Leaving token `i` out leaves out row `i + 1`, the position of the token
-/// itself; token `i + 1` then takes the row of the last text token before it,
-/// as it would have if `i` had never been sampled.
-fn text_only(
-    tokens: &[u32],
-    token_probs: &[f32],
-    heads: Vec<Matrix>,
-    eot: u32,
-) -> Result<(Vec<u32>, Vec<f32>, Vec<Matrix>)> {
-    if tokens.iter().all(|&t| t < eot) {
-        return Ok((tokens.to_vec(), token_probs.to_vec(), heads));
-    }
-    let is_text = |i: usize| tokens.get(i).is_some_and(|&t| t < eot);
-    let kept: Vec<usize> = (0..tokens.len()).filter(|&i| is_text(i)).collect();
-    let rows: Vec<usize> = (0..=tokens.len())
-        .filter(|&r| r == 0 || is_text(r - 1))
-        .collect();
-    let heads = heads
-        .iter()
-        .map(|head| {
-            let mut data = Vec::with_capacity(rows.len() * head.cols());
-            for &r in &rows {
-                if r >= head.rows() {
-                    return Err(crate::timing::TimingError::Shape(format!(
-                        "a head has {} rows, expected {}",
-                        head.rows(),
-                        tokens.len() + 1
-                    )));
-                }
-                data.extend_from_slice(head.row(r));
-            }
-            Matrix::new(rows.len(), head.cols(), data)
-        })
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    Ok((
-        kept.iter().map(|&i| tokens[i]).collect(),
-        kept.iter()
-            .map(|&i| token_probs.get(i).copied().unwrap_or(0.0))
-            .collect(),
-        heads,
-    ))
-}
-
-/// The words of a decoded window, from the cross-attention of the alignment
-/// heads: aligned, with the punctuation attached, clamped into the window.
-///
-/// `heads` has one row more than `decoded.tokens` has tokens (the one that
-/// predicts `<|endoftext|>`). Only the text tokens are aligned ([`text_only`]).
-fn words_of<'a>(
-    decoded: &WindowDecode,
-    heads: Vec<Matrix>,
-    content_frames: usize,
-    eot: u32,
-    bytes_of: impl Fn(u32) -> Option<&'a [u8]>,
-    split: WordSplit,
-    window_s: f32,
-) -> Result<Vec<Word>> {
-    let (tokens, token_probs, heads) =
-        text_only(&decoded.tokens, &decoded.token_probs, heads, eot)?;
-    let timings = align_words(
-        &AlignmentInput {
-            heads: &heads,
-            content_frames,
-            tokens: &tokens,
-            token_probs: &token_probs,
-        },
-        bytes_of,
-        split,
-    )?;
-    let timings = merge_punctuations(timings, PREPEND_PUNCTUATIONS, APPEND_PUNCTUATIONS);
-    Ok(timings
-        .into_iter()
-        .filter_map(|t| word_from(t, window_s))
-        .collect())
-}
-
-/// A [`Word`] from an aligned one: the leading space is trimmed, a word with
-/// no text is dropped, and a word is at least one encoder frame long and ends
-/// inside the window.
-fn word_from(t: WordTiming, window_s: f32) -> Option<Word> {
-    let text = t.text.trim();
-    if text.is_empty() {
-        return None;
-    }
-    let start_s = t.start_s.clamp(0.0, window_s);
-    let end_s = t
-        .end_s
-        .max(start_s + SECONDS_PER_FRAME)
-        .min(window_s.max(start_s + SECONDS_PER_FRAME));
-    Some(Word {
-        text: text.to_string(),
-        start_s,
-        end_s,
-        confidence: t.probability.clamp(0.0, 1.0),
-    })
 }
 
 /// Transcribe `samples`, interleaved at `sample_rate` Hz with `channels`
@@ -528,14 +477,17 @@ fn word_from(t: WordTiming, window_s: f32) -> Option<Word> {
 /// `text` has its leading space trimmed and its punctuation attached
 /// (`"Hello,"`). `start_s`/`end_s` are seconds from the start of `samples`,
 /// estimated from the decoder's cross-attention (a DTW over a few attention
-/// heads, as `whisper.timing.find_alignment` does), not measured. The aligner
-/// lays words end to end, so a word ends where the next starts; the sound in
-/// the audio then pulls an edge in (`refine::trim_to_sound`): a word that is
-/// followed or preceded by a pause of a quarter of a second or more ends or
-/// starts where its sound does, not across the pause. Between words spoken with
-/// no pause the boundary stays the aligner's, which on the pinned model is about
-/// 0.14 s early, so a start is typically within 0.2 s of the word's and an end
-/// up to a tenth of a second or so before the word has finished.
+/// heads, as `whisper.timing.find_alignment` does), not measured, and placed in
+/// the segments Whisper's timestamp tokens give as `add_word_timestamps` does:
+/// a word that ran on across a pause is cut back to about twice the median
+/// word, and a window's last words are not decoded again by the next. The
+/// aligner lays words end to end, so a word ends where the next starts; the
+/// sound in the audio then pulls an edge in (`refine::trim_to_sound`): a word
+/// that is followed or preceded by a pause of a quarter of a second or more ends
+/// or starts where its sound does, not across the pause. Between words spoken
+/// with no pause the boundary stays the aligner's, which on the pinned model is
+/// about 0.14 s early, so a start is typically within 0.2 s of the word's and an
+/// end up to a tenth of a second or so before the word has finished.
 /// `confidence` is the mean probability the model gave the word's tokens.
 pub fn transcribe(
     model: &WhisperModel,
@@ -562,7 +514,7 @@ pub fn transcribe(
 /// (and after `cancel` has answered no for it): `index` counts from 0 and is
 /// the number of windows already done, `total` is the number the audio will
 /// take as far as is known now. It is an estimate that can grow, never shrink,
-/// because a window that ends in a word its edge cut off starts the next one
+/// because a window starts the next one where its last finished word ended,
 /// earlier than 30 s on; `total` is always more than `index`. It is called on
 /// the thread that called this and must not block.
 pub fn transcribe_observed(
@@ -606,16 +558,6 @@ mod tests {
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tokenizer_tiny.json"),
         )
         .expect("the tiny tokenizer fixture loads")
-    }
-
-    fn timing(text: &str, start_s: f32, end_s: f32) -> WordTiming {
-        WordTiming {
-            text: text.to_string(),
-            tokens: 0..1,
-            start_s,
-            end_s,
-            probability: 0.8,
-        }
     }
 
     // ---- replacing the files of a loaded model, on the real model -----------------
@@ -695,6 +637,9 @@ mod tests {
     }
 
     // ---- the cost of a step, on the real model ----------------------------------
+
+    /// `[SOT, language, transcribe, notimestamps]`.
+    const PROMPT_LEN: usize = 4;
 
     /// What a forced decode of `steps` tokens moved out of the runtime, and how
     /// long it took, step by step.
@@ -895,102 +840,5 @@ mod tests {
             None,
             "a text token is no language"
         );
-    }
-
-    /// Attention for `rows` rows of 40 frames, row `r` peaked at frame `3 r`
-    /// (so a row is told from another by where it peaks), for every head.
-    fn peaked(rows: usize) -> Vec<Matrix> {
-        let one = || {
-            let mut data = vec![0.01f32; rows * 40];
-            for r in 0..rows {
-                data[r * 40 + (3 * r).min(39)] = 1.0;
-            }
-            Matrix::new(rows, 40, data).unwrap()
-        };
-        vec![one(), one()]
-    }
-
-    fn window_decode(tokens: &[u32]) -> WindowDecode {
-        WindowDecode {
-            language: 13,
-            language_prob: None,
-            tokens: tokens.to_vec(),
-            token_probs: vec![0.9; tokens.len()],
-            no_speech_prob: 0.0,
-            stop: StopReason::EndOfText,
-        }
-    }
-
-    #[test]
-    fn a_language_token_in_the_text_does_not_fail_the_alignment() {
-        // "Hello", <|de|>, " world", ".": a language token the decoder wrote
-        // in the middle of the text. It used to reach the word grouping, which
-        // has no bytes for it, and failed the whole transcription.
-        let tokenizer = tiny_tokenizer();
-        let decoded = window_decode(&[0, 1, 14, 2, 3]);
-        let words = words_of(
-            &decoded,
-            peaked(6),
-            40,
-            11,
-            |t| tokenizer.token_bytes(t),
-            WordSplit::Spaces,
-            30.0,
-        )
-        .expect("a special token among the text is left out, not an error");
-        let texts: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
-        assert_eq!(texts, ["Hello", "world."]);
-        assert!(words.iter().all(|w| w.start_s < w.end_s));
-    }
-
-    #[test]
-    fn leaving_a_token_out_leaves_out_the_row_of_its_own_position() {
-        // Tokens a, <|de|>, b: rows 0..=3 are the positions that predict a, the
-        // language token, b and the end. The language token's own position is
-        // row 2 (it predicts b), and goes; b takes row 1, the position of a.
-        let tokens = [0u32, 14, 1];
-        let (kept, probs, heads) = text_only(&tokens, &[0.1, 0.2, 0.3], peaked(4), 11).unwrap();
-        assert_eq!(kept, [0, 1]);
-        assert_eq!(probs, [0.1, 0.3]);
-        let peak = |m: &Matrix, r: usize| m.row(r).iter().position(|&v| v == 1.0).expect("a peak");
-        // Rows 0, 1 and 3 of the original, peaked at frames 0, 3 and 9.
-        for head in &heads {
-            assert_eq!(head.rows(), 3);
-            assert_eq!(
-                (peak(head, 0), peak(head, 1), peak(head, 2)),
-                (0, 3, 9),
-                "rows 0, 1 and 3"
-            );
-        }
-        // A special token first or last; several in a row; all of them.
-        let (kept, _, heads) = text_only(&[14, 0, 15], &[0.5; 3], peaked(4), 11).unwrap();
-        assert_eq!((kept, heads[0].rows()), (vec![0], 2));
-        let (kept, _, heads) = text_only(&[14, 15], &[0.5; 2], peaked(3), 11).unwrap();
-        assert_eq!((kept.len(), heads[0].rows()), (0, 1));
-        // Nothing to leave out: the same, untouched.
-        let (kept, _, heads) = text_only(&[0, 1], &[0.5; 2], peaked(3), 11).unwrap();
-        assert_eq!((kept, heads[0].rows()), (vec![0, 1], 3));
-        // A head with fewer rows than the tokens need is an error, not a panic.
-        assert!(text_only(&[0, 14, 1], &[0.5; 3], peaked(3), 11).is_err());
-    }
-
-    #[test]
-    fn a_word_keeps_its_text_trimmed_and_a_positive_length_inside_the_window() {
-        let w = word_from(timing(" Hello,", 1.0, 1.5), 30.0).unwrap();
-        assert_eq!(w.text, "Hello,");
-        assert_eq!((w.start_s, w.end_s), (1.0, 1.5));
-        assert!((w.confidence - 0.8).abs() < 1e-6);
-
-        // Two tokens that start on the same frame: the first has no length.
-        let w = word_from(timing(" a", 2.0, 2.0), 30.0).unwrap();
-        assert!(w.end_s > w.start_s, "{w:?}");
-        assert!((w.end_s - 2.02).abs() < 1e-6);
-
-        // Past the window's end is pulled back, to at least a frame.
-        let w = word_from(timing(" z", 29.99, 31.0), 30.0).unwrap();
-        assert!(w.start_s < w.end_s && w.end_s <= 30.01, "{w:?}");
-
-        // A word of only spaces is dropped.
-        assert!(word_from(timing("  ", 1.0, 2.0), 30.0).is_none());
     }
 }

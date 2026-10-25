@@ -6,10 +6,20 @@
 //! to the word **after** it: the first word of every window starts at the
 //! window's start however long the lead-in is, and a word after a pause starts
 //! when the pause did (a 6.7 s pause came out as the next word's start, 6.7 s
-//! early). `whisper.timing.add_word_timestamps` fixes the first case from the
-//! segment timestamps of Whisper's timestamp mode; this build decodes without
-//! timestamp tokens (the plan on #384 uses `<|notimestamps|>`), so it has no
-//! segments to ask, and asks the signal instead.
+//! early).
+//!
+//! `whisper.timing.add_word_timestamps` fixes that from the segment timestamps
+//! of Whisper's timestamp mode, and `segments.rs` ports it (#659). It fixes the
+//! long pauses, and measured on real speech with 1.5 to 6 s pauses put in it
+//! (`scripts/word-timing-eval`) it is what keeps a word from starting seconds
+//! early. It does not fix a short lead-in, because the base model's segments run
+//! end to end (a segment starts where the one before it ended, and the first at
+//! 0.0 s whatever the lead-in), so the timestamps know no more about where the
+//! speech starts than the aligner does. This module asks the signal, and is
+//! kept for what is left after `segments.rs`: on the fixture, whose first word
+//! is 0.3 s into the audio, the first word starts at 0.0 s without it and 0.28 s
+//! with it, and on real speech with pauses the worst word end is 1.1 s out
+//! without it and 0.4 s out with it.
 //!
 //! [`trim_to_sound`] looks at the stretch of audio each word was given and
 //! finds the sound in it:
@@ -36,7 +46,9 @@
 //!
 //! What it does not do is move the boundary between two words that are
 //! spoken without a pause. That one is the aligner's, and is measured in the
-//! PR for #384: about 0.1 to 0.2 s early.
+//! PR for #384: about 0.1 to 0.2 s early. It is the same on real speech (#659):
+//! a start is a median 0.065 s from the reference and 0.06 to 0.08 s early on
+//! average.
 
 use crate::timing::SECONDS_PER_FRAME;
 use crate::Word;

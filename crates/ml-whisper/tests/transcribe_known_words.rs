@@ -43,10 +43,10 @@
 //!   0.25 s of it. The tolerance is the plan's; the measured errors are printed.
 //!
 //! And on a copy with 0.6 s of silence put into every join (built here, so the
-//! committed file stays short), the same two. That one is the sound-trimming
-//! (`src/refine.rs`) at work: the aligner alone starts a word where the
-//! previous one ended, so the pause before it belonged to it, and the starts
-//! came out 0.7 to 0.8 s early.
+//! committed file stays short), the same two. That one is the pause handling
+//! (`src/segments.rs` and the sound-trimming of `src/refine.rs`) at work: the
+//! aligner alone starts a word where the previous one ended, so the pause before
+//! it belonged to it, and the starts came out 0.7 to 0.8 s early.
 //!
 //! The gate's word list was fitted to the model: four words were swapped for
 //! others after Whisper base had heard the first list (see `make_speech.py`).

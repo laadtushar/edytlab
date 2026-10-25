@@ -17,7 +17,10 @@
 //! * `cached`: the merged decoder's key-value cache as a [`decode::DecoderStep`],
 //!   and the attention it collects; the cache hand-over is tested with a fake
 //!   runner.
-//! * `chunk`: 30 s windows and where the next one starts.
+//! * `segments`: the segments the timestamp tokens cut a window into, and
+//!   where the words go in them (a port of `add_word_timestamps`).
+//! * `chunk`: 30 s windows, and the next one starting where the last finished
+//!   word ended.
 //! * `refine`: word edges pulled in to where there is sound.
 //! * [`resample_to_16khz_mono`]: any rate and channel count to 16 kHz mono,
 //!   without the delay an FFT resampler adds.
@@ -48,6 +51,7 @@ mod model;
 mod ort_io;
 mod refine;
 mod resample;
+mod segments;
 pub mod timing;
 pub mod tokenizer;
 
