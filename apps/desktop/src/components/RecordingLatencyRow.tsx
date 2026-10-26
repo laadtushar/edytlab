@@ -12,7 +12,12 @@
  * A refusal ("heard 2 of 5 test sweeps…") is shown here, where the person
  * is looking, and leaves the value that was kept alone. Cancel is not an
  * error. The progress it shows is the backend's own `calibrate_latency`
- * report; other jobs on the same channel are not this row's.
+ * report; other jobs on the same channel are not this row's, and its Cancel
+ * is its own command (`cancel_recording_latency`), not the batch's.
+ *
+ * Leaving the row (closing Settings, or another tab) while a measurement
+ * runs cancels it: it plays test tones, and nothing on screen would say so
+ * any more.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,7 +33,7 @@ import {
 } from "../lib/recordingLatency";
 import {
   calibrateRecordingLatency,
-  cancelLongRunningTool,
+  cancelRecordingLatency,
   getRecordingLatency,
   onToolProgress,
   type RecordingLatency,
@@ -48,6 +53,9 @@ export function RecordingLatencyRow() {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const alive = useRef(true);
+  // Read by the unmount cleanup, which runs once, with the first render's
+  // closure.
+  const measuringRef = useRef(false);
 
   const read = useCallback(() => {
     getRecordingLatency().then(
@@ -89,16 +97,19 @@ export function RecordingLatencyRow() {
     return () => {
       live = false;
       alive.current = false;
+      if (measuringRef.current) void cancelRecordingLatency().catch(() => undefined);
       unlisten?.();
       window.removeEventListener("focus", onFocus);
     };
   }, [read]);
 
   const measure = useCallback(async () => {
+    measuringRef.current = true;
     setMeasuring(true);
     setRefusal(null);
     setProgress(undefined);
     const outcome = await calibrateOutcome(calibrateRecordingLatency);
+    measuringRef.current = false;
     if (!alive.current) return;
     setMeasuring(false);
     setCancelling(false);
@@ -112,9 +123,9 @@ export function RecordingLatencyRow() {
 
   const cancel = useCallback(() => {
     setCancelling(true);
-    // `cancel_long_running_tool` answers at once and the run ends at its
+    // `cancel_recording_latency` answers at once and the run ends at its
     // next checkpoint; the button comes back when `measure` settles.
-    void cancelLongRunningTool().catch(() => setCancelling(false));
+    void cancelRecordingLatency().catch(() => setCancelling(false));
   }, []);
 
   const devices = status?.devices ?? null;

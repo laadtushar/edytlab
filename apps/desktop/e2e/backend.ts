@@ -256,12 +256,15 @@ export function chatgptModelList(): Record<string, unknown> {
  * The devices `get_recording_latency` names, as `devices_json`
  * (`commands.rs`) writes them: the default output and input by name and
  * rate, nothing else. These are what a Linux desktop on PulseAudio shows
- * through ALSA's `default`.
+ * through ALSA's `default`: cpal calls both `default`, and
+ * `recorder::identify` adds the sink and source the sound server says they
+ * are (`pactl get-default-sink`), so that a headset is not filed as the
+ * speakers.
  */
 export const RECORDING_DEVICES = {
   host: "ALSA",
-  output: "default",
-  input: "default",
+  output: "default (alsa_output.pci-0000_00_1f.3.analog-stereo)",
+  input: "default (alsa_input.pci-0000_00_1f.3.analog-stereo)",
   out_sr: 48_000,
   in_sr: 48_000,
 };
@@ -289,6 +292,9 @@ export function recordingLatencyCommands(
   outcome: "measured" | "not_heard" = "measured",
 ): Backend {
   return {
+    // `cancel_recording_latency` is `Ok(())`: it sets the measurement's own
+    // flag, answers at once, and does the same when nothing is running.
+    cancel_recording_latency: ok(null),
     calibrate_recording_latency:
       outcome === "measured"
         ? ok({

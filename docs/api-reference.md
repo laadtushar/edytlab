@@ -888,6 +888,10 @@ check is unaffected.
 Resolves as soon as the request is recorded, not when the tool actually stops.
 Watch `onToolProgress` for that.
 
+It does not stop a latency measurement (`calibrateRecordingLatency`), which has
+its own `cancelRecordingLatency()`: pressing one Cancel must not stop the other
+job.
+
 ---
 
 ## Selection and Markers
@@ -1141,9 +1145,10 @@ neighbour does not need the caller to reorder first.
 
 Open the default input device and start capturing. Resolves to a status string.
 
-**Errors:** no input device; permission denied; the device is in use. All three
-are reachable and none of them are distinguishable from each other by the
-caller, so surface the message rather than a generic failure.
+**Errors:** no input device; permission denied; the device is in use; a latency
+measurement is running (`calibrateRecordingLatency`), because it plays test
+tones the take would hear. The first three are not distinguishable from each
+other by the caller, so surface the message rather than a generic failure.
 
 ---
 
@@ -1174,6 +1179,9 @@ Record on a timer: wait `startAfterSec`, capture for `durationSec`.
 Both fields are optional — omitting `startAfterSec` starts now, omitting
 `durationSec` records until stopped. `cancelled` is true when
 `cancelLongRunningTool()` ended it early, in which case `path` may be absent.
+
+**Errors:** a latency measurement is running. While a timer is armed (waiting
+or recording), `calibrateRecordingLatency` is refused for the same reason.
 
 Emits `tool-progress` events throughout; see `onToolProgress`.
 
@@ -1210,8 +1218,20 @@ A latency belongs to the pair of devices *and their sample rates*: change
 either and `latency` is null again until it is measured. The values are kept in
 `~/.edytlab/audio-latency.json`.
 
+`devices.output` and `devices.input` name what the defaults really are. On Linux
+the audio system calls both `default` whatever they are routed to, so the sound
+server's own names are added (`default (alsa_output.pci-…)`, from
+`pactl get-default-sink` and `get-default-source`): a headset and the speakers
+are two pairs, not one.
+
+**Returns** `devices: null` with `problem` when there are no speakers or no
+microphone, or when the defaults cannot be named (on Linux, `pactl` is missing
+or does not answer within two seconds); nothing can be measured or kept for a
+pair that has no name.
+
 **Errors:** the file was written by a newer version of the app (it is left
-alone, not read as empty).
+alone, not read as empty). An entry in it this version cannot read counts as
+not measured; the rest are kept.
 
 ---
 
@@ -1221,7 +1241,7 @@ Measure the round trip of the default speakers and microphone, and keep it for
 that pair. Plays five test sweeps through the speakers three times and finds
 them in the microphone; takes about ten seconds and makes noise, so ask first.
 
-**Returns:** `{ cancelled: true }` when `cancelLongRunningTool()` ended it, or
+**Returns:** `{ cancelled: true }` when `cancelRecordingLatency()` ended it, or
 
 ```typescript
 {
@@ -1236,11 +1256,25 @@ them in the microphone; takes about ten seconds and makes noise, so ask first.
 **Errors**, each with a reason the person can act on: not every sweep was heard
 (speakers off, headphones the microphone cannot hear, a noisy room); the
 measurements disagree by more than 1 ms, which means the device's delay is not
-steady enough to compensate (nothing is kept); the device dropped out; another
-measurement or a recording is running.
+steady enough to compensate (nothing is kept); the device dropped out, which
+includes audio lost without any error (read from the timing of the audio
+callbacks, so a loss shorter than about one buffer plus 20 ms is not seen); the
+speakers never started playing; the default devices cannot be named; another
+measurement, a timed recording that is armed, or a recording is running.
 
 Emits `tool-progress` events with `kind: "calibrate_latency"`, `run` and
 `runs`, then a final `done`.
+
+---
+
+### `cancelRecordingLatency() → void`
+
+Ask the running latency measurement to stop at its next checkpoint (the
+measurement then resolves `{ cancelled: true }`). Its own command and its own
+flag: `cancelLongRunningTool()` is the Cancel of `batch_apply` and
+`timerRecord`, and neither stops the other. Resolves at once, and does nothing
+when no measurement is running. The Audio tab's row calls it from Cancel and
+when it unmounts mid-measurement.
 
 ---
 

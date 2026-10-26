@@ -31,6 +31,14 @@ test("opening the Audio tab names the devices, shows the setup line and plays no
 
   await expect(page.getByTestId("recording-latency-value")).toHaveText("Not measured yet");
   await expect(page.getByTestId("recording-latency-devices")).toContainText("Speakers: default");
+  // The sound server's own sink name (Linux) is long; it wraps inside the card.
+  await expect(page.getByTestId("recording-latency-devices")).toContainText(
+    "alsa_output.pci-0000_00_1f.3.analog-stereo",
+  );
+  const card = await page.getByTestId("settings-card").boundingBox();
+  const line = await page.getByTestId("recording-latency-devices").boundingBox();
+  expect(card && line).toBeTruthy();
+  expect(line!.x + line!.width).toBeLessThanOrEqual(card!.x + card!.width + 0.5);
   await expect(page.getByTestId("recording-latency-setup")).toContainText(
     "Put the speakers close to the microphone",
   );

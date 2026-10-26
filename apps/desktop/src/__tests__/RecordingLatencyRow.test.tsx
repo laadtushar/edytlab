@@ -19,12 +19,14 @@ import type { RecordingLatency, ToolProgress } from "../lib/tauri-bridge";
 const getMock = vi.fn();
 const calibrateMock = vi.fn();
 const cancelMock = vi.fn();
+const longCancelMock = vi.fn();
 const onProgressMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   getRecordingLatency: () => getMock(),
   calibrateRecordingLatency: () => calibrateMock(),
-  cancelLongRunningTool: () => cancelMock(),
+  cancelRecordingLatency: () => cancelMock(),
+  cancelLongRunningTool: () => longCancelMock(),
   onToolProgress: (cb: (p: ToolProgress) => void) => onProgressMock(cb),
 }));
 
@@ -185,6 +187,8 @@ describe("RecordingLatencyRow", () => {
 
     await user.click(screen.getByTestId("recording-latency-cancel"));
     expect(cancelMock).toHaveBeenCalledTimes(1);
+    // The batch's and the timer's Cancel is not this row's.
+    expect(longCancelMock).not.toHaveBeenCalled();
 
     await answer.resolve({ cancelled: true });
     expect(screen.queryByRole("alert")).toBeNull();
@@ -219,5 +223,35 @@ describe("RecordingLatencyRow", () => {
     await act(async () => {});
     // Every listener that was registered was let go.
     expect(unlisten).toHaveBeenCalledTimes(onProgressMock.mock.calls.length);
+  });
+
+  it("closing Settings while a measurement runs cancels it", async () => {
+    const user = userEvent.setup();
+    const view = await renderRow();
+    const answer = held<{ cancelled: true }>();
+    calibrateMock.mockReturnValue(answer.promise);
+    await user.click(screen.getByTestId("recording-latency-measure"));
+    expect(cancelMock).not.toHaveBeenCalled();
+
+    view.unmount();
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(longCancelMock).not.toHaveBeenCalled();
+    await answer.resolve({ cancelled: true });
+  });
+
+  it("leaving a row that is not measuring cancels nothing", async () => {
+    const view = await renderRow();
+    view.unmount();
+    expect(cancelMock).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel after a measurement has finished", async () => {
+    const user = userEvent.setup();
+    const view = await renderRow();
+    calibrateMock.mockResolvedValue({ cancelled: true });
+    await user.click(screen.getByTestId("recording-latency-measure"));
+    await waitFor(() => expect(screen.getByTestId("recording-latency-measure")).toBeEnabled());
+    view.unmount();
+    expect(cancelMock).not.toHaveBeenCalled();
   });
 });

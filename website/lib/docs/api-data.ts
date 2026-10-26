@@ -407,22 +407,27 @@ export const apiAreas: ApiArea[] = [
           {
             name: "stopRecording(outputPath)",
             returns: "RecordingResult",
-            desc: "Stop capture and write the take to a WAV file at outputPath. Resolves with { path, sample_rate, channels }. The take is not added to the session: load it with batchLoad([path]). A failed write means the take is gone; a failed import means it is on disk at the path this returned.",
+            desc: "Stop capture and write the take to a WAV file at outputPath. Resolves with { path, sample_rate, channels }. The take is not added to the session: load it with batchLoad([path]). A failed write means the take is gone; a failed import means it is on disk at the path this returned. Rejects while a latency measurement is running, because the take would hear its test tones.",
           },
           {
             name: "timerRecord(outputPath, schedule)",
             returns: "{ path?, cancelled }",
-            desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Emits tool-progress events throughout.",
+            desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Rejects while a latency measurement is running. Emits tool-progress events throughout.",
           },
           {
             name: "getRecordingLatency()",
             returns: "RecordingLatency",
-            desc: "The recording latency kept for the current default speakers and microphone: how late the microphone hears what the computer plays. Resolves with { devices, problem, latency }; devices is null when there are no speakers or no microphone (problem says why), and latency is null until it has been measured for this pair and these sample rates. Plays and records nothing.",
+            desc: "The recording latency kept for the current default speakers and microphone: how late the microphone hears what the computer plays. Resolves with { devices, problem, latency }; devices is null when there are no speakers or no microphone (problem says why), and latency is null until it has been measured for this pair and these sample rates. On Linux the audio system calls both defaults \"default\", so the sound server's own sink and source names are added to them (a headset is not the speakers); when they cannot be read devices is null and problem says why. An entry in the file this version cannot read counts as not measured. Plays and records nothing.",
           },
           {
             name: "calibrateRecordingLatency()",
             returns: "CalibrationResult",
-            desc: "Measure the round trip of the default speakers and microphone with test sweeps, and keep it for that pair. Takes about ten seconds and makes noise. Rejects, with a reason to act on, when not every sweep is heard or the measurements disagree by more than 1 ms; resolves { cancelled: true } when cancelLongRunningTool() stopped it. Emits tool-progress events with kind calibrate_latency.",
+            desc: "Measure the round trip of the default speakers and microphone with test sweeps, and keep it for that pair. Takes about ten seconds and makes noise. Rejects, with a reason to act on, when not every sweep is heard, the measurements disagree by more than 1 ms, audio was lost during the run, the speakers never started, the default devices cannot be named, or a recording, an armed timer or another measurement is running; resolves { cancelled: true } when cancelRecordingLatency() stopped it. Emits tool-progress events with kind calibrate_latency.",
+          },
+          {
+            name: "cancelRecordingLatency()",
+            returns: "void",
+            desc: "Ask the running latency measurement to stop at its next checkpoint; calibrateRecordingLatency() then resolves { cancelled: true }. Its own flag: cancelLongRunningTool() is the Cancel of batch_apply and timerRecord, and neither stops the other. Resolves at once, and does nothing when no measurement is running.",
           },
         ],
       },
@@ -632,7 +637,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "cancelLongRunningTool()",
             returns: "void",
-            desc: "Ask the running tool to stop. Cooperative: batch_apply checks between files and timer_record between polls, so it lands at the next boundary, and a tool that does not check is unaffected. Resolves when the request is recorded, not when the tool stops; watch the tool-progress event for that.",
+            desc: "Ask the running tool to stop. Cooperative: batch_apply checks between files and timer_record between polls, so it lands at the next boundary, and a tool that does not check is unaffected. Resolves when the request is recorded, not when the tool stops; watch the tool-progress event for that. It does not stop a latency measurement, which has cancelRecordingLatency().",
           },
         ],
       },
