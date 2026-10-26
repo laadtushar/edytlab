@@ -402,12 +402,12 @@ export const apiAreas: ApiArea[] = [
           {
             name: "startRecording()",
             returns: "string",
-            desc: "Begin capturing from the default input device.",
+            desc: "Begin capturing from the default input device. Rejects while a latency measurement is running, because the take would hear its test tones.",
           },
           {
             name: "stopRecording(outputPath)",
             returns: "RecordingResult",
-            desc: "Stop capture and write the take to a WAV file at outputPath. Resolves with { path, sample_rate, channels }. The take is not added to the session: load it with batchLoad([path]). A failed write means the take is gone; a failed import means it is on disk at the path this returned. Rejects while a latency measurement is running, because the take would hear its test tones.",
+            desc: "Stop capture and write the take to a WAV file at outputPath. Resolves with { path, sample_rate, channels }. The take is not added to the session: load it with batchLoad([path]). A failed write means the take is gone; a failed import means it is on disk at the path this returned.",
           },
           {
             name: "timerRecord(outputPath, schedule)",
