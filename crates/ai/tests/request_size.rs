@@ -159,8 +159,11 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // (`track` or `path`, `language`, what to tell the user when the model is
 // missing) and added a sentence to `cut_words` and `remove_fillers` about the
 // transcript's track: 63,490 B to 64,208 B. It went up by that and no more.
+// #764 then had `load` name the formats it opens and say that M4A/AAC and Opus
+// are not supported (the model otherwise offers a file it cannot read): 64,418 B
+// to 64,505 B, 87 B. It went up by that and no more.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 64_430; // measured 64,418
+const FULL_TOOLS_MAX_BYTES: usize = 64_517; // measured 64,505
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -724,7 +727,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 67_410; // measured 67,393
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 67_497; // measured 67,480 (+87 B for #764, as above)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

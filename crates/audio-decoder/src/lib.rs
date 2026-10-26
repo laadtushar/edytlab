@@ -25,6 +25,19 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+/// The file extensions the app imports, lower case and without the dot.
+///
+/// This is the one list: `batch_apply`'s folder filter reads it, and the
+/// window's file picker and landing screen repeat it in TypeScript, which
+/// `tests/supported_extensions.rs` holds equal. Every entry decodes a real
+/// fixture in that test. A format is added here and in `Cargo.toml`'s
+/// symphonia features together.
+///
+/// Left out on purpose (#764): `m4a`/`aac` (AAC decoders need a patent
+/// licence) and `opus` (no published symphonia decodes it). Files of those
+/// kinds are named in [`DecodeError::UnsupportedFormat`].
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg", "aif", "aiff"];
+
 /// Decoded PCM audio, always interleaved (`L, R, L, R, ...` for stereo).
 #[derive(Debug, Clone)]
 pub struct DecodedAudio {
@@ -47,6 +60,13 @@ pub enum DecodeError {
 
     #[error("no audio track found in container")]
     NoAudioTrack,
+
+    /// A format the decoder recognises by its bytes and does not open. The
+    /// name is for the person: it is what to convert from.
+    #[error(
+        "{0} files are not supported yet. Convert the file to WAV, FLAC, MP3, Ogg Vorbis or AIFF and load that"
+    )]
+    UnsupportedFormat(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, DecodeError>;
@@ -81,6 +101,19 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
 ///
 /// This reads the container's headers and stops. No packets are decoded.
 pub fn probe_sample_rate(path: &Path) -> Result<u32> {
+    probe_sample_rate_inner(path).map_err(|e| match e {
+        DecodeError::Corrupt | DecodeError::UnsupportedCodec | DecodeError::NoAudioTrack => {
+            let mut head = Vec::new();
+            if let Ok(f) = File::open(path) {
+                let _ = f.take(SNIFF_BYTES as u64).read_to_end(&mut head);
+            }
+            name_unsupported(e, &head)
+        }
+        other => other,
+    })
+}
+
+fn probe_sample_rate_inner(path: &Path) -> Result<u32> {
     let file = File::open(path)?;
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -106,6 +139,12 @@ pub fn probe_sample_rate(path: &Path) -> Result<u32> {
 }
 
 fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
+    // Kept only to name the format if the decode fails.
+    let head = bytes[..bytes.len().min(SNIFF_BYTES)].to_vec();
+    decode_inner(bytes, hint).map_err(|e| name_unsupported(e, &head))
+}
+
+fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
     let cursor = Cursor::new(bytes);
     let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
 
@@ -192,6 +231,31 @@ fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
         sample_rate,
         channels,
     })
+}
+
+/// How much of the start of a file is read to name a format the decoder does
+/// not open. An Ogg stream's first page, with its `OpusHead`, is well inside.
+const SNIFF_BYTES: usize = 4096;
+
+/// A failed decode of a file whose bytes say it is M4A/MP4 or Opus becomes
+/// [`DecodeError::UnsupportedFormat`]; any other failure is returned as it
+/// was. Only called on a failure, so a file that decodes is never renamed.
+fn name_unsupported(e: DecodeError, head: &[u8]) -> DecodeError {
+    if !matches!(
+        e,
+        DecodeError::Corrupt | DecodeError::UnsupportedCodec | DecodeError::NoAudioTrack
+    ) {
+        return e;
+    }
+    // ISO base media: a box size, then `ftyp` (M4A, MP4, MOV, 3GP).
+    if head.len() >= 12 && &head[4..8] == b"ftyp" {
+        return DecodeError::UnsupportedFormat("M4A and MP4");
+    }
+    // Ogg whose first packet is an Opus header.
+    if head.starts_with(b"OggS") && head.windows(8).any(|w| w == b"OpusHead") {
+        return DecodeError::UnsupportedFormat("Opus");
+    }
+    e
 }
 
 // Errors during initial probe (header parse, codec lookup) collapse to
