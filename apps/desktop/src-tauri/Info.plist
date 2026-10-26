@@ -10,6 +10,6 @@
          dialog, and ends an app that opens the microphone without one. The
          matching entitlement is in entitlements.plist. -->
     <key>NSMicrophoneUsageDescription</key>
-    <string>edytlab uses the microphone to record audio into a track when you start a recording.</string>
+    <string>edytlab uses the microphone to record audio into a track when you start a recording, and to measure your recording latency when you press Measure in Settings.</string>
 </dict>
 </plist>

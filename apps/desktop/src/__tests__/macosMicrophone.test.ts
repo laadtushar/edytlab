@@ -58,9 +58,11 @@ describe("the macOS bundle's microphone access", () => {
     )?.[1];
     expect(reason, "NSMicrophoneUsageDescription needs a string").toBeTruthy();
     // macOS shows this in the permission dialog, so it says what happens:
-    // recording from the microphone into a track.
+    // recording from the microphone into a track, and the recording-latency
+    // measurement in Settings → Audio (#203), which also opens it.
     expect(reason).toMatch(/microphone/i);
     expect(reason).toMatch(/record/i);
     expect(reason).toMatch(/track/i);
+    expect(reason).toMatch(/latency/i);
   });
 });
