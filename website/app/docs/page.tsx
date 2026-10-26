@@ -67,7 +67,7 @@ export default function DocsPage() {
             key={card.href}
             href={card.href}
             data-lift
-            className={`ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 hover:bg-card${
+            className={`ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-4 hover:bg-card${
               /* An odd count leaves the last card alone in a row: it spans it. */
               i === cards.length - 1 && cards.length % 2 === 1 ? " sm:col-span-2" : ""
             }`}

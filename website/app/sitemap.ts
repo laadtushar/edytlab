@@ -2,6 +2,8 @@ import type { MetadataRoute } from "next";
 
 import { modifiedOf, posts } from "@/lib/blog";
 import { escapeXml } from "@/lib/feed";
+import { areaPath } from "@/lib/docs/reference";
+import { API_BASE, TOOLS_BASE, apiReference, toolsReference } from "@/lib/docs/references";
 import { absoluteUrl, pageUpdated, postPath } from "@/lib/seo";
 import { type WatchVideo, videoPath, videoPosterSrc, videoSrc, watchVideos } from "@/lib/videos";
 
@@ -84,5 +86,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     videos: [videoSitemapEntry(v)],
   }));
 
-  return [...fixed, ...blogPosts, ...videoPages];
+  // Each area of the tools and API references has a page of its own,
+  // listed from the same data the pages are made from, so a new area
+  // is in the sitemap the day it is in the data.
+  const referencePages: MetadataRoute.Sitemap = [
+    ...toolsReference.areas.map((a) => ({ path: areaPath(TOOLS_BASE, a.slug), priority: 0.7 })),
+    ...apiReference.areas.map((a) => ({ path: areaPath(API_BASE, a.slug), priority: 0.5 })),
+  ].map(({ path, priority }) => ({
+    url: absoluteUrl(path),
+    lastModified: new Date(pageUpdated(path)),
+    changeFrequency: "monthly",
+    priority,
+  }));
+
+  return [...fixed, ...blogPosts, ...videoPages, ...referencePages];
 }

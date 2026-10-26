@@ -297,7 +297,7 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
    Whatever edits the session also has to be sent in order by the frontend. Send it through the session's line (`inOrder` from `useSession`, `src/lib/sessionQueue.ts`), with its head adopted inside the turn, so two edits made in quick succession cannot apply or be answered the wrong way round (#498).
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
 4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
-5. Update [API Reference](./api-reference.md) and the site's `website/app/docs/api-reference/page.tsx`, and give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
+5. Update [API Reference](./api-reference.md) and the site's `website/lib/docs/api-data.ts`, and give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
 
 ---
 
