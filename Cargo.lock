@@ -2989,7 +2989,7 @@ dependencies = [
  "blake3",
  "hound",
  "ml-pipeline",
- "ndarray 0.16.1",
+ "ndarray",
  "ort",
  "realfft",
  "serde",
@@ -3040,7 +3040,7 @@ dependencies = [
  "audio-decoder",
  "hound",
  "ml-pipeline",
- "ndarray 0.16.1",
+ "ndarray",
  "ort",
  "realfft",
  "rubato",
@@ -3069,21 +3069,6 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "ndarray"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
-dependencies = [
- "matrixmultiply",
- "num-complex",
- "num-integer",
- "num-traits",
- "portable-atomic",
- "portable-atomic-util",
- "rawpointer",
 ]
 
 [[package]]
@@ -3606,7 +3591,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4336a1e2b38848325241c72889086886004e589b7c74f335e60a8e8db5138a0b"
 dependencies = [
  "libloading 0.9.0",
- "ndarray 0.17.2",
+ "ndarray",
  "ort-sys",
  "smallvec",
  "tracing",
