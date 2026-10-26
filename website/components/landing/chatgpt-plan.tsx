@@ -34,7 +34,7 @@ export function ChatGptPlan() {
             audio stays on your computer; the chat goes to OpenAI.
           </p>
           <Link
-            href="/docs/user-guide#chatgpt-plan"
+            href="/docs/user-guide/chatgpt-plan"
             data-press=""
             className="btn-motion btn-lift inline-flex items-center gap-2.5 rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 ring-offset-background hover:bg-neutral-900 hover:ring-white/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
@@ -51,7 +51,7 @@ export function ChatGptPlan() {
           <p className="text-xs text-muted-foreground">
             Preview. Plus and Pro; may not be available on workspace plans.{" "}
             <Link
-              href="/docs/user-guide#chatgpt-plan"
+              href="/docs/user-guide/chatgpt-plan"
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
               How it works
