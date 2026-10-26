@@ -160,7 +160,7 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // missing) and added a sentence to `cut_words` and `remove_fillers` about the
 // transcript's track: 63,490 B to 64,208 B. It went up by that and no more.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 64_430; // measured 64,418
+const FULL_TOOLS_MAX_BYTES: usize = 65_330; // measured 65,316 (`measure` added 898 B, #763)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -724,7 +724,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 67_410; // measured 67,393
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 68_340; // measured 68,322 (`measure` added 929 B, #763)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

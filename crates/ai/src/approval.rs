@@ -967,6 +967,22 @@ mod tests {
         assert_eq!(held.len(), 2);
     }
 
+    /// `measure` only reads: a step of measurements is never held (#763).
+    #[test]
+    fn a_step_of_measure_calls_is_not_held() {
+        let d = ToolDispatcher::default_dispatcher();
+        assert!(d.get("measure").is_some(), "measure is not registered");
+        let step = [
+            call("a", "measure", r#"{"check":"acx"}"#),
+            call(
+                "b",
+                "measure",
+                r#"{"track":0,"start_sec":1.0,"end_sec":4.0}"#,
+            ),
+        ];
+        assert!(held_step(&d, &step, None, "").is_none());
+    }
+
     #[test]
     fn held_step_lists_every_call_in_order() {
         let d = dispatcher();

@@ -253,8 +253,8 @@ impl ToolDispatcher {
             ExportRecipeTool, FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool,
             GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
             LabelTool, LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool,
-            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool,
-            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            MeasureTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
+            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
             NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
             PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
             RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
@@ -398,6 +398,8 @@ impl ToolDispatcher {
         // #618: the way to the tracks, buses and markers the session block
         // cut.
         d.register(Box::new(ListSessionTool));
+        // #763: loudness, peaks, noise floor, clipping and the ACX check.
+        d.register(Box::new(MeasureTool));
         d
     }
 

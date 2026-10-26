@@ -36,6 +36,11 @@ use tools::{
 /// already references (`Tool::mutates` states this). The read-only test
 /// below checks what they leave, and that it is exactly that.
 ///
+/// `measure` is here for what it reads: the head, rendered to a temporary file
+/// outside the project (removed when the call ends) and read back. It writes
+/// nothing in the project, and like `render_preview` it first puts back audio
+/// a history sweep removed (#763).
+///
 /// `list_session` is here for what it reads: the head's tracks, buses and
 /// markers, as text, one page at a time (#618). It writes nothing and opens
 /// no file, so it leaves no cache entry either.
@@ -51,12 +56,13 @@ use tools::{
 /// * `mute_track`, `solo_track` and `set_sync_lock` append state.
 /// * `apply_recipe` and `batch_apply` run nested edits.
 /// * `load` appends a node.
-const READ_ONLY: [&str; 10] = [
+const READ_ONLY: [&str; 11] = [
     "analyze_track",
     "audition_effect",
     "compare_nodes",
     "export_labels",
     "list_session",
+    "measure",
     "plot_spectrum",
     "render_preview",
     "select_region",
@@ -305,7 +311,7 @@ fn every_read_only_tool_leaves_the_session_untouched() {
     );
     let swept_hex = swept.to_hex();
 
-    let calls: [(&str, Value); 14] = [
+    let calls: [(&str, Value); 16] = [
         ("analyze_track", json!({ "track": 0 })),
         (
             "audition_effect",
@@ -318,6 +324,12 @@ fn every_read_only_tool_leaves_the_session_untouched() {
         ("list_session", json!({ "what": "tracks" })),
         ("list_session", json!({ "what": "buses" })),
         ("list_session", json!({ "what": "markers" })),
+        // The mix, and a track over a range with the ACX check.
+        ("measure", json!({})),
+        (
+            "measure",
+            json!({ "track": 0, "start_sec": 1.0, "end_sec": 5.0, "check": "acx" }),
+        ),
         (
             "plot_spectrum",
             json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.5 }),

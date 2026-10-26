@@ -210,7 +210,8 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// the room left for MCP names is what it was. It went up again by 39 B when
 /// `transcribe`, `cut_words` and `remove_fillers` stopped being left out
 /// (#384): their names, 33 B with the separators of the line, are on it now.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_653;
+/// And by 9 B for `measure` (#763), its name with the separator.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_662;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still

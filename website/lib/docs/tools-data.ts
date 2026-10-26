@@ -529,6 +529,12 @@ export const toolAreas: ToolArea[] = [
             output: "bpm, bpm_confidence, bpm_alternatives, key, key_score, key_runner_up, beats, downbeats, sections, rms_curve, lufs_integrated",
           },
           {
+            name: "measure",
+            prompt: 'measure the mix and check it against ACX',
+            what: "Measure the mix or one track as it plays (gain and effects included), over all of it or a range of seconds: integrated, momentary-max and short-term-max loudness (EBU R128), loudness range, sample and true peak, RMS, noise floor (the quietest half second), clipping with the first times, and speech-to-background contrast. With check acx it gives a pass or fail per ACX audiobook rule (RMS -23 to -18 dBFS, peak at most -3, noise floor at most -60) with the measured value. Reads only; nothing is changed.",
+            output: "source, start_sec, end_sec, duration_sec, loudness, peak, rms_dbfs, noise_floor, clipping, contrast, acx",
+          },
+          {
             name: "align_to_beat",
             prompt: 'find the beats, then warp this onto a steady grid',
             what: "Warp a track in time so its beats land on a target grid, without changing the pitch. Each segment between beats is stretched by its own ratio in one pass, so there is no seam at the beats. Get source_beats from analyze_track.",
