@@ -65,7 +65,7 @@ const features = [
 
 export function FeatureGrid() {
   return (
-    <section id="features" className="py-20 md:py-28">
+    <section id="features" className="py-12 md:py-28">
       <div className="container">
         <SectionHeading
           eyebrow="Features"
@@ -76,7 +76,7 @@ export function FeatureGrid() {
             rise in a small stagger (the icons are plain, never drawn on scroll, so they are visible at rest); hover or focus lifts one, tints its
             border and gives its icon a small turn (`globals.css`). */}
           <Stagger
-            className="mx-auto grid max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3"
+            className="mx-auto grid max-w-6xl grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3"
             each={0.05}
             distance={8}
             duration={0.4}
@@ -84,14 +84,14 @@ export function FeatureGrid() {
             {features.map((f) => (
               <div key={f.title} className="group card-hover h-full rounded-lg">
                 <Card className="surface h-full border-border/60 group-hover:border-primary/50 group-focus-within:border-primary/50">
-                  <CardHeader className="p-5 pb-2">
-                    <div className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:group-hover:rotate-6 motion-safe:group-hover:scale-[1.08] motion-safe:group-focus-within:rotate-6 motion-safe:group-focus-within:scale-[1.08]">
+                  <CardHeader className="p-3 pb-2 sm:p-5 sm:pb-2">
+                    <div className="mb-2 flex size-10 sm:mb-3 sm:size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:group-hover:rotate-6 motion-safe:group-hover:scale-[1.08] motion-safe:group-focus-within:rotate-6 motion-safe:group-focus-within:scale-[1.08]">
                       <f.icon className="size-5" />
                     </div>
                     <CardTitle>{f.title}</CardTitle>
                   </CardHeader>
-                  <CardContent className="p-5 pt-0">
-                    <CardDescription className="text-sm leading-relaxed">{f.body}</CardDescription>
+                  <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
+                    <CardDescription className="text-xs leading-relaxed sm:text-sm">{f.body}</CardDescription>
                   </CardContent>
                 </Card>
               </div>

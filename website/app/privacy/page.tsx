@@ -34,8 +34,7 @@ export default function PrivacyPage() {
       <p>
         Every audio file you load is decoded, processed, and rendered on your
         machine. Editing, mixing, and rendering run locally, and so does
-        transcription, once you have downloaded the speech model (v0.8.0 and
-        later); it sends no audio anywhere. Stem separation has not shipped; it
+        transcription, once you have downloaded the speech model; it sends no audio anywhere. Stem separation has not shipped; it
         is built to run locally too once it does. We do not upload, copy,
         mirror, or otherwise transmit your audio. There are no &ldquo;cloud
         projects&rdquo; and there is no server-side processing.
@@ -44,7 +43,7 @@ export default function PrivacyPage() {
       <h2>LLM API keys</h2>
       <p>
         edytlab supports six API providers (Anthropic, OpenAI, Google Gemini, Groq, and OpenRouter,
-        plus Ollama for a local model, which needs no key) and, from v0.9.0, your ChatGPT plan,
+        plus Ollama for a local model, which needs no key) and your ChatGPT plan,
         which has no API key (see &ldquo;Signing in with ChatGPT&rdquo; below).
         An API key you add is stored in your operating system&apos;s secure
         credential store: macOS Keychain, Credential Manager on Windows, or the
@@ -72,14 +71,11 @@ export default function PrivacyPage() {
         contact <code>auth.openai.com</code> (see &ldquo;Signing in with
         ChatGPT&rdquo; below). Beyond that, the app connects only where you tell
         it to: a plugin you install from a URL is downloaded from that URL, an
-        MCP server you add is contacted at the address you gave it, and, from
-        v0.8.0, the speech model is downloaded from Hugging Face when you click
+        MCP server you add is contacted at the address you gave it, and the speech model is downloaded from Hugging Face when you click
         Download (below). Your OS network tools show every request.
       </p>
       <p>
-        <strong>The speech model download</strong> (in v0.8.0 and later;
-        v0.7.0 and earlier have no Download button and make no such
-        request). Settings &rarr; Account has a Download button for the
+        <strong>The speech model download.</strong> Settings &rarr; Account has a Download button for the
         speech model (Whisper base, about 139 MB). The app contacts Hugging
         Face only when you click Download. It does not download anything at
         launch, when Settings opens, or when the assistant asks; no tool and
@@ -121,15 +117,12 @@ export default function PrivacyPage() {
 
       <h2 id="signing-in-with-chatgpt">Signing in with ChatGPT</h2>
       <p>
-        In v0.9.0 and later, Settings &rarr; Account can run the assistant on
+        Settings &rarr; Account can run the assistant on
         your ChatGPT plan instead of an API key, through OpenAI&apos;s{" "}
         <a href="https://developers.openai.com/siwc/token-sharing-open-source">
           Sign in with ChatGPT
         </a>{" "}
-        for open-source apps, which OpenAI documents as a preview. v0.8.1 and
-        earlier have no ChatGPT sign-in and make none of the requests below.
-        Until you click Continue with ChatGPT, v0.9.0 makes none of them
-        either. Every request goes from your computer to OpenAI, and nothing
+        for open-source apps, which OpenAI documents as a preview. Until you click Continue with ChatGPT, the app makes none of them. Every request goes from your computer to OpenAI, and nothing
         is reported to us.
       </p>
       <p>

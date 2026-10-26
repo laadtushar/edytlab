@@ -67,7 +67,7 @@ const rows: Row[] = [
   {
     label: "Transcription and text-based editing",
     edytlab: "yes",
-    detail: "From v0.8.0, on your computer, after a one-time model download.",
+    detail: "On your computer, after a one-time model download.",
   },
 ];
 

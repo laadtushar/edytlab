@@ -6,6 +6,11 @@
 //! same `model_id` clone the existing `Arc` rather than rebuilding the
 //! session.
 //!
+//! The public [`build`] function is the shared boundary for constructing
+//! sessions. [`SessionOptions`] supplies optional intra-op thread and graph
+//! optimization settings plus an execution-provider preference; unset tuning
+//! preserves ONNX Runtime's defaults.
+//!
 //! The `Mutex` is there because `ort` 2.0.0-rc.13's `Session::run` takes
 //! `&mut self`: a bare `Arc<Session>`, which is what this handed out until
 //! the Whisper decoder (#384) became its first caller, could be held but
@@ -25,7 +30,7 @@
 //!
 //! `ort` is configured with `load-dynamic` (matching `ml-whisper`'s
 //! Phase-1 setup). With that, `ort` itself **panics** if the ONNX Runtime
-//! library is missing, so [`build_session`] calls
+//! library is missing, so [`build`] calls
 //! [`runtime::ensure`](crate::runtime::ensure) before it touches any `ort`
 //! API; a missing or unloadable library is [`Error::MissingRuntime`] or
 //! [`Error::RuntimeLoad`].
@@ -34,6 +39,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
+pub use ort::session::builder::GraphOptimizationLevel;
 use ort::session::{builder::SessionBuilder, Session};
 
 use crate::{Error, Result};
@@ -69,6 +75,62 @@ pub enum ExecProvider {
     /// CUDA-enabled ONNX Runtime; falls back to CPU on macOS with a
     /// `tracing::warn!`.
     Cuda,
+}
+
+/// Optional session tuning and execution-provider preference for [`build`].
+///
+/// Unset tuning fields preserve ONNX Runtime's defaults. In particular,
+/// graph optimization defaults to all optimizations and intra-op thread
+/// count remains runtime-selected.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionOptions {
+    /// Number of threads used to parallelize operators within a node.
+    pub intra_op_threads: Option<usize>,
+    /// Graph optimization level; unset preserves the ORT default.
+    pub optimization_level: Option<GraphOptimizationLevel>,
+    /// Preferred execution provider. Unsupported platform combinations
+    /// retain the registry's CPU fallback behavior.
+    pub execution_provider: ExecProvider,
+}
+
+impl Default for SessionOptions {
+    fn default() -> Self {
+        Self {
+            intra_op_threads: None,
+            optimization_level: None,
+            execution_provider: ExecProvider::Cpu,
+        }
+    }
+}
+
+/// Build an ONNX Runtime session from a model file.
+///
+/// A missing model is reported before runtime lookup. For an existing model,
+/// [`crate::runtime::ensure`] runs before any ONNX Runtime API is called so a
+/// missing or unloadable runtime is returned as an ordinary crate error.
+pub fn build(path: &Path, options: SessionOptions) -> Result<Session> {
+    if !path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("model file not found: {}", path.display()),
+        )));
+    }
+
+    crate::runtime::ensure()?;
+
+    let mut builder = Session::builder()?;
+    if let Some(threads) = options.intra_op_threads {
+        builder = builder
+            .with_intra_threads(threads)
+            .map_err(|error| Error::Ort(error.to_string()))?;
+    }
+    if let Some(level) = options.optimization_level {
+        builder = builder
+            .with_optimization_level(level)
+            .map_err(|error| Error::Ort(error.to_string()))?;
+    }
+    let mut builder = apply_execution_provider(builder, options.execution_provider)?;
+    Ok(builder.commit_from_file(path)?)
 }
 
 impl ExecProvider {
@@ -240,21 +302,13 @@ impl ModelRegistry {
 /// Build an `ort::Session` from `path` with the requested EP, applying
 /// the platform fallback rules described in the [`ExecProvider`] docs.
 fn build_session(path: &Path, ep: ExecProvider) -> Result<Session> {
-    if !path.exists() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("model file not found: {}", path.display()),
-        )));
-    }
-
-    // Before any `ort` call: `Session::builder()` panics, rather than
-    // erroring, when the library is missing. See `runtime`.
-    crate::runtime::ensure()?;
-
-    let builder = Session::builder()?;
-    let mut builder = apply_execution_provider(builder, ep)?;
-    let session = builder.commit_from_file(path)?;
-    Ok(session)
+    build(
+        path,
+        SessionOptions {
+            execution_provider: ep,
+            ..SessionOptions::default()
+        },
+    )
 }
 
 /// Append the requested EP to `builder`, applying platform-specific

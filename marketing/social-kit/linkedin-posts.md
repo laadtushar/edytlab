@@ -88,7 +88,7 @@ Before: that list, by hand, in an editor, every time.
 
 After, in the video: a DJ describes the blend and an AI agent works through the list on the files.
 
-- It reports what it's working with: both tracks in F major, the 128 BPM one about 6.7% faster.
+- It reports what it's working with: the 128 BPM track is about 6.7% faster than the 120 BPM one.
 - It time-stretches the 128 BPM track to 120, keeping its pitch, and starts it at 16 seconds, under the last 8 bars of the other.
 - The outgoing track fades under a 1 kHz low-pass while the incoming one fades in.
 - The mix is mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.

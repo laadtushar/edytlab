@@ -211,7 +211,7 @@ export default function UserGuidePage() {
 
       <h3>Plan first</h3>
       <p>
-        With the <strong>Plan</strong> toggle beside the chat box on,{" "}
+        With the <strong>Plan</strong> toggle above the chat box on,{" "}
         <strong>no edit runs until you approve it</strong>. The toggle keeps
         its setting across restarts.
       </p>
@@ -336,7 +336,7 @@ export default function UserGuidePage() {
 
       <h2 id="transcription">Transcription</h2>
       <p>
-        From v0.8.0, ask the agent to <code>transcribe track 1</code> and it
+        Ask the agent to <code>transcribe track 1</code> and it
         writes what was said, with the start and end time of every word, as a
         new version of the session. It runs on your CPU with the Whisper base
         speech model. No audio is sent anywhere, and transcribing makes no
@@ -536,7 +536,7 @@ export default function UserGuidePage() {
           and not even the chat leaves the computer.
         </li>
         <li>
-          <strong>ChatGPT plan</strong> (v0.9.0 and later, a preview) — no key:
+          <strong>ChatGPT plan</strong> (a preview) — no key:
           the assistant runs on the usage included in your ChatGPT Plus or Pro
           plan. See{" "}
           <a href="#chatgpt-plan">Using your ChatGPT plan</a> below.
@@ -556,16 +556,15 @@ export default function UserGuidePage() {
         places it looked below it. It says{" "}
         <code>not installed in this build</code> when there is none, or why the
         one it found cannot be used, such as a macOS older than 13.4 (only the
-        library needs it; the app runs on macOS 11 and later). Installers from
-        v0.7.0 carry it, so an installed app says <code>bundled</code>; v0.6.1
-        and earlier, and a build from source, say{" "}
+        library needs it; the app runs on macOS 11 and later). An installed app says{" "}
+        <code>bundled</code>; a build from source says{" "}
         <code>not installed in this build</code>. It is a status line: it
         installs nothing and does not mean any on-device audio model is
         available. No model comes with the runtime, and stem separation still
         returns an error.
       </p>
       <p>
-        From v0.8.0 (v0.7.0 has no such row), the{" "}
+        The{" "}
         <strong>Speech model</strong> row below it offers Whisper base (about
         139 MB, from Hugging Face). <strong>Download</strong> fetches its three
         files from <code>huggingface.co</code>, with a progress bar and a{" "}
@@ -610,7 +609,7 @@ export default function UserGuidePage() {
 
       <h2 id="chatgpt-plan">Using your ChatGPT plan</h2>
       <p>
-        From v0.9.0, edytlab can run the assistant on a ChatGPT plan instead of
+        edytlab can run the assistant on a ChatGPT plan instead of
         an API key, using OpenAI&apos;s{" "}
         <a href="https://developers.openai.com/siwc/token-sharing-open-source">
           Sign in with ChatGPT

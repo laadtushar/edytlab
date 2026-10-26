@@ -92,7 +92,7 @@ export default function AboutPage() {
             <a href={`${siteConfig.github}/issues/385`} target="_blank" rel="noopener noreferrer">
               issue #385
             </a>{" "}
-            on GitHub. Transcription runs on your computer from v0.8.0, after you download the speech model once.
+            on GitHub. Transcription runs on your computer, after you download the speech model once.
           </li>
           <li>
             The installers are{" "}

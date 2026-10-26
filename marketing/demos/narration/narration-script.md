@@ -15,12 +15,19 @@ twenty-eight").
 
 ## Beatmatch and blend two tracks (2:45): `dj-beatmatched-transition.mp4`
 
+The narrated mixes of this demo are not in this folder. The BT04 line said both tracks were in F major, which is what the
+demo's recording shows on screen and the key detector no longer reads (A major and B major, [#710](https://github.com/laadtushar/edytlab/issues/710)),
+so the two mixes, Daniel's voice track, the two BT04 clips and the two metrics files are in
+[`archive/demos-narration/2026-10-24-f-major-line/`](../../archive/README.md). The BT04 row below is the new line, not yet
+spoken. After the demo is re-recorded, BT's cue times change anyway: re-measure them, make every BT line again with
+`tools/gen.py` and build the mixes with `tools/mix.py`.
+
 | Caption (cue span, s) | Narration (as spoken) | Starts | Ends | Source |
 |---|---|---|---|---|
 | BT01 title (0.0 to 2.5) | Blending two tracks. | 0.40 | 1.60 | website/lib/demos.ts caption of dj-beatmatched-transition (title "Beatmatch and blend two tracks") |
 | BT02 open the tracks (2.5 to 10.1) | First, open both tracks: Midnight Drive and Neon Rush. | 2.80 | 6.91 | website/lib/demos.ts caption of dj-beatmatched-transition (names both tracks); on-screen "Open the tracks" |
 | BT03 before (120 vs 128 BPM) (10.1 to 14.8) | One twenty against one twenty-eight. | 10.40 | 12.70 | website/lib/demos.ts caption of dj-beatmatched-transition (Neon Rush is about 6.7% faster; Midnight Drive is 120 BPM); on-screen "both tracks from the top, 120 against 128 BPM" |
-| BT04 what am I working with (21.9 to 34.9) | Ask what you are working with. Both tracks are in F major, and Neon Rush is about six point seven percent faster. | 22.50 | 30.05 | website/lib/demos.ts caption of dj-beatmatched-transition (sentence 1: "both tracks are in F major, and Neon Rush is about 6.7% faster") |
+| BT04 what am I working with (21.9 to 34.9) | Ask what you are working with. Neon Rush is about six point seven percent faster. | 22.50 | (not made yet) | website/lib/demos.ts caption of dj-beatmatched-transition (sentence 1: "Neon Rush is about 6.7% faster") |
 | BT05 beatmatch (34.9 to 47.3) | Neon Rush is time-stretched to Midnight Drive's one twenty BPM, keeping its pitch. | 35.20 | 40.63 | website/lib/demos.ts caption of dj-beatmatched-transition (sentence 2: "time-stretched to Midnight Drive's 120 BPM, keeping its pitch") |
 | BT06 line up the overlap (47.3 to 59.6) | It starts at sixteen seconds, under the last eight bars. Claude notes its bars then run a beat behind, and offers fifteen and a half seconds instead. | 47.65 | 58.24 | website/lib/demos.ts caption of dj-beatmatched-transition (sentence 2: "started at 16 s, under Midnight Drive's last 8 bars; Claude points out ... a beat behind and offers ... 15.5 s") |
 | BT07 blend (59.6 to 82.1) | Midnight Drive fades out under a one kilohertz low-pass, while Neon Rush fades in. | 60.00 | 65.93 | website/lib/demos.ts caption of dj-beatmatched-transition (sentence 3: "fades out under a 1 kHz low-pass while Neon Rush fades in") |

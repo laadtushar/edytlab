@@ -67,7 +67,7 @@ The itch: prepping a blend is a pile of small file chores. Find the tempos, stre
 
 The recordings show three jobs:
 
-1. Both tracks in F major, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a 1 kHz low-pass while the incoming one fades in. Mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.
+1. Two tracks, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a 1 kHz low-pass while the incoming one fades in. Mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.
 2. An extended intro: the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, with a 200 Hz high-pass holding the low end back until the drop.
 3. A three-track mix at 124 BPM with overlaps of about 4 bars and crossfades, about -14 LUFS each, limited at -1 dBFS, exported as a 79-second WAV.
 

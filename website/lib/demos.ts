@@ -54,7 +54,7 @@ export const demos: readonly Demo[] = [
     slug: "dj-beatmatched-transition",
     title: "Beatmatch and blend two tracks",
     caption:
-      "A DJ checks two tracks (both in F major, Neon Rush about 6.7% faster). Claude time-stretches Neon Rush to Midnight Drive's 120 BPM, keeping its pitch, starts it at 16 s under Midnight Drive's last 8 bars, and blends the two with a crossfade and a 1 kHz low-pass on the outgoing track. The mix is mastered to about −14 LUFS, limited at −1 dB and exported as a 50-second WAV. Playbacks are in real time.",
+      "A DJ checks the two tracks' tempos (Neon Rush about 6.7% faster). Claude time-stretches Neon Rush to Midnight Drive's 120 BPM, keeping its pitch, starts it at 16 s under Midnight Drive's last 8 bars, and blends the two with a crossfade and a 1 kHz low-pass on the outgoing track. The mix is mastered to about −14 LUFS, limited at −1 dB and exported as a 50-second WAV. Playbacks are in real time.",
     duration: "2:45",
     description:
       "A screen recording of the edytlab desktop app: a DJ has Claude match one track's tempo to another's, blend the two with a crossfade and a low-pass, master the mix and export a WAV.",
