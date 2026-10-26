@@ -164,7 +164,8 @@ export default function UserGuidePage() {
       </ul>
       <p>
         A template makes empty tracks with a starting gain and pan, and adds no
-        audio, effects or skills. Skills switch on when your messages match
+        audio, effects or skills. Each track shows as an empty lane until you
+        put audio on it. Skills switch on when your messages match
         their triggers, template or not. Change the session freely afterwards.
       </p>
 
