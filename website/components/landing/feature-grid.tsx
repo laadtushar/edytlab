@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { LineDraw, Stagger } from "@/components/motion";
+import { Stagger } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
 
 /**
@@ -73,9 +73,8 @@ export function FeatureGrid() {
         />
         {/* Six equal cards: the grid stretches every card to the tallest
             in its row, and the text is short enough never to set it. They
-            rise in a small stagger; hover or focus lifts one, tints its
+            rise in a small stagger (the icons are plain, never drawn on scroll, so they are visible at rest); hover or focus lifts one, tints its
             border and gives its icon a small turn (`globals.css`). */}
-        <LineDraw>
           <Stagger
             className="mx-auto grid max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3"
             each={0.05}
@@ -98,7 +97,6 @@ export function FeatureGrid() {
               </div>
             ))}
           </Stagger>
-        </LineDraw>
       </div>
     </section>
   );
