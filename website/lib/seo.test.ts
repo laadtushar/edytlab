@@ -45,7 +45,7 @@ import {
   websiteJsonLd,
 } from "./seo";
 import { areaPath } from "./docs/reference";
-import { API_BASE, TOOLS_BASE, apiReference, toolsReference } from "./docs/references";
+import { API_BASE, TOOLS_BASE, USER_GUIDE_BASE, apiReference, toolsReference, userGuideReference } from "./docs/references";
 import { siteConfig } from "./site";
 import { demoVideos, getVideo, hubVideos, videoPath, videoPosterSrc, videoSrc, watchVideos } from "./videos";
 
@@ -59,6 +59,7 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const referencePaths = [
   ...toolsReference.areas.map((a) => areaPath(TOOLS_BASE, a.slug)),
   ...apiReference.areas.map((a) => areaPath(API_BASE, a.slug)),
+  ...userGuideReference.areas.map((a) => areaPath(USER_GUIDE_BASE, a.slug)),
 ];
 
 /** Every `page.tsx` under `app/`, as its route. Dynamic segments are skipped: the posts are listed from data. */
