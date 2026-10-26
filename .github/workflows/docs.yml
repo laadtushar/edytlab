@@ -49,8 +49,13 @@ jobs:
         with:
           node-version: 20
 
+      # Installed with --ignore-scripts so no dependency's install script runs on
+      # the runner (`npx` would run them); mint needs none to validate.
+      - name: Install mint
+        run: npm install --global --ignore-scripts --no-audit --no-fund mint@4.2.1126
+
       - name: mint validate
-        run: npx --yes mint@4.2.1126 validate
+        run: mint validate
 
       - name: mint broken-links
-        run: npx --yes mint@4.2.1126 broken-links
+        run: mint broken-links
