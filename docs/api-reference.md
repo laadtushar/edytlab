@@ -1221,8 +1221,9 @@ either and `latency` is null again until it is measured. The values are kept in
 `devices.output` and `devices.input` name what the defaults really are. On Linux
 the audio system calls both `default` whatever they are routed to, so the sound
 server's own names are added (`default (alsa_output.pci-…)`, from
-`pactl get-default-sink` and `get-default-source`): a headset and the speakers
-are two pairs, not one.
+`pactl get-default-sink` and `get-default-source`, or the `Default Sink:` and
+`Default Source:` lines of `pactl info` on PulseAudio older than 15): a headset
+and the speakers are two pairs, not one.
 
 **Returns** `devices: null` with `problem` when there are no speakers or no
 microphone, or when the defaults cannot be named (on Linux, `pactl` is missing

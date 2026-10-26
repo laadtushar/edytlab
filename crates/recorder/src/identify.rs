@@ -12,7 +12,10 @@
 //! So on ALSA a name that stands for "whatever the sound server routes
 //! to" is replaced by the server's own name for the default sink or
 //! source, read with `pactl get-default-sink` / `get-default-source`
-//! (PipeWire answers the same commands through its PulseAudio server). The
+//! (PipeWire answers the same commands through its PulseAudio server;
+//! PulseAudio before 15 does not know them, so when they fail the
+//! `Default Sink:` / `Default Source:` lines of `pactl info` are read
+//! instead, in the C locale so the labels are the English ones). The
 //! alternative, libpulse, is a native library and a new dependency for two
 //! questions a command answers; `pactl` is run with a timeout and an
 //! answer that is not there is a refusal, not a guess:
@@ -55,6 +58,14 @@ impl Role {
             Role::Input => "get-default-source",
         }
     }
+
+    /// The label `pactl info` puts before this side's default.
+    fn info_label(self) -> &'static str {
+        match self {
+            Role::Output => "Default Sink:",
+            Role::Input => "Default Source:",
+        }
+    }
 }
 
 /// Whether `host`'s `name` is a route to a default rather than a device.
@@ -79,7 +90,17 @@ pub fn identify(
         name: name.to_string(),
         why: why.to_string(),
     };
-    let answer = ask(&[role.question()]).map_err(|e| unidentified(&e))?;
+    let answer = match ask(&[role.question()]) {
+        Ok(answer) => answer,
+        // PulseAudio before 15 has no `get-default-*`. Only if `info` fails
+        // too is the pair unidentified, and then for the first failure's
+        // reason (a missing `pactl` fails both the same way).
+        Err(first) => match ask(&["info"]) {
+            Ok(info) => default_from_info(&info, role)
+                .ok_or_else(|| unidentified("the sound server named no default"))?,
+            Err(_) => return Err(unidentified(&first)),
+        },
+    };
     let real = answer.trim();
     if real.is_empty() || real.contains('\n') {
         return Err(unidentified("the sound server named no default"));
@@ -87,17 +108,42 @@ pub fn identify(
     Ok(format!("{name} ({real})"))
 }
 
-/// `pactl` with `args`, for [`identify`].
+/// The default sink or source named by `pactl info`'s output: the text
+/// after the role's label, when exactly one line has it and it is not empty.
+fn default_from_info(info: &str, role: Role) -> Option<String> {
+    let mut found = info
+        .lines()
+        .filter_map(|line| line.strip_prefix(role.info_label()));
+    let name = found.next()?.trim();
+    if name.is_empty() || found.next().is_some() {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+/// `pactl` with `args`, for [`identify`]. Run in the C locale: `info`'s
+/// labels are translated otherwise.
 pub fn pactl(args: &[&str]) -> Result<String, String> {
-    run_with_timeout("pactl", args, PACTL_TIMEOUT)
+    run_with_env("pactl", args, PACTL_TIMEOUT, &[("LC_ALL", "C")])
 }
 
 /// Run `program`, give up on it after `limit` (killing it), and answer
 /// what it printed. A program that is not there, that fails, or that is
 /// too slow is an `Err` in words.
 pub fn run_with_timeout(program: &str, args: &[&str], limit: Duration) -> Result<String, String> {
+    run_with_env(program, args, limit, &[])
+}
+
+/// [`run_with_timeout`] with extra environment variables set for the program.
+pub fn run_with_env(
+    program: &str,
+    args: &[&str],
+    limit: Duration,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
     let mut child = Command::new(program)
         .args(args)
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -245,6 +291,107 @@ mod tests {
             text.contains("not be kept") || text.contains("cannot"),
             "{text}"
         );
+    }
+
+    const OLD_INFO: &str = "Server String: /run/user/1000/pulse/native\n\
+Library Protocol Version: 32\n\
+Server Name: pulseaudio\n\
+Server Version: 13.99.1\n\
+Default Sample Specification: s16le 2ch 44100Hz\n\
+Default Channel Map: front-left,front-right\n\
+Default Sink: alsa_output.pci-0000_00_1f.3.analog-stereo\n\
+Default Source: alsa_input.pci-0000_00_1f.3.analog-stereo\n\
+Cookie: 1234:abcd\n";
+
+    /// A server older than PulseAudio 15: `get-default-sink` is "Unknown
+    /// command", `info` lists the defaults.
+    fn old_server(info: &'static str) -> impl Fn(&[&str]) -> Result<String, String> {
+        move |args| match args {
+            ["get-default-sink"] | ["get-default-source"] => {
+                Err("pactl failed: Unknown command: get-default-sink".into())
+            }
+            ["info"] => Ok(info.to_string()),
+            other => panic!("unexpected question {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_server_that_answers_the_new_questions_is_not_asked_for_info() {
+        let ask = |args: &[&str]| match args {
+            ["get-default-sink"] => Ok(format!("{PCI_SINK}\n")),
+            other => panic!("asked {other:?}"),
+        };
+        assert_eq!(
+            identify("ALSA", "default", Role::Output, &ask).unwrap(),
+            format!("default ({PCI_SINK})")
+        );
+    }
+
+    #[test]
+    fn an_older_server_is_read_from_pactl_info() {
+        let ask = old_server(OLD_INFO);
+        assert_eq!(
+            identify("ALSA", "default", Role::Output, &ask).unwrap(),
+            format!("default ({PCI_SINK})")
+        );
+        assert_eq!(
+            identify("ALSA", "pulse", Role::Input, &ask).unwrap(),
+            format!("pulse ({PCI_SOURCE})"),
+            "the source line, not the sink's"
+        );
+    }
+
+    #[test]
+    fn when_both_ways_fail_the_pair_is_unidentified_and_says_why() {
+        let e = identify("ALSA", "default", Role::Output, &|args| {
+            Err(format!("pactl {} failed", args[0]))
+        })
+        .unwrap_err();
+        assert!(
+            matches!(e, RecorderError::DeviceUnidentified { .. }),
+            "{e:?}"
+        );
+        assert!(e.to_string().contains("speakers"), "{e}");
+    }
+
+    #[test]
+    fn an_info_that_names_no_default_is_a_refusal_not_a_name() {
+        for info in [
+            "Server Name: pulseaudio\n",
+            "Default Sink: \nDefault Source: x\n",
+            "Default Sink: a\nDefault Sink: b\n",
+        ] {
+            let e = identify("ALSA", "default", Role::Output, &old_server(info)).unwrap_err();
+            assert!(
+                matches!(e, RecorderError::DeviceUnidentified { .. }),
+                "{info:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn info_is_parsed_by_its_label_and_nothing_nearby_is_taken() {
+        let info = "Default Sample Specification: s16le\nDefault Sink: s1\nDefault Source: s2\n";
+        assert_eq!(default_from_info(info, Role::Output).as_deref(), Some("s1"));
+        assert_eq!(default_from_info(info, Role::Input).as_deref(), Some("s2"));
+        assert_eq!(
+            default_from_info("Default Source: s2\r\n", Role::Input).as_deref(),
+            Some("s2")
+        );
+        assert_eq!(default_from_info("", Role::Input), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_program_is_run_with_the_c_locale_so_info_has_english_labels() {
+        let out = run_with_env(
+            "sh",
+            &["-c", "printf %s \"$LC_ALL\""],
+            Duration::from_secs(2),
+            &[("LC_ALL", "C")],
+        )
+        .unwrap();
+        assert_eq!(out, "C");
     }
 
     #[test]
