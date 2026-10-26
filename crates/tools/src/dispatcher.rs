@@ -250,11 +250,12 @@ impl ToolDispatcher {
             CompactSessionTool, CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool,
             CutRangeTool, CutWordsTool, DeEsserTool, DistortionTool, DuckUnderSpeechTool,
             DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool, ExportMultipleTool,
-            ExportRecipeTool, FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool,
-            GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
-            LabelTool, LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool,
-            MeasureTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
-            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            ExportRecipeTool, FadeTool, ForkNodeTool, GainTool, GenerateChirpTool,
+            GenerateClickTrackTool, GenerateDtmfTool, GenerateNoiseTool, GenerateToneTool,
+            HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool,
+            LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool,
+            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
             NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
             PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
             RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
@@ -379,6 +380,9 @@ impl ToolDispatcher {
         // Audio generators: synthesize tones and noise.
         d.register(Box::new(GenerateToneTool));
         d.register(Box::new(GenerateNoiseTool));
+        d.register(Box::new(GenerateClickTrackTool));
+        d.register(Box::new(GenerateChirpTool));
+        d.register(Box::new(GenerateDtmfTool));
         // vocal_reduction: L-R center cancellation for stereo.
         d.register(Box::new(VocalReductionTool));
         // mix_to_new_track: offline-render selected tracks into a new track.

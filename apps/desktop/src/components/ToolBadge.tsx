@@ -151,6 +151,9 @@ const TOOL_LABELS: Record<string, string> = {
   stereo_to_mono: "Stereo to mono",
 
   // Generators
+  generate_click_track: "Generate click track",
+  generate_chirp: "Generate chirp",
+  generate_dtmf: "Generate DTMF",
   generate_tone: "Generate tone",
   generate_noise: "Generate noise",
 };

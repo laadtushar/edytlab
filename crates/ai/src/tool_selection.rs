@@ -211,7 +211,9 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// `transcribe`, `cut_words` and `remove_fillers` stopped being left out
 /// (#384): their names, 33 B with the separators of the line, are on it now.
 /// And by 9 B for `measure` (#763), its name with the separator.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_662;
+// #770's new names require 47 B more to keep the 400 B MCP reserve.
+// The first-request tests still enforce the same 500 B context headroom.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_709;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still
@@ -648,7 +650,7 @@ impl SlimSelection {
             listed.push_str(&format!("and {more} more"));
         }
         Some(format!(
-            "More tools you can call by exact name, though their schemas are not shown here (a \
+            "More tools you can call by exact name, without schemas here (a \
              call with wrong arguments is rejected and says what is wrong): {listed}."
         ))
     }

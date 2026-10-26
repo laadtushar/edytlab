@@ -38,7 +38,7 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 ///   `name_node` and `apply_diff` read or rewrite the history itself.
 /// * `separate_stems` and `split_by_speaker` need models that are not
 ///   shipped.
-/// * Metadata tools (`set_track_gain`, `mute_track`, ...), `generate_*`,
+/// * Metadata tools (`set_track_gain`, `mute_track`, ...), `generate_tone` and `generate_noise`,
 ///   `export_*`, `import_labels`, `label`, `cut_range`, `trim`, `gain` and
 ///   MCP tools are fast, or have not been reviewed for a re-run on a newer
 ///   head. Possible follow-ups, one reviewed decision each.
@@ -66,7 +66,12 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// `voice_tracks`), so a user's edit to the clips of one of them refuses its
 /// re-run. `select_region` reports its selection on the `progress` sink,
 /// which takes no lock; see [`ALLOWED`].
-const OFF_LOCK: [&str; 44] = [
+/// The #770 generators are staged: synthesis, hashing and WAV publication can
+/// take seconds, and click-track tempo detection scans a source track. They
+/// read only the head, write content-addressed files and append one node; a
+/// re-run has no external side effect. The click source is named `track`, so
+/// the existing re-run guard refuses a changed source after a concurrent edit.
+const OFF_LOCK: [&str; 47] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
@@ -78,6 +83,9 @@ const OFF_LOCK: [&str; 44] = [
     "echo",
     "eq",
     "fade",
+    "generate_chirp",
+    "generate_click_track",
+    "generate_dtmf",
     "high_pass_filter",
     "insert_silence",
     "invert",
@@ -263,6 +271,7 @@ const REACHABLE: &[&str] = &[
     "tool::util",
     "tool::speech_detect",
     "tool::ducking",
+    "tool::generated_audio",
     "util::range_resolver",
     "schema",
     "provenance",
@@ -354,7 +363,12 @@ fn file_of(tool: &str) -> String {
 /// is scanned like a tool's own file. `ducking.rs` is `duck_under_speech`'s
 /// file, which `select_region` also reaches; it is listed so that it is
 /// still scanned should `duck_under_speech` leave the list.
-const SHARED_FILES: &[&str] = &["util.rs", "speech_detect.rs", "ducking.rs"];
+const SHARED_FILES: &[&str] = &[
+    "util.rs",
+    "speech_detect.rs",
+    "ducking.rs",
+    "generated_audio.rs",
+];
 
 fn source_of(file: &str) -> String {
     let path: PathBuf = [env!("CARGO_MANIFEST_DIR"), "src", "tool", file]
@@ -1023,6 +1037,16 @@ const NOT_TRACKS: &[(&str, &str, &str)] = &[
         "measure",
         "max_clip_times",
         "how many clip times the result lists (0-50)",
+    ),
+    (
+        "generate_click_track",
+        "bars",
+        "the number of bars to synthesize, not a track position",
+    ),
+    (
+        "generate_click_track",
+        "beats_per_bar",
+        "the number of beats in a bar, not a track position",
     ),
     (
         "phaser",

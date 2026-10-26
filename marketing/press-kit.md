@@ -17,7 +17,7 @@ with an AI agent.
 
 edytlab is a free, open-source desktop audio editor where you edit by chatting
 with an AI agent. The agent turns a request such as "time-stretch the second
-track to match the first, crossfade, and export a WAV" into calls to 95
+track to match the first, crossfade, and export a WAV" into calls to 98
 deterministic audio tools. The tools run locally in a Rust engine on the user's
 own computer, so audio files are never uploaded; only the chat goes to the
 language-model provider the user selects (Anthropic, OpenAI, OpenRouter, Groq,
@@ -48,7 +48,7 @@ shipped in v0.9.0).
 | Built with | Tauri 2, Rust, React |
 | Audio engine | Pure-Rust DSP. Decode with `symphonia`, resample with `rubato`, effects in an in-house dependency-free `audio-dsp` crate. |
 | Time-stretch / pitch-shift | A phase vocoder written for the project |
-| Tools | 95 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
+| Tools | 98 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
 | AI providers | Six API providers plus the user's ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key), and, from 0.9.0, Continue with ChatGPT, which uses a ChatGPT Plus or Pro plan's included usage instead of a key (OpenAI's Sign in with ChatGPT for open-source apps, a preview). Available for ChatGPT Plus and Pro. May not be available on workspace plans; that depends on OpenAI and your admin. |
 | Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider; that includes the words a transcription finds (text, a bounded amount per call, never audio), which stay on the computer with Ollama. |
 | Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) and, when enabled, Google Analytics 4 only after a visitor accepts it in the cookie banner (it sets cookies; the footer's Cookie settings link withdraws it) |

@@ -33,7 +33,7 @@ export const toolAreas: ToolArea[] = [
   {
     slug: "files-and-tracks",
     title: "Files, Tracks and Channels",
-    summary: "Load audio, manage tracks, generate tones and noise, and convert between mono and stereo.",
+    summary: "Load audio, manage tracks, generate tones, noise, clicks, frequency sweeps and keypad signals, and convert between mono and stereo.",
     sections: [
       {
         title: "File and Track Management",
@@ -103,6 +103,27 @@ export const toolAreas: ToolArea[] = [
       {
         title: "Generators",
         tools: [
+          {
+            name: "generate_click_track",
+            prompt: "generate 8 bars of clicks at 120 BPM, with an accented downbeat",
+            what: "Generate a sample-aligned click track with an accented downbeat. Give a BPM or a track to measure tempo from, beats per bar, a duration or bar count, and an optional offset before the first beat.",
+            output: "node_id, track_index, duration_sec",
+            note: "Works on an empty project. An explicit BPM takes precedence over the track's detected tempo. Duration includes the initial offset; bar count adds the offset before the requested bars.",
+          },
+          {
+            name: "generate_chirp",
+            prompt: "generate a 5-second logarithmic sweep from 100 Hz to 10 kHz",
+            what: "Generate a linear or logarithmic frequency sweep at the session sample rate, with start and end frequencies, duration and peak amplitude.",
+            output: "node_id, track_index, duration_sec",
+            note: "Works on an empty project. Both frequencies must be positive and below half the sample rate.",
+          },
+          {
+            name: "generate_dtmf",
+            prompt: "generate keypad tones for 12#, with 0.1-second tones and 0.05-second gaps",
+            what: "Generate dual-tone keypad signals for digits 0–9, *, # and A–D, with adjustable tone and gap durations and combined peak amplitude.",
+            output: "node_id, track_index, duration_sec",
+            note: "Works on an empty project. Letters are case-insensitive; tones must last at least 40 milliseconds. Gaps occur between tones, with no trailing gap. Short ramps soften tone boundaries.",
+          },
           {
             name: "generate_tone",
             prompt: "generate a 440 Hz sine for 5 seconds",
