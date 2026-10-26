@@ -11844,10 +11844,10 @@ mod recording_latency_tests {
     }
 
     /// The text of `fn name(` up to its closing brace at column 0. A Windows
-    /// checkout has CRLF line endings, which have no `"\n}\n"` in them, so the
-    /// source is read with them turned into LF first.
+    /// checkout has CRLF line endings, which have no `"\n}\n"` in them, so
+    /// every carriage return is dropped first.
     fn command_body(src: &str, name: &str) -> String {
-        let src = src.replace("\r\n", "\n");
+        let src = src.replace('\r', "");
         let at = src
             .find(&format!("fn {name}("))
             .unwrap_or_else(|| panic!("{name} not found"));
@@ -11860,13 +11860,17 @@ mod recording_latency_tests {
 
     #[test]
     fn a_command_is_found_in_a_source_with_windows_line_endings() {
-        let lf = include_str!("commands.rs");
+        // `include_str!` is already CRLF on a Windows checkout, so start from LF.
+        let lf = include_str!("commands.rs").replace('\r', "");
         let crlf = lf.replace('\n', "\r\n");
         for name in ["calibrate_recording_latency", "cancel_recording_latency"] {
             let body = command_body(&crlf, name);
-            assert_eq!(body, command_body(lf, name), "{name} differs under CRLF");
+            assert_eq!(body, command_body(&lf, name), "{name} differs under CRLF");
             assert!(!body.contains('\r'));
             assert!(body.len() > 40, "{name}: {body}");
+            // What the test above sees on a Windows checkout: CRLF made CRLF again.
+            let doubled = crlf.replace('\n', "\r\n");
+            assert_eq!(command_body(&doubled, name), body, "{name} under \\r\\r\\n");
         }
     }
 }
