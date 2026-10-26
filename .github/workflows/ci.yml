@@ -222,7 +222,7 @@ jobs:
       # is what selects Defender's performance mode.
       - name: Set up Dev Drive for target/ (Windows)
         if: matrix.platform.name == 'windows-x86_64' && env.RUN_NATIVE == 'true'
-        uses: samypr100/setup-dev-drive@v4.1.0
+        uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
         with:
           drive-size: 16GB
           drive-format: ReFS
@@ -289,7 +289,7 @@ jobs:
       # tool to a version older than that.
       - name: Install cargo-nextest
         if: env.RUN_NATIVE == 'true'
-        uses: taiki-e/install-action@v2.87.25
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-nextest@0.9.146
 
