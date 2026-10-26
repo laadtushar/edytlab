@@ -56,6 +56,14 @@ updates:
       # 6.10.0 is deprecated on npm.
       - dependency-name: "@testing-library/jest-dom"
         versions: ["6.10.0"]
+      # Toolchain majors are migrations, done by hand in a PR of their own
+      # (the first run offered TypeScript 7, Vitest 5 and Vite 8 together).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
     groups:
       tauri-patch:
         patterns: ["@tauri-apps/*"]
@@ -83,6 +91,14 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    ignore:
+      # Tailwind 3 -> 4 is a migration (config and class changes), done by
+      # hand. @types/node follows the Node major Vercel builds with, not the
+      # newest types.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       website-minor-and-patch:
         update-types: [minor, patch]
