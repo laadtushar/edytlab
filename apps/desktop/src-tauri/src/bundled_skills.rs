@@ -67,7 +67,7 @@ pub fn text_hash(bytes: &[u8]) -> String {
         rest = &rest[i + 1..];
     }
     hasher.update(rest);
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 /// The hashes of the versions of each bundled skill that shipped before the
