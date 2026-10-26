@@ -1,0 +1,29 @@
+[package]
+name = "ml-diarize"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# The ONNX Runtime binding, declared once in the root `Cargo.toml` (the exact
+# version, the `api-23` level and why). Sessions are built by
+# `ml_pipeline::onnx_session::build`, which calls `runtime::ensure` first: this
+# crate never lets `ort` load the library on its own.
+ort.workspace = true
+ml-pipeline = { path = "../ml-pipeline" }
+# The 512-point real FFT of the Kaldi filterbank (`fbank.rs`). The
+# workspace-blessed FFT path, as in ml-whisper, ml-demucs and audio-time.
+realfft = "3"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+hound = "3.5"
+serde_json = "1"
+tempfile = "3"

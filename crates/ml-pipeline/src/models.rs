@@ -69,6 +69,10 @@ const MANIFEST: &str = include_str!("../models.json");
 /// folder.
 pub const WHISPER_BASE_ID: &str = "whisper-base";
 
+/// The id of the speaker model (#168 §2): the segmentation and the speaker
+/// embedding networks `diarize` runs, pinned as one download.
+pub const SPEAKER_DIARIZATION_ID: &str = "speaker-diarization";
+
 /// At most one progress report per this long, so a fast connection does
 /// not turn every 256 KiB into an event for the window to draw.
 const REPORT_EVERY: Duration = Duration::from_millis(100);
@@ -89,16 +93,58 @@ pub struct CatalogModel {
     /// The commit of that repository the files are fetched at: 40 hex
     /// digits, never a branch.
     pub revision: String,
-    /// SPDX id of the model the export was made from.
+    /// SPDX id (or expression, `MIT AND CC-BY-4.0`) of the model the export was
+    /// made from.
     pub license: String,
     /// The files, with their URLs, sizes and hashes.
     pub artifact: ModelArtifact,
+    /// Where each file comes from, in the order of `artifact.files`.
+    pub sources: Vec<FileSource>,
+}
+
+/// Where one file of a model is fetched from: its repository, the commit, the
+/// file's path in that repository, and the licence of what it holds.
+///
+/// A model's files usually all come from the model's own repository, and
+/// then every field is the model's. A model made of parts that have no
+/// repository in common (the speaker model: a segmentation network from one
+/// and an embedding network from another, #168) names the source of each file
+/// in `models.json` (`repo`, `revision`, `source_path`, `license`), and the
+/// file's `path` is only where it is kept under the model's folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileSource {
+    /// The file's `path` in the model's folder.
+    pub path: String,
+    /// The Hugging Face repository, `owner/name`.
+    pub repo: String,
+    /// The commit of that repository: 40 lowercase hex digits.
+    pub revision: String,
+    /// The file's path in the repository.
+    pub source_path: String,
+    /// SPDX id of what the file holds.
+    pub license: String,
+}
+
+impl FileSource {
+    /// The URL a file at this source is fetched from, which `models.json`
+    /// must carry: the commit's `resolve` address, never a branch's.
+    pub fn url(&self) -> String {
+        format!(
+            "https://huggingface.co/{}/resolve/{}/{}",
+            self.repo, self.revision, self.source_path
+        )
+    }
 }
 
 impl CatalogModel {
     /// Bytes of all the files together.
     pub fn size(&self) -> u64 {
         self.artifact.files.iter().map(|f| f.size).sum()
+    }
+
+    /// Where the file kept at `path` comes from.
+    pub fn source_of(&self, path: &str) -> Option<&FileSource> {
+        self.sources.iter().find(|s| s.path == path)
     }
 }
 
@@ -129,6 +175,47 @@ struct RawFile {
     url: String,
     size: u64,
     sha256: String,
+    /// The four below are for a file that does not come from the model's own
+    /// repository or is kept under another name (see [`FileSource`]).
+    #[serde(default)]
+    repo: Option<String>,
+    #[serde(default)]
+    revision: Option<String>,
+    #[serde(default)]
+    source_path: Option<String>,
+    #[serde(default)]
+    license: Option<String>,
+}
+
+/// Whether `text` is a commit id: 40 lowercase hex digits.
+fn is_commit(text: &str) -> bool {
+    text.len() == 40
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Whether `path` is relative, uses `/`, and does not climb out of its root.
+fn is_inside(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\\')
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+/// Whether `text` is `owner/name` with nothing else in it.
+fn is_repo(text: &str) -> bool {
+    let mut parts = text.split('/');
+    let part_ok = |p: Option<&str>| {
+        p.is_some_and(|p| {
+            !p.is_empty()
+                && p.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        })
+    };
+    part_ok(parts.next()) && part_ok(parts.next()) && parts.next().is_none()
 }
 
 impl Catalog {
@@ -152,28 +239,54 @@ impl Catalog {
             .map_err(|e| Error::InvalidManifest(format!("not a model manifest: {e}")))?;
         let mut models: Vec<CatalogModel> = Vec::with_capacity(raw.models.len());
         for m in raw.models {
-            let revision_ok = m.revision.len() == 40
-                && m.revision
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
-            if !revision_ok {
+            if !is_commit(&m.revision) {
                 return Err(Error::InvalidManifest(format!(
                     "{:?}: revision must be a commit (40 lowercase hex digits), got {:?}",
                     m.id, m.revision
                 )));
             }
+            let mut files = Vec::with_capacity(m.files.len());
+            let mut sources = Vec::with_capacity(m.files.len());
+            for f in m.files {
+                let source = FileSource {
+                    path: f.path.clone(),
+                    repo: f.repo.unwrap_or_else(|| m.repo.clone()),
+                    revision: f.revision.unwrap_or_else(|| m.revision.clone()),
+                    source_path: f.source_path.unwrap_or_else(|| f.path.clone()),
+                    license: f.license.unwrap_or_else(|| m.license.clone()),
+                };
+                let invalid = |what: &str, got: &str| {
+                    Error::InvalidManifest(format!(
+                        "{:?}: {:?}'s {what} is not valid: {got:?}",
+                        m.id, f.path
+                    ))
+                };
+                if !is_repo(&source.repo) {
+                    return Err(invalid("repo (owner/name)", &source.repo));
+                }
+                if !is_commit(&source.revision) {
+                    return Err(invalid(
+                        "revision (a commit of 40 lowercase hex digits)",
+                        &source.revision,
+                    ));
+                }
+                if !is_inside(&source.source_path) {
+                    return Err(invalid(
+                        "source_path (a relative path inside the repo)",
+                        &source.source_path,
+                    ));
+                }
+                sources.push(source);
+                files.push(ModelFile {
+                    path: f.path,
+                    url: f.url,
+                    sha256: f.sha256,
+                    size: f.size,
+                });
+            }
             let artifact = ModelArtifact {
                 id: m.id.clone(),
-                files: m
-                    .files
-                    .into_iter()
-                    .map(|f| ModelFile {
-                        path: f.path,
-                        url: f.url,
-                        sha256: f.sha256,
-                        size: f.size,
-                    })
-                    .collect(),
+                files,
             };
             // The store's own validation: id, paths, urls, digests, sizes.
             ModelStore::new(PathBuf::new()).artifact_dir(&artifact)?;
@@ -190,6 +303,7 @@ impl Catalog {
                 revision: m.revision,
                 license: m.license,
                 artifact,
+                sources,
             });
         }
         Ok(Catalog { models })
@@ -213,6 +327,16 @@ pub fn whisper_base() -> &'static ModelArtifact {
     &Catalog::built_in()
         .get(WHISPER_BASE_ID)
         .expect("models.json pins whisper-base (tests/model_manifest.rs checks it)")
+        .artifact
+}
+
+/// The speaker model's files, as pinned in `models.json`: what `diarize` reads
+/// (#168 §2). Found with [`cached`]`(SPEAKER_DIARIZATION_ID)`, never fetched
+/// by the tool.
+pub fn speaker_diarization() -> &'static ModelArtifact {
+    &Catalog::built_in()
+        .get(SPEAKER_DIARIZATION_ID)
+        .expect("models.json pins speaker-diarization (tests/model_manifest.rs checks it)")
         .artifact
 }
 
@@ -766,5 +890,80 @@ mod verified_tests {
             remembered(&catalog, "by-id").is_some(),
             "nothing was forgotten for a folder that could not be read"
         );
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    //! Where each file of a model comes from (#168 §2).
+    use super::*;
+
+    const REV_A: &str = "0123456789abcdef0123456789abcdef01234567";
+    const REV_B: &str = "fedcba9876543210fedcba9876543210fedcba98";
+    const ZEROS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    fn catalog(files: &str) -> Result<Catalog> {
+        Catalog::from_json(&format!(
+            r#"{{ "models": [ {{
+                "id": "two-repos", "title": "x", "repo": "a/b",
+                "revision": "{REV_A}", "license": "MIT AND CC-BY-4.0",
+                "files": [ {files} ] }} ] }}"#
+        ))
+    }
+
+    #[test]
+    fn a_file_without_a_source_comes_from_the_models_repository_at_its_own_path() {
+        let c = catalog(&format!(
+            r#"{{ "path": "a.onnx", "url": "https://example.com/a", "size": 3, "sha256": "{ZEROS}" }}"#
+        ))
+        .unwrap();
+        let m = c.get("two-repos").unwrap();
+        let s = m.source_of("a.onnx").expect("a source for every file");
+        assert_eq!(s.repo, "a/b");
+        assert_eq!(s.revision, REV_A);
+        assert_eq!(s.source_path, "a.onnx");
+        assert_eq!(s.license, "MIT AND CC-BY-4.0");
+    }
+
+    #[test]
+    fn a_file_may_name_its_own_repository_commit_path_and_licence() {
+        let c = catalog(&format!(
+            r#"{{ "path": "seg/model.onnx", "repo": "c/d", "revision": "{REV_B}",
+                  "source_path": "onnx/model.onnx", "license": "MIT",
+                  "url": "https://example.com/a", "size": 3, "sha256": "{ZEROS}" }}"#
+        ))
+        .unwrap();
+        let s = c
+            .get("two-repos")
+            .unwrap()
+            .source_of("seg/model.onnx")
+            .unwrap();
+        assert_eq!(
+            (s.repo.as_str(), s.revision.as_str(), s.source_path.as_str()),
+            ("c/d", REV_B, "onnx/model.onnx")
+        );
+        assert_eq!(s.license, "MIT");
+        assert!(c.get("two-repos").unwrap().source_of("nope").is_none());
+    }
+
+    #[test]
+    fn a_files_own_revision_must_be_a_commit_and_its_source_path_must_stay_inside_the_repo() {
+        for (field, value) in [
+            ("revision", "main"),
+            ("revision", "0123456789ABCDEF0123456789abcdef01234567"),
+            ("source_path", "../x"),
+            ("source_path", "/x"),
+            ("source_path", "a\\\\b"),
+            ("repo", "no-owner"),
+        ] {
+            let files = format!(
+                r#"{{ "path": "a.onnx", "{field}": "{value}", "url": "https://example.com/a",
+                      "size": 3, "sha256": "{ZEROS}" }}"#
+            );
+            assert!(
+                matches!(catalog(&files), Err(Error::InvalidManifest(_))),
+                "{field} = {value:?} must be refused"
+            );
+        }
     }
 }

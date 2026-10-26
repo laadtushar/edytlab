@@ -141,6 +141,7 @@ crates/
   agent_profiles/     Saved model + tool-whitelist + prompt profiles
   mcp/                MCP server config, lifecycle and JSON-RPC
   ml-demucs/          Stem separation (inference is a stub, #385)
+  ml-diarize/         Speaker diarization (pyannote-style pipeline on ONNX; the model is not offered in the app and no tool runs it yet, #168)
   ml-whisper/         Transcription (run by the `transcribe` tool on the model the user downloaded, #384)
   ml-pipeline/        Shared ONNX runtime gate, verified model downloader + the user-started speech-model download (#383) + inference cache
 docs/                 Specs, handover, packaging notes

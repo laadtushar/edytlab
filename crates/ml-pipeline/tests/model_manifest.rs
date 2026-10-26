@@ -27,7 +27,9 @@
 
 use std::path::{Path, PathBuf};
 
-use ml_pipeline::models::{whisper_base, WHISPER_BASE_ID};
+use ml_pipeline::models::{
+    speaker_diarization, whisper_base, SPEAKER_DIARIZATION_ID, WHISPER_BASE_ID,
+};
 use ml_pipeline::{Catalog, ModelStore};
 
 fn repo_file(relative: &str) -> PathBuf {
@@ -78,7 +80,7 @@ fn the_manifest_parses_and_names_whisper_base() {
     ModelStore::new("unused-root")
         .artifact_dir(&model.artifact)
         .expect("a valid artifact");
-    assert_eq!(catalog.models().len(), 1, "one model is pinned");
+    assert_eq!(catalog.models().len(), 2, "two models are pinned");
 }
 
 #[test]
@@ -113,6 +115,85 @@ fn urls_are_hugging_face_at_the_pinned_commit_and_nothing_else() {
             "{} must be fetched from the pinned commit, never from `main`",
             file.path
         );
+    }
+}
+
+/// What the speaker model pins (#168 §2), the table on the issue's decision
+/// comment: (path kept, repo, commit, path in the repo, licence, bytes, sha256),
+/// every file downloaded at that commit and hashed on 2026-10-26, and each
+/// digest compared with the Hub's own LFS digest.
+const SPEAKER_PINNED: [(&str, &str, &str, &str, &str, u64, &str); 2] = [
+    (
+        "segmentation/model.onnx",
+        "onnx-community/pyannote-segmentation-3.0",
+        "733a93b6473d019a773298e08cefa686894b1854",
+        "onnx/model.onnx",
+        "MIT",
+        5_986_908,
+        "057ee564753071c0b09b5b611648b50ac188d50846bff5f01e9f7bbf1591ea25",
+    ),
+    (
+        "embedding/model.onnx",
+        "Wespeaker/wespeaker-voxceleb-resnet34-LM",
+        "f0c48c298fd835726c27956a5d617bad7115627e",
+        "voxceleb_resnet34_LM.onnx",
+        "CC-BY-4.0",
+        26_530_309,
+        "7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068",
+    ),
+];
+
+#[test]
+fn the_speaker_model_is_two_files_from_two_repositories_checked_on_2026_10_26() {
+    let model = Catalog::built_in()
+        .get(SPEAKER_DIARIZATION_ID)
+        .expect("the speaker model is pinned");
+    assert_eq!(SPEAKER_DIARIZATION_ID, "speaker-diarization");
+    assert_eq!(model.license, "MIT AND CC-BY-4.0");
+    ModelStore::new("unused-root")
+        .artifact_dir(&model.artifact)
+        .expect("a valid artifact");
+    assert_eq!(model.artifact.files.len(), SPEAKER_PINNED.len());
+    for (file, (path, repo, revision, source_path, licence, bytes, sha256)) in
+        model.artifact.files.iter().zip(SPEAKER_PINNED)
+    {
+        assert_eq!(file.path, path);
+        assert_eq!((file.size, file.sha256.as_str()), (bytes, sha256), "{path}");
+        let source = model.source_of(path).expect("every file has a source");
+        assert_eq!(
+            (
+                source.repo.as_str(),
+                source.revision.as_str(),
+                source.source_path.as_str(),
+                source.license.as_str()
+            ),
+            (repo, revision, source_path, licence),
+            "{path}"
+        );
+    }
+    // 33 MB, a quarter of the speech model.
+    assert_eq!(model.size(), 32_517_217);
+    assert_eq!(speaker_diarization(), &model.artifact);
+}
+
+#[test]
+fn every_file_of_every_model_is_fetched_from_hugging_face_at_a_pinned_commit() {
+    for model in Catalog::built_in().models() {
+        for file in &model.artifact.files {
+            let source = model.source_of(&file.path).expect("a source");
+            assert_eq!(
+                file.url,
+                source.url(),
+                "{}/{} must be fetched from its pinned commit, never from `main`",
+                model.id,
+                file.path
+            );
+            assert!(
+                file.url.starts_with("https://huggingface.co/"),
+                "{}",
+                file.url
+            );
+        }
     }
 }
 
