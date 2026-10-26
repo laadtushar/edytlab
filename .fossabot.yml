@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://api.fossabot.fossa.com/schemas/fossabot-config.v1.json
+version: 1
+
+defaults:
+  maxOpenPRs: 3
+  minimumReleaseAge: 7
+  securityCvssThreshold: 7.0
+
+# The promo, LinkedIn renderer and archived recording tools ship nothing, and
+# a bump there means re-rendering videos the site keeps byte-identical copies of.
+exclude:
+  - marketing/**
