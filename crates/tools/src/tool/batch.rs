@@ -34,7 +34,7 @@ use crate::{recipe, Tool, ToolContext, ToolDispatcher, ToolResult};
 /// Extensions the decoder can actually open. Anything else in the
 /// folder is skipped without comment — a batch over a music directory
 /// should not report every `.txt` in it as a failure.
-const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg"];
+const AUDIO_EXTENSIONS: &[&str] = audio_decoder::SUPPORTED_EXTENSIONS;
 
 #[derive(Debug, Deserialize)]
 struct Args {

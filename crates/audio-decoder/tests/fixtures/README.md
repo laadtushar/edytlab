@@ -1,0 +1,42 @@
+# Decode fixtures
+
+Half a second of a synthetic sine tone in each format the decoder opens (and
+two it does not). They are made here from `aevalsrc`, so there is no recording
+and no third-party audio in them. They are the project's own work, dedicated
+to the public domain under CC0 1.0.
+
+Made with `ffmpeg 6.1.1` (Ubuntu 24.04 package `6.1.1-3ubuntu5`) from this
+directory. `-map_metadata -1` and the bit-exact flags keep the encoder's name
+and version out of the files. The amplitude is 0.5 in every file; where a
+file has two channels the left is 440 Hz and the right is 880 Hz.
+
+```sh
+# Ogg Vorbis, mono 44.1 kHz, and stereo 48 kHz (libvorbis, quality 4)
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a libvorbis -q:a 4 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.ogg
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.5:c=stereo" -c:a libvorbis -q:a 4 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_440_880_stereo_48000.ogg
+
+# AIFF, 16-bit mono 44.1 kHz, and 24-bit stereo 48 kHz (big-endian PCM)
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a pcm_s16be -map_metadata -1 -fflags +bitexact tone_440_mono_44100_s16.aiff
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.5:c=stereo" -c:a pcm_s24be -map_metadata -1 -fflags +bitexact tones_440_880_stereo_48000_s24.aiff
+
+# FLAC, 16-bit mono 44.1 kHz
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a flac -sample_fmt s16 -compression_level 8 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.flac
+
+# Not supported (tests/unsupported.rs): Opus in Ogg, and AAC in M4A
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=0.5" -c:a libopus -b:a 32k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_48000.opus
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a aac -b:a 64k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.m4a
+```
+
+The encoded properties are what the tests assert (`tests/formats.rs`):
+
+| File | Rate | Channels | Tones | Length |
+|---|---|---|---|---|
+| `tone_440_mono_44100.ogg` | 44,100 | 1 | 440 Hz | 0.5 s, plus up to 0.06 s of codec padding |
+| `tones_440_880_stereo_48000.ogg` | 48,000 | 2 | 440 / 880 Hz | same |
+| `tone_440_mono_44100_s16.aiff` | 44,100 | 1 | 440 Hz | exactly 22,050 frames, each sample within 1.5 LSB |
+| `tones_440_880_stereo_48000_s24.aiff` | 48,000 | 2 | 440 / 880 Hz | exactly 24,000 frames, each sample within 1e-4 |
+| `tone_440_mono_44100.flac` | 44,100 | 1 | 440 Hz | exactly 22,050 frames, each sample within 1.5 LSB |
+
+Measured: the mono Vorbis decodes to 22,080 frames (30 more than encoded,
+0.7 ms) and the stereo one to 24,256 (256 more, 5.3 ms); the tolerance is
+60 ms. The frequency of each channel is found to within 2 Hz.

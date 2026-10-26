@@ -71,28 +71,27 @@ describe("EmptyState", () => {
   });
 
   /**
-   * `audio-decoder` builds symphonia with mp3/wav/flac, and symphonia's
-   * defaults add ogg + vorbis. Nothing provides isomp4 or aac, so an
-   * .m4a was advertised on the landing screen and failed on open.
-   *
-   * Note ogg IS supported — the declared feature list understates what is
-   * compiled, which is why this list came from `cargo tree`, not from
-   * reading Cargo.toml.
+   * The landing screen advertises what `audio-decoder` opens: symphonia is
+   * built with mp3, wav, flac, ogg + vorbis and aiff (#764). Nothing provides
+   * isomp4 or aac (a patent licence stands in the way), and no published
+   * symphonia decodes Opus, so an .m4a or .opus advertised here would fail on
+   * open. `crates/audio-decoder/tests/supported_extensions.rs` holds this
+   * line equal to the decoder's own list.
    */
   it("advertises only formats the decoder can actually open", () => {
     render(<EmptyState onOpen={() => {}} />);
     const formats = screen.getByText(/wav/i, { selector: "p" });
 
-    expect(formats.textContent).toContain("wav");
-    expect(formats.textContent).toContain("mp3");
-    expect(formats.textContent).toContain("flac");
-    expect(formats.textContent).toContain("ogg");
+    for (const name of ["wav", "mp3", "flac", "ogg", "aiff"]) {
+      expect(formats.textContent).toContain(name);
+    }
 
-    expect(
-      formats.textContent,
-      "no isomp4/aac codec is compiled in; loading one fails",
-    ).not.toContain("m4a");
-    expect(formats.textContent).not.toContain("aac");
+    for (const name of ["m4a", "aac", "opus"]) {
+      expect(
+        formats.textContent,
+        `${name} has no decoder compiled in; loading one fails`,
+      ).not.toContain(name);
+    }
   });
 
   /**
