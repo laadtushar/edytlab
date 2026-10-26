@@ -65,6 +65,7 @@ import { MlRuntimeLine } from "./MlRuntimeLine";
 import { SpeechModelRow } from "./SpeechModelRow";
 import { ProjectEditor } from "./ProjectEditor";
 import { SkillsEditor } from "./SkillsEditor";
+import { IDENTIFIER_INPUT } from "../lib/identifierInput";
 
 /** Settings panel tabs. The blocking onboarding flow is locked to
  *  "account"; the panel mode lets the user switch. Phases 1-5 ship
@@ -1192,6 +1193,7 @@ export function Settings({
               </p>
               <div className="mb-3 flex gap-2">
                 <input
+                  {...IDENTIFIER_INPUT}
                   data-testid="plugin-source-input"
                   placeholder="github:edytlab-community/podcast-toolkit"
                   value={pluginSource}
@@ -1302,6 +1304,7 @@ export function Settings({
             {activeProviderEntry.label} API key
           </label>
           <input
+            {...IDENTIFIER_INPUT}
             type="password"
             autoComplete="off"
             spellCheck={false}
@@ -1434,6 +1437,7 @@ export function Settings({
             Base URL
           </label>
           <input
+            {...IDENTIFIER_INPUT}
             id="settings-base-url-input"
             value={baseUrl}
             onChange={(e) => {
@@ -1479,6 +1483,7 @@ export function Settings({
             Model
           </label>
           <input
+            {...IDENTIFIER_INPUT}
             id="settings-model-input"
             list="settings-model-suggestions"
             value={model}

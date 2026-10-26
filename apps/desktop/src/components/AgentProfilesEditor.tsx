@@ -22,6 +22,7 @@ import {
   type AgentProfileContent,
   type AgentProfileSummary,
 } from "../lib/tauri-bridge";
+import { IDENTIFIER_INPUT } from "../lib/identifierInput";
 
 const DRAFT_DEFAULT: AgentProfileContent = {
   name: "",
@@ -357,6 +358,7 @@ function ProfileForm({
     <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
       <Row label="Name">
         <input
+          {...IDENTIFIER_INPUT}
           type="text"
           data-testid="profiles-name"
           value={content.name}
@@ -380,6 +382,7 @@ function ProfileForm({
       <Row label="Model override (optional)">
         <div className="grid grid-cols-2 gap-1.5">
           <input
+            {...IDENTIFIER_INPUT}
             type="text"
             data-testid="profiles-model-provider"
             value={modelProvider}
@@ -392,6 +395,7 @@ function ProfileForm({
             className="field px-2 py-1 font-mono text-xs outline-none transition"
           />
           <input
+            {...IDENTIFIER_INPUT}
             type="text"
             data-testid="profiles-model-id"
             value={modelId}
@@ -407,6 +411,7 @@ function ProfileForm({
       </Row>
       <Row label="Tools whitelist (comma-separated; leave empty for all)">
         <input
+          {...IDENTIFIER_INPUT}
           type="text"
           data-testid="profiles-tools"
           value={toolsText}

@@ -23,6 +23,7 @@ import {
   type McpServerListEntry,
   type McpTransport,
 } from "../lib/tauri-bridge";
+import { IDENTIFIER_INPUT } from "../lib/identifierInput";
 
 const DRAFT_DEFAULT: McpServerEntry = {
   id: "",
@@ -357,6 +358,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
     <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
       <Row label="ID">
         <input
+          {...IDENTIFIER_INPUT}
           type="text"
           data-testid="mcp-id"
           value={entry.id}
@@ -386,6 +388,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
         <>
           <Row label="Command">
             <input
+              {...IDENTIFIER_INPUT}
               type="text"
               data-testid="mcp-command"
               value={entry.command}
@@ -398,6 +401,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           </Row>
           <Row label="Args (one per line)">
             <textarea
+              {...IDENTIFIER_INPUT}
               data-testid="mcp-args"
               value={argsText}
               onChange={(e) => {
@@ -411,6 +415,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           </Row>
           <Row label="Env (KEY=value per line; secrets as <keychain:slot>)">
             <textarea
+              {...IDENTIFIER_INPUT}
               data-testid="mcp-env"
               value={envText}
               onChange={(e) => {
@@ -427,6 +432,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
         <>
           <Row label="URL">
             <input
+              {...IDENTIFIER_INPUT}
               type="text"
               data-testid="mcp-url"
               value={entry.url}
@@ -437,6 +443,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           </Row>
           <Row label="Headers (Name: value per line)">
             <textarea
+              {...IDENTIFIER_INPUT}
               data-testid="mcp-headers"
               value={headersText}
               onChange={(e) => {
