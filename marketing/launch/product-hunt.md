@@ -42,7 +42,7 @@ What I care about:
 - You stay in control. An optional "plan first" mode shows the agent's steps for your approval, and every edit is a node in a branchable graph, so you can fork, A/B compare and go back.
 - It's not locked to one model: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama or, in a preview, your ChatGPT plan, switchable from Settings.
 
-The clearest example is the demo on the site: a DJ asks for two tracks' tempos, the incoming track is time-stretched to match, crossfaded in 8 bars before the first one ends, and the mix is exported as a WAV at -14 LUFS. (It's a 2:45 recording with sound; the waits for the agent are sped up. The agent also flags a spot where the bars land a beat apart.)
+The clearest example is the demo on the site: a DJ asks for two tracks' tempos, the incoming track is time-stretched to match, crossfaded in 8 bars before the first one ends, and the mix is exported as a WAV at -14 LUFS. (It's a recording with sound; the waits for the agent are sped up.)
 
 What it doesn't do yet, so you don't have to find out: no stem separation (the tool is registered but not implemented). Transcription, and so editing by text, works from v0.8.0 once you download the speech model (about 139 MB) in Settings; it runs on your computer, and the words, not the audio, go to your AI provider. The builds are unsigned, so macOS and Windows will warn on first launch; the release notes have the two-line fix. It's an offline editor, not a live DJ tool.
 

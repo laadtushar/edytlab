@@ -15,7 +15,9 @@
  * when an `.mp4` in that folder has no entry here, so the list and the
  * folder cannot drift apart.
  *
- * A caption says what the recording shows and nothing more. It sits next
+ * A caption says what the recording shows and nothing more, and nothing
+ * that changes with a release (a version, a count, a model name, an analysis
+ * reading): see `marketing/README.md`, "Evergreen media rules". It sits next
  * to a video anyone can watch, so a claim the video does not back up is
  * caught by the first reader who presses play.
  */
@@ -54,33 +56,33 @@ export const demos: readonly Demo[] = [
     slug: "dj-beatmatched-transition",
     title: "Beatmatch and blend two tracks",
     caption:
-      "A DJ checks the two tracks' tempos (Neon Rush about 6.7% faster). Claude time-stretches Neon Rush to Midnight Drive's 120 BPM, keeping its pitch, starts it at 16 s under Midnight Drive's last 8 bars, and blends the two with a crossfade and a 1 kHz low-pass on the outgoing track. The mix is mastered to about −14 LUFS, limited at −1 dB and exported as a 50-second WAV. Playbacks are in real time.",
-    duration: "2:45",
+      "A DJ asks for the two tracks' tempos, then Claude time-stretches Neon Rush to Midnight Drive's tempo, keeping its pitch, starts it under Midnight Drive's last 8 bars, and blends the two with a crossfade and a low-pass filter on the outgoing track. The mix is mastered for streaming and exported as a WAV. Playbacks are in real time.",
+    duration: "2:23",
     description:
       "A screen recording of the edytlab desktop app: a DJ has Claude match one track's tempo to another's, blend the two with a crossfade and a low-pass, master the mix and export a WAV.",
-    seconds: 165,
+    seconds: 143,
     uploadDate: "2026-10-09",
   },
   {
     slug: "dj-extended-club-intro",
     title: "Extend an intro for mixing",
     caption:
-      "A DJ asks for Solar Flare's tempo and bar length (124 BPM, a 1.935-second bar) without changing anything. Its drums-only first 8 bars are copied and pasted after themselves for a 16-bar intro, a 200 Hz high-pass holds the low end back until the drop at 31.45 s, and the first 4 bars fade in. Claude exports a WAV and flags that it peaks at full scale. Playbacks are in real time.",
-    duration: "1:55",
+      "A DJ asks for Solar Flare's tempo and bar length without changing anything. Claude then extends the drums-only intro with a copy of its first 8 bars, adds a high-pass filter that holds the low end back until the drop, fades in the first 4 bars and exports a WAV. Playbacks are in real time.",
+    duration: "1:39",
     description:
       "A screen recording of the edytlab desktop app: a DJ asks Claude for a track's tempo and bar length, then has its first 8 bars copied to make a 16-bar intro, and exports a WAV.",
-    seconds: 115,
+    seconds: 99,
     uploadDate: "2026-10-09",
   },
   {
     slug: "dj-mini-mix",
     title: "A three-track mini-mix",
     caption:
-      "A DJ builds a warm-up mix at 124 BPM. Midnight Drive and Neon Rush are time-stretched to 124, keeping their pitch, and each track comes in about 4 bars before the one before it ends, with a straight-line crossfade over each overlap. Each is brought to about −14 LUFS, a limiter at −1 dB sits on the master, and the mix is exported as a 79-second WAV. Playbacks are in real time.",
-    duration: "1:58",
+      "A DJ builds a warm-up mix from three tracks. Claude time-stretches them to one tempo, keeping their pitch, overlaps each pair by about 4 bars with a crossfade, brings each track to about −14 LUFS, puts a limiter on the master and exports the mix as a WAV. Playbacks are in real time.",
+    duration: "1:42",
     description:
-      "A screen recording of the edytlab desktop app: a DJ has Claude bring three tracks to 124 BPM, join them with overlapping crossfades, match their loudness and export the mix as a WAV.",
-    seconds: 118,
+      "A screen recording of the edytlab desktop app: a DJ has Claude bring three tracks to one tempo, join them with overlapping crossfades, match their loudness and export the mix as a WAV.",
+    seconds: 102,
     uploadDate: "2026-10-09",
   },
 ];

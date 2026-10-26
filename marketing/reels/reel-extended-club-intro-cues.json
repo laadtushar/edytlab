@@ -1,6 +1,6 @@
 {
   "video": "reel-extended-club-intro.mp4",
-  "duration": 39.4,
+  "duration": 39.433,
   "fps": 30,
   "size": "1080x1920",
   "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). The narration lines for the earlier takes are in transcripts.md.",
@@ -16,7 +16,7 @@
         "an intro.",
         "Just ask."
       ],
-      "sub": "Solar Flare, 124 BPM"
+      "sub": "Solar Flare"
     },
     {
       "id": "E02",
@@ -28,8 +28,8 @@
         "demo": "dj-extended-club-intro",
         "code": "EI",
         "caption": "EI04",
-        "start": 27.4,
-        "end": 32.2
+        "start": 27.0,
+        "end": 31.8
       }
     },
     {
@@ -37,13 +37,13 @@
       "kind": "step",
       "start": 7.3,
       "end": 12.1,
-      "onscreen": "2 · Extend the intro",
+      "onscreen": "2 · Extend the intro, then add a filter that opens into the drop",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
         "caption": "EI05",
-        "start": 43.6,
-        "end": 48.4
+        "start": 38.0,
+        "end": 42.8
       }
     },
     {
@@ -51,13 +51,13 @@
       "kind": "step",
       "start": 12.1,
       "end": 16.9,
-      "onscreen": "3 · A filter that opens into the drop",
+      "onscreen": "2 · Extend the intro, then add a filter that opens into the drop",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
-        "caption": "EI06",
-        "start": 58.2,
-        "end": 63.0
+        "caption": "EI05",
+        "start": 47.8,
+        "end": 52.6
       }
     },
     {
@@ -65,52 +65,52 @@
       "kind": "step",
       "start": 16.9,
       "end": 21.7,
-      "onscreen": "4 · Fade in and export",
+      "onscreen": "3 · Fade in and export",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
-        "caption": "EI07",
-        "start": 72.0,
-        "end": 76.8
+        "caption": "EI06",
+        "start": 57.0,
+        "end": 61.8
       }
     },
     {
       "id": "E06",
       "kind": "listen",
       "start": 21.7,
-      "end": 32.3,
+      "end": 32.333,
       "onscreen": "Listen: the low end arrives at the drop (0:31)",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
-        "caption": "EI09",
-        "start": 98.267,
-        "end": 108.867
+        "caption": "EI08",
+        "start": 82.467,
+        "end": 93.1
       },
       "sound": [
-        21.913,
-        32.3
+        21.943,
+        32.333
       ]
     },
     {
       "id": "E07",
       "kind": "step",
-      "start": 32.3,
-      "end": 36.4,
+      "start": 32.333,
+      "end": 36.433,
       "onscreen": "Done: solar-flare-extended-intro.wav, a 16-bar intro",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
-        "caption": "EI10",
-        "start": 110.733,
-        "end": 114.833
+        "caption": "EI09",
+        "start": 94.8,
+        "end": 98.9
       }
     },
     {
       "id": "E08",
       "kind": "end",
-      "start": 36.4,
-      "end": 39.4,
+      "start": 36.433,
+      "end": 39.433,
       "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux"
     }
   ]

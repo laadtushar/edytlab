@@ -66,8 +66,7 @@ export const THEMES = [
     sub: null, // the chips and the note are its supporting line
     scale: 1.1,
     label: LIVE_CLAUDE,
-    chips: ["MIT", "{{tools}} tools", "macOS · Windows · Linux"],
-    note: "The installers are unsigned.",
+    chips: ["MIT", "macOS · Windows · Linux"],
     url: "github.com/laadtushar/edytlab",
   },
 ];

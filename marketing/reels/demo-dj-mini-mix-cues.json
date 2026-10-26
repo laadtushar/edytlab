@@ -1,6 +1,6 @@
 {
   "video": "dj-mini-mix.mp4",
-  "duration": 118.0,
+  "duration": 102.4,
   "narration_status": "The narration lines were written for the earlier (amber-UI) takes of the demos. Check each against this footage before re-narrating; see transcripts.md.",
   "cues": [
     {
@@ -8,7 +8,7 @@
       "kind": "title",
       "start": 0.0,
       "end": 2.467,
-      "onscreen": "A DJ builds a three-track mini-mix at 124 BPM",
+      "onscreen": "A DJ builds a three-track mini-mix at one tempo",
       "max_seconds": 2.167,
       "max_words": 5,
       "narration": "A three-track mini-mix.",
@@ -27,10 +27,10 @@
       "id": "MM02",
       "kind": "step",
       "start": 2.467,
-      "end": 10.267,
+      "end": 9.6,
       "onscreen": "Open the tracks",
-      "max_seconds": 7.5,
-      "max_words": 18,
+      "max_seconds": 6.833,
+      "max_words": 16,
       "narration": "First, open the three tracks.",
       "narration_spoken": "First, open the three tracks.",
       "narration_display": "First, open the three tracks.",
@@ -40,159 +40,159 @@
         "code": "MM",
         "caption": "MM02",
         "start": 2.467,
-        "end": 10.267
+        "end": 9.6
       }
     },
     {
       "id": "MM03",
       "kind": "step",
-      "start": 10.267,
-      "end": 24.6,
-      "onscreen": "1 · Match every track to 124 BPM",
-      "max_seconds": 14.033,
-      "max_words": 33,
-      "narration": "First, match every track to {124|one twenty-four} {BPM|B P M}.",
-      "narration_spoken": "First, match every track to one twenty-four B P M.",
-      "narration_display": "First, match every track to 124 BPM.",
-      "words": 10,
+      "start": 9.6,
+      "end": 19.933,
+      "onscreen": "1 · Match every track to one tempo",
+      "max_seconds": 10.033,
+      "max_words": 24,
+      "narration": "{1|One}: match every track to one tempo.",
+      "narration_spoken": "One: match every track to one tempo.",
+      "narration_display": "1: match every track to one tempo.",
+      "words": 7,
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM03",
-        "start": 10.267,
-        "end": 24.6
+        "start": 9.6,
+        "end": 19.933
       }
     },
     {
       "id": "MM04",
       "kind": "step",
-      "start": 24.6,
-      "end": 46.667,
+      "start": 19.933,
+      "end": 38.0,
       "onscreen": "2 · Sequence with 4-bar overlaps",
-      "max_seconds": 21.767,
-      "max_words": 52,
-      "narration": "Second, sequence them with {4|four}-bar overlaps.",
-      "narration_spoken": "Second, sequence them with four-bar overlaps.",
-      "narration_display": "Second, sequence them with 4-bar overlaps.",
+      "max_seconds": 17.767,
+      "max_words": 42,
+      "narration": "{2|Two}: sequence them with {4|four}-bar overlaps.",
+      "narration_spoken": "Two: sequence them with four-bar overlaps.",
+      "narration_display": "2: sequence them with 4-bar overlaps.",
       "words": 6,
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM04",
-        "start": 24.6,
-        "end": 46.667
+        "start": 19.933,
+        "end": 38.0
       }
     },
     {
       "id": "MM05",
       "kind": "step",
-      "start": 46.667,
-      "end": 65.467,
+      "start": 38.0,
+      "end": 53.733,
       "onscreen": "3 · Match loudness, limit the master",
-      "max_seconds": 18.5,
-      "max_words": 44,
-      "narration": "Third, match the loudness, and limit the master.",
-      "narration_spoken": "Third, match the loudness, and limit the master.",
-      "narration_display": "Third, match the loudness, and limit the master.",
+      "max_seconds": 15.433,
+      "max_words": 37,
+      "narration": "{3|Three}: match the loudness, and limit the master.",
+      "narration_spoken": "Three: match the loudness, and limit the master.",
+      "narration_display": "3: match the loudness, and limit the master.",
       "words": 8,
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM05",
-        "start": 46.667,
-        "end": 65.467
+        "start": 38.0,
+        "end": 53.733
       }
     },
     {
       "id": "MM06",
       "kind": "listen",
-      "start": 65.467,
-      "end": 83.4,
+      "start": 53.733,
+      "end": 71.067,
       "onscreen": "Listen: Midnight Drive into Solar Flare (0:23)",
-      "max_seconds": 4.483,
-      "max_words": 10,
+      "max_seconds": 4.097,
+      "max_words": 9,
       "narration": "Here's the first blend.",
       "narration_spoken": "Here's the first blend.",
       "narration_display": "Here's the first blend.",
       "words": 4,
-      "voice_end": 70.25,
+      "voice_end": 58.13,
       "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM06",
-        "start": 65.467,
-        "end": 83.4
+        "start": 53.733,
+        "end": 71.067
       },
       "audio_window": [
-        70.25,
-        81.85
+        58.13,
+        69.67
       ]
     },
     {
       "id": "MM07",
       "kind": "listen",
-      "start": 83.4,
-      "end": 100.8,
-      "onscreen": "Listen: Solar Flare into Neon Rush (0:46)",
-      "max_seconds": 3.98,
-      "max_words": 9,
+      "start": 71.067,
+      "end": 87.867,
+      "onscreen": "Listen: Solar Flare into Neon Rush (0:47)",
+      "max_seconds": 3.583,
+      "max_words": 8,
       "narration": "And the second one.",
       "narration_spoken": "And the second one.",
       "narration_display": "And the second one.",
       "words": 4,
-      "voice_end": 87.68,
+      "voice_end": 74.95,
       "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM07",
-        "start": 83.4,
-        "end": 100.8
+        "start": 71.067,
+        "end": 87.867
       },
       "audio_window": [
-        87.68,
-        99.24
+        74.95,
+        86.49
       ]
     },
     {
       "id": "MM08",
       "kind": "step",
-      "start": 100.8,
-      "end": 114.0,
+      "start": 87.867,
+      "end": 98.333,
       "onscreen": "4 · Export the mix",
-      "max_seconds": 12.9,
-      "max_words": 30,
-      "narration": "Fourth, export the mix.",
-      "narration_spoken": "Fourth, export the mix.",
-      "narration_display": "Fourth, export the mix.",
+      "max_seconds": 10.166,
+      "max_words": 24,
+      "narration": "{4|Four}: export the mix.",
+      "narration_spoken": "Four: export the mix.",
+      "narration_display": "4: export the mix.",
       "words": 4,
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM08",
-        "start": 100.8,
-        "end": 114.0
+        "start": 87.867,
+        "end": 98.333
       }
     },
     {
       "id": "MM09",
       "kind": "step",
-      "start": 114.0,
-      "end": 118.0,
-      "onscreen": "Done: mini-mix-124bpm.wav, 1:19",
-      "max_seconds": 3.7,
-      "max_words": 8,
-      "narration": "Done: {1:21|one minute twenty-one}, exported.",
-      "narration_spoken": "Done: one minute twenty-one, exported.",
-      "narration_display": "Done: 1:21, exported.",
-      "words": 5,
+      "start": 98.333,
+      "end": 102.4,
+      "onscreen": "Done: mini-mix-124bpm.wav, 1:21",
+      "max_seconds": 3.767,
+      "max_words": 9,
+      "narration": "Done: exported.",
+      "narration_spoken": "Done: exported.",
+      "narration_display": "Done: exported.",
+      "words": 2,
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM09",
-        "start": 114.0,
-        "end": 118.0
+        "start": 98.333,
+        "end": 102.4
       }
     }
   ]
