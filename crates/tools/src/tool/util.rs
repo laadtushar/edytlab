@@ -595,6 +595,32 @@ pub(crate) fn load_head_state(ctx: &ToolContext) -> Result<SessionState, String>
     Ok(state)
 }
 
+/// Rate of the empty session a generator starts when the project has no head
+/// (#743): the rate of the "Start from template" projects, and the rate most
+/// consumer audio is at. `load` takes its first file's rate instead.
+pub(crate) const EMPTY_SESSION_RATE: u32 = 44_100;
+
+/// [`load_head_state`], except that a project with no head yields an empty
+/// session at [`EMPTY_SESSION_RATE`] (#743). For tools that need no input
+/// audio (the generators): their node becomes the project's first.
+pub(crate) fn load_head_state_or_empty(ctx: &ToolContext) -> Result<SessionState, String> {
+    if ctx.store.head().is_some() {
+        return load_head_state(ctx);
+    }
+    Ok(SessionState {
+        tracks: Vec::new(),
+        bus_routing: session::BusGraph::default(),
+        master_chain: Vec::new(),
+        tempo_map: session::TempoMap::default(),
+        key_map: None,
+        transcript: None,
+        sample_rate: EMPTY_SESSION_RATE,
+        length_samples: 0,
+        annotations: Vec::new(),
+        sync_lock: false,
+    })
+}
+
 /// Wrap `state` in a [`SessionNode`] and append it to the store. The
 /// store overwrites `parent` and `id`, so we leave them at sentinel
 /// values.
