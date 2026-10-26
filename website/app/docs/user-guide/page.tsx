@@ -210,7 +210,7 @@ export default function UserGuidePage() {
 
       <h3>Plan first</h3>
       <p>
-        With the <strong>Plan</strong> toggle beside the chat box on,{" "}
+        With the <strong>Plan</strong> toggle above the chat box on,{" "}
         <strong>no edit runs until you approve it</strong>. The toggle keeps
         its setting across restarts.
       </p>

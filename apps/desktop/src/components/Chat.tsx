@@ -244,6 +244,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSentRef = useRef<string>("");
+  // The tools the last send switched off, so Retry sends with the same ones.
+  const lastDisabledRef = useRef<string[]>([]);
 
   const slashQuery = slashOpen ? input.slice(1).toLowerCase() : "";
   const slashFiltered = useMemo(() => {
@@ -302,7 +304,13 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   // for shaping the wire text (selection / marker prefix or not).
   const retryLast = () => {
     if (lastSentRef.current && !busy) {
-      void sendInternal(lastSentRef.current);
+      // The message is already in the log from the first send: one thing
+      // the person typed is one bubble (#736), so Retry takes the resumed
+      // path (no new bubble) with the tools that send used.
+      void sendInternal(lastSentRef.current, {
+        disabledTools: lastDisabledRef.current,
+        note: null,
+      });
     }
   };
 
@@ -349,7 +357,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     // `resumed`: the message is already in the log, and was sent before the
     // session ended; send what the backend kept for it (G9), with the tools
     // that were switched off for that turn.
-    resumed?: { disabledTools: string[]; note: string },
+    resumed?: { disabledTools: string[]; note: string | null },
   ) => {
     lastSentRef.current = wireText;
     failureSeq.current += 1;
@@ -376,6 +384,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           // corrupt localStorage entry — send with no restrictions
         }
       }
+      lastDisabledRef.current = disabledTools;
       await bridgeSendMessage(wireText, disabledTools);
     } catch (err) {
       // The request failed before any agent event could clear "thinking".
@@ -985,7 +994,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
         <div
           className="
             relative
-            flex items-end gap-2
+            flex flex-col gap-2
             rounded-lg border border-[var(--border-input)]
             bg-[var(--surface)]
             p-2
@@ -998,6 +1007,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             open={capsOpen}
             onClose={() => setCapsOpen(false)}
           />
+          <div data-testid="chat-toggles" className="flex items-center gap-2">
           <button
             type="button"
             data-testid="plan-first-toggle"
@@ -1047,10 +1057,12 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             </svg>
             <span className="font-mono text-[10px] uppercase tracking-wider">Tools</span>
           </button>
+          </div>
+          <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
             aria-label="Message"
-            placeholder="Tell the agent what to edit… or type / for commands"
+            placeholder="Ask for an edit… or / for commands"
             disabled={busy}
             value={input}
             rows={1}
@@ -1093,7 +1105,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               }
             }}
             className="
-              max-h-28 min-h-[28px] flex-1
+              max-h-28 min-h-[28px] min-w-0 flex-1
               resize-none bg-transparent
               text-sm text-[var(--text)]
               outline-none
@@ -1128,6 +1140,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               </svg>
             )}
           </button>
+          </div>
         </div>
         <p className="mt-1.5 px-1 text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--text-faint)]">
           enter to send · shift+enter for newline · / for commands · ctrl+k for all tools
