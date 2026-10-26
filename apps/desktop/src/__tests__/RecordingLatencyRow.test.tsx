@@ -58,7 +58,11 @@ async function renderRow(status: RecordingLatency | Promise<RecordingLatency> = 
   getMock.mockReturnValue(Promise.resolve(status));
   const view = render(<RecordingLatencyRow />);
   await waitFor(() => expect(getMock).toHaveBeenCalled());
-  await act(async () => {});
+  // Wait on what the row draws, not on the call: its answer lands after
+  // the call, and React draws it later still.
+  await waitFor(() =>
+    expect(screen.getByTestId("recording-latency-value").textContent).not.toBe("Checking…"),
+  );
   return view;
 }
 
@@ -191,8 +195,10 @@ describe("RecordingLatencyRow", () => {
   it("says it could not read the latency when the backend refuses to", async () => {
     getMock.mockRejectedValue("the latency file is from a newer version of the app");
     render(<RecordingLatencyRow />);
-    expect(await screen.findByTestId("recording-latency-value")).toHaveTextContent(
-      /could not read.*newer version/i,
+    await waitFor(() =>
+      expect(screen.getByTestId("recording-latency-value")).toHaveTextContent(
+        /could not read.*newer version/i,
+      ),
     );
   });
 
