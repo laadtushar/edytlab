@@ -6536,6 +6536,25 @@ pub(crate) fn batch_load_inner(state: &AppState, paths: &[String]) -> CmdResult<
 
 pub struct RecorderState(pub std::sync::Mutex<Option<recorder::Recorder>>);
 
+/// Lock the recorder slot, whatever happened to it before.
+///
+/// `Recorder::start` runs with the slot locked (that is what keeps a latency
+/// measurement from beginning between the gate's check and the store), so a
+/// panic inside the audio backend while opening the device poisons the
+/// mutex. Every later `lock().unwrap()` would then panic and recording would
+/// stay broken until a restart. The slot holds an `Option` that is only ever
+/// replaced whole after `start` has returned, so a poisoned slot is still a
+/// whole one (empty if the panic was in `start`): take it and clear the
+/// poison.
+fn lock_recorder_slot(
+    slot: &std::sync::Mutex<Option<recorder::Recorder>>,
+) -> std::sync::MutexGuard<'_, Option<recorder::Recorder>> {
+    slot.lock().unwrap_or_else(|poisoned| {
+        slot.clear_poison();
+        poisoned.into_inner()
+    })
+}
+
 #[tauri::command]
 pub fn start_recording(state: State<'_, RecorderState>) -> CmdResult<String> {
     start_recording_with(&recorder::gate::GATE, &state.0, recorder::Recorder::start)
@@ -6554,7 +6573,7 @@ fn start_recording_with(
     slot: &std::sync::Mutex<Option<recorder::Recorder>>,
     start: impl FnOnce() -> Result<recorder::Recorder, recorder::RecorderError>,
 ) -> CmdResult<String> {
-    let mut slot = slot.lock().unwrap();
+    let mut slot = lock_recorder_slot(slot);
     gate.check_can_record().map_err(|e| e.to_string())?;
     *slot = Some(start().map_err(|e| e.to_string())?);
     Ok("recording started".into())
@@ -6596,7 +6615,7 @@ pub async fn timer_record(
     let _armed = recorder::gate::GATE
         .arm_timer()
         .map_err(|e| e.to_string())?;
-    if state.0.lock().unwrap().is_some() {
+    if lock_recorder_slot(&state.0).is_some() {
         return Err(CommandError::InvalidPath("already recording".into()).into());
     }
 
@@ -6609,7 +6628,7 @@ pub async fn timer_record(
         // still counting down or already capturing. Stopping during the
         // countdown simply never starts.
         if tools::progress::cancelled() {
-            let rec = state.0.lock().unwrap().take();
+            let rec = lock_recorder_slot(&state.0).take();
             if let Some(rec) = rec {
                 let path = std::path::PathBuf::from(&output_path);
                 let _ = rec.stop_and_save(&path);
@@ -6625,7 +6644,7 @@ pub async fn timer_record(
             recorder::Action::Wait | recorder::Action::Continue => {}
             recorder::Action::Start => {
                 let rec = recorder::Recorder::start().map_err(|e| e.to_string())?;
-                *state.0.lock().unwrap() = Some(rec);
+                *lock_recorder_slot(&state.0) = Some(rec);
                 recording = true;
             }
             recorder::Action::Stop => break,
@@ -6642,10 +6661,7 @@ pub async fn timer_record(
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 
-    let rec = state
-        .0
-        .lock()
-        .unwrap()
+    let rec = lock_recorder_slot(&state.0)
         .take()
         .ok_or_else(|| "the recording vanished before it could be saved".to_string())?;
     let path = std::path::PathBuf::from(&output_path);
@@ -6746,10 +6762,31 @@ fn begin_calibration_with<'g>(
     let run = gate.begin_calibration().map_err(|e| e.to_string())?;
     // Taken after the gate, so a take that starts meanwhile is refused by
     // `start_recording` and one that already started is seen here.
-    if recording.lock().unwrap().is_some() {
+    if lock_recorder_slot(recording).is_some() {
         return Err("Stop the recording before measuring the latency.".into());
     }
     Ok(run)
+}
+
+/// Run a measurement's `work` on a blocking thread (the audio streams are
+/// not `Send`), with the run's right to the gate moved onto that thread.
+///
+/// The gate has to stay closed exactly as long as the sweeps can be playing.
+/// A command's future is dropped when its caller goes away, but a blocking
+/// task cannot be stopped from outside and plays on to its next checkpoint,
+/// so a guard held by the future would free the gate under it and let a take
+/// start that hears the test tones. Held by the closure, the guard is freed
+/// when the work returns (or panics), whatever became of the future.
+async fn measure_exclusively<T: Send + 'static>(
+    run: recorder::gate::CalibrationRun<'static>,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _run = run;
+        work()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Measure the round trip of the default speakers and microphone and keep
@@ -6777,7 +6814,9 @@ pub async fn calibrate_recording_latency(
     let store = audio_latency_store();
     let strip = CalibrationStrip;
 
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
+    measure_exclusively(run, move || {
+        // Closed when the work ends, with the gate freed just after.
+        let _strip = strip;
         let pair = recorder::duplex::default_pair().map_err(|e| e.to_string())?;
         let result = recorder::calibration::calibrate(
             &pair,
@@ -6811,11 +6850,7 @@ pub async fn calibrate_recording_latency(
             }
         }
     })
-    .await
-    .map_err(|e| e.to_string())?;
-    drop(strip);
-    drop(run);
-    outcome
+    .await?
 }
 
 /// Stop the running latency measurement at its next checkpoint.
@@ -6834,10 +6869,7 @@ pub fn stop_recording(
     state: State<'_, RecorderState>,
     output_path: String,
 ) -> CmdResult<serde_json::Value> {
-    let rec = state
-        .0
-        .lock()
-        .unwrap()
+    let rec = lock_recorder_slot(&state.0)
         .take()
         .ok_or_else(|| "no active recording".to_string())?;
     let path = std::path::PathBuf::from(&output_path);
@@ -11651,6 +11683,88 @@ mod recording_latency_tests {
         let e = start_recording_with(&gate, &slot, || Err(recorder::RecorderError::NoDevice))
             .unwrap_err();
         assert_eq!(e, "no input device available");
+    }
+
+    /// `Recorder::start` runs with the slot locked (that is what closes the
+    /// race with a measurement), so a panic inside the audio backend poisons
+    /// the mutex. Recording has to come back without a restart.
+    #[test]
+    fn a_panic_while_the_microphone_opens_leaves_recording_usable() {
+        let gate = recorder::gate::Gate::new();
+        let slot = free_slot();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            start_recording_with(&gate, &slot, || panic!("the audio backend panicked"))
+        }));
+        assert!(panicked.is_err(), "the test's starter did not panic");
+
+        // The next start is attempted, not refused by a poisoned lock.
+        let e = start_recording_with(&gate, &slot, || Err(recorder::RecorderError::NoDevice))
+            .unwrap_err();
+        assert_eq!(e, "no input device available");
+        // A measurement can still check the slot.
+        assert!(begin_calibration_with(&gate, &slot).is_ok());
+        // And the slot is whole again: empty, lockable, no longer poisoned.
+        assert!(lock_recorder_slot(&slot).is_none());
+        assert!(!slot.is_poisoned());
+    }
+
+    /// The gate is held by the blocking thread that plays the sweeps, not by
+    /// the command's future: if the webview goes away and the future is
+    /// dropped, the sweeps keep playing until the next checkpoint, and a
+    /// take started meanwhile would hear them.
+    #[test]
+    fn the_gate_stays_closed_until_the_blocking_measurement_ends_even_if_the_command_is_dropped() {
+        static GATE: recorder::gate::Gate = recorder::gate::Gate::new();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let run = GATE.begin_calibration().unwrap();
+
+        tauri::async_runtime::block_on(async {
+            let command = measure_exclusively(run, move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                "done"
+            });
+            // Poll it until the blocking work is under way, then drop it,
+            // as a cancelled command's future is.
+            let timed_out = tokio::time::timeout(std::time::Duration::from_millis(300), command)
+                .await
+                .is_err();
+            assert!(timed_out, "the measurement ended on its own");
+            started_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("the blocking work never started");
+
+            assert!(
+                GATE.calibrating(),
+                "dropping the future freed the gate while the sweeps still play"
+            );
+            assert_eq!(
+                GATE.check_can_record(),
+                Err(recorder::gate::Busy::Calibrating)
+            );
+
+            // The work ends: the gate frees, and only then.
+            release_tx.send(()).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while GATE.calibrating() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the gate was never freed"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            assert_eq!(GATE.check_can_record(), Ok(()));
+        });
+    }
+
+    #[test]
+    fn the_gate_is_freed_when_the_measurement_ends_normally() {
+        static GATE: recorder::gate::Gate = recorder::gate::Gate::new();
+        let run = GATE.begin_calibration().unwrap();
+        let out = tauri::async_runtime::block_on(measure_exclusively(run, || 7)).unwrap();
+        assert_eq!(out, 7);
+        assert!(!GATE.calibrating());
     }
 
     #[test]
