@@ -120,7 +120,7 @@ export default function PressPage() {
               <td>
                 Six API providers plus the user&apos;s ChatGPT plan: Anthropic,
                 OpenAI, OpenRouter, Groq, Gemini, and Ollama (local, no key),
-                and, from v0.9.0, Continue with ChatGPT, which uses a ChatGPT
+                and Continue with ChatGPT, which uses a ChatGPT
                 Plus or Pro plan&apos;s included usage instead of a key (a
                 preview; it may not be available on workspace plans, which
                 depends on OpenAI and your admin)
@@ -162,9 +162,8 @@ export default function PressPage() {
         <ul>
           <li>
             Stem separation is not implemented in any build. Speech
-            transcription works from v0.8.0, on your computer, once the user
-            has downloaded the speech model in Settings; v0.7.0 and earlier
-            cannot transcribe.
+            transcription works on your computer, once the user
+            has downloaded the speech model in Settings.
           </li>
           <li>
             It edits files offline. It is not a live DJ tool and it is not a

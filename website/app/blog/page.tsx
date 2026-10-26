@@ -146,8 +146,8 @@ export default function BlogPage() {
                             <Clock className="size-3.5" />
                             {post.readTime} min read
                           </span>
-                          <span className="ml-auto flex items-center gap-1 font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                            Read more <ArrowRight className="size-3.5" />
+                          <span className="ml-auto flex items-center gap-1 font-medium text-primary">
+                            Read more <ArrowRight className="size-3.5 motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5" />
                           </span>
                         </div>
                       </div>

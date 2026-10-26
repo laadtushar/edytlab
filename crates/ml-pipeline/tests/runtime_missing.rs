@@ -13,7 +13,7 @@
 use std::io::Write;
 use std::time::Duration;
 
-use ml_pipeline::{Error, ExecProvider, ModelRegistry};
+use ml_pipeline::{onnx_session, Error, ExecProvider, ModelRegistry};
 
 /// Fail the run, rather than stall it, if the load never returns.
 ///
@@ -46,6 +46,16 @@ fn loading_a_model_without_the_runtime_is_an_error_not_a_hang() {
     let dir = tempfile::tempdir().expect("tempdir");
     let model = dir.path().join("garbage.onnx");
     std::fs::write(&model, b"not an onnx model").expect("write");
+
+    let err = onnx_session::build(&model, onnx_session::SessionOptions::default())
+        .expect_err("the public builder must report a missing runtime");
+    let Error::MissingRuntime { searched } = &err else {
+        panic!("expected MissingRuntime from the public builder, got {err:?}");
+    };
+    assert!(
+        !searched.is_empty(),
+        "the public builder error must say where it looked"
+    );
 
     let registry = ModelRegistry::new();
     let err = registry

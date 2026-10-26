@@ -115,7 +115,7 @@ const rows: FactRow[] = [
   },
   {
     label: "AI features",
-    ours: "An agent that calls edytlab's editing tools from your request. Transcription runs on your computer from v0.8.0, after a one-time model download. Stem separation has not shipped.",
+    ours: "An agent that calls edytlab's editing tools from your request. Transcription runs on your computer, after a one-time model download. Stem separation has not shipped.",
     oursSource: { href: "/docs/tools", label: "Tools reference" },
     theirs: audition.aiFeatures.text,
     source: { href: audition.aiFeatures.url },
@@ -176,7 +176,7 @@ export default function AuditionAlternativePage() {
             </a>{" "}
             Audition as a toolset that includes multitrack, waveform and spectral display for creating, mixing, editing and
             restoring audio. edytlab also has multitrack sessions and can draw a spectrogram in place of the waveform, but its
-            tools take time ranges (and, since v0.8.0, words), and none of them edits a selection of frequencies on the
+            tools take time ranges (and words), and none of them edits a selection of frequencies on the
             spectrogram.
           </li>
           <li>
@@ -233,7 +233,7 @@ export default function AuditionAlternativePage() {
           </li>
           <li>
             <strong>Speech to text on your computer.</strong>{" "}
-            From v0.8.0 the agent can transcribe a track with the Whisper base speech model and cut words or filler words from
+            The agent can transcribe a track with the Whisper base speech model and cut words or filler words from
             the transcript. The model (about 139 MB) is not installed with the app: you download it once from Settings, and
             nothing downloads it for you. The audio never leaves your computer, but the words the model finds reach your AI
             provider as text, unless you use Ollama.

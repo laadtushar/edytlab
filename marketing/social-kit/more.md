@@ -157,7 +157,7 @@ AI agent beatmatches 120 and 128 BPM tracks and exports a WAV
 Shorts description:
 
 ```
-A DJ asks what they are working with: both tracks are in F major, at 120 and 128 BPM. The 128 BPM track is time-stretched to 120 and started under the last 8 bars of the other, which fades out under a 1 kHz low-pass while the new one fades in. The mix is mastered and exported as a 50-second WAV at -13.9 LUFS. Demo tracks are synthetic loops.
+A DJ asks what they are working with: two tracks, at 120 and 128 BPM. The 128 BPM track is time-stretched to 120 and started under the last 8 bars of the other, which fades out under a 1 kHz low-pass while the new one fades in. The mix is mastered and exported as a 50-second WAV at -13.9 LUFS. Demo tracks are synthetic loops.
 
 edytlab is free and open source (MIT): https://edytlab.com
 Installers are unsigned, so macOS and Windows warn on first launch.
@@ -268,7 +268,7 @@ Chapters
 4:40 A three-track mini-mix
 
 What happens in each
-1. Both tracks are in F major, at 120 and 128 BPM. The 128 BPM track is time-stretched to 120 and started at 16 s, under the last 8 bars of the other. The agent points out that its bars then run a beat behind and offers to start it at 15.5 s instead. The first track fades out under a 1 kHz low-pass while the second fades in, then the two are mixed to a new track, compressed, limited at -1 dB and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS. (TODO: step timestamps)
+1. Two tracks, at 120 and 128 BPM. The 128 BPM track is time-stretched to 120 and started at 16 s, under the last 8 bars of the other. The agent points out that its bars then run a beat behind and offers to start it at 15.5 s instead. The first track fades out under a 1 kHz low-pass while the second fades in, then the two are mixed to a new track, compressed, limited at -1 dB and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS. (TODO: step timestamps)
 2. The agent reports the tempo and bar length (124 BPM, a 1.935-second bar, first downbeat at 0.476 s) without changing anything. It copies the drums-only first 8 bars and splices them in, so the intro runs 16 bars. A 200 Hz high-pass holds the low end back until the drop on bar 17, the first 4 bars fade in, and the track is exported as a WAV. The agent flags that it peaks right at full scale. (TODO: step timestamps)
 3. A warm-up mix at 124 BPM. Two tracks are time-stretched to 124, keeping their pitch. The agent checks that their beats now line up and sequences them so each comes in about 4 bars before the one before it ends, with a crossfade over each overlap; it brings the last track in on the bar line before it rather than at the exact 4-bar mark. Each track is brought to about -14 LUFS, with a limiter at -1 dBFS on the master, and the mix is exported as a 79-second WAV. (TODO: step timestamps)
 

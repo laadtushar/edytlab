@@ -43,7 +43,9 @@ use std::cell::Cell;
 use std::env;
 use std::path::Path;
 
-use ml_pipeline::{ContentHash, ExecProvider, InferenceCache, ModelRegistry};
+use ml_pipeline::{
+    onnx_session, ContentHash, ExecProvider, InferenceCache, ModelRegistry, SessionOptions,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -382,12 +384,8 @@ fn identity_model_returns_its_input() {
     // library computes. Y = Identity(X), so what comes out must be exactly
     // what went in, bit for bit, including a negative, a fraction and zero.
     let model_path = fixture_model();
-    ml_pipeline::runtime::ensure().expect("the ONNX Runtime library ORT_DYLIB_PATH names");
-
-    let mut session = ort::session::Session::builder()
-        .expect("session builder")
-        .commit_from_file(&model_path)
-        .expect("load identity.onnx");
+    let mut session = onnx_session::build(&model_path, SessionOptions::default())
+        .expect("build identity.onnx session");
     let input = [1.0f32, -2.5, 0.0];
     let tensor =
         ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");

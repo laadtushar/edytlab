@@ -655,7 +655,8 @@ impl Agent {
     where
         F: FnMut(AgentEvent),
     {
-        agent_loop::run_turn(
+        let sent = user_message.clone();
+        let result = agent_loop::run_turn(
             &self.cfg,
             &self.http,
             &self.dispatcher,
@@ -673,7 +674,17 @@ impl Agent {
             self.tool_whitelist.as_deref(),
             on_event,
         )
-        .await
+        .await;
+        // A turn that failed before the model answered leaves the message
+        // at the end of the conversation. The window's Retry sends it again
+        // (#736), and `push_user_text` would join the second copy onto the
+        // first, so the model would read it twice. A turn that got further
+        // (the model answered, tools ran) ends in something else and is
+        // left alone.
+        if result.is_err() {
+            approval::withdraw_user_text(&mut self.conversation, &sent);
+        }
+        result
     }
 
     /// Read-only access to the running conversation, for the UI to

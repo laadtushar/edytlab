@@ -35,15 +35,14 @@ export default function TermsPage() {
       <p>
         When you connect an LLM provider (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, or a
         local model) you are subject to that provider&apos;s terms. The same
-        goes for the ChatGPT plan (from v0.9.0): you sign in to OpenAI, and
+        goes for the ChatGPT plan: you sign in to OpenAI, and
         OpenAI&apos;s terms and the terms of your ChatGPT plan apply to the
         usage, which counts toward that plan. edytlab is
         not a party to that relationship and is not responsible for charges
         you incur with that provider.
       </p>
       <p>
-        The speech model you can download from Settings (from
-        v0.8.0) is Whisper base, which
+        The speech model you can download from Settings is Whisper base, which
         OpenAI publishes under the Apache-2.0 licence (its code is MIT). edytlab
         does not include or redistribute it: when you click Download, the app
         fetches the files from Hugging Face, whose terms apply to that

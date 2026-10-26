@@ -740,3 +740,31 @@ describe("Chat, when the chosen model is gone", () => {
     expect(getActiveModelMock).not.toHaveBeenCalled();
   });
 });
+
+describe("Chat retry (#736)", () => {
+  it("draws one user bubble however many times the message is sent", async () => {
+    sendMessageMock.mockClear();
+    sendMessageMock.mockRejectedValueOnce("the model fell over");
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+    await user.type(screen.getByLabelText("Message"), "Hello, are you there?");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    await act(async () => {
+      await flush();
+    });
+    await screen.findByTestId("chat-error");
+
+    sendMessageMock.mockResolvedValueOnce(undefined);
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    await act(async () => {
+      await flush();
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledTimes(2);
+    expect(sendMessageMock.mock.calls[1][0]).toBe("Hello, are you there?");
+    expect(screen.getAllByText("Hello, are you there?")).toHaveLength(1);
+  });
+});

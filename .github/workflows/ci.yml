@@ -204,7 +204,7 @@ jobs:
         # `--ignored` runs only the ignored tests, and they fail rather
         # than skip when the library is missing, so this step cannot go
         # green without having run a model.
-        run: cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1
+        run: cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real --test onnx_session_builder -- --ignored --test-threads=1
 
       # The frontend test suite was not run by CI at all.
       #

@@ -331,15 +331,14 @@ function App() {
     () =>
       owned
         .overlay(tracks)
-        // `index` is captured before the filter: a track with no audio is
-        // not drawn but still occupies a slot the mixer commands address
-        // by.
-        .map((t, index) => ({ t, index }))
-        .filter(({ t }) => t.audio_path)
-        .map(({ t, index }) => ({
+        // A track with no audio still gets a lane (#742): a template's
+        // tracks, and one the assistant has added, hold no clips yet. The
+        // lane's `index` is the track's place in the session's list, which
+        // the mixer commands address it by.
+        .map((t, index) => ({
           index,
           name: t.name,
-          audioPath: t.audio_path as string,
+          audioPath: t.audio_path ?? "",
           muted: t.muted,
           gainDb: t.gain_db,
           pan: t.pan,
@@ -1800,7 +1799,7 @@ function App() {
 
           <div className="flex-1 min-h-0 overflow-hidden">
             {leftView === "timeline" ? (
-              timelineSource ? (
+              timelineSource || tracks.length > 0 ? (
                 <Timeline
                   ref={timelineRef}
                   audioPath={timelineSource}

@@ -31,7 +31,11 @@ line ends 0.3 s before it starts. The files in `website/public/demos/` are not t
 | `checks/` | `validation.json` and one `metrics-*.json` per mix |
 | `tools/` | `gen.py` (requests; a spend ledger; stops at 150 credits left), `fit.py`, `mix.py` (lay, master, mux), `validate.py`, `prof.py`, `script.py` (the lines and when each starts), `el.py` (reads the key from the file `ELEVENLABS_KEY_FILE` names) |
 
-`<demo>` is `dj-beatmatched-transition`, `dj-extended-club-intro` or `dj-mini-mix`. The mp4s are plain files, as every video
+`<demo>` is `dj-beatmatched-transition`, `dj-extended-club-intro` or `dj-mini-mix`. **The beatmatch demo's narrated files are not
+here** (its mixes, Daniel's voice track, the two BT04 clips and its two metrics files): its BT04 line spoke the key the old
+detector read, which is not the key of the tracks, so they are in
+[`archive/demos-narration/2026-10-24-f-major-line/`](../../archive/README.md), and the new BT04 text is in `narration-script.md`
+and `tools/script.py`. They come back when the demo is re-recorded (#710). `lines/` holds every other BT clip. The mp4s are plain files, as every video
 in `marketing/` is (no Git LFS). River's voice tracks are not kept (about 38 MB of mostly silence); `tools/mix.py` rebuilds them
 from `lines/river/`.
 

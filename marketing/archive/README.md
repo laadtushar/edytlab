@@ -39,6 +39,12 @@ archive/
 ├── demos/
 │   ├── 2026-10-09-first-takes/       the first two website demos, video and poster (#417, #432)
 │   └── 2026-10-09-v0.4.0/            the three DJ demos recorded on v0.4.0, video and poster (#459), replaced by #581
+├── demos-narration/
+│   └── 2026-10-24-f-major-line/      the beatmatch demo's narrated mixes and the BT04 line that said both tracks were in F major (#686)
+│       ├── narrated/                 daniel/ and river/: dj-beatmatched-transition-narrated-*.mp4
+│       ├── voice-tracks/             narration-dj-beatmatched-transition-daniel.wav
+│       ├── lines/                    daniel/ and river/: bt04.mp3
+│       └── checks/                   metrics-dj-beatmatched-transition-{daniel,river}.json
 ├── linkedin/
 │   ├── 2026-10-11-v0.5.0/            the LinkedIn renders that carried "v0.5.0" and "93 tools" (#578), replaced for v0.7.0
 │   │   └── out/                      post-1-launch.png, post-3-model-never-touches-a-sample.png, post-3-carousel.pdf
@@ -76,6 +82,7 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 | `reels/2026-10-10-v0.4.0-amber/` | #485 (2026-10-10); `tools/map-captions.mjs` is the last version, from #537 (2026-10-11), and `map-captions.pr485.mjs` the first | #590 (2026-10-13) | Reels 1080x1920: highlights 1:02, teaser 0:14, beatmatched transition 0:55, extended club intro 0:40, mini mix 0:44. Full demos 1280x776: 3:08, 1:56, 2:18 |
 | `demos/2026-10-09-first-takes/` | #417 (beatmatched transition, 2:58), #432 (extended club intro, 2:26) | #459 (same day) | 1280x776 |
 | `demos/2026-10-09-v0.4.0/` | #459 (2026-10-09) | #581 (2026-10-13, re-filmed in the new look) | 1280x776: beatmatched transition 3:08, extended club intro 1:56, mini mix 2:18 |
+| `demos-narration/2026-10-24-f-major-line/` | #686 (2026-10-24) | #710 (2026-10-26): the demo's recording shows, and BT04 said aloud, that both tracks are in F major, which is not the key of the tracks (the current detector reads A major and B major). They come back, voiced again, when the demo is re-recorded | `narrated/`: the 1280x776 narrated demo with Daniel and with River (165.3 s each; the picture is the demo's own, so it shows the old reply on screen); `voice-tracks/`: Daniel's voice alone; `lines/`: the two clips of BT04 as ElevenLabs returned them; `checks/`: the loudness and true-peak measurements of the two mixes. The voice and its licence are those described in `demos/narration/README.md` |
 | `linkedin/2026-10-11-v0.5.0/out/` | #578 (2026-10-11) | the v0.7.0 staleness sweep (2026-10-22), re-rendered by `social-kit/linkedin/render.mjs` | 1200x1200 PNGs (post 1 and the post 3 square) and the seven-page 1080x1350 carousel PDF. They said "v0.5.0" (post 1 and the carousel's last page) and "93 tools" (all three); the new renders say v0.7.0 and 94 tools. The other three squares (posts 2, 4 and 5) carry neither number, so they were not replaced |
 
 | `promo-v0.7.0/2026-10-22-scripted/` | #644 (footage and edit) and #649 (2026-10-22) | the live promo (2026-10-22): the same five videos re-cut from the released v0.7.0 app driven by real Claude, with the note "real Claude (Sonnet 5.5)" or "recorded live" in place of "scripted assistant" | `out/`: whats-new 9:16 0:31 (8.9 MB), describe-the-edit 9:16 0:21, 200-tracks 9:16 0:21, 16:9 0:58, 1:1 0:58, each with its `.srt` and a 20-frame contact sheet. `footage/`: nine clips, 3200x2000 at 30 fps, 38 MB. Every frame of app UI in them was the real v0.7.0 frontend in Chromium with the Rust backend replaced by a scripted one, and the assistant's replies and tool calls were scripted; the audio was synthetic |

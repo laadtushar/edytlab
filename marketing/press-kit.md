@@ -106,11 +106,11 @@ background, and write the name in lowercase: edytlab.
 Quote only these. They are the captions the website shows next to the
 recording.
 
-> A DJ asks what they are working with: both tracks are in F major, and Neon
-> Rush is about 6.7% faster. Neon Rush is time-stretched to Midnight Drive's 120
-> BPM, keeping its pitch, and started at 16 s, under Midnight Drive's last 8
-> bars; Claude points out that its bars then run a beat behind and offers to
-> start it at 15.5 s instead. Midnight Drive fades out under a 1 kHz low-pass
+> A DJ asks what they are working with: Neon Rush is about 6.7% faster. Neon
+> Rush is time-stretched to Midnight Drive's 120 BPM, keeping its pitch, and
+> started at 16 s, under Midnight Drive's last 8 bars; Claude points out that
+> its bars then run a beat behind and offers to start it at 15.5 s instead.
+> Midnight Drive fades out under a 1 kHz low-pass
 > while Neon Rush fades in. For the master, Claude mixes the two to a new track,
 > compresses it, limits at -1 dB and raises it to about -14 LUFS, then exports a
 > 50-second WAV at -13.9 LUFS, peaking at -1 dBFS. Waits for Claude are sped up;

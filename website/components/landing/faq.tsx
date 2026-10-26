@@ -27,7 +27,7 @@ const faqs = [
   },
   {
     q: "Does my audio leave my machine?",
-    a: "No. Decode, editing, mixing, rendering and transcription (with a speech model you download once, v0.8.0 and later) all run on your device. Besides your chat with the LLM provider, the app contacts only hosts you tell it to (a plugin URL, an MCP server) and Hugging Face when you click Download for the speech model. Raw audio is never uploaded; transcribed words go to the provider as chat text, and stay local with Ollama.",
+    a: "No. Decode, editing, mixing, rendering and transcription (with a speech model you download once) all run on your device. Besides your chat with the LLM provider, the app contacts only hosts you tell it to (a plugin URL, an MCP server) and Hugging Face when you click Download for the speech model. Raw audio is never uploaded; transcribed words go to the provider as chat text, and stay local with Ollama.",
     more: { href: "/use-cases/local-ai-audio-editor", label: "See what stays on your machine and what leaves" },
   },
   {

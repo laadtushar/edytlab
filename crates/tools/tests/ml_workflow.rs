@@ -259,13 +259,14 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
         checked,
         vec![
             "crates/ml-pipeline/tests/model_real_download.rs".to_string(),
+            "crates/ml-pipeline/tests/onnx_session_builder.rs".to_string(),
             "crates/ml-whisper/src (--lib)".to_string(),
             "crates/ml-whisper/tests/transcribe_known_words.rs".to_string(),
             "crates/ml-whisper/tests/transcribe_smoke.rs".to_string(),
             "crates/tools/tests/transcribe_end_to_end.rs".to_string(),
             "crates/tools/tests/transcribe_load_errors.rs".to_string(),
         ],
-        "the workflow is meant to run exactly these five test files and the ignored tests in ml-whisper's source"
+        "the workflow must run the shared builder's identity inference, the model tests and the ignored tests in ml-whisper's source"
     );
 }
 

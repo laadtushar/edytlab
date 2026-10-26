@@ -86,7 +86,7 @@ export default function GettingStartedPage() {
       <h2>2. Get an API key</h2>
       <p>
         You bring your own API key; it is stored in your OS keychain. With a
-        ChatGPT Plus or Pro plan you can skip the key (v0.9.0 and later; a
+        ChatGPT Plus or Pro plan you can skip the key (a
         preview): see the last row and &ldquo;Using your ChatGPT plan&rdquo; in
         the <a href="/docs/user-guide#chatgpt-plan">user guide</a>.
       </p>
@@ -165,7 +165,7 @@ export default function GettingStartedPage() {
                 height={16}
                 style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }}
               />
-              ChatGPT plan (preview, v0.9.0 and later)
+              ChatGPT plan (preview)
             </td>
             <td>
               No key. In Settings, choose ChatGPT plan and{" "}

@@ -83,7 +83,7 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
-              <td>Signing in with ChatGPT (v0.9.0 and later; optional)</td>
+              <td>Signing in with ChatGPT (optional)</td>
               <td>
                 Only if you click Continue with ChatGPT. Your browser goes to
                 auth.openai.com, which edytlab also uses to exchange and renew
@@ -100,7 +100,7 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
-              <td>The speech model (about 139 MB; v0.8.0 and later)</td>
+              <td>The speech model (about 139 MB)</td>
               <td>
                 Downloaded from Hugging Face (huggingface.co) only when you
                 click Download in Settings, never automatically. Hugging Face

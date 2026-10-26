@@ -48,7 +48,11 @@ function loop({ bpm, bassHz }) {
 
 /** A short original dance track at `bpm` in `rootHz`: kick, clap, hats,
  * a bassline, a chord pad and a lead riff, with an 8-bar intro of drums
- * only so a DJ has something to mix over. */
+ * only so a DJ has something to mix over. The bass plays the root and the pad
+ * is a major triad on it, so `analyze_track` reads the root's major key:
+ * Midnight Drive (110 Hz) A major, Solar Flare (98 Hz) G major and Neon Rush
+ * (123.47 Hz) B major. (The lead riff of the last bars steps through the
+ * minor pentatonic, and a key is a reading of the whole track, not a label.) */
 function song({ bpm, rootHz }) {
   const beat = 60 / bpm;
   const bar = beat * 4;
@@ -56,7 +60,7 @@ function song({ bpm, rootHz }) {
     const x = Math.sin(t * 12_989.8 + 78.233) * 43_758.5453;
     return (x - Math.floor(x)) * 2 - 1;
   };
-  const chord = [1, 1.2599, 1.4983]; // a minor triad over the root
+  const chord = [1, 1.2599, 1.4983]; // a major triad over the root: 2^(4/12) is a major third, 2^(7/12) a fifth
   const riff = [0, 3, 7, 10, 7, 3, 0, -2];
   return (t, c) => {
     const inBeat = t % beat;
