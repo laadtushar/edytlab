@@ -1395,7 +1395,7 @@ No per-provider keychain code is needed: the slots are keyed by provider id (`<i
 2. Return the tool descriptor, including the JSON schema for the input, from `schema()`
 3. Register it in `ToolDispatcher::default_dispatcher()` in `crates/tools/src/dispatcher.rs`
 4. Tests: cover happy path, invalid input, edge cases (empty session, out-of-range times)
-5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/app/docs/tools/page.tsx` — both are checked by tests
+5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/lib/docs/tools-data.ts` — both are checked by tests
 6. Nothing to do for local models: Ollama is sent a core of common tools plus the ones a message names, so a new tool reaches it by being named, and is listed by name in the system prompt until then (a test checks that every permitted tool is sent or listed). If it is an edit a small model should see without being asked, add it to `SLIM_CORE_TOOLS` in `crates/ai/src/tool_selection.rs`; a test holds the core's compacted size within its budget. If people will ask for it in words that are not in its name ("less harsh" for `de_esser`), add a `Cue` there; the three phrasings in `request_size.rs` show how
 
 ### Adding a Skill

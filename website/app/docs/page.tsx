@@ -67,7 +67,7 @@ export default function DocsPage() {
             key={card.href}
             href={card.href}
             data-lift
-            className="ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 hover:bg-card"
+            className="ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-4 hover:bg-card"
           >
             <div className="flex items-center justify-between">
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">

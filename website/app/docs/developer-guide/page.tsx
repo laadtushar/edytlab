@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { siteConfig } from "@/lib/site";
 import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
@@ -176,7 +177,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
         </li>
         <li>
           Regenerate <code>docs/tools-reference.md</code> and document the tool
-          in the <a href="/docs/tools">Audio Tools Reference</a> — tests fail
+          in the <Link href="/docs/tools">Audio Tools Reference</Link> — tests fail
           until both list it.
         </li>
       </ol>

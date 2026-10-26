@@ -1,0 +1,768 @@
+import type { ReferenceArea } from "./reference";
+
+/**
+ * The agent's tools, as the Audio Tools Reference lists them.
+ *
+ * This is the one place a tool is documented. `/docs/tools` lists the
+ * areas and every name; `/docs/tools/[area]` renders one area from this
+ * array (`generateStaticParams` reads it), so a new tool is one entry here
+ * and a new area is one more object: no page file to add.
+ *
+ * `crates/tools/tests/website_tool_docs.rs` reads this file as text and
+ * holds its `name:` keys to exactly the tools the dispatcher registers,
+ * each once. Keep a tool's key as `name` with its snake_case value quoted.
+ */
+export interface Tool {
+  name: string;
+  /** What a person might type to make the agent call it. */
+  prompt: string;
+  what: string;
+  /** The fields of its result. */
+  output: string;
+  note?: string;
+}
+
+export interface ToolSection {
+  title: string;
+  tools: Tool[];
+}
+
+export type ToolArea = ReferenceArea<ToolSection>;
+
+export const toolAreas: ToolArea[] = [
+  {
+    slug: "files-and-tracks",
+    title: "Files, Tracks and Channels",
+    summary: "Load audio, manage tracks, generate tones and noise, and convert between mono and stereo.",
+    sections: [
+      {
+        title: "File and Track Management",
+        tools: [
+          {
+            name: "load",
+            prompt: 'load /path/to/file.wav',
+            what: "Decode an audio file (WAV, MP3, FLAC or Ogg Vorbis) and create a new track in the session.",
+            output: "track_id, duration_sec",
+          },
+          {
+            name: "add_track",
+            prompt: 'add an empty track called "drums"',
+            what: "Add a new empty track to the session.",
+            output: "track_id",
+          },
+          {
+            name: "remove_track",
+            prompt: 'remove track 2',
+            what: "Remove a track. Does not delete the source file on disk.",
+            output: "node_id",
+          },
+          {
+            name: "duplicate_track",
+            prompt: "duplicate track 1",
+            what: "Create an exact copy of a track (same clips, gain, pan, effects). The duplicate is appended after all existing tracks.",
+            output: "node_id",
+          },
+          {
+            name: "rename_track",
+            prompt: "rename track 2 to \"guitar\"",
+            what: "Rename a track.",
+            output: "node_id",
+          },
+          {
+            name: "mute_track",
+            prompt: "mute track 3",
+            what: "Mute or unmute a track. Muted tracks produce silence in the mix.",
+            output: "node_id",
+          },
+          {
+            name: "solo_track",
+            prompt: "solo the vocals",
+            what: "Solo or un-solo a track. When any track is soloed, only soloed tracks play in the mix.",
+            output: "node_id",
+          },
+          {
+            name: "set_pan",
+            prompt: "pan track 2 hard left",
+            what: "Set the stereo pan of a track. -1.0 = full left, 0.0 = centre, 1.0 = full right.",
+            output: "node_id",
+          },
+          {
+            name: "time_shift",
+            prompt: "move track 2 two seconds later",
+            what: "Move a track's clips forward or backward in time. Positive offset_sec moves later, negative moves earlier (clamped to 0).",
+            output: "node_id",
+          },
+          {
+            name: "mix_to_new_track",
+            prompt: "mix tracks 1 and 2 into a new track",
+            what: "Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include. The new track is a copy: it does not follow later edits to the tracks it came from. To put an effect such as a limiter on the whole mix, use add_effect with scope \"master\" instead of mixing down.",
+            output: "node_id, warnings (only when something was left out)",
+          },
+        ],
+      },
+      {
+        title: "Generators",
+        tools: [
+          {
+            name: "generate_tone",
+            prompt: "generate a 440 Hz sine for 5 seconds",
+            what: "Synthesize a tone (sine, square, sawtooth, or triangle wave) and add it as a new track.",
+            output: "track index",
+          },
+          {
+            name: "generate_noise",
+            prompt: "generate 3 seconds of pink noise",
+            what: "Generate a noise track (white, pink, or brown/Brownian noise) and add it as a new track.",
+            output: "track index",
+          },
+        ],
+      },
+      {
+        title: "Channel Layout",
+        tools: [
+          {
+            name: "stereo_to_mono",
+            prompt: "make track 1 mono",
+            what: "Convert a stereo (or multi-channel) track to mono by averaging all channels.",
+            output: "node_id",
+          },
+          {
+            name: "mono_to_stereo",
+            prompt: "make track 1 stereo",
+            what: "Convert a mono track to stereo by duplicating the channel to both L and R.",
+            output: "node_id",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "region-editing",
+    title: "Region Editing",
+    summary: "Cut, copy, paste, trim, split and move clips, with sync-lock for multitrack recordings.",
+    sections: [
+      {
+        title: "Region Editing",
+        tools: [
+          {
+            name: "cut_range",
+            prompt: 'cut from 1:30 to 2:00 on track 1',
+            what: "Remove a time range. Audio after the cut point shifts left.",
+            output: "node_id, synced_tracks",
+            note: "With sync-lock on, the same span comes out of every track so a multitrack recording stays aligned.",
+          },
+          {
+            name: "set_sync_lock",
+            prompt: "keep the tracks in sync when you cut",
+            what: "Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track. An interview is one track per speaker, and cutting a sentence from one of them leaves every later word on that track early while the other speaker stays put — the conversation comes apart, and nothing about the edit says it will. Affects cut_range, insert_silence and paste_region.",
+            output: "node_id, sync_lock, changed",
+            note: "Each affected edit is still one undoable node covering every track it moved, so undo restores the whole edit rather than half of it. The mode is part of the session, so it survives Save As and the agent can read it before deciding whether a cut is safe.",
+          },
+          {
+            name: "punch_in",
+            prompt: "replace 1:20 to 1:35 with the retake I just recorded",
+            what: "Replace a region of a track with audio from a file, in place. The region's length does not change, so everything after the punch stays exactly where it was — this is how a misread line gets fixed without re-recording the whole take or shifting the rest of the session out of sync.",
+            output: "node_id, region_sec, take_sec, trimmed_sec, padded_sec",
+            note: "A take longer than the region is trimmed and a shorter one is padded with silence, and the tool says which happened. It never stretches the performance and never ripples the timeline — rippling is exactly what punching in exists to avoid.",
+          },
+          {
+            name: "copy_region",
+            prompt: 'copy the section from 0:30 to 1:00',
+            what: "Copy a time region to the clipboard, and persist it as a content-addressed blob so a later paste can be replayed rather than merely kept.",
+            output: "clipboard_blob hash",
+          },
+          {
+            name: "paste_region",
+            prompt: 'paste at 2:00 on track 1',
+            what: "Insert clipboard contents into a track. Audio shifts right at the insert point. With sync-lock on, the gap opens on every other track too so the tracks stay aligned, which moves clips on tracks the call does not name and splits a clip that straddles the insert point.",
+            output: "node_id, synced_tracks",
+          },
+          {
+            name: "trim",
+            prompt: 'remove the silence at the start of track 1',
+            what: "Remove silence from the start and/or end of a track.",
+            output: "node_id, trimmed_start_sec, trimmed_end_sec",
+          },
+          {
+            name: "insert_silence",
+            prompt: 'add 2 seconds of silence at 0:30',
+            what: "Insert a gap of silence at a position. Audio shifts right. With sync-lock on, the gap opens on every other track too so the tracks stay aligned, which moves clips on tracks the call does not name and splits a clip that straddles the position.",
+            output: "node_id",
+          },
+          {
+            name: "reverse",
+            prompt: 'reverse track 1',
+            what: "Reverse a region (or the full track).",
+            output: "node_id",
+          },
+          {
+            name: "silence_region",
+            prompt: "silence 0:10 to 0:12",
+            what: "Zero out audio samples between start_sec and end_sec on a track.",
+            output: "node_id",
+          },
+          {
+            name: "repeat_selection",
+            prompt: "repeat 0:00-0:04 three more times",
+            what: "Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.",
+            output: "node_id",
+          },
+          {
+            name: "split_clip",
+            prompt: "split track 1 at 1:30",
+            what: "Split a clip into two at the specified time position. Both resulting clips reference the same source file with adjusted offsets.",
+            output: "node_id",
+          },
+          {
+            name: "move_clip",
+            prompt: "move the second clip on track 1 to 8 seconds",
+            what: "Move one clip to a new start position, leaving the other clips where they are. Use time_shift to move a whole track together. Clips are re-sorted by start, so a clip dragged past its neighbour keeps the arrangement and the waveform in step.",
+            output: "node_id",
+          },
+          {
+            name: "remove_clip",
+            prompt: "delete the second clip on track 1",
+            what: "Remove one clip from a track. The gap it leaves is silence — this does not close up the timeline. Use remove_track to drop a whole track.",
+            output: "node_id",
+          },
+          {
+            name: "invert",
+            prompt: "invert the polarity of track 2",
+            what: "Invert (negate) audio polarity on a track, optionally within a time range.",
+            output: "node_id",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "volume-and-dynamics",
+    title: "Volume and Dynamics",
+    summary: "Gain, fades, envelopes, buses and sends, loudness, and dynamics processors.",
+    sections: [
+      {
+        title: "Volume and Dynamics",
+        tools: [
+          {
+            name: "gain",
+            prompt: 'boost the vocals by 3 dB',
+            what: "Apply a static dB gain to a region of a track. Range: −60 to +12 dB.",
+            output: "node_id",
+          },
+          {
+            name: "set_track_gain",
+            prompt: 'set track 2 gain to -3 dB',
+            what: "Set the overall gain level for an entire track.",
+            output: "node_id",
+          },
+          {
+            name: "create_bus",
+            prompt: 'make a bus for the drums',
+            what: "Create a mix bus with its own effect chain. Tracks feed it through sends, so one chain of effects can serve several tracks instead of being applied to each. A new bus has no effects: add them with add_effect and scope \"bus\".",
+            output: "node_id, bus_id",
+          },
+          {
+            name: "set_send",
+            prompt: 'send the vocal to the Vocals bus at -6 dB',
+            what: "Route a track to a bus at a given level in dB. The send is tapped after the track's own gain and pan.",
+            output: "node_id",
+          },
+          {
+            name: "remove_send",
+            prompt: 'stop sending the vocal to the Vocals bus',
+            what: "Remove a track's send to a bus, leaving both the track and the bus in place.",
+            output: "node_id",
+          },
+          {
+            name: "normalize",
+            prompt: 'normalize the peak to -1 dBFS',
+            what: "Scan a track for its peak amplitude and set its gain so the peak lands on target_dbfs. Peak-based — two files normalised to the same peak can still differ by 10 LUFS in perceived loudness, so use normalize_loudness when the goal is 'as loud as everything else'.",
+            output: "node_id, applied_gain_db",
+          },
+          {
+            name: "normalize_loudness",
+            prompt: 'normalize for Spotify',
+            what: "Set gain so the track hits an integrated LUFS target, measured with EBU R128. Takes either a number or a platform by name — spotify, youtube, apple_podcasts, broadcast — so the target does not have to be remembered. Gain is capped at a true-peak ceiling (−1 dBFS by default) so it never clips getting there; when the cap bites, the result reports the shortfall rather than claiming success.",
+            output: "node_id, measured_lufs, preset, applied_gain_db, achieved_lufs, shortfall_db, capped_by_ceiling",
+            note: "Presets: spotify / youtube −14 LUFS, apple_podcasts −16, broadcast −23. A custom target_lufs still works.",
+          },
+          {
+            name: "fade",
+            prompt: 'add a 3-second fade-out',
+            what: "Apply a fade-in or fade-out envelope. Curve options: linear, exponential, logarithmic.",
+            output: "node_id",
+          },
+          {
+            name: "set_clip_envelope",
+            prompt: 'set a volume fade: track 0 clip 0, from 0s at -20dB to 2s at 0dB',
+            what: "Set a per-clip volume automation curve. Provide (time_sec, gain_db) pairs and the engine linearly interpolates between them.",
+            output: "node_id",
+          },
+          {
+            name: "duck_under_speech",
+            prompt: "duck the music under the voiceover",
+            what: "Drop a music track under the speech and bring it back in the gaps. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it. This keys on where the speech is instead: on the transcript when there is one, and otherwise on the voice_tracks you name, where it follows the voiced (pitched) sound in their audio, so a breath, a click or hiss does not trigger it. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has. A voice track that carries music reads as speech throughout, so name the voice alone; loud low rumble reads as speech too, and a fan that runs for part of a track is ducked under for as long as it runs.",
+            output: "node_id, passages, ducks, clips, keyed_on, speech_sec, voice_tracks (when keyed on audio)",
+            note: "The result is an ordinary volume-automation curve on the music clip, so it is visible in the automation lane and draggable if a duck lands wrong. Short pauses inside a sentence do not un-duck: bringing the music up for a comma is a pump, not an edit.",
+          },
+          {
+            name: "limiter",
+            prompt: "limit track 1 to -1 dBFS",
+            what: "Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms (default 80). Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; a sample-peak ceiling, not an inter-sample true-peak one. This edit is baked into one track; to limit the whole mix and keep it limited as tracks change, use add_effect with scope \"master\".",
+            output: "node_id",
+          },
+          {
+            name: "noise_gate",
+            prompt: "gate anything below -45 dB",
+            what: "Apply a noise gate: audio below threshold_db is silenced. attack_ms and release_ms control how fast the gate opens/closes.",
+            output: "node_id",
+          },
+          {
+            name: "leveler",
+            prompt: "even out the levels on track 1",
+            what: "Apply dynamic leveling: normalise each short window to a target RMS level. Reduces variation between loud and quiet passages.",
+            output: "node_id",
+          },
+          {
+            name: "de_esser",
+            prompt: "take the harshness off the s sounds",
+            what: "Reduce harsh sibilant 's' and 'sh' sounds. frequency_hz sets where sibilance detection begins (default 7000Hz); threshold_db is the compression trigger level.",
+            output: "node_id",
+          },
+          {
+            name: "truncate_silence",
+            prompt: "remove the long pauses",
+            what: "Find and remove silent regions in a track. threshold_db is the silence floor; min_silence_ms is the minimum gap duration to remove.",
+            output: "node_id",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "effects",
+    title: "Effects",
+    summary: "Equalizer, compressor, reverb, filters and other effects you can apply to a track.",
+    sections: [
+      {
+        title: "Effects",
+        tools: [
+          {
+            name: "eq",
+            prompt: 'boost the highs on track 1 by 3 dB at 8 kHz',
+            what: "Apply a parametric EQ to a track using a chain of biquad peak filters. Specify frequency, gain (dB), and Q for each band.",
+            output: "node_id",
+          },
+          {
+            name: "compressor",
+            prompt: 'compress track 1: threshold -18 dB, ratio 4:1',
+            what: "Apply a dynamic compressor with configurable threshold, ratio, attack, and release. Uses an envelope follower for smooth gain reduction.",
+            output: "node_id",
+          },
+          {
+            name: "noise_reduction",
+            prompt: 'reduce background noise on track 1',
+            what: "Remove broadband noise via spectral subtraction (realFFT + overlap-add). Estimates the noise floor from a silent region and subtracts it from the signal.",
+            output: "node_id",
+          },
+          {
+            name: "reverb",
+            prompt: "add a small room reverb",
+            what: "Apply Freeverb algorithmic reverb. room_size (0-1) controls reverb length, damping (0-1) controls high-freq decay, wet (0-1) is the wet/dry blend.",
+            output: "node_id",
+          },
+          {
+            name: "echo",
+            prompt: "add a 300 ms echo",
+            what: "Add a single echo (delay + decay). delay_ms is the echo offset in milliseconds; decay (0..1) is the echo amplitude.",
+            output: "node_id",
+          },
+          {
+            name: "phaser",
+            prompt: "add a slow phaser",
+            what: "Apply a phaser effect using an all-pass filter chain with LFO sweep. rate_hz controls LFO speed; depth is the wet blend; stages sets the filter chain length (2-12).",
+            output: "node_id",
+          },
+          {
+            name: "tremolo",
+            prompt: "add tremolo at 5 Hz",
+            what: "Apply tremolo (LFO amplitude modulation). rate_hz controls oscillation speed; depth (0..1) controls modulation depth.",
+            output: "node_id",
+          },
+          {
+            name: "distortion",
+            prompt: "drive track 2 a little",
+            what: "Apply soft-clip distortion (tanh waveshaper) followed by a tone filter. drive > 1 increases gain before clipping; tone (0=dark, 1=bright) controls the output filter.",
+            output: "node_id",
+          },
+          {
+            name: "stereo_widener",
+            prompt: "widen the stereo image",
+            what: "Widen or narrow the stereo field using M/S processing. width=0 collapses to mono, width=1 is original, width=2 doubles the stereo width. Requires stereo track.",
+            output: "node_id",
+          },
+          {
+            name: "vocal_reduction",
+            prompt: "take the vocals out",
+            what: "Reduce center-panned vocals using L-R channel subtraction (Karaoke effect). Works on stereo tracks; results depend on how centrally the vocals are mixed.",
+            output: "node_id",
+          },
+          {
+            name: "click_removal",
+            prompt: "remove the clicks",
+            what: "Remove clicks and pops by detecting sample spikes (via median filter) and replacing them with interpolated values. threshold is the amplitude deviation that triggers detection.",
+            output: "node_id",
+          },
+          {
+            name: "low_pass_filter",
+            prompt: "roll off everything above 8 kHz",
+            what: "Apply a Butterworth low-pass filter to a track, removing frequencies above cutoff_hz.",
+            output: "node_id",
+          },
+          {
+            name: "high_pass_filter",
+            prompt: "high-pass at 80 Hz",
+            what: "Apply a Butterworth high-pass filter to a track, removing frequencies below cutoff_hz.",
+            output: "node_id",
+          },
+          {
+            name: "notch_filter",
+            prompt: "notch out the 50 Hz hum",
+            what: "Apply a notch (band-reject) filter to a track, attenuating frequencies near center_hz. q controls the width: higher Q = narrower notch.",
+            output: "node_id",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "effect-chains",
+    title: "Effect Chains",
+    summary: "Add, edit, bypass, reorder and remove the effects in a track, bus or master chain.",
+    sections: [
+      {
+        title: "Effect Chains",
+        tools: [
+          {
+            name: "add_effect",
+            prompt: 'put a limiter on the master at -1 dB',
+            what: "Append an effect to a track's chain, pass scope \"master\" to put it on the master bus, where every track is summed, or scope \"bus\" with a bus name to put it on a bus made with create_bus. The chain is applied at render time and the source audio is never rewritten, so the parameters stay editable — unlike the destructive effect tools above, which bake their result into a new node.",
+            output: "node_id, effect_index",
+            note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. A bus processes what tracks send it with set_send, so an effect on a bus nothing sends to is not heard; name a bus by the name it was created with, or by its id if two share a name. Effects run in the order they appear in the chain. Only five kinds can stream today: gain, limiter, low_pass_filter, high_pass_filter and notch_filter. add_effect refuses any other kind, on a track, on a bus or on the master bus, with a message that lists the five and, for a kind that exists as a destructive tool (reverb, echo, eq, compressor and others), names that tool to call instead. It also refuses a parameter the kind does not read, naming it and listing the kind's own, rather than saving a setting the renderer would ignore. The names, which the schema also gives the model: gain has db; limiter has ceiling_db and release_ms; low_pass_filter and high_pass_filter have cutoff_hz; notch_filter has center_hz and q. Omitted ones use defaults.",
+          },
+          {
+            name: "set_effect_params",
+            prompt: 'change that low-pass to 2 kHz',
+            what: "Edit an effect already in a chain, on a track, on the master bus or on a bus. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead. A parameter name the effect's kind does not read is refused, with the kind's own names in the error. The names are the same as add_effect's: db for a gain, ceiling_db and release_ms for a limiter, cutoff_hz for the low-pass and high-pass filters, center_hz and q for the notch.",
+            output: "node_id",
+          },
+          {
+            name: "set_effect_bypassed",
+            prompt: 'bypass the compressor on track 1',
+            what: "Turn an effect off without removing it, on a track, on the master bus or on a bus. A bypassed effect renders byte-identically to one that is not there, so it is an A/B switch rather than an approximation.",
+            output: "node_id",
+          },
+          {
+            name: "reorder_effects",
+            prompt: 'put the EQ before the compressor',
+            what: "Reorder a track's chain, the master bus's or a bus's. Takes a full permutation of the existing indices — a partial list is rejected rather than silently dropping effects.",
+            output: "node_id",
+          },
+          {
+            name: "remove_effect",
+            prompt: 'take the reverb off the drums',
+            what: "Remove an effect from a track's chain, the master bus's or a bus's, by index.",
+            output: "node_id",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "time-and-pitch",
+    title: "Time and Pitch",
+    summary: "Change tempo and pitch independently, change speed, or resample a track.",
+    sections: [
+      {
+        title: "Time and Pitch",
+        tools: [
+          {
+            name: "time_stretch",
+            prompt: 'stretch track 1 to 4 minutes',
+            what: "Change the duration without changing the pitch.",
+            output: "node_id, new_duration_sec",
+          },
+          {
+            name: "pitch_shift",
+            prompt: 'shift the vocals up 2 semitones',
+            what: "Change the pitch without changing the duration. Set preserve_formants on voices so a shift sounds like the same person singing higher, not a chipmunk. Range: −12 to +12 semitones.",
+            output: "node_id",
+          },
+          {
+            name: "change_speed",
+            prompt: "speed track 1 up by 10%",
+            what: "Resample a track to change playback speed without pitch preservation. factor > 1 speeds up (shorter duration), factor < 1 slows down (longer).",
+            output: "node_id",
+          },
+          {
+            name: "resample_track",
+            prompt: "resample track 1 to 44.1 kHz",
+            what: "Resample a track to a different sample rate using linear interpolation. Common rates: 22050, 44100, 48000, 96000.",
+            output: "node_id",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "analysis",
+    title: "Analysis",
+    summary: "Measure and inspect audio, find silence, warp to a beat grid, and audition an effect before you apply it.",
+    sections: [
+      {
+        title: "Analysis",
+        tools: [
+          {
+            name: "analyze_track",
+            prompt: 'analyze track 1',
+            what: "Detect BPM (with a confidence and the half and double as alternatives), musical key (with the runner-up key), a beat grid, an RMS curve and integrated loudness (LUFS). Downbeats are assumed every fourth beat and sections are one whole-track section: neither is detected. BPM is null for audio with no steady beat.",
+            output: "bpm, bpm_confidence, bpm_alternatives, key, key_score, key_runner_up, beats, downbeats, sections, rms_curve, lufs_integrated",
+          },
+          {
+            name: "align_to_beat",
+            prompt: 'find the beats, then warp this onto a steady grid',
+            what: "Warp a track in time so its beats land on a target grid, without changing the pitch. Each segment between beats is stretched by its own ratio in one pass, so there is no seam at the beats. Get source_beats from analyze_track.",
+            output: "node_id",
+          },
+          {
+            name: "plot_spectrum",
+            prompt: "show me the spectrum of track 1",
+            what: "Compute the FFT magnitude spectrum of a track region.",
+            output: "frequency/magnitude data",
+          },
+          {
+            name: "select_region",
+            prompt: "select the last thing said on the voice track",
+            what: "Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range. A phrase needs a transcript (see transcribe), because finding it needs the words. A passage of speech does not: name the voice_tracks and it finds the passages where those tracks' audio has voiced (pitched) sound, so -1 is the last thing said on them, and a breath, a click or hiss is not a passage. Beat ranges need neither. A voice track that carries music reads as speech throughout, so name the voice alone; loud low rumble reads as speech too, and a fan that runs for part of a track counts as speech while it runs. The detector's thresholds were set on synthetic recordings and have not been checked on real takes, so check the range it reports before a destructive edit.",
+            output: "start_sec, end_sec, duration_sec, matched, keyed_on, voice_tracks (when keyed on audio)",
+            note: "It refuses rather than approximating: a phrase that is not in the transcript selects nothing, and a track with no speech has no last passage, because the next call is usually a destructive edit and a range that is nearly right is worse than none. Passages are joined by the rule duck_under_speech uses: a pause shorter than join_gap_sec (a second unless you say otherwise) stays inside one, and both tools take join_gap_sec, so with the same value the third thing said is the same in both. Every range-taking tool became describable without any of them changing.",
+          },
+          {
+            name: "silence_finder",
+            prompt: "where are the silent bits?",
+            what: "Analyse a track and return the time ranges of silent regions.",
+            output: "list of {start_sec, end_sec}",
+          },
+          {
+            name: "audition_effect",
+            prompt: "what would a 1 kHz low-pass sound like on the vocal?",
+            what: "Hear an effect on a track, on the master bus (scope \"master\") or on a bus (scope \"bus\") without applying it. Renders a few seconds of the session with the effect added to that chain and hands back a WAV to play — no session node, so there is nothing to undo. Call add_effect with the same arguments to keep it. The parameter names are add_effect's, and any other name is refused.",
+            output: "path, cached, start_sec, end_sec, target, warnings (only when something was left out)",
+            note: "The audition includes gain, pan, mute, solo, sends and the master chain, so it sounds like the result will. Repeating settings you have already heard is instant.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "speech",
+    title: "Speech and Transcripts",
+    summary: "Transcribe speech, split it by speaker, and cut or clean the audio by its words.",
+    sections: [
+      {
+        title: "ML Tools",
+        tools: [
+          {
+            name: "separate_stems",
+            prompt: 'separate the stems on track 1',
+            what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
+            output: "node_id, stem track IDs",
+            note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no stem model to download and no environment variable that changes that. Only htdemucs is a recognised model id.",
+          },
+          {
+            name: "split_by_speaker",
+            prompt: 'split track 1 by speaker: Priya 0-12s, Sam 12-30s',
+            what: "Turn one track and a set of speaker segments into a track per speaker, so each voice gets its own gain, EQ and noise treatment. Writes no new audio — every speaker track points at the same source file, which is why combined playback is unchanged. Audio no segment covers goes to an 'unassigned' track rather than being dropped, and overlapping turns are awarded to whoever was listed first and reported back.",
+            output: "node_id, tracks, speakers, unassigned_samples, overlapping_segments",
+            note: "Segments can come from anywhere — a diariser, a transcript that names speakers, or a cue sheet you type. Speaker turns land as ordinary clips, so you correct a boundary by dragging it.",
+          },
+          {
+            name: "transcribe",
+            prompt: 'transcribe track 1',
+            what: "Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript. Give `track` (word times are then session seconds) or `path` for a file that is not in the session (the file's times), and optionally `language` as a two-letter code; leave it out to detect it. The audio never leaves the computer. It needs the Whisper base speech model the user downloads once in Settings → Account; the tool never downloads it. Runs on the CPU, usually in under half the audio's length, and the user can cancel.",
+            output: "node_id, word_count, language, duration_sec, cached, replaced_earlier_transcript, summary, and the words as [text, start_sec, end_sec] (the position is the word number cut_words takes), or sentence segments with word numbers for long audio",
+            note: "The listing is bounded to 6,000 bytes for each call, and it is what the AI provider receives: the text of what was said, never the audio, and with Ollama it stays on your computer. A transcript records the track it is of; cut_words and remove_fillers cut that track and refuse another. If the model is not downloaded or cannot be loaded, the result starts with a bracketed code and the window shows a card with the fix. No speech found changes nothing. duck_under_speech and select_region's speech-passage mode do not need a transcript: they can key on a voice track's audio.",
+          },
+        ],
+      },
+      {
+        title: "Transcript Editing",
+        tools: [
+          {
+            name: "cut_words",
+            prompt: "delete the bit where he repeats himself",
+            what: "Delete a span of transcribed words and the audio underneath, closing the gap. Indices are into the session transcript from `transcribe`. The remaining word timings shift so they still line up with the audio, and the whole thing is one undoable node. Needs a transcript (see transcribe), and cuts the track that transcript is of.",
+            output: "node_id, removed_words, removed_text, removed_sec",
+            note: "The span runs from the first word's start to the last word's end — cutting from the first word's end would leave a clipped syllable behind.",
+          },
+          {
+            name: "remove_fillers",
+            prompt: "how many ums are in this?",
+            what: "Find filler words in the transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything — this is a destructive edit across a whole track. Hesitations (um, uh, er) go wherever they appear; discourse markers (like, actually) only where they stand alone between pauses, because speech with every hesitation stripped sounds rushed. Needs a transcript (see transcribe), and cuts the track that transcript is of.",
+            output: "found, would_save_sec, per-word list; node_id when applied",
+            note: "Leaves a short pause where each filler was, so the result does not sound spliced. The word list can be replaced — fillers are language- and speaker-specific.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "rendering",
+    title: "Rendering, Recipes and Batch",
+    summary: "Export the session to WAV, FLAC or MP3, render previews, and replay an edit chain on one file or a folder.",
+    sections: [
+      {
+        title: "Rendering",
+        tools: [
+          {
+            name: "render_final",
+            prompt: 'export to /Users/me/Desktop/final.wav',
+            what: "Render the full session to WAV, FLAC or MP3. FLAC is lossless — identical audio, roughly half the size. MP3 is lossy but plays anywhere; bitrate defaults to 192 kbps. Takes title, artist, album, year and comment, written as Vorbis comments on FLAC and ID3v2 on MP3, and can carry the session's markers through as chapters.",
+            output: "path, duration_sec, peak_dbfs, sample_rate, tagged, chapters, warnings (only when something was left out)",
+            note: "A stored effect the renderer cannot run in a chain yet (a project from an older build can hold one) is left out and the render still succeeds; warnings names each one, and a line in summary says so. Tags are applied after encoding — FLAC blocks are rewritten in place and an ID3 tag is a prefix — so tagging never touches a sample. WAV has no standard tag container worth using and refuses metadata rather than dropping it silently. A path that is audio the project reads is refused, because the render would replace it: a file you loaded (even a lossy one the project plays a copy of), or any file an earlier step of the history plays, however the path is spelt. Choose another path; an earlier export, or a path nothing reads, is written as before.",
+          },
+          {
+            name: "render_preview",
+            prompt: "(used internally for playback)",
+            what: "Render a preview WAV, cached by node id — re-previewing the same session state reuses the render instead of redoing it.",
+            output: "path, warnings (only when something was left out)",
+            note: "A stored effect the renderer cannot run in a chain yet is left out and listed in warnings, on a cached preview too.",
+          },
+          {
+            name: "export_multiple",
+            prompt: "export tracks 1 and 2 as separate files",
+            what: "Export selected tracks as individual WAV files to a directory.",
+            output: "list of exported paths, warnings (only when something was left out)",
+          },
+        ],
+      },
+      {
+        title: "Recipes and Batch",
+        tools: [
+          {
+            name: "export_recipe",
+            prompt: "export this edit chain so I can reuse it",
+            what: "Write the session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it. Reviewable by eye before anyone runs it, and replayable against the same source or a different one.",
+            output: "path, steps, blockers",
+            note: "Steps that cannot be replayed (ML models) are marked in the file rather than silently dropped.",
+          },
+          {
+            name: "apply_recipe",
+            prompt: "run my podcast chain on this recording",
+            what: "Replay an exported edit chain. Every step is checked before any of them runs, so a recipe that cannot keep its promise is refused whole — naming the step — rather than half-applied. Takes an optional different source, and a dry run that reports the plan without touching the session.",
+            output: "steps_applied, head, notes",
+            note: "Replaying against the same audio reproduces the same bytes; the derived files are named by their own sample rate, channel count and samples, so a drifted rebuild is detected rather than substituted. Names from projects saved by earlier builds are still recognised when a project's history is rebuilt.",
+          },
+          {
+            name: "batch_apply",
+            prompt: "run my podcast chain over every file in this folder",
+            what: "Run an exported edit chain across every audio file in a folder. Each file becomes its own project with its own history — a batch is not one giant session. Every file is attempted even if an earlier one fails, and the report says what succeeded, what refused, and why.",
+            output: "files, succeeded, refused, per-file results",
+            note: "A chain that cannot be replayed is refused once, up front — that is a property of the chain, not of the twelve files. So is an output folder that would put a file's project where a project is open right now: each file's project goes in <output_dir>/<file name without its extension>, and a batch never writes into a project you have open, so choose another output_dir. So is a render that would land on one of the input files: output_dir defaults to the input folder, so with render_format set to the inputs' own format (wav for .wav files) each render would be written over its input. Your originals are never written over; choose another output_dir. Nothing is started in either case.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "history-and-session",
+    title: "History, Markers and Session",
+    summary: "Fork, revert and compare session states, name them, manage markers and labels, and keep the session lean.",
+    sections: [
+      {
+        title: "DAG Operations",
+        tools: [
+          {
+            name: "fork_node",
+            prompt: 'fork the session and call it "take-2"',
+            what: "Fork the current node to create an independent branch. The fork becomes the new head.",
+            output: "node_id",
+          },
+          {
+            name: "revert_to",
+            prompt: 'revert to before the reverb',
+            what: "Move the session head to an earlier node. Does not delete any nodes.",
+            output: "node_id",
+          },
+          {
+            name: "compare_nodes",
+            prompt: 'compare the current version with the one before normalization',
+            what: "Generate a diff between two nodes: tracks added/removed, gain changes.",
+            output: "tracks_added, tracks_removed, tracks_changed",
+          },
+          {
+            name: "apply_diff",
+            prompt: "(used internally by the agent)",
+            what: "Apply a computed diff from compare_nodes to the current session.",
+            output: "node_id",
+          },
+          {
+            name: "name_node",
+            prompt: 'name this state "final mix"',
+            what: "Set a human-readable label on the current head node.",
+            output: "node_id",
+          },
+        ],
+      },
+      {
+        title: "Annotations",
+        tools: [
+          {
+            name: "label",
+            prompt: 'mark the chorus at 1:05',
+            what: "Add a named point marker or region annotation to the timeline.",
+            output: "annotation_id",
+          },
+          {
+            name: "import_labels",
+            prompt: "import these Audacity labels",
+            what: "Import Audacity-format label text into the session as annotations. Format: each line is 'start_sec TAB end_sec TAB name'.",
+            output: "node_id",
+          },
+          {
+            name: "export_labels",
+            prompt: "export the markers as labels",
+            what: "Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).",
+            output: "label text",
+          },
+        ],
+      },
+      {
+        title: "Session Management",
+        tools: [
+          {
+            name: "list_session",
+            prompt: "list every track in this session",
+            what: "List the session's tracks, buses or markers a page at a time, in the same lines the session summary in the agent's prompt uses. A session too big for that summary has each list cut and says how many it left out; this is how the agent reaches the rest. Reads only — it changes nothing, so Plan first never holds it for approval.",
+            output: "summary (what range it showed of how many), text (the lines), next_offset (only while there is another page)",
+            note: "A page ends at 100 items or 4,096 bytes, whichever comes first, so a model with a small context can take it: a thousand markers come in several pages, not one result. Local models are sent this tool whenever that summary was cut.",
+          },
+          {
+            name: "compact_session",
+            prompt: "this project is huge — reclaim some disk",
+            what: "Prune old history and delete the audio the project made that only that history used. A file you loaded is never deleted, only the undo steps that named it. Reports what it would remove and changes nothing unless asked twice, because this removes undo steps permanently — the nodes are gone, not archived. The most recent nodes on the current chain are never pruned, so ordinary undo keeps working; what goes is the tail beyond them and any branches forked away from and never returned to.",
+            output: "prunable_nodes, reclaimable_bytes, reclaimable_files; removed_nodes, removed_files, kept_files and freed_bytes when applied",
+            note: "It deletes only files inside the project's own .audiograph/derived/ folder, where edits write their audio, and checks each one again just before deleting it. Anything else a pruned version named — a recording you loaded from elsewhere, clipboard audio, a cached preview — stays where it is, and the apply result counts it in kept_files. For space without losing history, nothing is needed: once a project's derived audio passes 2 GiB, the oldest audio only undo history holds is swept in the background — but only files a replay of their edits has just rebuilt, byte for byte, so undoing back to one rebuilds it. This tool is for what cannot be rebuilt that way, or for dropping history on purpose.",
+          },
+          {
+            name: "storage_report",
+            prompt: "how much disk is this session using?",
+            what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file; audio nothing references goes when the project opens, and past 2 GiB the oldest audio only undo history holds is swept, once a replay has rebuilt it. Reads only — it deletes nothing.",
+            output: "total_bytes, live, history, unreferenced, preview_cache, clipboard_blobs",
+            note: "Pair it with compact_session, which does the reclaiming — this is the before-and-after measurement.",
+          },
+        ],
+      },
+    ],
+  },
+];

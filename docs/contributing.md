@@ -358,7 +358,7 @@ fn rejects_out_of_range_amount() {
 
 `session::Store::open` is the raw open, which asks the registry of live stores nothing, so it exists only in `session`'s test build and under its `raw-open` feature (the crates that call it in tests enable that in `[dev-dependencies]`). A test over a temporary folder can use it. A tool never opens a project folder itself: the store arrives in `ToolContext`, and code that must open a folder of its own uses `Store::open_private` (as `batch_apply` does) or `Store::open_read_only`; `crates/session/tests/no_unregistered_open.rs` fails a raw open outside test code.
 
-The website's tool reference, `website/app/docs/tools/page.tsx`, must list every registered tool: `crates/tools/tests/website_tool_docs.rs` fails until it does.
+The website's tool reference, `website/lib/docs/tools-data.ts`, must list every registered tool: `crates/tools/tests/website_tool_docs.rs` fails until it does.
 
 A new tool runs under the store, engine and clipboard locks, as every tool did before, and the window's reads of the session wait while it does. A slow, pure edit of the head's audio can opt out by overriding `runs_off_the_lock` to return `true` (see [architecture.md](./architecture.md#off-lock-tools) for what that promises and what it costs). It then runs on a staged store handle and is run again if the user edits meanwhile, so it may use only `head`, `get`, `project_dir`, `append` and `set_op` on its own node, and never the clipboard, the engine or a nested dispatcher. Opting in is a reviewed decision: add the name to `OFF_LOCK` in `crates/tools/tests/off_lock_tools.rs`, which also scans the tool's source for what a staged run cannot do.
 
@@ -454,14 +454,14 @@ Documentation lives in:
 **Update the docs in the same PR as the code.** A PR that adds a new tool without regenerating `tools-reference.md` is incomplete — and now fails CI rather than shipping a reference that quietly omits it.
 
 When adding a new Tauri command:
-1. Document it in `api-reference.md` with signature, description, error cases, example, and add its row to `website/app/docs/api-reference/page.tsx`
+1. Document it in `api-reference.md` with signature, description, error cases, example, and add its row to `website/lib/docs/api-data.ts`
 2. Add the TypeScript wrapper to `tauri-bridge.ts` before the PR
 3. Give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
 
 When changing an existing command's signature:
 1. Update the Rust type
 2. Update the TypeScript type in `tauri-bridge.ts`
-3. Update `api-reference.md` and the site's `website/app/docs/api-reference/page.tsx`, and the fake backend's answer if the shape changed
+3. Update `api-reference.md` and the site's `website/lib/docs/api-data.ts`, and the fake backend's answer if the shape changed
 4. Run `pnpm --filter @edytlab/desktop typecheck` to catch any downstream type errors
 
 ---

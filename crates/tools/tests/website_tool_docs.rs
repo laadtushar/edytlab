@@ -1,9 +1,11 @@
 //! The website's tool documentation must cover exactly the registered
 //! tools.
 //!
-//! Two pages on the marketing site enumerate the toolbox: the docs
-//! reference at `website/app/docs/tools/page.tsx`, and the landing
-//! section at `website/components/landing/tool-catalogue.tsx`. Nothing
+//! Two places on the marketing site enumerate the toolbox: the docs
+//! reference, whose data is `website/lib/docs/tools-data.ts` (the index at
+//! `/docs/tools` and one page per area at `/docs/tools/[area]` are both
+//! made from it), and the landing section at
+//! `website/components/landing/tool-catalogue.tsx`. Nothing
 //! tied either to the dispatcher, and the reference had drifted — it
 //! listed 69 of 75, missing exactly the six that shipped most recently
 //! (`create_bus`, `set_send`, `remove_send`, `move_clip`,
@@ -194,10 +196,14 @@ fn registered() -> BTreeSet<String> {
         .collect()
 }
 
-/// Names quoted after a `name:` key — the shape both pages use for a
-/// tool entry.
-fn names_after_key(src: &str) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
+/// The data the docs reference is made from: every tool is one entry in
+/// it, whichever area's page it is rendered on.
+const TOOLS_DATA: &str = "lib/docs/tools-data.ts";
+
+/// Names quoted after a `name:` key — the shape the reference uses for a
+/// tool entry — in the order they are written, repeats included.
+fn names_after_key_in_order(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
     for (i, _) in src.match_indices("name: \"") {
         let rest = &src[i + "name: \"".len()..];
         if let Some(end) = rest.find('"') {
@@ -210,11 +216,16 @@ fn names_after_key(src: &str) -> BTreeSet<String> {
                     .chars()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
             {
-                out.insert(name.to_owned());
+                out.push(name.to_owned());
             }
         }
     }
     out
+}
+
+/// The same names as a set.
+fn names_after_key(src: &str) -> BTreeSet<String> {
+    names_after_key_in_order(src).into_iter().collect()
 }
 
 /// Every string inside a `tools: [ ... ]` array literal.
@@ -249,13 +260,13 @@ fn names_in_tools_arrays(src: &str) -> BTreeSet<String> {
 #[test]
 fn the_docs_reference_covers_every_registered_tool() {
     let registered = registered();
-    let documented = names_after_key(&read_website("app/docs/tools/page.tsx"));
+    let documented = names_after_key(&read_website(TOOLS_DATA));
 
     let missing: Vec<_> = registered.difference(&documented).cloned().collect();
     assert!(
         missing.is_empty(),
         "{} registered tool(s) are undocumented on the website's tools \
-         reference; add them to website/app/docs/tools/page.tsx: {missing:?}",
+         reference; add them to an area of website/{TOOLS_DATA}: {missing:?}",
         missing.len()
     );
 
@@ -266,6 +277,47 @@ fn the_docs_reference_covers_every_registered_tool() {
          were renamed or removed, and the page now promises something the \
          agent cannot do: {invented:?}",
         invented.len()
+    );
+}
+
+/// A tool is documented once. The reference is several pages now, so a
+/// second entry for a tool would sit on a page nobody reading the first
+/// would see, and could say something different.
+#[test]
+fn the_docs_reference_documents_each_tool_once() {
+    let in_order = names_after_key_in_order(&read_website(TOOLS_DATA));
+    let repeated: BTreeSet<_> = in_order
+        .iter()
+        .filter(|name| in_order.iter().filter(|other| other == name).count() > 1)
+        .cloned()
+        .collect();
+    assert!(
+        repeated.is_empty(),
+        "these tools have more than one entry in website/{TOOLS_DATA}: {repeated:?}"
+    );
+}
+
+/// The pages are made from that data, not from a list of their own.
+///
+/// The index and the area pages must read `toolAreas`/`toolsReference`;
+/// a page that went back to a literal of its own would be a second
+/// source of truth that every guard above does not read.
+#[test]
+fn the_reference_pages_are_made_from_the_data() {
+    let area_page = read_website("app/docs/tools/[area]/page.tsx");
+    assert!(
+        area_page.contains("generateStaticParams") && area_page.contains("toolAreas"),
+        "app/docs/tools/[area]/page.tsx no longer builds its pages from toolAreas"
+    );
+
+    let index = read_website("app/docs/tools/page.tsx");
+    assert!(
+        index.contains("toolsReference") && index.contains("NameIndex"),
+        "app/docs/tools/page.tsx no longer lists the names from toolsReference"
+    );
+    assert!(
+        names_after_key(&index).is_empty() && names_after_key(&area_page).is_empty(),
+        "a tool entry (`name: \"…\"`) is written in a page; entries belong in website/{TOOLS_DATA}"
     );
 }
 
@@ -538,7 +590,7 @@ fn the_stats_strip_shows_the_real_count() {
 /// tests parse, they would pass by reading nothing at all.
 #[test]
 fn the_parsers_still_find_something() {
-    let documented = names_after_key(&read_website("app/docs/tools/page.tsx"));
+    let documented = names_after_key(&read_website(TOOLS_DATA));
     assert!(
         documented.len() > 50,
         "only found {} tool names in the docs reference — the `name: \"…\"` \

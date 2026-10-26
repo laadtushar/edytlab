@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { siteConfig } from "@/lib/site";
 import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
@@ -297,7 +298,7 @@ export default function GettingStartedPage() {
           <a href="/docs/user-guide">User Guide</a> — every feature
         </li>
         <li>
-          <a href="/docs/tools">Audio Tools Reference</a> — all 94 tools the
+          <Link href="/docs/tools">Audio Tools Reference</Link> — all 94 tools the
           agent can call
         </li>
         <li>
