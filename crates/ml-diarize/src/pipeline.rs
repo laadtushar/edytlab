@@ -809,12 +809,17 @@ mod tests {
             (Stage::Embedding, last.2),
             "ends with the embeddings done"
         );
+        let first_embedding = events
+            .iter()
+            .position(|e| e.0 == Stage::Embedding)
+            .expect("the excerpt has speech, so voiceprints are made");
+        let last_segmentation = events
+            .iter()
+            .rposition(|e| e.0 == Stage::Segmentation)
+            .expect("every window is reported");
         assert!(
-            events.iter().position(|e| e.0 == Stage::Embedding)
-                > events
-                    .iter()
-                    .rposition(|e| e.0 == Stage::Segmentation)
-                    .map(|_| 0)
+            first_embedding > last_segmentation,
+            "embedding progress comes after the last segmentation event"
         );
 
         // Cancel after five windows.
