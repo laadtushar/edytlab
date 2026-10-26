@@ -725,3 +725,59 @@ async fn the_callback_does_not_show_its_code_in_debug_output() {
         "parameter names stay visible: {debug}"
     );
 }
+
+/// What a browser must be able to rely on in either page: a heading, light
+/// and dark styling that the CSP lets through, and nothing that loads or runs.
+fn assert_styled_static_page(page: &Seen) {
+    let body = page.body.to_ascii_lowercase();
+    assert!(body.contains("<h1>"), "no heading");
+    assert!(body.contains("<style>"), "no inline style");
+    assert!(body.contains("prefers-color-scheme: dark"), "no dark mode");
+    assert!(body.contains("color-scheme"), "no color-scheme");
+    assert!(!body.contains("<script"), "script");
+    for external in ["http://", "https://", "src=", "<link", "@import", "url("] {
+        assert!(!body.contains(external), "external resource: {external}");
+    }
+    let csp = page.header("content-security-policy").expect("a CSP");
+    assert!(csp.contains("default-src 'none'"), "{csp}");
+    assert!(csp.contains("frame-ancestors 'none'"), "{csp}");
+    assert!(!csp.contains("script-src"), "{csp}");
+    assert!(csp.contains("style-src 'unsafe-inline'"), "{csp}");
+}
+
+#[tokio::test]
+async fn the_success_page_has_a_heading_and_light_and_dark_styling() {
+    let state = State::generate().unwrap();
+    let listener = LoopbackListener::bind(config()).await.unwrap();
+    let query = format!("code=c&state={}", state.as_str());
+    let (result, page) = run(listener, &state, move |port| async move {
+        get(callback_url(port, &query)).await
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(page.status, 200);
+    assert!(page
+        .body
+        .contains("<h1>edytlab is connected to ChatGPT</h1>"));
+    assert!(page
+        .body
+        .contains("You can close this tab and return to edytlab"));
+    assert_styled_static_page(&page);
+}
+
+#[tokio::test]
+async fn the_failure_page_is_styled_the_same_way_and_keeps_its_sentence() {
+    let state = State::generate().unwrap();
+    let listener = LoopbackListener::bind(config()).await.unwrap();
+    let query = format!("error=access_denied&state={}", state.as_str());
+    let (_, page) = run(listener, &state, move |port| async move {
+        get(callback_url(port, &query)).await
+    })
+    .await;
+    assert_eq!(page.status, 400);
+    assert!(page.body.contains("Sign-in did not finish"));
+    assert!(page
+        .body
+        .contains("You can close this tab and return to edytlab"));
+    assert_styled_static_page(&page);
+}

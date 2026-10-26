@@ -20,6 +20,7 @@ import {
   type SkillContent,
   type SkillSummary,
 } from "../lib/tauri-bridge";
+import { IDENTIFIER_INPUT } from "../lib/identifierInput";
 
 const DRAFT_DEFAULT: SkillContent = {
   name: "",
@@ -284,6 +285,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
     <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
       <Row label="Name">
         <input
+          {...IDENTIFIER_INPUT}
           type="text"
           data-testid="skills-name"
           value={content.name}
@@ -324,6 +326,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
       {content.trigger === "keywords" ? (
         <Row label="Keywords (comma-separated)">
           <input
+            {...IDENTIFIER_INPUT}
             type="text"
             data-testid="skills-keywords"
             value={content.keywords.join(", ")}
@@ -344,6 +347,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
       {content.trigger === "regex" ? (
         <Row label="Pattern (Rust regex syntax)">
           <input
+            {...IDENTIFIER_INPUT}
             type="text"
             data-testid="skills-pattern"
             value={content.pattern}
