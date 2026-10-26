@@ -30,10 +30,11 @@
 //!    is then given the cluster whose centre (the mean of the raw embeddings
 //!    clustered into it) is nearest in cosine distance ([`assign`]).
 //!
-//! Above [`MAX_CLUSTERED`] embeddings (about an hour of conversation), only an
-//! evenly spaced sample of them is clustered, because the work grows with the
-//! square of their number; the rest are assigned in step 5, which is how
-//! pyannote's own `max_num_embeddings` option works (it samples at random).
+//! Above [`MAX_CLUSTERED`] embeddings (roughly 17 to 38 minutes of audio at the
+//! rates measured on real recordings), only an evenly spaced sample of them is
+//! clustered, because the work grows with the square of their number; the rest
+//! are assigned in step 5. pyannote.audio 3.1 never samples; its older
+//! `max_num_embeddings` option did, at random.
 //!
 //! The fixtures are `scipy` and `pyannote.audio` run on 53 real embeddings
 //! (`tests/fixtures/make_fixtures.py`); the tests below compare every merge,

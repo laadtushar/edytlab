@@ -24,7 +24,8 @@
 //! (meeting ES2004a, headset mix, seconds 640 to 680; CC BY 4.0, see
 //! `tests/fixtures/AMI-LICENSE.md`) in which two people talk and interrupt each
 //! other, with the corpus' hand annotation (`.rttm`). `fixtures.json` holds what
-//! pyannote.audio 3.1's algorithm made from the same files
+//! pyannote.audio's algorithm (3.1's segmentation and clustering with 3.0's ONNX
+//! frame-selection embedding) made from the same files
 //! (`tests/fixtures/make_fixtures.py`).
 //!
 //! ## What is asserted

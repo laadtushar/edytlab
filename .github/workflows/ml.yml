@@ -33,7 +33,10 @@ name: ML
 #     embedding networks, 32.5 MB) on the pinned ONNX Runtime, over a 40 s
 #     excerpt of the AMI corpus. Asserts that each window's classes, each
 #     voiceprint and the turns are those of pyannote.audio's algorithm run on
-#     the same files, and the error against the corpus' human annotation.
+#     the same files (3.1's segmentation and clustering with 3.0's ONNX
+#     frame-selection embedding: the pinned ONNX embedding takes no weights
+#     input; the port also samples above 3,000 embeddings, which 3.1 never
+#     does), and the error against the corpus' human annotation.
 #
 # Both inputs are pinned in the repository, not here, and verified before use:
 #

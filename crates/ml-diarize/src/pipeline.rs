@@ -25,8 +25,12 @@
 //! 6. **Turns** ([`crate::frames`]): each global speaker's frames, cut into
 //!    turns, then clipped to the audio and numbered by who speaks first.
 //!
-//! This is pyannote.audio 3.1's `SpeakerDiarization.apply`, and the tests
-//! check it against that on a real recording.
+//! This is pyannote.audio 3.1's segmentation and clustering pipeline
+//! (`SpeakerDiarization.apply`) with 3.0's ONNX frame-selection embedding (the
+//! pinned ONNX embedding takes no weights input, so the speaker's frames are
+//! selected and concatenated, not pooled over the window as in 3.1); above
+//! 3,000 embeddings the clustering samples, which 3.1 never does. The tests
+//! check it against pyannote on a real recording.
 
 use std::fmt;
 
