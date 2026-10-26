@@ -86,6 +86,12 @@ struct Rig {
 }
 
 fn rig() -> Rig {
+    rig_offering(None)
+}
+
+/// A rig whose catalog holds `speech-test` and `pinned-test`, of which only
+/// the ids in `offered` can be downloaded (`None`: both).
+fn rig_offering(offered: Option<&[&str]>) -> Rig {
     let body: Vec<u8> = (0..700_000u32)
         .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
         .collect();
@@ -98,9 +104,13 @@ fn rig() -> Rig {
         r#"{{ "models": [ {{
             "id": "speech-test", "title": "Speech test", "repo": "example/speech-test",
             "revision": "0123456789abcdef0123456789abcdef01234567", "license": "MIT",
-            "files": [ {{ "path": "model.bin", "url": "{url}", "size": {}, "sha256": "{sha}" }} ]
+            "files": [ {{ "path": "model.bin", "url": "{url}", "size": {size}, "sha256": "{sha}" }} ]
+        }}, {{
+            "id": "pinned-test", "title": "Pinned, not offered", "repo": "example/pinned-test",
+            "revision": "0123456789abcdef0123456789abcdef01234567", "license": "MIT",
+            "files": [ {{ "path": "model.bin", "url": "{url}", "size": {size}, "sha256": "{sha}" }} ]
         }} ] }}"#,
-        body.len()
+        size = body.len()
     ))
     .expect("catalog");
 
@@ -118,6 +128,7 @@ fn rig() -> Rig {
         app.handle().clone(),
         Some(dir.path().join("models")),
         catalog,
+        offered,
     ));
     let (tx, events) = mpsc::channel();
     app.listen(ML_MODEL_PROGRESS_EVENT, move |event| {
@@ -241,6 +252,32 @@ fn an_id_that_is_not_in_the_catalog_is_an_error_for_every_command() {
     }
     assert_eq!(rig.hits.load(Ordering::SeqCst), 0);
     assert!(!rig.dir.path().join("models").exists());
+}
+
+#[test]
+fn a_pinned_model_that_is_not_offered_is_not_downloaded_by_the_command() {
+    // `speaker-diarization` is in `models.json` and not offered (#168).
+    let rig = rig_offering(Some(&["speech-test"]));
+    let err = rig
+        .call("download_ml_model", "pinned-test")
+        .expect_err("pinned, but nothing offers it");
+    assert!(err.contains("not offered"), "{err}");
+    assert!(err.contains("pinned-test"), "{err}");
+    assert_eq!(rig.hits.load(Ordering::SeqCst), 0, "no request was made");
+    assert!(
+        !rig.dir.path().join("models").exists(),
+        "no folder was made"
+    );
+
+    // It can still be looked at, and what is offered still downloads.
+    let status = rig.call("ml_model_status", "pinned-test").expect("status");
+    assert_eq!(status["state"], "not_downloaded");
+    let started = rig
+        .call("download_ml_model", "speech-test")
+        .expect("an offered model starts");
+    assert_eq!(started["state"], "downloading");
+    rig.wait_for_state("ready");
+    assert_eq!(rig.hits.load(Ordering::SeqCst), 1);
 }
 
 #[test]

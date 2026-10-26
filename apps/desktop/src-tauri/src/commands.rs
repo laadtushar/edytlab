@@ -180,6 +180,12 @@ pub enum CommandError {
     /// launch, so there is nowhere to keep a model.
     #[error("models cannot be downloaded: the app has no data folder to keep them in")]
     NoModelsFolder,
+
+    /// A model that is in `models.json` but that Settings does not offer
+    /// yet, so the command will not start its download (see
+    /// [`OFFERED_ML_MODELS`]).
+    #[error("the model {0:?} is not offered for download")]
+    ModelNotOffered(String),
 }
 
 impl From<CommandError> for String {
@@ -1751,26 +1757,50 @@ impl From<&ml_pipeline::ModelStatus> for MlModelStatusDto {
 /// make anything wait for, the session.
 pub struct MlModels {
     downloads: Option<ml_pipeline::ModelDownloads>,
+    /// The ids `download_ml_model` will start; `None` is every model of the
+    /// catalog (a test's own catalog).
+    offered: Option<Vec<String>>,
 }
 
+/// The models of `models.json` that Settings offers a Download button for,
+/// and so the only ones `download_ml_model` starts. A model can be pinned in
+/// the manifest before the app offers it, but its host must also be named
+/// on the privacy page first: `speaker-diarization` is pinned (#168) and is
+/// not here. **The Settings PR for diarization adds it**, together with the
+/// privacy copy for its Hugging Face repositories.
+pub const OFFERED_ML_MODELS: &[&str] = &["whisper-base"];
+
 impl MlModels {
-    /// The shipped catalog (`models.json`), kept under `models_dir`.
+    /// The shipped catalog (`models.json`), kept under `models_dir`, of which
+    /// only [`OFFERED_ML_MODELS`] can be downloaded.
     /// `on_change` hears every state change; it must not block.
     pub fn new(
         models_dir: PathBuf,
         on_change: impl Fn(&MlModelStatusDto) + Send + Sync + 'static,
     ) -> Self {
-        Self::with_catalog(
+        Self::with_offered(
             models_dir,
             ml_pipeline::Catalog::built_in().clone(),
+            Some(OFFERED_ML_MODELS),
             on_change,
         )
     }
 
-    /// As [`Self::new`], for a catalog of the caller's (the tests').
+    /// As [`Self::new`], for a catalog of the caller's (the tests'), every
+    /// model of which can be downloaded.
     pub fn with_catalog(
         models_dir: PathBuf,
         catalog: ml_pipeline::Catalog,
+        on_change: impl Fn(&MlModelStatusDto) + Send + Sync + 'static,
+    ) -> Self {
+        Self::with_offered(models_dir, catalog, None, on_change)
+    }
+
+    /// As [`Self::with_catalog`], with only `offered` (`None`: all) startable.
+    pub fn with_offered(
+        models_dir: PathBuf,
+        catalog: ml_pipeline::Catalog,
+        offered: Option<&[&str]>,
         on_change: impl Fn(&MlModelStatusDto) + Send + Sync + 'static,
     ) -> Self {
         Self {
@@ -1779,16 +1809,30 @@ impl MlModels {
                 catalog,
                 move |status: &ml_pipeline::ModelStatus| on_change(&MlModelStatusDto::from(status)),
             )),
+            offered: offered.map(|ids| ids.iter().map(|id| (*id).to_string()).collect()),
         }
     }
 
     /// For an app with no data folder: every model command says so.
     pub fn unavailable() -> Self {
-        Self { downloads: None }
+        Self {
+            downloads: None,
+            offered: None,
+        }
     }
 
     fn downloads(&self) -> Result<ml_pipeline::ModelDownloads, CommandError> {
         self.downloads.clone().ok_or(CommandError::NoModelsFolder)
+    }
+
+    /// Whether `model` may be downloaded from the window.
+    fn check_offered(&self, model: &str) -> Result<(), CommandError> {
+        match &self.offered {
+            Some(ids) if !ids.iter().any(|id| id == model) => {
+                Err(CommandError::ModelNotOffered(model.to_string()))
+            }
+            _ => Ok(()),
+        }
     }
 }
 
@@ -1805,18 +1849,25 @@ pub fn ml_models_for_app<R: Runtime>(
         // a folder reads no disk and downloads nothing.
         ml_pipeline::models::set_models_dir(dir.clone());
     }
-    ml_models_with_catalog_for_app(handle, models_dir, ml_pipeline::Catalog::built_in().clone())
+    ml_models_with_catalog_for_app(
+        handle,
+        models_dir,
+        ml_pipeline::Catalog::built_in().clone(),
+        Some(OFFERED_ML_MODELS),
+    )
 }
 
 /// [`ml_models_for_app`] for a catalog of the caller's: the tests serve
-/// theirs from a local server.
+/// theirs from a local server. `offered` is the ids that can be downloaded
+/// (`None`: all of them).
 pub fn ml_models_with_catalog_for_app<R: Runtime>(
     handle: AppHandle<R>,
     models_dir: Option<PathBuf>,
     catalog: ml_pipeline::Catalog,
+    offered: Option<&[&str]>,
 ) -> MlModels {
     match models_dir {
-        Some(dir) => MlModels::with_catalog(dir, catalog, move |status| {
+        Some(dir) => MlModels::with_offered(dir, catalog, offered, move |status| {
             let _ = handle.emit(ML_MODEL_PROGRESS_EVENT, status);
         }),
         None => MlModels::unavailable(),
@@ -1860,6 +1911,9 @@ pub async fn download_ml_model(
     model: String,
 ) -> CmdResult<MlModelStatusDto> {
     let downloads = models.downloads()?;
+    // Only what Settings offers: a model pinned in `models.json` ahead of its
+    // card and its privacy copy is not started from the window.
+    models.check_offered(&model)?;
     let status = downloads
         .start_download(&model)
         .map_err(CommandError::from)?;
@@ -11372,6 +11426,26 @@ mod tests {
         let models = MlModels::unavailable();
         let err = models.downloads().expect_err("nowhere to keep a model");
         assert!(err.to_string().contains("no data folder"), "{err}");
+    }
+
+    /// `speaker-diarization` is pinned in `models.json` (#168) but nothing
+    /// offers it and the privacy page does not name its repositories yet, so
+    /// the shipped app downloads `whisper-base` and nothing else.
+    #[test]
+    fn the_shipped_app_downloads_only_the_models_settings_offers() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let models = MlModels::new(dir.path().join("models"), |_| {});
+        assert_eq!(OFFERED_ML_MODELS, ["whisper-base"]);
+        models.check_offered("whisper-base").expect("offered");
+        for id in ["speaker-diarization", "../whisper-base", ""] {
+            let err = models.check_offered(id).expect_err(id);
+            assert!(err.to_string().contains("not offered"), "{id}: {err}");
+        }
+        // The pin exists, so it is the allow-list that keeps it out.
+        assert!(ml_pipeline::Catalog::built_in()
+            .get("speaker-diarization")
+            .is_some());
+        assert!(!dir.path().join("models").exists());
     }
 
     /// Ids come from the window; one that is not in the catalog is refused

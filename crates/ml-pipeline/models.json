@@ -1,5 +1,5 @@
 {
-  "_about": "The models the app can download (#383): one pin, read by the app (ml_pipeline::Catalog::built_in, included at build time) and by crates/ml-pipeline/tests/model_manifest.rs. A model is only ever downloaded when the user presses Download in Settings. `repo` and `revision` name a Hugging Face repository and the commit to fetch, never a branch, so a file cannot change under a pin; each file's `url` must be https://huggingface.co/<repo>/resolve/<revision>/<path> (the test checks it), and `size` and `sha256` are checked while the file is written and again before it is renamed into place. `license` is the SPDX id of the model the export was made from. whisper-base: the table on #384, every file downloaded and hashed on 2026-10-22. The transcribe tool runs this model (#384); it finds the files with ml_pipeline::models::cached and never downloads.",
+  "_about": "The models the app can download (#383): one pin, read by the app (ml_pipeline::Catalog::built_in, included at build time) and by crates/ml-pipeline/tests/model_manifest.rs. A model is only ever downloaded when the user presses Download in Settings. `repo` and `revision` name a Hugging Face repository and the commit to fetch, never a branch, so a file cannot change under a pin; each file's `url` must be https://huggingface.co/<repo>/resolve/<revision>/<path> (the test checks it), and `size` and `sha256` are checked while the file is written and again before it is renamed into place. `license` is the SPDX id of the model the export was made from. whisper-base: the table on #384, every file downloaded and hashed on 2026-10-22. The transcribe tool runs this model (#384); it finds the files with ml_pipeline::models::cached and never downloads. speaker-diarization (#168 section 2): two files from two repositories, so each file names its own repo, revision, source_path (its path in that repo; `path` is where it is kept under the model's folder) and license; the model-level repo and revision are the first file's, and the model-level license is the expression for both. Both repositories are public and not gated; the original pyannote/segmentation-3.0 is gated, which is why the MIT ONNX export in onnx-community is pinned (the decision is the comment on #168). Every file was downloaded at its commit on 2026-10-26 and its SHA-256 compared with the Hub's LFS digest.",
   "models": [
     {
       "id": "whisper-base",
@@ -25,6 +25,35 @@
           "url": "https://huggingface.co/onnx-community/whisper-base_timestamped/resolve/608c49e61301901684bc36cac8f74b95ff6b5a8e/tokenizer.json",
           "size": 2480466,
           "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"
+        }
+      ]
+    },
+    {
+      "id": "speaker-diarization",
+      "title": "Speaker model",
+      "repo": "onnx-community/pyannote-segmentation-3.0",
+      "revision": "733a93b6473d019a773298e08cefa686894b1854",
+      "license": "MIT AND CC-BY-4.0",
+      "files": [
+        {
+          "path": "segmentation/model.onnx",
+          "repo": "onnx-community/pyannote-segmentation-3.0",
+          "revision": "733a93b6473d019a773298e08cefa686894b1854",
+          "source_path": "onnx/model.onnx",
+          "license": "MIT",
+          "url": "https://huggingface.co/onnx-community/pyannote-segmentation-3.0/resolve/733a93b6473d019a773298e08cefa686894b1854/onnx/model.onnx",
+          "size": 5986908,
+          "sha256": "057ee564753071c0b09b5b611648b50ac188d50846bff5f01e9f7bbf1591ea25"
+        },
+        {
+          "path": "embedding/model.onnx",
+          "repo": "Wespeaker/wespeaker-voxceleb-resnet34-LM",
+          "revision": "f0c48c298fd835726c27956a5d617bad7115627e",
+          "source_path": "voxceleb_resnet34_LM.onnx",
+          "license": "CC-BY-4.0",
+          "url": "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/f0c48c298fd835726c27956a5d617bad7115627e/voxceleb_resnet34_LM.onnx",
+          "size": 26530309,
+          "sha256": "7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068"
         }
       ]
     }
