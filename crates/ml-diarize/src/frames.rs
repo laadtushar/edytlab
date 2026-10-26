@@ -25,6 +25,11 @@
 
 /// Samples in one window the network is run on: 10 s at 16 kHz.
 pub const CHUNK_SAMPLES: usize = 160_000;
+/// Frames the network answers a window with: the 991-sample receptive field
+/// moved 270 samples at a time over [`CHUNK_SAMPLES`], `(160000 - 991) / 270 + 1`
+/// rounded down. [`Segmentation::total_frames`] and every index built on it
+/// assume it.
+pub const FRAMES_PER_WINDOW: usize = 589;
 /// Seconds in one window.
 pub const CHUNK_SECONDS: f64 = 10.0;
 /// Seconds a frame of the network's output spans: 991 samples.

@@ -32,7 +32,7 @@ use std::fmt;
 
 use crate::cluster::{self, SpeakerBounds};
 use crate::fbank::{self, Fbank};
-use crate::frames::{self, Assignment, Segmentation, CHUNK_SAMPLES};
+use crate::frames::{self, Assignment, Segmentation, CHUNK_SAMPLES, FRAMES_PER_WINDOW};
 
 /// The sample rate everything here is defined for.
 pub const SAMPLE_RATE: u32 = 16_000;
@@ -66,6 +66,14 @@ pub enum DiarizeError {
     /// A network failed, or answered with a shape this code does not read.
     #[error("inference failed: {0}")]
     Inference(String),
+    /// The segmentation network answered a window with a number of frames the
+    /// frame grid is not built for (every index in [`crate::frames`] assumes
+    /// [`FRAMES_PER_WINDOW`]), so a developer's export that differs is refused
+    /// rather than indexed out of bounds.
+    #[error(
+        "the segmentation network returned {got} frames for a window, not the {expected} this pipeline is built for"
+    )]
+    FrameCount { got: usize, expected: usize },
     #[error(transparent)]
     Bounds(#[from] cluster::BoundsError),
 }
@@ -248,7 +256,6 @@ pub fn diarize(
 
     // 2. Segmentation
     let mut data = Vec::new();
-    let mut frames_per_window = 0;
     for (c, &start) in starts.iter().enumerate() {
         if (options.cancel)() {
             return Err(DiarizeError::Cancelled);
@@ -262,12 +269,11 @@ pub fn diarize(
             )));
         }
         let frames = scores.len() / POWERSET_CLASSES;
-        if c == 0 {
-            frames_per_window = frames;
-        } else if frames != frames_per_window {
-            return Err(DiarizeError::Inference(format!(
-                "the segmentation network returned {frames} frames for a window after {frames_per_window} for the first"
-            )));
+        if frames != FRAMES_PER_WINDOW {
+            return Err(DiarizeError::FrameCount {
+                got: frames,
+                expected: FRAMES_PER_WINDOW,
+            });
         }
         for row in scores.chunks_exact(POWERSET_CLASSES) {
             data.extend_from_slice(&powerset_to_multilabel(row));
@@ -276,7 +282,7 @@ pub fn diarize(
     (options.on_progress)(Stage::Segmentation, starts.len(), starts.len());
     let seg = Segmentation::new(
         starts.len(),
-        frames_per_window,
+        FRAMES_PER_WINDOW,
         LOCAL_SPEAKERS,
         WINDOW_STEP_S,
         data,
@@ -953,6 +959,39 @@ mod tests {
     impl Segmenter for WrongShape {
         fn segment(&self, _: &[f32]) -> Result<Vec<f32>, DiarizeError> {
             Ok(vec![0.0; 10])
+        }
+    }
+
+    /// A whole number of frames, but not the 589 the frame grid is built on:
+    /// a developer's export under `DIARIZE_MODEL_PATH` could do this.
+    struct MoreFrames(usize);
+    impl Segmenter for MoreFrames {
+        fn segment(&self, _: &[f32]) -> Result<Vec<f32>, DiarizeError> {
+            let mut one = vec![0.0; self.0 * POWERSET_CLASSES];
+            for f in 0..self.0 {
+                one[f * POWERSET_CLASSES] = 3.0;
+            }
+            Ok(one)
+        }
+    }
+
+    #[test]
+    fn a_network_with_another_frame_count_than_the_grid_is_a_typed_error_not_an_overrun() {
+        for frames in [1, 588, 590, 1_000] {
+            let r = diarize(
+                &MoreFrames(frames),
+                &Unreached,
+                &vec![0.0; 16_000 * 12],
+                &Options::default(),
+            );
+            assert!(
+                matches!(
+                    r,
+                    Err(DiarizeError::FrameCount { got, expected })
+                        if got == frames && expected == FRAMES_PER_WINDOW
+                ),
+                "{frames}: {r:?}"
+            );
         }
     }
 
