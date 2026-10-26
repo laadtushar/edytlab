@@ -11831,13 +11831,8 @@ mod recording_latency_tests {
     /// reaches for `tools::progress` out of them.)
     #[test]
     fn the_measurement_commands_never_touch_the_shared_progress_flag() {
-        let src = include_str!("commands.rs");
         for name in ["calibrate_recording_latency", "cancel_recording_latency"] {
-            let at = src
-                .find(&format!("fn {name}("))
-                .unwrap_or_else(|| panic!("{name} not found"));
-            let body = &src[at..];
-            let body = &body[..body.find("\n}\n").unwrap()];
+            let body = command_body(include_str!("commands.rs"), name);
             for banned in [
                 "progress::begin",
                 "progress::cancelled",
@@ -11845,6 +11840,33 @@ mod recording_latency_tests {
             ] {
                 assert!(!body.contains(banned), "{name} calls {banned}");
             }
+        }
+    }
+
+    /// The text of `fn name(` up to its closing brace at column 0. A Windows
+    /// checkout has CRLF line endings, which have no `"\n}\n"` in them, so the
+    /// source is read with them turned into LF first.
+    fn command_body(src: &str, name: &str) -> String {
+        let src = src.replace("\r\n", "\n");
+        let at = src
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body = &src[at..];
+        body[..body
+            .find("\n}\n")
+            .unwrap_or_else(|| panic!("{name} has no end"))]
+            .to_string()
+    }
+
+    #[test]
+    fn a_command_is_found_in_a_source_with_windows_line_endings() {
+        let lf = include_str!("commands.rs");
+        let crlf = lf.replace('\n', "\r\n");
+        for name in ["calibrate_recording_latency", "cancel_recording_latency"] {
+            let body = command_body(&crlf, name);
+            assert_eq!(body, command_body(lf, name), "{name} differs under CRLF");
+            assert!(!body.contains('\r'));
+            assert!(body.len() > 40, "{name}: {body}");
         }
     }
 }
