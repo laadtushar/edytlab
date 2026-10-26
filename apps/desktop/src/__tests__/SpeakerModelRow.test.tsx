@@ -14,19 +14,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MlModelStatus } from "../lib/tauri-bridge";
 
-const mlModelStatusMock = vi.fn();
-const downloadMock = vi.fn();
-const cancelMock = vi.fn();
-const removeMock = vi.fn();
-const onProgressMock = vi.fn();
+import { bridge, resetBridge } from "./modelBridge";
 
-vi.mock("../lib/tauri-bridge", () => ({
-  mlModelStatus: (model: string) => mlModelStatusMock(model),
-  downloadMlModel: (model: string) => downloadMock(model),
-  cancelMlModelDownload: (model: string) => cancelMock(model),
-  removeMlModel: (model: string) => removeMock(model),
-  onMlModelProgress: (cb: (s: MlModelStatus) => void) => onProgressMock(cb),
-}));
+const { mlModelStatusMock, downloadMock, cancelMock, removeMock } = bridge;
+
+vi.mock("../lib/tauri-bridge", async () => (await import("./modelBridge")).bridgeModule());
 
 import { SpeakerModelRow } from "../components/SpeakerModelRow";
 import {
@@ -49,13 +41,8 @@ async function renderRow(first: MlModelStatus) {
 }
 
 beforeEach(() => {
-  mlModelStatusMock.mockReset();
-  downloadMock.mockReset();
-  cancelMock.mockReset();
-  removeMock.mockReset();
-  onProgressMock.mockReset().mockImplementation((cb: (s: MlModelStatus) => void) => {
+  resetBridge((cb) => {
     emit = cb;
-    return Promise.resolve(() => undefined);
   });
 });
 

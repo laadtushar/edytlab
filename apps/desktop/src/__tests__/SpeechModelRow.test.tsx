@@ -18,19 +18,11 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 
 import type { MlModelStatus } from "../lib/tauri-bridge";
 
-const mlModelStatusMock = vi.fn();
-const downloadMock = vi.fn();
-const cancelMock = vi.fn();
-const removeMock = vi.fn();
-const onProgressMock = vi.fn();
+import { bridge, resetBridge } from "./modelBridge";
 
-vi.mock("../lib/tauri-bridge", () => ({
-  mlModelStatus: (model: string) => mlModelStatusMock(model),
-  downloadMlModel: (model: string) => downloadMock(model),
-  cancelMlModelDownload: (model: string) => cancelMock(model),
-  removeMlModel: (model: string) => removeMock(model),
-  onMlModelProgress: (cb: (s: MlModelStatus) => void) => onProgressMock(cb),
-}));
+const { mlModelStatusMock, downloadMock, cancelMock, removeMock, onProgressMock } = bridge;
+
+vi.mock("../lib/tauri-bridge", async () => (await import("./modelBridge")).bridgeModule());
 
 import { SpeechModelRow } from "../components/SpeechModelRow";
 import {
@@ -93,15 +85,10 @@ async function renderRow(status: MlModelStatus | Promise<MlModelStatus> = NOT_DO
 const row = () => screen.getByTestId("settings-speech-model");
 
 beforeEach(() => {
-  mlModelStatusMock.mockReset();
-  downloadMock.mockReset();
-  cancelMock.mockReset();
-  removeMock.mockReset();
   unlisten = vi.fn<() => void>();
-  onProgressMock.mockReset().mockImplementation((cb: (s: MlModelStatus) => void) => {
+  resetBridge((cb) => {
     emit = cb;
-    return Promise.resolve(unlisten);
-  });
+  }, unlisten);
 });
 
 afterEach(() => {
