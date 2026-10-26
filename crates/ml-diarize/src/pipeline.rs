@@ -197,7 +197,7 @@ fn window_starts(samples: usize) -> Vec<usize> {
         0
     };
     let mut starts: Vec<usize> = (0..complete).map(|c| c * step).collect();
-    if samples < CHUNK_SAMPLES || (samples - CHUNK_SAMPLES) % step > 0 {
+    if samples < CHUNK_SAMPLES || !(samples - CHUNK_SAMPLES).is_multiple_of(step) {
         starts.push(complete * step);
     }
     starts

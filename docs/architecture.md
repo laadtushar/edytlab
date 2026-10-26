@@ -80,7 +80,7 @@ description: "Workspace layout, the AI subsystem, tool dispatch, the session gra
 ```
 edytlab/
 ├── Cargo.toml                    # Workspace root — resolver = "2", edition 2021
-├── rust-toolchain.toml           # Pinned toolchain: 1.88 + rustfmt + clippy
+├── rust-toolchain.toml           # Pinned toolchain: 1.90 + rustfmt + clippy
 ├── apps/
 │   ├── desktop/src-tauri/        # Tauri 2 shell
 │   └── cli/                      # edytlab-cli: one headless agent turn (E2E tests, smoke runs)

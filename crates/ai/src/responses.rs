@@ -1752,7 +1752,7 @@ mod tests {
         ];
         for (event, expected) in cases {
             let mut stream = ResponsesStream::new();
-            let out = feed_all(&mut stream, &[event.clone()]);
+            let out = feed_all(&mut stream, std::slice::from_ref(&event));
             assert_eq!(out, ["start responses-msg", expected], "{event}");
             assert!(!stream.is_complete(), "{event}");
             // Nothing after a terminal event counts, a `completed` included,
@@ -1798,7 +1798,7 @@ mod tests {
         ];
         for (event, expected) in cases {
             let mut stream = ResponsesStream::new();
-            let out = feed_all(&mut stream, &[event.clone()]);
+            let out = feed_all(&mut stream, std::slice::from_ref(&event));
             assert_eq!(out[1], expected, "{event}");
         }
     }

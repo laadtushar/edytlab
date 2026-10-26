@@ -116,7 +116,7 @@ jobs:
 
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         # `@stable` bootstraps rustup; the rust-toolchain.toml in the
-        # repo (channel = 1.88 + rustfmt + clippy) is then auto-applied
+        # repo (channel = 1.90 + rustfmt + clippy) is then auto-applied
         # by rustup's shim on the first cargo invocation. The `@master`
         # ref of this action requires an explicit `toolchain:` input,
         # which would just duplicate the pin in two places.

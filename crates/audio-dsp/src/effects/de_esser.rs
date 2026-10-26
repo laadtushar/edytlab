@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn reduces_high_freq_energy() {
-        let mut samples: Vec<f32> = (0..44100).map(|i| ((i as f32 * 0.1).sin() * 0.9)).collect();
+        let mut samples: Vec<f32> = (0..44100).map(|i| (i as f32 * 0.1).sin() * 0.9).collect();
         let before_max = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         apply_de_esser(&mut samples, 44100, 1, 8000.0, -20.0);
         let after_max = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);

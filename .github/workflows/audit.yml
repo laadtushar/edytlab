@@ -54,7 +54,7 @@ env:
   # it is also the cache key below. 0.22.2 needs Rust 1.88 or newer.
   CARGO_AUDIT_VERSION: 0.22.2
   # cargo-audit only reads Cargo.lock and never compiles the workspace, so it
-  # has no use for the 1.88 pin in rust-toolchain.toml. Overriding it here
+  # has no use for the 1.90 pin in rust-toolchain.toml. Overriding it here
   # means rustup does not install that toolchain (with rustfmt and clippy)
   # just to run `cargo audit`, and a cargo-audit that needs a newer compiler
   # than the app's does not break this job.

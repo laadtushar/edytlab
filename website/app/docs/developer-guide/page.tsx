@@ -33,7 +33,7 @@ export default function DeveloperGuidePage() {
         <tbody>
           <tr>
             <td>Rust</td>
-            <td>1.88 (auto-installed)</td>
+            <td>1.90 (auto-installed)</td>
             <td>Pinned via <code>rust-toolchain.toml</code></td>
           </tr>
           <tr>
