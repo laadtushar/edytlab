@@ -382,6 +382,27 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
             );
         }
     }
+    // The speaker model is fetched next to its own test, after the whisper
+    // steps, so a failed diarization download cannot skip the whisper tests.
+    let at = |name: &str| {
+        yaml.find(&format!("- name: {name}"))
+            .unwrap_or_else(|| panic!("ml.yml has no step {name:?}"))
+    };
+    let fetch_speaker = at("Fetch the speaker model");
+    let speaker_test = at("Speaker diarization on the AMI excerpt");
+    for before in [
+        "The transcribe tool end to end",
+        "The pinned model downloads, resumes and verifies",
+    ] {
+        assert!(
+            at(before) < fetch_speaker,
+            "the speaker model is fetched before {before:?}"
+        );
+    }
+    assert!(
+        at("Cache the speaker model") < fetch_speaker && fetch_speaker < speaker_test,
+        "the speaker model is cached, then fetched, then tested"
+    );
     // Not the version of the runtime, which belongs to the manifest.
     assert!(
         !code_lines(&yaml).iter().any(|l| l.contains("1.23")),

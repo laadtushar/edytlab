@@ -133,19 +133,6 @@ jobs:
       - name: Fetch the whisper-base model
         run: bash scripts/fetch-ml-model.sh whisper-base ml-models/whisper-base
 
-      # The two speaker-model files, 32.5 MB, from two repositories. Keyed on
-      # the manifest, so a new pin misses.
-      - name: Cache the speaker model
-        id: cache-speaker-model
-        uses: actions/cache@v6
-        with:
-          path: ml-models/speaker-diarization
-          key: ml-model-speaker-diarization-${{ hashFiles('crates/ml-pipeline/models.json') }}
-
-      # Runs on a hit too, as the whisper-base step does.
-      - name: Fetch the speaker model
-        run: bash scripts/fetch-ml-model.sh speaker-diarization ml-models/speaker-diarization
-
       # `--release`: the realtime factor it prints is the one worth reading,
       # and a debug build of the mel transform is several times slower.
       # `--ignored` runs only the ignored tests, and they fail rather than
@@ -193,6 +180,21 @@ jobs:
       # folder of its own and does not touch ml-models/.
       - name: The pinned model downloads, resumes and verifies
         run: cargo test -p ml-pipeline --release --test model_real_download -- --ignored --nocapture --test-threads=1
+
+      # The two speaker-model files, 32.5 MB, from two repositories. Keyed on
+      # the manifest, so a new pin misses.
+      - name: Cache the speaker model
+        id: cache-speaker-model
+        uses: actions/cache@v6
+        with:
+          path: ml-models/speaker-diarization
+          key: ml-model-speaker-diarization-${{ hashFiles('crates/ml-pipeline/models.json') }}
+
+      # Runs on a hit too, as the whisper-base step does. It sits here, next to
+      # its test and after the whisper steps, so a failed speaker download
+      # cannot skip them.
+      - name: Fetch the speaker model
+        run: bash scripts/fetch-ml-model.sh speaker-diarization ml-models/speaker-diarization
 
       # The speaker model (#168): the networks on real audio, against the
       # reference run of pyannote.audio's algorithm on the same files.
