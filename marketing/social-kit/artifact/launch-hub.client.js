@@ -110,6 +110,69 @@
   });
   if (location.hash) reveal(location.hash);
 
+  /* ---------- files: view in the page, save through `downloads` ----------
+     The page's own files (img/, linkedin/, posters/) load inside the
+     artifact frame only; a link opened in a new tab lands outside it and
+     shows nothing. So a click opens them here instead. */
+  var FILE_RE = /^(img|linkedin|posters)\/[^?#]+\.(png|jpg|jpeg|pdf)$/i;
+  var dl = null;
+  try { dl = window.claude && typeof window.claude.use === "function" ? window.claude.use("downloads") : null; } catch (e) { dl = null; }
+  var viewer = doc.createElement("dialog");
+  viewer.className = "viewer";
+  viewer.setAttribute("aria-label", "File viewer");
+  viewer.innerHTML = '<div class="viewer-bar"><b class="viewer-name"></b><span class="viewer-msg" aria-live="polite"></span><button type="button" class="copy viewer-save">Save</button><button type="button" class="viewer-close" aria-label="Close">Close</button></div><div class="viewer-body"></div>';
+  doc.body.appendChild(viewer);
+  var vName = $(".viewer-name", viewer), vMsg = $(".viewer-msg", viewer), vSave = $(".viewer-save", viewer), vBody = $(".viewer-body", viewer);
+  var current = null;
+  function closeViewer() { if (viewer.open) viewer.close(); vBody.innerHTML = ""; current = null; }
+  $(".viewer-close", viewer).addEventListener("click", closeViewer);
+  viewer.addEventListener("click", function (e) { if (e.target === viewer) closeViewer(); });
+  function openFile(href) {
+    var name = href.split("/").pop();
+    current = href; vName.textContent = name; vMsg.textContent = "";
+    vBody.innerHTML = "";
+    if (/\.pdf$/i.test(href)) {
+      var o = doc.createElement("object");
+      o.data = href; o.type = "application/pdf"; o.className = "viewer-pdf";
+      o.textContent = "This browser does not show PDFs here. Use Save.";
+      vBody.appendChild(o);
+    } else {
+      var im = doc.createElement("img");
+      im.src = href; im.alt = name;
+      vBody.appendChild(im);
+    }
+    if (typeof viewer.showModal === "function") viewer.showModal(); else viewer.setAttribute("open", "");
+  }
+  vSave.addEventListener("click", function () {
+    var href = current; if (!href) return;
+    var name = href.split("/").pop();
+    var manual = "Saving is not available in this view: right-click or long-press the file and save it.";
+    Promise.resolve(dl).then(function (d) {
+      if (!d) { vMsg.textContent = manual; return; }
+      vMsg.textContent = "Preparing...";
+      return fetch(href).then(function (r) {
+        if (!r.ok) throw new Error("fetch " + r.status);
+        return r.blob();
+      }).then(function (blob) {
+        vMsg.textContent = "";
+        return d.save({ filename: name, data: blob });
+      }).then(function () {
+        flash(vSave, "Saved", true);
+      }, function (err) {
+        var code = err && err.code;
+        if (code === "declined") vMsg.textContent = "";
+        else if (code === "rate_limited") vMsg.textContent = "A save prompt is already open.";
+        else vMsg.textContent = code ? manual : "Could not read the file.";
+      });
+    });
+  });
+  doc.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest("a[href]"); if (!a) return;
+    var href = a.getAttribute("href");
+    if (!FILE_RE.test(href) || a.classList.contains("pv")) return;
+    e.preventDefault(); openFile(href);
+  });
+
   /* ---------- active nav link ---------- */
   var links = $$(".navrow a"), secs = links.map(function (a) { return doc.getElementById(a.getAttribute("href").slice(1)); });
   if ("IntersectionObserver" in window) {

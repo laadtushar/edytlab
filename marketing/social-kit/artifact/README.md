@@ -17,4 +17,4 @@ It reads the markdown under `marketing/` (the launch, social-kit and social fold
 
 `launch-hub.css` and `launch-hub.client.js` are inlined into the page. Every text block is copied from its markdown file unchanged; the cards marked "derived" (post 3 as a document, L6, the press quote) say what was changed. A copy edit is: edit the markdown, run the command, publish again. The script stops if a block it expects is missing.
 
-Checklist ticks use the Artifact `db` capability (document `launch/checklist`, `{done: {<id>: true}}`) and fall back to localStorage. The page declares `{db: {}}`.
+Checklist ticks use the Artifact `db` capability (document `launch/checklist`, `{done: {<id>: true}}`) and fall back to localStorage. A click on one of the page's own files (`img/`, `linkedin/`, `posters/`) opens it in a viewer inside the page, with a Save button through the `downloads` capability: those files load only inside the artifact frame, so a new tab would show nothing. The page declares `{db: {}, downloads: true}`.
