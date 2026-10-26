@@ -48,7 +48,7 @@ description: "Workspace layout, the AI subsystem, tool dispatch, the session gra
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
      │  crates/│  │ crates/ │  │    crates/   │  │   crates/   │
      │  ai     │  │ tools   │  │    session   │  │   audio-*   │
-     │  agent  │  │ 94 tools│  │    DAG store │  │   ml-*      │
+     │  agent  │  │ 95 tools│  │    DAG store │  │   ml-*      │
      └──────┬──┘  └────┬────┘  └──────────┬───┘  └──────┬──────┘
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
@@ -101,7 +101,7 @@ edytlab/
     ├── recorder/                 # Microphone capture to WAV; recording-latency measurement (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # 94 deterministic audio-editing tools
+    └── tools/                    # 95 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -387,7 +387,7 @@ server, takes the first streaming request, and prints its parts. Read them with
 cargo test -p ai --test request_size -- --nocapture
 ```
 
-On v0.7.0 (`0bc50ce`, 2026-10-22), with 94 tools. The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
+On v0.7.0 (`0bc50ce`, 2026-10-22), with ninety-four tools. The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
 
 | Request | System prompt | Tool schemas | Total |
 |---------|---------------|--------------|-------|
@@ -746,7 +746,7 @@ pub struct ToolContext<'a> {
 
 impl ToolDispatcher {
     pub fn new() -> Self                    // empty
-    pub fn default_dispatcher() -> Self     // registers all 94 built-in tools
+    pub fn default_dispatcher() -> Self     // registers all 95 built-in tools
     pub fn register(&mut self, tool: Box<dyn Tool>)
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
@@ -783,7 +783,7 @@ There are four ways to open a store. `Store::open_shared` is the project the win
 
 ### The Tools
 
-There are 94, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
+There are 95, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
 One of them is a stub: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) returns an error in this build. `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) runs the speech model on this computer once the user has downloaded it in Settings → Account (see "Whisper (Transcription)" below), and `cut_words`, `remove_fillers` and the `text` mode of `select_region` work from the transcript it makes. `duck_under_speech` and `select_region`'s `speech_passage` do not need one: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
@@ -1171,7 +1171,7 @@ Memory fragments are injected into the system prompt on every turn:
 </edytlab-memory>
 ```
 
-The agent sees memory on every turn but has no tool to write it: none of the 94 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
+The agent sees memory on every turn but has no tool to write it: none of the 95 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
 
 ### Skills System
 

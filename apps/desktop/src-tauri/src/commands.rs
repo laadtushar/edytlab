@@ -2504,7 +2504,7 @@ pub struct Capabilities {
 fn category_for(name: &str) -> &'static str {
     match name {
         "load" | "render_preview" | "render_final" | "add_track" | "remove_track" => "session",
-        "transcribe" | "separate_stems" | "analyze_track" => "analysis",
+        "transcribe" | "separate_stems" | "analyze_track" | "measure" => "analysis",
         "fork_node" | "apply_diff" | "compare_nodes" | "revert_to" | "name_node" => "history",
         "label" => "annotation",
         _ => "audio",

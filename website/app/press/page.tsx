@@ -65,7 +65,7 @@ export default function PressPage() {
             edytlab is a free, open-source desktop audio editor where you edit
             by chatting with an AI agent. The agent turns a request such as
             &ldquo;time-stretch the second track to match the first, crossfade,
-            and export a WAV&rdquo; into calls to 94 deterministic audio tools.
+            and export a WAV&rdquo; into calls to 95 deterministic audio tools.
             The tools run locally in a Rust engine on the user&apos;s own
             computer, so audio files are never uploaded; only the chat goes to
             the language-model provider the user selects (Anthropic, OpenAI,
@@ -111,7 +111,7 @@ export default function PressPage() {
             <tr>
               <th scope="row">Tools</th>
               <td>
-                94 deterministic tools the agent can call (
+                95 deterministic tools the agent can call (
                 <Link href="/docs/tools">full reference</Link>)
               </td>
             </tr>

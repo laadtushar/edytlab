@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 94 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 95 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -61,6 +61,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`list_session`](#list_session) — List tracks, buses or markers a page at a time, in the session block's lines.
 - [`load`](#load) — Decode an audio file and add it to the session as a new track.
 - [`low_pass_filter`](#low_pass_filter) — Apply a Butterworth low-pass filter to a track, removing frequencies above cutoff_hz.
+- [`measure`](#measure) — Measure the mix, or one track as it plays (gain and effects included), over the whole thing or start_sec to end_sec.
 - [`mix_to_new_track`](#mix_to_new_track) — Offline-render the selected tracks together and add the result as a new mixed track.
 - [`mono_to_stereo`](#mono_to_stereo) — Convert a mono track to stereo by duplicating the channel to both L and R.
 - [`move_clip`](#move_clip) — Move one clip to a new start position within its track, leaving the other clips where they are.
@@ -587,6 +588,22 @@ Apply a Butterworth low-pass filter to a track, removing frequencies above cutof
 | `end_sec` | number | no |  |
 | `start_sec` | number | no |  |
 | `track` | integer | yes |  |
+
+## `measure`
+
+Measure the mix, or one track as it plays (gain and effects included), over the whole thing or start_sec to end_sec. Reports integrated, momentary-max and short-term-max loudness (LUFS, EBU R128), loudness range (LU), sample and true peak, RMS, noise floor (quietest 0.5 s without digital silence), digital silence, clipping (count and first times) and speech-to-background contrast. check "acx" adds pass or fail with the measured value for ACX audiobook rules: RMS -23 to -18 dBFS, peak at most -3, noise floor at most -60, no digital silence. Read-only.
+
+_Read-only — never held for approval._
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `check` | one of `acx` | no |  |
+| `end_sec` | number | no |  |
+| `max_clip_times` | integer | no | Clip times to list. Default 10. |
+| `start_sec` | number | no |  |
+| `track` | integer | no | Track index; omit for the mix. |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `mix_to_new_track`
 
