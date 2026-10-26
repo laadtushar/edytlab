@@ -2,6 +2,8 @@
 
 pub mod calibration;
 pub mod duplex;
+pub mod gate;
+pub mod identify;
 pub mod latency;
 pub mod store;
 
@@ -19,6 +21,15 @@ pub enum RecorderError {
     NoOutputDevice,
     #[error("the audio device changed while this was being prepared; try again")]
     DeviceChanged,
+    #[error(
+        "cannot tell which {role} \"{name}\" stands for on this system ({why}), so no latency \
+         can be measured or kept for them"
+    )]
+    DeviceUnidentified {
+        role: &'static str,
+        name: String,
+        why: String,
+    },
     #[error("stream error: {0}")]
     Stream(String),
     #[error("io error: {0}")]

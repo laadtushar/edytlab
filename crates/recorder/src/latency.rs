@@ -27,7 +27,7 @@
 //! late one) is the same in a calibration and in a take, so it cancels in
 //! `L`: both are measured through the same estimator.
 
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 use realfft::RealFftPlanner;
 
@@ -252,15 +252,35 @@ pub fn input_frame_for(rel_sec: f64, skew_ns: i64, latency_sec: f64, in_sr: u32)
 
 /// The lower envelope of `t_callback - frame/sr` over a stream's
 /// callbacks: the stream's origin on the process clock, as far as
-/// scheduling lets us see it.
+/// scheduling lets us see it. Its upper envelope tells whether frames were
+/// lost.
 ///
 /// Written by one callback thread and read after the stream is dropped,
 /// with atomics and no lock: a callback that blocks drops frames, and a
 /// dropped frame shifts every frame after it.
+///
+/// ## Lost frames
+///
+/// ALSA recovers an overrun or underrun on its own and calls back as if
+/// nothing happened; CoreAudio and WASAPI report no glitch at all, so
+/// cpal's error callback is not enough. What a lost buffer does show in is
+/// the timing: the frame count stops keeping up with the clock, so
+/// `t_callback - frame/sr` steps up by the length of what was lost and
+/// stays there. Scheduling alone moves it up and down by about a buffer
+/// (a device fills ahead, then idles), so [`Envelope::lost_frames`]
+/// compares the envelope's spread with one buffer period plus
+/// [`Envelope::JITTER_ALLOWANCE_NS`]. A loss shorter than that is not
+/// seen, and a calibration that hears its sweeps agree to within a
+/// millisecond is the second check on it.
 pub struct Envelope {
     sr: u32,
     first_ns: AtomicI64,
     min_ns: AtomicI64,
+    max_ns: AtomicI64,
+    /// The previous callback's frame, `u64::MAX` before the first.
+    last_frame: AtomicU64,
+    /// The most frames between two callbacks: one buffer.
+    max_step: AtomicU64,
 }
 
 impl Envelope {
@@ -268,12 +288,18 @@ impl Envelope {
     /// queue, and those callbacks run long before the steady schedule
     /// puts them. They would pull the minimum down for good.
     pub const WARMUP_NS: i64 = 250_000_000;
+    /// What a busy machine adds to a callback's lateness beyond the
+    /// buffer's own period before it counts as lost audio.
+    pub const JITTER_ALLOWANCE_NS: i64 = 20_000_000;
 
     pub fn new(sr: u32) -> Self {
         Self {
             sr,
             first_ns: AtomicI64::new(i64::MIN),
             min_ns: AtomicI64::new(i64::MAX),
+            max_ns: AtomicI64::new(i64::MIN),
+            last_frame: AtomicU64::new(u64::MAX),
+            max_step: AtomicU64::new(0),
         }
     }
 
@@ -281,6 +307,12 @@ impl Envelope {
     /// frame the callback is about (the first frame of an output buffer,
     /// one past the last frame of an input buffer).
     pub fn observe(&self, t_cb_ns: i64, frame: u64) {
+        // Buffers are the same size in the warm-up and after, so the step
+        // is read from every callback.
+        let last = self.last_frame.swap(frame, Ordering::Relaxed);
+        if last != u64::MAX && frame > last {
+            self.max_step.fetch_max(frame - last, Ordering::Relaxed);
+        }
         let first = match self.first_ns.compare_exchange(
             i64::MIN,
             t_cb_ns,
@@ -294,7 +326,9 @@ impl Envelope {
             return;
         }
         let frame_ns = (frame as u128 * 1_000_000_000 / self.sr as u128) as i64;
-        self.min_ns.fetch_min(t_cb_ns - frame_ns, Ordering::Relaxed);
+        let lateness = t_cb_ns - frame_ns;
+        self.min_ns.fetch_min(lateness, Ordering::Relaxed);
+        self.max_ns.fetch_max(lateness, Ordering::Relaxed);
     }
 
     /// The origin, or `None` before any callback past the warm-up.
@@ -303,6 +337,18 @@ impl Envelope {
             i64::MAX => None,
             v => Some(v),
         }
+    }
+
+    /// Whether the stream's frame count fell behind the clock by more
+    /// than scheduling explains: audio was dropped or repeated. See the
+    /// type's docs for what this can and cannot see.
+    pub fn lost_frames(&self) -> bool {
+        let (Some(min), max) = (self.origin_ns(), self.max_ns.load(Ordering::Relaxed)) else {
+            return false;
+        };
+        let period_ns = (self.max_step.load(Ordering::Relaxed) as u128 * 1_000_000_000
+            / self.sr as u128) as i64;
+        max - min > period_ns + Self::JITTER_ALLOWANCE_NS
     }
 }
 
@@ -531,6 +577,75 @@ mod tests {
             "the burst pulled the estimate {} ns off",
             got - origin
         );
+    }
+
+    /// 10 ms buffers at 48 kHz, as a callback stream that, from the
+    /// `lost_at`th callback on, never saw `lost` of them (an overrun: the
+    /// device kept time, the frame count did not).
+    fn with_loss(jitter_ms: f64, lost_at: usize, lost: u64) -> Envelope {
+        let env = Envelope::new(SR);
+        for (k, (t, f)) in callbacks(5_000_000_000, 600, 480, jitter_ms, 3)
+            .into_iter()
+            .enumerate()
+        {
+            env.observe(t, if k >= lost_at { f - lost * 480 } else { f });
+        }
+        env
+    }
+
+    #[test]
+    fn steady_callbacks_with_scheduling_jitter_lose_nothing() {
+        // Jitter up to a whole 10 ms buffer: a device that fills ahead
+        // and idles looks like this.
+        for seed in [1u64, 2, 3] {
+            let env = Envelope::new(SR);
+            for (t, f) in callbacks(5_000_000_000, 600, 480, 10.0, seed) {
+                env.observe(t, f);
+            }
+            assert!(!env.lost_frames(), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn a_stretch_of_lost_audio_is_seen_from_the_callbacks_alone() {
+        // Twenty buffers (200 ms) never arrive, with no error reported.
+        assert!(with_loss(2.0, 300, 20).lost_frames());
+        // Late in the run too, and a single long gap.
+        assert!(with_loss(2.0, 590, 50).lost_frames());
+    }
+
+    #[test]
+    fn a_loss_shorter_than_a_buffer_and_the_allowance_is_not_seen() {
+        // One 10 ms buffer, with 2 ms of jitter: below 10 ms of period
+        // plus 20 ms of allowance. This is the limit the type documents.
+        assert!(!with_loss(2.0, 300, 1).lost_frames());
+    }
+
+    #[test]
+    fn the_period_is_read_from_the_callbacks_so_a_big_buffer_is_not_a_loss() {
+        // 50 ms buffers that arrive up to 45 ms late are one scheduling
+        // pattern; a 100 ms loss on the same stream is not.
+        let env = Envelope::new(SR);
+        for (t, f) in callbacks(5_000_000_000, 120, 2_400, 45.0, 5) {
+            env.observe(t, f);
+        }
+        assert!(!env.lost_frames());
+        let env = Envelope::new(SR);
+        for (k, (t, f)) in callbacks(5_000_000_000, 120, 2_400, 5.0, 5)
+            .into_iter()
+            .enumerate()
+        {
+            env.observe(t, if k >= 60 { f - 4_800 } else { f });
+        }
+        assert!(env.lost_frames());
+    }
+
+    #[test]
+    fn warmup_callbacks_alone_never_report_a_loss() {
+        let env = Envelope::new(SR);
+        env.observe(0, 0);
+        env.observe(1_000_000, 4_800);
+        assert!(!env.lost_frames());
     }
 
     #[test]

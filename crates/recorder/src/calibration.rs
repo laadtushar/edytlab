@@ -26,7 +26,7 @@
 
 use thiserror::Error;
 
-use crate::duplex::{play_and_capture, DevicePair};
+use crate::duplex::{play_and_capture, Capture, DevicePair};
 use crate::latency::{locate_all, sweep, Located, SWEEP_SEC};
 use crate::RecorderError;
 
@@ -233,7 +233,12 @@ pub enum CalibrateError {
     Device(#[from] RecorderError),
     #[error("the audio device dropped out during the test. Close other apps that use audio and try again")]
     Dropout,
-    #[error("the audio device gave no timing information, so its delay cannot be measured")]
+    #[error(
+        "the speakers never started playing, so there was nothing to measure. Check that the \
+         output is not muted, switched off or in use by another app, and try again"
+    )]
+    OutputNeverStarted,
+    #[error("the microphone gave no timing information, so its delay cannot be measured")]
     NoClock,
     #[error("cancelled")]
     Cancelled,
@@ -248,11 +253,24 @@ pub fn measure_once(
 ) -> Result<RunMeasurement, CalibrateError> {
     let played = monitor(pair.out_sr, pair.out_ch);
     let capture = play_and_capture(&played, pair, capture_frames(pair.in_sr), cancel)?;
+    read_capture(&capture)
+}
+
+/// What a run's capture says, or why it says nothing.
+///
+/// The microphone always delivers (a capture that fills is one that
+/// heard callbacks), so a missing output origin means the speakers never
+/// called back past their warm-up, and that is the message, not a vague
+/// "no timing".
+pub fn read_capture(capture: &Capture) -> Result<RunMeasurement, CalibrateError> {
     if capture.cancelled {
         return Err(CalibrateError::Cancelled);
     }
     if capture.xrun {
         return Err(CalibrateError::Dropout);
+    }
+    if capture.out_origin_ns.is_none() {
+        return Err(CalibrateError::OutputNeverStarted);
     }
     let skew = capture.skew_ns().ok_or(CalibrateError::NoClock)?;
     let mono = mix_to_mono(&capture.samples, capture.in_ch);
@@ -526,5 +544,38 @@ mod tests {
                 expected: SWEEP_COUNT
             }
         );
+    }
+
+    fn capture(out_origin_ns: Option<i64>, in_origin_ns: Option<i64>, xrun: bool) -> Capture {
+        Capture {
+            samples: vec![0.0; capture_frames(48_000)],
+            in_sr: 48_000,
+            in_ch: 1,
+            out_origin_ns,
+            in_origin_ns,
+            xrun,
+            cancelled: false,
+        }
+    }
+
+    #[test]
+    fn speakers_that_never_start_are_named_not_blamed_on_missing_timing() {
+        let e = read_capture(&capture(None, Some(0), false)).unwrap_err();
+        assert!(matches!(e, CalibrateError::OutputNeverStarted), "{e:?}");
+        let text = e.to_string();
+        assert!(text.contains("speakers never started playing"), "{text}");
+        assert!(!text.contains("timing information"), "{text}");
+    }
+
+    #[test]
+    fn a_microphone_with_no_clock_still_says_so() {
+        let e = read_capture(&capture(Some(0), None, false)).unwrap_err();
+        assert!(matches!(e, CalibrateError::NoClock), "{e:?}");
+    }
+
+    #[test]
+    fn a_dropout_is_reported_before_anything_else_about_the_clocks() {
+        let e = read_capture(&capture(None, None, true)).unwrap_err();
+        assert!(matches!(e, CalibrateError::Dropout), "{e:?}");
     }
 }

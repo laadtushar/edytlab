@@ -16,7 +16,20 @@
 # The daemon is started in this script, its PID is kept, and it is stopped
 # by that PID when the script exits however it exits. Never `pkill -f` it,
 # and never point this at a shared sink (the demo recordings use one).
+#
+# The machine's sound is shared with whoever is recording the demos, who
+# marks a session with a `recording.lock`. This refuses (exit 4) while one
+# exists, before anything is started. Where the lock is has no fixed
+# place, so the usual ones are looked at, and EDYTLAB_RECORDING_LOCK names
+# another.
 set -euo pipefail
+
+for lock in "${EDYTLAB_RECORDING_LOCK:-}" "${TMPDIR:-/tmp}/recording.lock" /tmp/recording.lock /tmp/promo-run/recording.lock; do
+  if [ -n "$lock" ] && [ -e "$lock" ]; then
+    echo "a recording session holds $lock; not running the loopback while it does" >&2
+    exit 4
+  fi
+done
 
 command -v pulseaudio >/dev/null || { echo "pulseaudio is not installed" >&2; exit 2; }
 

@@ -20,9 +20,18 @@
 //!   starts, as relaxed atomic stores of the samples' bits (no `unsafe`,
 //!   and a store is a plain move on every target we ship), and publishes
 //!   how much is valid with one release store;
-//! - anything wrong (a stream error, a device that went away) sets a flag
-//!   the caller reads afterwards: [`Capture::xrun`]. The caller refuses
-//!   the take; it never splices around a gap.
+//! - a stream error callback (a device that went away) sets a flag, and
+//!   afterwards the callbacks' timing is checked for lost frames
+//!   ([`crate::latency::Envelope::lost_frames`]); either sets
+//!   [`Capture::xrun`] and the caller refuses the take, it never splices
+//!   around a gap.
+//!
+//! cpal's error callback is not a glitch detector: ALSA recovers an
+//! overrun or underrun itself and calls back as if nothing happened, and
+//! CoreAudio and WASAPI report none. The timing check is what catches
+//! those, and it sees a loss of more than about one buffer plus 20 ms, not
+//! a smaller one; a calibration whose sweeps then disagree is refused for
+//! that reason, and a take is only as good as the quiet machine it ran on.
 //!
 //! The streams are built, run and dropped on the calling thread
 //! (`cpal::Stream` is not `Send`), so call this from a blocking task.
@@ -33,6 +42,7 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
+use crate::identify::{identify, pactl, Role};
 use crate::latency::Envelope;
 use crate::RecorderError;
 
@@ -77,7 +87,8 @@ pub struct Capture {
     pub out_origin_ns: Option<i64>,
     /// The input stream's origin on the process clock, `C0`.
     pub in_origin_ns: Option<i64>,
-    /// A stream reported an error while running.
+    /// A stream reported an error while running, or its callbacks' timing
+    /// shows frames were lost.
     pub xrun: bool,
     /// The caller's cancel fired before the capture was full.
     pub cancelled: bool,
@@ -89,6 +100,34 @@ impl Capture {
     pub fn skew_ns(&self) -> Option<i64> {
         Some(self.out_origin_ns? - self.in_origin_ns?)
     }
+}
+
+/// One side of a pair, as cpal reports it.
+pub(crate) struct Side<'a> {
+    pub name: &'a str,
+    pub sr: u32,
+    pub ch: u16,
+}
+
+/// A pair from what cpal reported, with `default`, `pulse` and `pipewire`
+/// replaced by the sound server's own name for the default
+/// ([`crate::identify`]). A pair that cannot be named is an error, so it
+/// is never filed under a name that fits another pair too.
+pub(crate) fn pair_from(
+    host: &str,
+    out: Side<'_>,
+    inp: Side<'_>,
+    ask: &dyn Fn(&[&str]) -> Result<String, String>,
+) -> Result<DevicePair, RecorderError> {
+    Ok(DevicePair {
+        host: host.to_string(),
+        output: identify(host, out.name, Role::Output, ask)?,
+        input: identify(host, inp.name, Role::Input, ask)?,
+        out_sr: out.sr,
+        out_ch: out.ch,
+        in_sr: inp.sr,
+        in_ch: inp.ch,
+    })
 }
 
 /// The default devices and their configurations.
@@ -104,15 +143,22 @@ pub fn default_pair() -> Result<DevicePair, RecorderError> {
     let in_cfg = inp
         .default_input_config()
         .map_err(|e| RecorderError::Stream(e.to_string()))?;
-    Ok(DevicePair {
-        host: host.id().name().to_string(),
-        output: out.name().unwrap_or_else(|_| "unknown output".into()),
-        input: inp.name().unwrap_or_else(|_| "unknown input".into()),
-        out_sr: out_cfg.sample_rate().0,
-        out_ch: out_cfg.channels(),
-        in_sr: in_cfg.sample_rate().0,
-        in_ch: in_cfg.channels(),
-    })
+    let out_name = out.name().unwrap_or_else(|_| "unknown output".into());
+    let in_name = inp.name().unwrap_or_else(|_| "unknown input".into());
+    pair_from(
+        host.id().name(),
+        Side {
+            name: &out_name,
+            sr: out_cfg.sample_rate().0,
+            ch: out_cfg.channels(),
+        },
+        Side {
+            name: &in_name,
+            sr: in_cfg.sample_rate().0,
+            ch: in_cfg.channels(),
+        },
+        &pactl,
+    )
 }
 
 /// How long to wait for the first input callback before giving up on a
@@ -271,7 +317,7 @@ pub fn play_and_capture(
         in_ch: pair.in_ch,
         out_origin_ns: out_env.origin_ns(),
         in_origin_ns: in_env.origin_ns(),
-        xrun: xrun.load(Ordering::Relaxed),
+        xrun: xrun.load(Ordering::Relaxed) || in_env.lost_frames() || out_env.lost_frames(),
         cancelled,
     })
 }
@@ -283,8 +329,8 @@ mod tests {
     fn pair() -> DevicePair {
         DevicePair {
             host: "ALSA".into(),
-            output: "Speakers (Realtek)".into(),
-            input: "Microphone (USB)".into(),
+            output: "sysdefault:CARD=PCH".into(),
+            input: "sysdefault:CARD=USB".into(),
             out_sr: 48_000,
             out_ch: 2,
             in_sr: 44_100,
@@ -296,7 +342,7 @@ mod tests {
     fn the_key_names_the_pair_and_both_rates() {
         assert_eq!(
             pair().key(),
-            "ALSA|Speakers (Realtek)|Microphone (USB)|48000|44100"
+            "ALSA|sysdefault:CARD=PCH|sysdefault:CARD=USB|48000|44100"
         );
     }
 
@@ -317,6 +363,86 @@ mod tests {
         let mut p = pair();
         p.output = "Out | Left".into();
         assert_eq!(p.key().split('|').count(), 5);
+    }
+
+    const PCI_SINK: &str = "alsa_output.pci-0000_00_1f.3.analog-stereo";
+    const BT_SINK: &str = "bluez_output.AA_BB_CC_DD_EE_FF.1";
+    const SOURCE: &str = "alsa_input.pci-0000_00_1f.3.analog-stereo";
+
+    /// What cpal's ALSA host reports for the defaults: both are `default`.
+    fn alsa_defaults(sink: &'static str) -> Result<DevicePair, RecorderError> {
+        pair_from(
+            "ALSA",
+            Side {
+                name: "default",
+                sr: 48_000,
+                ch: 2,
+            },
+            Side {
+                name: "default",
+                sr: 48_000,
+                ch: 1,
+            },
+            &move |args| match args {
+                ["get-default-sink"] => Ok(format!("{sink}\n")),
+                ["get-default-source"] => Ok(format!("{SOURCE}\n")),
+                other => panic!("unexpected question {other:?}"),
+            },
+        )
+    }
+
+    #[test]
+    fn speakers_and_a_headset_that_alsa_both_calls_default_are_two_pairs() {
+        let speakers = alsa_defaults(PCI_SINK).unwrap().key();
+        let headset = alsa_defaults(BT_SINK).unwrap().key();
+        assert_ne!(
+            speakers, headset,
+            "a headset must not reuse the speakers' latency"
+        );
+        assert_eq!(
+            speakers,
+            format!("ALSA|default ({PCI_SINK})|default ({SOURCE})|48000|48000")
+        );
+    }
+
+    #[test]
+    fn a_pair_that_cannot_be_named_is_refused_with_the_reason() {
+        let e = pair_from(
+            "ALSA",
+            Side {
+                name: "default",
+                sr: 48_000,
+                ch: 2,
+            },
+            Side {
+                name: "default",
+                sr: 48_000,
+                ch: 1,
+            },
+            &|_| Err("pactl is not installed".into()),
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("pactl is not installed"), "{e}");
+    }
+
+    #[test]
+    fn a_pair_of_named_cards_needs_no_sound_server() {
+        let p = pair_from(
+            "ALSA",
+            Side {
+                name: "hw:CARD=PCH,DEV=0",
+                sr: 48_000,
+                ch: 2,
+            },
+            Side {
+                name: "hw:CARD=USB,DEV=0",
+                sr: 44_100,
+                ch: 1,
+            },
+            &|_| panic!("nothing to look up"),
+        )
+        .unwrap();
+        assert_eq!(p.output, "hw:CARD=PCH,DEV=0");
     }
 
     #[test]

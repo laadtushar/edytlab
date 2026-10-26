@@ -57,10 +57,15 @@ const FORMAT: u32 = 1;
 /// or a broken device, not a delay to apply.
 const RANGE_MS: std::ops::RangeInclusive<f64> = -50.0..=2_000.0;
 
+/// The entries are kept as the JSON they were read as and parsed one at a
+/// time, when asked for. One of them in a shape this version cannot read
+/// (a hand edit, a build that kept more) is then that pair's problem
+/// only, and a save writes every other entry back exactly as it was
+/// instead of replacing the file with one entry.
 #[derive(Serialize, Deserialize)]
 struct File {
     version: u32,
-    entries: BTreeMap<String, Stored>,
+    entries: BTreeMap<String, serde_json::Value>,
 }
 
 /// Serialises read-modify-write within the process. (Two processes on one
@@ -103,9 +108,22 @@ impl LatencyStore {
         }
     }
 
-    /// The latency kept for `pair`, if any.
+    /// The latency kept for `pair`, if any. An entry this version cannot
+    /// read counts as none.
     pub fn get(&self, pair: &DevicePair) -> Result<Option<Stored>, StoreError> {
-        Ok(self.read()?.entries.remove(&pair.key()))
+        let key = pair.key();
+        let Some(raw) = self.read()?.entries.remove(&key) else {
+            return Ok(None);
+        };
+        match serde_json::from_value(raw) {
+            Ok(entry) => Ok(Some(entry)),
+            Err(e) => {
+                // Read as not measured; the entry stays in the file until
+                // this pair is measured again and replaces it.
+                tracing::warn!("audio-latency.json entry for {key} unreadable: {e}");
+                Ok(None)
+            }
+        }
     }
 
     /// Keep `entry` for `pair`, replacing what was there.
@@ -115,7 +133,10 @@ impl LatencyStore {
         }
         let _guard = WRITE.lock().unwrap_or_else(|p| p.into_inner());
         let mut file = self.read()?;
-        file.entries.insert(pair.key(), entry);
+        file.entries.insert(
+            pair.key(),
+            serde_json::to_value(entry).expect("plain data serialises"),
+        );
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir)?;
         }
@@ -290,5 +311,64 @@ mod tests {
         s.put(&pair("Speakers"), entry(42.5, Source::Measured))
             .unwrap();
         assert!(s.get(&pair("Speakers")).unwrap().is_some());
+    }
+
+    /// One entry in a shape this version cannot read (written by a hand
+    /// edit, or a build that kept more), beside one that it can.
+    const MIXED: &str = r#"{
+      "version": 1,
+      "entries": {
+        "ALSA|bad|Mic|48000|48000": { "latency_ms": "soon" },
+        "ALSA|Speakers|Mic|48000|48000": {
+          "latency_ms": 42.5, "spread_ms": 0.2, "measured_at": 1700000000, "source": "measured"
+        },
+        "ALSA|odd|Mic|48000|48000": { "latency_ms": 7.0, "measured_at": 1, "source": "measured", "extra": [1, 2] }
+      }
+    }"#;
+
+    #[test]
+    fn one_bad_entry_does_not_hide_the_good_ones() {
+        let (d, s) = store();
+        std::fs::write(d.path().join("audio-latency.json"), MIXED).unwrap();
+        assert_eq!(s.get(&pair("Speakers")).unwrap().unwrap().latency_ms, 42.5);
+        assert_eq!(s.get(&pair("odd")).unwrap().unwrap().latency_ms, 7.0);
+        assert_eq!(
+            s.get(&pair("bad")).unwrap(),
+            None,
+            "unreadable reads as not measured"
+        );
+    }
+
+    #[test]
+    fn a_save_keeps_every_other_entry_including_the_one_it_cannot_read() {
+        let (d, s) = store();
+        let path = d.path().join("audio-latency.json");
+        std::fs::write(&path, MIXED).unwrap();
+        s.put(&pair("Headset"), entry(210.0, Source::Measured))
+            .unwrap();
+
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let before: serde_json::Value = serde_json::from_str(MIXED).unwrap();
+        for key in [
+            "ALSA|bad|Mic|48000|48000",
+            "ALSA|Speakers|Mic|48000|48000",
+            "ALSA|odd|Mic|48000|48000",
+        ] {
+            assert_eq!(v["entries"][key], before["entries"][key], "{key} changed");
+        }
+        assert_eq!(
+            v["entries"]["ALSA|Headset|Mic|48000|48000"]["latency_ms"],
+            210.0
+        );
+        assert_eq!(s.get(&pair("Speakers")).unwrap().unwrap().latency_ms, 42.5);
+    }
+
+    #[test]
+    fn replacing_the_pair_whose_entry_was_unreadable_works() {
+        let (d, s) = store();
+        std::fs::write(d.path().join("audio-latency.json"), MIXED).unwrap();
+        s.put(&pair("bad"), entry(12.0, Source::Manual)).unwrap();
+        assert_eq!(s.get(&pair("bad")).unwrap().unwrap().latency_ms, 12.0);
     }
 }
