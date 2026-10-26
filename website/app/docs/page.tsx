@@ -62,12 +62,15 @@ export default function DocsPage() {
       description="Use edytlab and build on it."
     >
       <div className="not-prose mt-8 grid gap-4 sm:grid-cols-2" data-cascade-items>
-        {cards.map((card) => (
+        {cards.map((card, i) => (
           <Link
             key={card.href}
             href={card.href}
             data-lift
-            className="ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 hover:bg-card"
+            className={`ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 hover:bg-card${
+              /* An odd count leaves the last card alone in a row: it spans it. */
+              i === cards.length - 1 && cards.length % 2 === 1 ? " sm:col-span-2" : ""
+            }`}
           >
             <div className="flex items-center justify-between">
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
@@ -96,9 +99,8 @@ export default function DocsPage() {
         engine runs on your machine and your audio never leaves it. The app
         sends the text you write to your chosen LLM provider, plus requests
         you start yourself: a plugin you install from a URL, an MCP server you
-        add, the speech model you download from Hugging Face (from v0.8.0) and
-        the sign-in to OpenAI when you choose Continue with ChatGPT (from
-        v0.9.0). See <a href="/privacy">privacy</a>.
+        add, the speech model you download from Hugging Face and
+        the sign-in to OpenAI when you choose Continue with ChatGPT. See <a href="/privacy">privacy</a>.
       </p>
       <p>
         edytlab supports six API providers plus your ChatGPT plan:{" "}
@@ -106,7 +108,7 @@ export default function DocsPage() {
         <strong>Google Gemini</strong>, <strong>Groq</strong>,{" "}
         <strong>OpenRouter</strong>, and <strong>Ollama</strong> for a local
         model. You bring your own API key, stored in your OS keychain (Ollama
-        needs none), or, from v0.9.0, sign in with ChatGPT to use your Plus or
+        needs none), or sign in with ChatGPT to use your Plus or
         Pro plan instead of a key (a preview). Switch providers any time in
         Settings.
       </p>

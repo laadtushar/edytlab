@@ -62,7 +62,7 @@ export function Footer() {
                   href={l.href}
                   data-sweep
                   {...(l.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                  className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                  className="inline-flex items-center gap-1.5 py-2.5 text-muted-foreground sm:py-0 transition-colors hover:text-foreground"
                 >
                   {l.icon ? <Github className="size-4" /> : null}
                   {l.label}
@@ -84,7 +84,7 @@ export function Footer() {
               key={s.href}
               href={s.href}
               data-sweep
-              className="text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
             >
               {s.label}
             </Link>
@@ -98,14 +98,14 @@ export function Footer() {
           <Link
             href="/use-cases/dj"
             data-sweep
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
           >
             AI audio editor for DJs
           </Link>
           <Link
             href="/use-cases/local-ai-audio-editor"
             data-sweep
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
           >
             Local AI audio editor
           </Link>
@@ -118,28 +118,28 @@ export function Footer() {
           <Link
             href="/about"
             data-sweep
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
           >
             About and how we compare
           </Link>
           <Link
             href="/compare"
             data-sweep
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
           >
             AI audio editors compared
           </Link>
           <Link
             href="/alternatives/audacity"
             data-sweep
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
           >
             Audacity alternative
           </Link>
           <Link
             href="/alternatives/adobe-audition"
             data-sweep
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
           >
             Adobe Audition alternative
           </Link>
@@ -153,7 +153,7 @@ export function Footer() {
             <a
               href={LABYNATOR.url}
               data-sweep
-              className="font-medium text-foreground transition-colors hover:text-primary"
+              className="inline-block py-2.5 font-medium text-foreground transition-colors hover:text-primary sm:py-0"
             >
               {LABYNATOR.name}
             </a>
@@ -163,7 +163,7 @@ export function Footer() {
               key={app.url}
               href={app.url}
               data-sweep
-              className="text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-block py-2.5 text-muted-foreground transition-colors hover:text-foreground sm:py-0"
             >
               {app.name} &mdash; {app.blurb}
             </a>
@@ -173,7 +173,7 @@ export function Footer() {
             <a
               href={FOUNDER.url}
               data-sweep
-              className="font-medium text-foreground transition-colors hover:text-primary"
+              className="inline-block py-2.5 font-medium text-foreground transition-colors hover:text-primary sm:py-0"
             >
               {FOUNDER.name}
             </a>

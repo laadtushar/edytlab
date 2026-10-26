@@ -102,7 +102,7 @@ export function RealDemos() {
             page.
           </p>
         </Reveal>
-        <Stagger className="mx-auto grid max-w-6xl gap-6" each={0.1} distance={28}>
+        <Stagger className="mx-auto grid max-w-6xl gap-5 md:gap-6" each={0.1} distance={28}>
           {demos.map((demo, i) => (
             <DemoCard key={demo.slug} demo={demo} index={i} brief />
           ))}

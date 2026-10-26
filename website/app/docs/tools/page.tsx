@@ -469,7 +469,7 @@ const groups = [
         prompt: "run my podcast chain on this recording",
         what: "Replay an exported edit chain. Every step is checked before any of them runs, so a recipe that cannot keep its promise is refused whole — naming the step — rather than half-applied. Takes an optional different source, and a dry run that reports the plan without touching the session.",
         output: "steps_applied, head, notes",
-        note: "Replaying against the same audio reproduces the same bytes; the derived files are named by their own sample rate, channel count and samples, so a drifted rebuild is detected rather than substituted. Files written before v0.7.0 were named by their samples alone; those older names are still recognised when a project's history is rebuilt.",
+        note: "Replaying against the same audio reproduces the same bytes; the derived files are named by their own sample rate, channel count and samples, so a drifted rebuild is detected rather than substituted. Names from projects saved by earlier builds are still recognised when a project's history is rebuilt.",
       },
       {
         name: "audition_effect",

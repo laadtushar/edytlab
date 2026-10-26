@@ -472,7 +472,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: "The 2 GiB limit is described in the v0.3.0 entry of the [changelog](/changelog). The [user guide](/docs/user-guide) covers the graph, A/B compare and export.",
+        text: "The [user guide](/docs/user-guide) covers the graph, A/B compare and export.",
       },
       { type: "h2", text: "Exporting from any version" },
       {

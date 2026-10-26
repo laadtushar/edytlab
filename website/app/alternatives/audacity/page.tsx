@@ -133,7 +133,7 @@ const rows: FactRow[] = [
   },
   {
     label: "AI features",
-    ours: "An agent that calls edytlab's editing tools from your request. Transcription runs on your computer from v0.8.0, after a one-time model download. Stem separation has not shipped.",
+    ours: "An agent that calls edytlab's editing tools from your request. Transcription runs on your computer, after a one-time model download. Stem separation has not shipped.",
     oursSource: { href: "/docs/tools", label: "Tools reference" },
     theirs: audacity.aiFeatures.text,
     source: { href: audacity.aiFeatures.url },

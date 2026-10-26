@@ -100,7 +100,7 @@ export function MobileMenu() {
         aria-label="Menu"
         aria-expanded={open}
         aria-controls={panelId}
-        className="inline-flex size-9 cursor-pointer list-none items-center justify-center rounded-md border border-input bg-background ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
+        className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-md border border-input bg-background ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
       >
         <Menu aria-hidden className="size-4 group-open:hidden" />
         <X aria-hidden className="hidden size-4 group-open:block" />
