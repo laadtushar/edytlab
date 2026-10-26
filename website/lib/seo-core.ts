@@ -20,7 +20,7 @@ import { siteConfig } from "./site";
  * `<lastmod>` only "if it's consistently and verifiably" accurate, and
  * one date on every page is not verifiable for any of them.
  */
-export const SITE_UPDATED = "2026-10-25";
+export const SITE_UPDATED = "2026-10-26";
 
 /**
  * The day each page's content last changed in substance, by path, for
