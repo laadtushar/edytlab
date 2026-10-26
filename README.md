@@ -4,7 +4,6 @@
 [![License: MIT](https://img.shields.io/github/license/laadtushar/edytlab)](LICENSE)
 [![Platforms: macOS | Windows | Linux](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-informational)](https://github.com/laadtushar/edytlab/releases/latest)
 [![Website: edytlab.com](https://img.shields.io/badge/website-edytlab.com-9D4EF5)](https://edytlab.com)
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Flaadtushar%2Fedytlab.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Flaadtushar%2Fedytlab?ref=badge_shield)
 
 **Talk to Claude. Get pro-grade audio edits.**
 
@@ -135,12 +134,13 @@ crates/
   audio-engine/       DSP graph + render
   audio-time/         Time-stretch and pitch-shift primitives
   audio-analysis/     BPM, key, beat-grid, transients
-  recorder/           Microphone capture to WAV (cpal)
+  recorder/           Microphone capture to WAV; recording-latency measurement (cpal)
   memory/             Global and per-project markdown memory for the system prompt
   skills/             User skill library, appended to the prompt when a skill matches
   agent_profiles/     Saved model + tool-whitelist + prompt profiles
   mcp/                MCP server config, lifecycle and JSON-RPC
   ml-demucs/          Stem separation (inference is a stub, #385)
+  ml-diarize/         Speaker diarization (pyannote-style pipeline on ONNX; the model is not offered in the app and no tool runs it yet, #168)
   ml-whisper/         Transcription (run by the `transcribe` tool on the model the user downloaded, #384)
   ml-pipeline/        Shared ONNX runtime gate, verified model downloader + the user-started speech-model download (#383) + inference cache
 docs/                 Specs, handover, packaging notes
@@ -208,6 +208,3 @@ Out-of-scope for v1, on the post-v1 roadmap:
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
-
-
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Flaadtushar%2Fedytlab.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Flaadtushar%2Fedytlab?ref=badge_large)

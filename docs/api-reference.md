@@ -888,6 +888,10 @@ check is unaffected.
 Resolves as soon as the request is recorded, not when the tool actually stops.
 Watch `onToolProgress` for that.
 
+It does not stop a latency measurement (`calibrateRecordingLatency`), which has
+its own `cancelRecordingLatency()`: pressing one Cancel must not stop the other
+job.
+
 ---
 
 ## Selection and Markers
@@ -1141,9 +1145,10 @@ neighbour does not need the caller to reorder first.
 
 Open the default input device and start capturing. Resolves to a status string.
 
-**Errors:** no input device; permission denied; the device is in use. All three
-are reachable and none of them are distinguishable from each other by the
-caller, so surface the message rather than a generic failure.
+**Errors:** no input device; permission denied; the device is in use; a latency
+measurement is running (`calibrateRecordingLatency`), because it plays test
+tones the take would hear. The first three are not distinguishable from each
+other by the caller, so surface the message rather than a generic failure.
 
 ---
 
@@ -1175,7 +1180,102 @@ Both fields are optional — omitting `startAfterSec` starts now, omitting
 `durationSec` records until stopped. `cancelled` is true when
 `cancelLongRunningTool()` ended it early, in which case `path` may be absent.
 
+**Errors:** a latency measurement is running. While a timer is armed (waiting
+or recording), `calibrateRecordingLatency` is refused for the same reason.
+
 Emits `tool-progress` events throughout; see `onToolProgress`.
+
+---
+
+### `getRecordingLatency() → RecordingLatency`
+
+The recording latency kept for the current default speakers and microphone:
+how late the microphone hears what this computer plays. Plays and records
+nothing, so it is safe to call whenever Settings opens or the window regains
+focus.
+
+**Returns:**
+```typescript
+interface RecordingLatency {
+  devices: {
+    host: string;      // the audio system: "ALSA", "CoreAudio", "WASAPI"
+    output: string;
+    input: string;
+    out_sr: number;
+    in_sr: number;
+  } | null;            // null: no speakers or no microphone
+  problem: string | null;   // why `devices` is null
+  latency: {
+    latency_ms: number;
+    spread_ms?: number;     // how far apart the measurements were
+    measured_at: number;    // seconds since the Unix epoch
+    source: "measured" | "manual";
+  } | null;            // null until measured for this pair
+}
+```
+
+A latency belongs to the pair of devices *and their sample rates*: change
+either and `latency` is null again until it is measured. The values are kept in
+`~/.edytlab/audio-latency.json`.
+
+`devices.output` and `devices.input` name what the defaults really are. On Linux
+the audio system calls both `default` whatever they are routed to, so the sound
+server's own names are added (`default (alsa_output.pci-…)`, from
+`pactl get-default-sink` and `get-default-source`, or the `Default Sink:` and
+`Default Source:` lines of `pactl info` on PulseAudio older than 15): a headset
+and the speakers are two pairs, not one.
+
+**Returns** `devices: null` with `problem` when there are no speakers or no
+microphone, or when the defaults cannot be named (on Linux, `pactl` is missing
+or does not answer within two seconds); nothing can be measured or kept for a
+pair that has no name.
+
+**Errors:** the file was written by a newer version of the app (it is left
+alone, not read as empty). An entry in it this version cannot read counts as
+not measured; the rest are kept.
+
+---
+
+### `calibrateRecordingLatency() → CalibrationResult`
+
+Measure the round trip of the default speakers and microphone, and keep it for
+that pair. Plays five test sweeps through the speakers three times and finds
+them in the microphone; takes about ten seconds and makes noise, so ask first.
+
+**Returns:** `{ cancelled: true }` when `cancelRecordingLatency()` ended it, or
+
+```typescript
+{
+  cancelled: false;
+  devices: RecordingDevices;   // as in getRecordingLatency
+  latency: StoredLatency;      // what was kept
+  sweeps_heard: number;        // 15 when all three runs heard all five
+  runs: number;
+}
+```
+
+**Errors**, each with a reason the person can act on: not every sweep was heard
+(speakers off, headphones the microphone cannot hear, a noisy room); the
+measurements disagree by more than 1 ms, which means the device's delay is not
+steady enough to compensate (nothing is kept); the device dropped out, which
+includes audio lost without any error (read from the timing of the audio
+callbacks, so a loss shorter than about one buffer plus 20 ms is not seen); the
+speakers never started playing; the default devices cannot be named; another
+measurement, a timed recording that is armed, or a recording is running.
+
+Emits `tool-progress` events with `kind: "calibrate_latency"`, `run` and
+`runs`, then a final `done`.
+
+---
+
+### `cancelRecordingLatency() → void`
+
+Ask the running latency measurement to stop at its next checkpoint (the
+measurement then resolves `{ cancelled: true }`). Its own command and its own
+flag: `cancelLongRunningTool()` is the Cancel of `batch_apply` and
+`timerRecord`, and neither stops the other. Resolves at once, and does nothing
+when no measurement is running. The Audio tab's row calls it from Cancel and
+when it unmounts mid-measurement.
 
 ---
 
@@ -1369,6 +1469,7 @@ running is left alone, and a model that is already complete is verified rather
 than fetched. Every file is written to a `.part` file and renamed to its final
 name only once its size and SHA-256 match, so a half file never has one. Models
 are kept in `<app local data>/models/<id>/` (the local, non-roaming data folder: `%LOCALAPPDATA%` on Windows).
+Only a model Settings offers can be started (today `whisper-base`): another model of the manifest, such as the pinned speaker model, answers an error that says it is not offered, with no request made.
 
 ### `cancelMlModelDownload(model: string) → MlModelStatus`
 
@@ -1795,7 +1896,7 @@ Progress from a long-running tool.
 
 ```typescript
 interface ToolProgress {
-  kind: string;        // "batch_apply", "timer_record", "selection", …
+  kind: string;        // "batch_apply", "timer_record", "calibrate_latency", "selection", …
   index?: number;      // Absent on the final event
   total: number;
   file?: string;

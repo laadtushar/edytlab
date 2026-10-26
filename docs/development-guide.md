@@ -169,6 +169,11 @@ cargo test -p tools --test transcribe_load_errors -- --ignored
 cargo test -p ml-whisper --release --test transcribe_smoke -- --ignored --nocapture --test-threads=1
 # the downloader against huggingface.co (writes to a temporary folder of its own)
 cargo test -p ml-pipeline --release --test model_real_download -- --ignored --nocapture --test-threads=1
+
+# the speaker model (32.5 MB, #168): its folder holds segmentation/ and embedding/
+export DIARIZE_MODEL_PATH="$(scripts/fetch-ml-model.sh speaker-diarization /tmp/ml/speaker-diarization)"
+# both networks on 40 s of the AMI corpus, against pyannote.audio's algorithm run on the same files
+cargo test -p ml-diarize --release --test real_model -- --ignored --nocapture --test-threads=1
 ```
 
 `scripts/fetch-ml-model.sh` is for this and for CI: the app never runs it,
@@ -356,7 +361,7 @@ src/
 ```
 src/
 ├── bundled_skills.rs # Keeps the skills that ship in the app current in ~/.edytlab/skills/ (#574, #631)
-├── commands.rs    # The #[tauri::command] functions (~100 of them)
+├── commands.rs    # The #[tauri::command] functions (~110 of them)
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup
@@ -700,7 +705,8 @@ Linux, with `--ignored`, against the pins in
 - `ml-whisper`: `transcribe_known_words`, and the two ignored tests of `transcribe_smoke`;
 - `tools`: `transcribe_end_to_end` (the `transcribe` tool on the real model,
   through a session, #668) and `transcribe_load_errors` (needs only the runtime);
-- `ml-pipeline`: `model_real_download` (the downloader against huggingface.co).
+- `ml-pipeline`: `model_real_download` (the downloader against huggingface.co);
+- `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168).
 
 **Trigger:** `workflow_dispatch` only. It does not run on push, on a pull
 request or on a schedule, so a run is always someone's choice. Dispatch it
@@ -745,6 +751,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 |----------|---------|---------|
 | `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux\|macos\|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
 | `WHISPER_MODEL_PATH` | unset | The speech model's **folder** (`onnx/encoder_model.onnx`, `onnx/decoder_model_merged_int8.onnx`, `tokenizer.json`). `transcribe` uses it instead of the model downloaded in Settings; the ignored `ml-whisper` and `tools` tests need it — see [ML Model Files](#ml-model-files-whisperdemucs) |
+| `DIARIZE_MODEL_PATH` | unset | The speaker model's **folder** (`segmentation/model.onnx`, `embedding/model.onnx`, as `crates/ml-pipeline/models.json` pins them). The ignored `ml-diarize` tests need it — see [Running the model tests locally](#running-the-model-tests-locally) |
 | `DEMUCS_MODEL_PATH` | unset | The Demucs model **file** — see [ML Model Files](#ml-model-files-whisperdemucs) |
 
 `RUST_LOG` is not listed because nothing reads it (see [Rust Debugging](#rust-debugging)). Skills, agent profiles and the MCP config live under `~/.edytlab/`, which is not configurable.
