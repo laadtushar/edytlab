@@ -20,7 +20,7 @@ libloading = "0.9"
 # The model downloader (`download.rs`). `rustls-tls` and `blocking` match
 # the `mcp` crate, so the workspace links one HTTP and TLS stack.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
-sha2 = "0.10"
+sha2 = "0.11"
 # The cross-process lock on an artifact (`download.rs`): `flock` on Unix,
 # `LockFileEx` on Windows, over a plain `std::fs::File`. Its `FileExt`
 # mirrors the `File::try_lock` that std stabilised in Rust 1.89, so this
