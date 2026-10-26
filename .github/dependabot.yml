@@ -1,0 +1,105 @@
+# Dependabot version updates. Docs:
+# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+#
+# marketing/ is left out on purpose (as in .fossabot.yml): the promo, LinkedIn
+# renderer and archived recording tools ship nothing, and a bump there means
+# re-rendering videos the site keeps byte-identical copies of.
+version: 2
+
+updates:
+  # Rust workspace (one Cargo.lock at the root).
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      # The tauri crates and @tauri-apps/* must sit on the same major.minor,
+      # and Dependabot cannot bump a Cargo crate and an npm package in one PR.
+      # A minor or major Tauri upgrade is done by hand, both sides together
+      # (as #800 did); patches are safe on their own.
+      - dependency-name: "tauri*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+    groups:
+      tauri-patch:
+        patterns: ["tauri*"]
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+        exclude-patterns: ["tauri*"]
+
+  # Desktop app (the pnpm workspace: root package.json, apps/*).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      # Same rule as the tauri crates above.
+      - dependency-name: "@tauri-apps/*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # 6.10.0 is deprecated on npm.
+      - dependency-name: "@testing-library/jest-dom"
+        versions: ["6.10.0"]
+    groups:
+      tauri-patch:
+        patterns: ["@tauri-apps/*"]
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+        # @playwright/test is pinned exactly: each release drives a new
+        # Chromium, so its bump stays a PR of its own (playwright.config.ts).
+        exclude-patterns: ["@tauri-apps/*", "@playwright/test"]
+
+  # Website: outside the workspace, with its own lockfile. The "-" separator
+  # puts "website" in the branch name's one segment, so Vercel builds a
+  # preview for it (website/vercel.json deploys only *website* branches).
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    pull-request-branch-name:
+      separator: "-"
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      website-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]
