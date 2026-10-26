@@ -310,8 +310,10 @@ say), so it lasts only until the machine restarts, and `reason` is why. The key
 is saved and used all the same. The key and the active provider are two writes;
 the answer is `persistent: false` if either fell back, with the first reason.
 Settings shows the launch banner's words for it after Save. The other `set*`
-functions that write to the keychain (`setActiveProvider`, `setBaseUrlFor`,
-`setEffortFor`, `setActiveModel`) answer the same way.
+functions (`setActiveProvider`, `setBaseUrlFor`, `setEffortFor`,
+`setActiveModel`) write the settings file, `provider-settings.json`, not the
+keychain, and answer the same shape; a file is durable, so they answer
+`persistent: true`.
 
 ```typescript
 const { persistent, reason } = await bridge.setApiKeyFor("openrouter", "sk-or-...");
@@ -339,7 +341,7 @@ For `"chatgpt"` there is no key to look for: it answers `true` while the ChatGPT
 
 ### `getKeychainPersistence() → KeychainPersistence`
 
-Whether keys and settings saved now survive a reboot. Always `persistent: true` on macOS and Windows. On Linux they live in the Secret Service (GNOME Keyring, KWallet or KeePassXC), and `persistent: false` means none is running, so they are kept in the kernel keyring until the machine restarts. `reason` is why the Secret Service could not be used. It looks up an account nothing ever stores, so it never raises an unlock prompt.
+Whether a key saved now survives a reboot (settings are in a file and always do). Always `persistent: true` on macOS and Windows. On Linux keys live in the Secret Service (GNOME Keyring, KWallet or KeePassXC), and `persistent: false` means none is running, so they are kept in the kernel keyring until the machine restarts. `reason` is why the Secret Service could not be used. It looks up an account nothing ever stores, so it never raises an unlock prompt.
 
 ```typescript
 interface KeychainPersistence {
@@ -583,9 +585,9 @@ since, or restored before the refusal, is still answered. Pending, like
 
 ### `setActiveModel(provider: ProviderId, model: string) → KeychainPersistence`
 
-Set the active model for a provider. Persisted in the keychain as `<provider>_model` (e.g. `anthropic_model`). Resolves with where the choice was saved, as `setApiKeyFor` does.
+Set the active model for a provider. Persisted in the settings file, `provider-settings.json`, as the provider's `model`. Resolves with where the choice was saved, as `setApiKeyFor` does.
 
-**Throws:** If the keychain refused the write, `"model selected for this session, but could not be saved: …"`: the choice applies until the app closes.
+**Throws:** If the settings could not be written, `"model selected for this session, but could not be saved: …"`: the choice applies until the app closes.
 
 ```typescript
 await bridge.setActiveModel("anthropic", "claude-opus-5-5");

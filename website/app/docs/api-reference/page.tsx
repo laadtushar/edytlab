@@ -115,7 +115,7 @@ const commands = [
       {
         name: "getKeychainPersistence()",
         returns: "KeychainPersistence",
-        desc: "Whether keys and settings saved now survive a reboot. persistent is false on Linux with no Secret Service running, where they are kept in the kernel keyring until restart; reason says why. The setters answer the same shape for the save they just made.",
+        desc: "Whether a key saved now survives a reboot (settings are in a file and always do). persistent is false on Linux with no Secret Service running, where keys are kept in the kernel keyring until restart; reason says why. The setters answer the same shape for the save they just made.",
       },
       {
         name: "clearApiKeyFor(provider)",

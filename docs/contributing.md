@@ -44,7 +44,7 @@ For any change larger than a bug fix, **open an issue first** to discuss the app
 A good bug report includes:
 
 ```markdown
-**edytlab version:** v0.9.1
+**edytlab version:** v0.9.2
 **OS:** macOS 14.3 (arm64)
 **Provider:** Anthropic / claude-sonnet-5-5
 

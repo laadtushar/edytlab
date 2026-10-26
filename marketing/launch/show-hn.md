@@ -77,8 +77,9 @@ telemetry. The website, which is separate, uses Vercel's anonymous analytics
   one-time download of the Whisper base model (about 139 MB) that you start in
   Settings; nothing downloads by itself. It runs on your CPU. I have measured it
   on one short synthetic English recording (twelve words, none wrong, every
-  start within 0.23 s), not on real voices, other languages or noisy audio, so
-  read the words before you cut on them. The audio stays on your computer; the
+  start within 0.22 s) and on about 16 minutes of English audiobook speech
+  (4% to 7% of the words wrong), not on conversation, other languages or noisy
+  audio, so read the words before you cut on them. The audio stays on your computer; the
   words reach your AI provider as a tool result (bounded to 6,000 bytes a call),
   and stay local with Ollama.
 - Builds are unsigned. macOS needs one `xattr` command after you drag the app
@@ -113,7 +114,7 @@ Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
 3. If you do DSP: the vocoder and the limiter are the two places I expect the
    most justified criticism.
 
-Download (unsigned v0.9.1): https://github.com/laadtushar/edytlab/releases/latest
+Download (unsigned v0.9.2): https://github.com/laadtushar/edytlab/releases/latest
 Source: https://github.com/laadtushar/edytlab
 
 ---

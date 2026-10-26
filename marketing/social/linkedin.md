@@ -1,4 +1,4 @@
-# LinkedIn: v0.9.1 and the DJ demo
+# LinkedIn: v0.9.2 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -10,7 +10,7 @@ comment, which you post right after publishing.
 ## Post
 
 ```
-I've released edytlab 0.9.1, a free, open-source desktop audio editor you drive by describing what you want.
+I've released edytlab 0.9.2, a free, open-source desktop audio editor you drive by describing what you want.
 
 The demo is a DJ transition. The request: get both tracks' tempos, time-stretch the incoming track to match, start it 8 bars before the outgoing one ends, crossfade, put a low-pass on the outgoing track, compress and limit the mix, bring it to -14 LUFS, export a WAV. An AI agent turns that into calls to audio tools, step by step. (The recording is 2:45, with sound; the waits for the agent are sped up. In it the agent also points out a spot where the bars land a beat apart.)
 
@@ -22,7 +22,7 @@ Three design choices I'd like feedback on:
 
 3. The time-stretch and pitch-shift are a phase vocoder written for the project, in pure Rust, rather than a bundled C++ library. That keeps the build simple on macOS, Windows and Linux. The cost is that dense material can sound smeared at large changes.
 
-What it can't do yet: stem separation is not built. Transcription, and editing by text, works from v0.8.0 after a one-time download of a speech model; I've only checked it on one short English recording. The builds are unsigned, so macOS and Windows warn on first launch. It's an editor for prepared files, not a live performance tool.
+What it can't do yet: stem separation is not built. Transcription, and editing by text, works from v0.8.0 after a one-time download of a speech model; I've only checked it on a short English recording and about 16 minutes of English audiobook speech. The builds are unsigned, so macOS and Windows warn on first launch. It's an editor for prepared files, not a live performance tool.
 
 If you work with audio, which edit would you ask for first?
 

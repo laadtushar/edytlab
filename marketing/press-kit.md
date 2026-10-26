@@ -31,7 +31,7 @@ github.com/laadtushar/edytlab.
 
 Every line below was checked against the repository or the GitHub release on
 2026-10-22, for v0.7.0 (the Latest version row was updated on 2026-10-25 for
-v0.9.0 and for v0.9.1 (the version and download lines), and the telemetry row on 2026-10-24 for the website's cookie banner; the
+v0.9.0, for v0.9.1 and for v0.9.2 (the version and download lines), and the telemetry row on 2026-10-24 for the website's cookie banner; the
 AI providers, network requests and keys rows describe the ChatGPT sign-in that
 shipped in v0.9.0).
 
@@ -39,7 +39,7 @@ shipped in v0.9.0).
 |---|---|
 | Name | edytlab |
 | What it is | Desktop audio editor driven by an AI agent |
-| Latest version | 0.9.1, published 2026-10-25 |
+| Latest version | 0.9.2, published 2026-10-26 |
 | License | MIT |
 | Repository created | 2026-05-05 |
 | Platforms | macOS (one universal build for Apple Silicon and Intel), Windows 10 and 11, Linux |
@@ -53,7 +53,7 @@ shipped in v0.9.0).
 | Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider; that includes the words a transcription finds (text, a bounded amount per call, never audio), which stay on the computer with Ollama. |
 | Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) and, when enabled, Google Analytics 4 only after a visitor accepts it in the cookie banner (it sets cookies; the footer's Cookie settings link withdraws it) |
 | Other network requests | Besides the AI provider and the hosts you configure (plugins, MCP servers), one download you start: from 0.8.0 (0.7.0 has no Download button), the speech model (Whisper base, about 139 MB) is downloaded from Hugging Face (huggingface.co) when the user clicks Download in Settings. Hugging Face sees the IP address, the file requested and that edytlab (and which version) is asking, never audio. Nothing downloads at launch or from the agent. Transcribing makes no request. From 0.9.0, and only if the user clicks Continue with ChatGPT: the browser goes to auth.openai.com to sign in, and the app then exchanges, renews and (on sign-out) revokes the sign-in with that host and sends the assistant's requests (the same text as for any provider, never audio) to api.openai.com with the user's ChatGPT access token. OpenAI can tie them to the user's ChatGPT account, to edytlab's registration and to the installation's random host ID. Signing out does not disconnect edytlab in ChatGPT; the user does that in ChatGPT settings under Security and login. |
-| Keys | Stored in the operating system's credential store. The ChatGPT plan has no key: its sign-in keeps one refresh token in the same store (slot `chatgpt_refresh_token`) and a small `registration.json` (host ID, OpenAI's client ID for edytlab, the account's email as a label) in the app's config folder. |
+| Keys | Stored in the operating system's credential store. All keys, and the ChatGPT sign-in's token, share one entry of that store, so macOS asks for the login password at most once per launch; the provider, model and base URL are in a settings file in the app's config folder, with no secret in it. The ChatGPT plan has no key: its sign-in keeps one refresh token in that same entry (slot `chatgpt_refresh_token`) and a small `registration.json` (host ID, OpenAI's client ID for edytlab, the account's email as a label) in the app's config folder. |
 | History | Branchable graph of edits with fork, A/B compare and undo |
 | Optional safety | "Plan first" mode shows the agent's steps for approval before they run |
 | Export | WAV, FLAC, MP3 |
@@ -68,7 +68,8 @@ State this plainly if asked.
 - Speech transcription (Whisper base) works from 0.8.0, on the user's computer,
   only after the user downloads the speech model (about 139 MB) in Settings.
   0.7.0 and earlier cannot transcribe. Its accuracy has been checked on one
-  short synthetic English recording, not on a range of voices.
+  short synthetic English recording and about 16 minutes of English audiobook
+  speech (4% to 7% of the words wrong), not on a range of voices or languages.
 - It is an offline editor for files. It is not a live DJ tool and it is not a
   DAW (no MIDI, no VST/CLAP hosting).
 - There is no web or mobile version.

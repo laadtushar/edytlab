@@ -362,8 +362,9 @@ export default function UserGuidePage() {
           <strong>Language.</strong> The model detects it, or ask for one by
           two-letter code (<code>en</code>, <code>de</code>, <code>fr</code>,{" "}
           <code>es</code>). The model is multilingual Whisper base, checked
-          only on a short synthetic English recording, so read the words before
-          you cut on them.
+          only on English: a short synthetic recording and about 16 minutes of
+          audiobook speech, where 4% to 7% of the words were wrong. Read the
+          words before you cut on them.
         </li>
         <li>
           <strong>Speed and Cancel.</strong> A progress strip counts the
@@ -542,6 +543,15 @@ export default function UserGuidePage() {
           <a href="#chatgpt-plan">Using your ChatGPT plan</a> below.
         </li>
       </ul>
+      <p>
+        Your keys, and the ChatGPT sign-in, are kept together in one entry of
+        your OS keychain, so macOS asks for your login password at most once
+        per launch. Your provider, model, base URL and reasoning effort are not
+        secret: they are saved in a small settings file in the app&apos;s
+        config folder, which never holds a key. When you update from an
+        earlier version, your saved keys move into the single entry on the
+        first launch, which may ask once for each old entry.
+      </p>
       <p>
         With Anthropic selected, Settings → Account also has a{" "}
         <strong>Reasoning effort</strong> setting: Default, Low, Medium, High,

@@ -640,7 +640,7 @@ Defined in `apps/desktop/src-tauri/tauri.conf.json`:
 
 App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 ```json
-"version": "0.9.1"
+"version": "0.9.2"
 ```
 
 The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.ts` fails if any drifts. When bumping a version:
@@ -788,7 +788,7 @@ Add `-- --test-threads=1` to serialize tests within each binary, as CI does: tes
 
 On macOS, reading a keychain item the running build was not given access to triggers a system dialog, once for each item. edytlab keeps all its secrets in one item (`secrets`) and reads it once per process, so a launch asks at most once; **Always Allow** keeps it from asking again until the next update (the installers are ad-hoc signed, so each update is a new build, #386). In CI, keychain access is pre-authorized.
 
-The first launch of a build with this layout (#734) also reads the per-slot items an earlier build made (`<provider>_api_key`, `<provider>_model`, `active_provider`, …), and macOS asks once for each that exists: that is the last time. It then writes the `secrets` item and `provider-settings.json`, reads both back and deletes the old items. If it cannot (the keychain refused the write, the config folder is read-only, the Secret Service did not answer), the old items stay, are used as before and the migration is tried again at the next launch; the log says why, without a value. To run it again by hand, delete `provider-settings.json` from the app's config folder while the old items are still there; to start over, delete the `secrets` item too.
+The first launch of v0.9.2 or later (#734) also reads the per-slot items an earlier build made (`<provider>_api_key`, `<provider>_model`, `active_provider`, …), and macOS asks once for each that exists: that is the last time. It then writes the `secrets` item and `provider-settings.json`, reads both back and deletes the old items. If it cannot (the keychain refused the write, the config folder is read-only, the Secret Service did not answer), the old items stay, are used as before and the migration is tried again at the next launch; the log says why, without a value. To run it again by hand, delete `provider-settings.json` from the app's config folder while the old items are still there; to start over, delete the `secrets` item too.
 
 ### Linux: settings gone after a restart, or the "No Secret Service" banner
 
