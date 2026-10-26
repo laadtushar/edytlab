@@ -134,7 +134,7 @@ crates/
   audio-engine/       DSP graph + render
   audio-time/         Time-stretch and pitch-shift primitives
   audio-analysis/     BPM, key, beat-grid, transients
-  recorder/           Microphone capture to WAV (cpal)
+  recorder/           Microphone capture to WAV; recording-latency measurement (cpal)
   memory/             Global and per-project markdown memory for the system prompt
   skills/             User skill library, appended to the prompt when a skill matches
   agent_profiles/     Saved model + tool-whitelist + prompt profiles

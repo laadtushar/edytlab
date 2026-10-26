@@ -1110,6 +1110,13 @@ export interface ToolProgress {
    */
   recording?: boolean;
   remaining_sec?: number;
+  /**
+   * `calibrate_latency` (#203): run `run` of `runs` is about to play its
+   * test sweeps. Not on the progress strip's allow-list; the Audio tab's
+   * row reads it for itself.
+   */
+  run?: number;
+  runs?: number;
 }
 
 export const onToolProgress = (
@@ -1471,6 +1478,77 @@ export const startRecording = (): Promise<string> =>
 
 export const stopRecording = (outputPath: string): Promise<RecordingResult> =>
   invoke<RecordingResult>("stop_recording", { outputPath });
+
+// -----------------------------------------------------------------------------
+// Recording latency (#203)
+// -----------------------------------------------------------------------------
+
+/** The default speakers and microphone, by name and rate. */
+export interface RecordingDevices {
+  /** The audio system (ALSA, CoreAudio, WASAPI, …). */
+  host: string;
+  output: string;
+  input: string;
+  out_sr: number;
+  in_sr: number;
+}
+
+/** The delay kept for a pair of devices. */
+export interface StoredLatency {
+  latency_ms: number;
+  /** How far apart the measurements were; absent for a typed value. */
+  spread_ms?: number;
+  /** Seconds since the Unix epoch. */
+  measured_at: number;
+  source: "measured" | "manual";
+}
+
+export interface RecordingLatency {
+  /** `null` when the machine has no speakers or no microphone. */
+  devices: RecordingDevices | null;
+  /** Why `devices` is null. */
+  problem: string | null;
+  /** `null` until it has been measured for these devices. */
+  latency: StoredLatency | null;
+}
+
+export type CalibrationResult =
+  | { cancelled: true }
+  | {
+      cancelled: false;
+      devices: RecordingDevices;
+      latency: StoredLatency;
+      sweeps_heard: number;
+      runs: number;
+    };
+
+/**
+ * The latency kept for the current default speakers and microphone. Plays
+ * and records nothing.
+ */
+export const getRecordingLatency = (): Promise<RecordingLatency> =>
+  invoke<RecordingLatency>("get_recording_latency");
+
+/**
+ * Measure the round trip of the default speakers and microphone with test
+ * sweeps, and keep it for that pair (#203). Takes about ten seconds and
+ * makes noise. Rejects, with a reason to act on, when the sweeps are not
+ * all heard or do not agree to within a millisecond, or when the default
+ * devices cannot be named; resolves `{ cancelled: true }` when
+ * `cancelRecordingLatency` stopped it. Progress
+ * (`kind: "calibrate_latency"`, `run`, `runs`) arrives on `onToolProgress`.
+ */
+export const calibrateRecordingLatency = (): Promise<CalibrationResult> =>
+  invoke<CalibrationResult>("calibrate_recording_latency");
+
+/**
+ * Stop the running latency measurement at its next checkpoint. Its own
+ * command: `cancelLongRunningTool` is the agent's batch and the timer's
+ * Cancel, and neither stops the other. Resolves at once, also when nothing
+ * is running; the measurement's own promise settles when it has stopped.
+ */
+export const cancelRecordingLatency = (): Promise<void> =>
+  invoke("cancel_recording_latency");
 
 // -----------------------------------------------------------------------------
 // Bundled skills install (Task 2)
