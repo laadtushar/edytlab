@@ -47,8 +47,7 @@ fn synthesize_digit(
     column_hz: f64,
     ramp_frames: usize,
 ) {
-    let row_increment = std::f64::consts::TAU * row_hz / sample_rate as f64;
-    let column_increment = std::f64::consts::TAU * column_hz / sample_rate as f64;
+    let rate = sample_rate as f64;
     for frame in 0..frames {
         let fade_in = if ramp_frames == 0 {
             1.0
@@ -62,8 +61,10 @@ fn synthesize_digit(
             (remaining as f64 / ramp_frames as f64).min(1.0)
         };
         let envelope = fade_in.min(fade_out);
-        let row = (row_increment * frame as f64).sin();
-        let column = (column_increment * frame as f64).sin();
+        // Phase in cycles, reduced before the sine, so the result depends
+        // less on the platform's libm at large arguments.
+        let row = (std::f64::consts::TAU * (row_hz * frame as f64 / rate).fract()).sin();
+        let column = (std::f64::consts::TAU * (column_hz * frame as f64 / rate).fract()).sin();
         output.push(((row + column) * (amplitude * 0.5) * envelope) as f32);
     }
 }
@@ -90,20 +91,24 @@ impl Tool for GenerateDtmfTool {
                         "type": "number",
                         "minimum": MIN_TONE_DURATION_SEC,
                         "default": DEFAULT_TONE_DURATION_SEC,
-                        "description": "Duration of each tone in seconds (minimum 40 ms)"
+                        "description": "Duration of each tone in seconds (minimum 40 ms; total up to 600 s, less above 96 kHz)"
                     },
                     "gap_duration_sec": {
                         "type": "number",
+                        "minimum": 0,
                         "default": DEFAULT_GAP_DURATION_SEC,
-                        "description": "Silence between tones, in seconds"
+                        "description": "Silence between tones, in seconds (0 for none)"
                     },
                     "amplitude": {
                         "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
                         "default": DEFAULT_AMPLITUDE,
                         "description": "Peak combined tone amplitude from 0 to 1"
                     }
                 },
-                "required": ["digits"]
+                "required": ["digits"],
+                "additionalProperties": false
             }),
         )
     }
@@ -161,14 +166,9 @@ impl Tool for GenerateDtmfTool {
             Ok(frames) => frames,
             Err(error) => return Ok(ToolResult::Error(error)),
         };
-        let gap_frames = if gap_duration == 0.0 {
-            0
-        } else {
-            match frame_count(sample_rate, gap_duration) {
-                Ok(frames) => frames,
-                Err(error) => return Ok(ToolResult::Error(error)),
-            }
-        };
+        // A gap that rounds to no frames is no gap; the total below is
+        // bounded by the 600 s check.
+        let gap_frames = (f64::from(sample_rate) * gap_duration).round() as usize;
         if [697.0, 770.0, 852.0, 941.0, 1209.0, 1336.0, 1477.0, 1633.0]
             .iter()
             .any(|&frequency| frequency >= sample_rate as f64 / 2.0)
@@ -226,7 +226,9 @@ impl Tool for GenerateDtmfTool {
             }
         }
 
-        let name = format!("DTMF {}", digits.iter().collect::<String>());
+        let shown: String = digits.iter().take(32).collect();
+        let more = if digits.len() > 32 { "…" } else { "" };
+        let name = format!("DTMF {shown}{more}");
         let action = format!("generate_dtmf {} digits", digits.len());
         append_generated(ctx, state, samples, name, action)
     }

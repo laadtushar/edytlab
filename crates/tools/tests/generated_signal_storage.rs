@@ -64,7 +64,7 @@ fn generated_audio_is_content_addressed_reused_and_renderable() {
             "{name}"
         );
         assert_eq!(
-            std::fs::read_dir(tools::derived_dir(directory.path()))
+            std::fs::read_dir(directory.path().join("generated"))
                 .unwrap()
                 .count(),
             1
@@ -115,7 +115,7 @@ fn a_publication_failure_does_not_create_a_session_head() {
         let mut store = session::Store::open(directory.path()).unwrap();
         let mut engine = audio_engine::Engine::new();
         let mut clipboard = None;
-        std::fs::write(tools::derived_dir(directory.path()), b"not a directory").unwrap();
+        std::fs::write(directory.path().join("generated"), b"not a directory").unwrap();
         let result = ToolDispatcher::default_dispatcher()
             .invoke(
                 name,
@@ -169,7 +169,7 @@ fn staged_dispatch_publishes_the_generated_track_and_reports_its_committed_head(
 }
 
 #[test]
-fn a_discarded_staged_generation_is_reclaimed_only_after_the_run_finishes() {
+fn a_discarded_staged_generation_leaves_its_file_in_the_unswept_generated_folder() {
     for (name, args) in generators() {
         let directory = tempfile::tempdir().unwrap();
         let store = session::Store::open(directory.path()).unwrap();
@@ -191,29 +191,25 @@ fn a_discarded_staged_generation_is_reclaimed_only_after_the_run_finishes() {
             .unwrap();
         assert!(matches!(result, ToolResult::Ok(_)), "{name}: {result:?}");
         let state = staged.get(staged.head().unwrap()).unwrap().state;
-        let path = &state.tracks[0].clips[0].source_path;
-        assert!(path.is_file(), "{name}");
-        let report = tools::reclaim::sweep_orphans(&store).unwrap();
-        assert_eq!(report.removed_files, 0, "{name}");
+        let path = state.tracks[0].clips[0].source_path.clone();
         assert!(
-            path.is_file(),
-            "a running tool still needs its output: {name}"
+            path.starts_with(directory.path().join("generated")),
+            "{name}"
         );
-
+        assert!(path.is_file(), "{name}");
         // Shared::dispatch discards precisely this staged store on a head race.
         drop(staged);
         assert!(store.head().is_none(), "{name}");
-        let report = tools::reclaim::sweep_orphans(&store).unwrap();
-        assert_eq!(report.removed_orphans, 1, "{name}");
+        tools::reclaim::sweep_orphans(&store).unwrap();
         assert!(
-            !path.exists(),
-            "the discarded output is reclaimable: {name}"
+            path.is_file(),
+            "generated/ is never swept, as for tone and noise: {name}"
         );
     }
 }
 
 #[test]
-fn committed_generated_audio_can_be_reclaimed_and_rebuilt_for_undo_byte_exactly() {
+fn committed_generated_audio_is_never_reclaimed() {
     for (name, args) in generators() {
         let directory = tempfile::tempdir().unwrap();
         let mut store = session::Store::open(directory.path()).unwrap();
@@ -237,18 +233,11 @@ fn committed_generated_audio_can_be_reclaimed_and_rebuilt_for_undo_byte_exactly(
             assert!(matches!(result, ToolResult::Ok(_)), "{tool}: {result:?}");
         }
         let head = store.get(store.head().unwrap()).unwrap();
-        assert!(head.state.tracks.is_empty(), "{name}");
         let generated = store.get(head.parent.unwrap()).unwrap();
         let path = &generated.state.tracks[0].clips[0].source_path;
         let original = std::fs::read(path).unwrap();
-        let report = tools::reclaim::sweep(&store, 0).unwrap();
-        assert_eq!(report.removed_files, 1, "{name}: {report:?}");
-        assert!(
-            !path.exists(),
-            "the verified replay permits reclamation: {name}"
-        );
-        tools::rederive::materialize(&store, generated.id).unwrap();
+        tools::reclaim::sweep(&store, 0).unwrap();
+        assert!(path.is_file(), "an undo state's audio is kept: {name}");
         assert_eq!(std::fs::read(path).unwrap(), original, "{name}");
-        assert!(audio_decoder::decode_file(path).is_ok(), "{name}");
     }
 }

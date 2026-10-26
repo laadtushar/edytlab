@@ -167,9 +167,9 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // that and no more. #168 then added `diarize` (who speaks when), whose
 // descriptor is 1,304 B (65,482 B to 66,786 B). It went up by that and no more.
 // #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`:
-// 2,659 B (66,786 B to 69,445 B), with the 14 B of headroom kept.
+// 2,875 B (66,786 B to 69,661 B), with the 14 B of headroom kept.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 69_459; // measured 69,445 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,659 B)
+const FULL_TOOLS_MAX_BYTES: usize = 69_675; // measured 69,661 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -733,7 +733,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_593; // measured 72,575 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,752 B)
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_809; // measured 72,791 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

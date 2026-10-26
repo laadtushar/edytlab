@@ -34,14 +34,14 @@ impl Tool for GenerateClickTrackTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "generate_click_track",
-            "Generate a percussive click track. Supply a BPM or a track to detect tempo from. Give exactly one of bars or duration_sec; duration_sec includes offset_sec. Downbeats are accented every beats_per_bar beats. Returns the new track index. BPM must be positive and at most 6000; clip length is at most 600 seconds.",
+            "Generate a percussive click track. Supply a BPM or a track to detect tempo from, not both. Give exactly one of bars or duration_sec; duration_sec includes offset_sec. Downbeats are accented every beats_per_bar beats. Returns the new track index. BPM must be positive and at most 6000; clip length is at most 600 seconds (less above 96 kHz).",
             json!({
                 "type": "object",
                 "properties": {
-                    "bpm": { "type": "number", "description": "Explicit tempo in beats per minute; takes precedence over track." },
+                    "bpm": { "type": "number", "description": "Explicit tempo in beats per minute; give either bpm or track, not both." },
                     "track": { "type": "integer", "description": "Track index to measure tempo from when bpm is absent." },
                     "bars": { "type": "integer", "description": "Number of bars to generate (positive)." },
-                    "duration_sec": { "type": "number", "description": "Total clip duration including the offset (seconds, >0 and <=600)." },
+                    "duration_sec": { "type": "number", "description": "Total clip duration including the offset (seconds, >0 and <=600, less above 96 kHz)." },
                     "beats_per_bar": { "type": "integer", "default": 4, "description": "Beats in each bar, 1..32." },
                     "offset_sec": { "type": "number", "default": 0, "description": "Initial silence before the first click, in seconds." },
                     "amplitude": { "type": "number", "default": 0.5, "description": "Downbeat peak amplitude, 0..1." }
@@ -85,6 +85,9 @@ impl Tool for GenerateClickTrackTool {
         }
         if args.bars == Some(0) {
             return Ok(ToolResult::Error("bars must be positive".into()));
+        }
+        if args.bpm.is_some() && args.track.is_some() {
+            return Ok(ToolResult::Error("give bpm or track, not both".into()));
         }
         let state = match load_head_state_or_empty(ctx) {
             Ok(state) => state,
@@ -185,7 +188,8 @@ impl Tool for GenerateClickTrackTool {
             };
             for i in 0..pulse_frames.min(frames - start) {
                 let envelope = (1.0 - i as f64 / pulse_frames as f64).powi(2);
-                let click = (std::f64::consts::TAU * 1_200.0 * i as f64 / rate).cos();
+                let cycles = (1_200.0 * i as f64 / rate).fract();
+                let click = (std::f64::consts::TAU * cycles).cos();
                 samples[start + i] = (peak * envelope * click) as f32;
             }
             beat += 1;

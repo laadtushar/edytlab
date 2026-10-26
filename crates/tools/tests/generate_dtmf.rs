@@ -259,3 +259,19 @@ fn invalid_inputs_return_errors_without_changing_the_head() {
     }
     assert_eq!(project.store.head(), Some(before));
 }
+
+#[test]
+fn long_digit_strings_are_truncated_in_the_name_and_a_tiny_gap_is_none() {
+    let mut p = Project::empty();
+    let digits = "1234567890".repeat(4);
+    p.ok(json!({ "digits": digits, "tone_duration_sec": 0.04, "gap_duration_sec": 0.000001 }));
+    let state = p.state();
+    assert_eq!(state.tracks[0].name, format!("DTMF {}…", &digits[..32]));
+    let rate = u64::from(state.sample_rate);
+    let tone = (rate as f64 * 0.04).round() as u64;
+    assert_eq!(
+        state.tracks[0].clips[0].length,
+        tone * 40,
+        "the gap rounds to zero frames"
+    );
+}

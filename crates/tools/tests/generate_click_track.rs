@@ -178,11 +178,14 @@ fn track_tempo_uses_the_same_analysis_as_analyze_track() {
     assert_eq!(result["track_index"], 1);
     assert_onsets(&p.samples(1), 44_100, bpm, 0.0, 8);
     let before = p.store.head();
-    p.ok(
+    let ToolResult::Error(error) = p.call(
         "generate_click_track",
-        json!({ "bpm": 100, "track": 99, "bars": 1 }),
-    );
-    assert_ne!(p.store.head(), before, "explicit BPM takes precedence");
+        json!({ "bpm": 100, "track": 0, "bars": 1 }),
+    ) else {
+        panic!("bpm with track must be refused");
+    };
+    assert!(error.contains("not both"), "{error}");
+    assert_eq!(p.store.head(), before, "bpm with track is refused");
 }
 
 #[test]

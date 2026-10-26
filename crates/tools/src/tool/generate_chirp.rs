@@ -74,7 +74,7 @@ fn synthesize_chirp(
                 },
                 _ => start_frequency_hz * t + delta_frequency * t * t / (2.0 * duration_sec),
             };
-            (std::f64::consts::TAU * phase_cycles).sin() as f32 * amplitude as f32
+            (std::f64::consts::TAU * phase_cycles.fract()).sin() as f32 * amplitude as f32
         })
         .collect()
 }
@@ -107,7 +107,7 @@ impl Tool for GenerateChirpTool {
                         "type": "number",
                         "exclusiveMinimum": 0,
                         "maximum": MAX_DURATION_SEC,
-                        "description": "Sweep duration in seconds (maximum 600); sample count rounds to the nearest frame"
+                        "description": "Sweep duration in seconds (max 600, less above 96 kHz); sample count rounds to the nearest frame"
                     },
                     "amplitude": {
                         "type": "number",
@@ -123,7 +123,8 @@ impl Tool for GenerateChirpTool {
                         "description": "Sweep shape"
                     }
                 },
-                "required": ["start_frequency_hz", "end_frequency_hz", "duration_sec"]
+                "required": ["start_frequency_hz", "end_frequency_hz", "duration_sec"],
+                "additionalProperties": false
             }),
         )
     }

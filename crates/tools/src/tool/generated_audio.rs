@@ -1,11 +1,12 @@
 //! Publication shared by the signal generators (#770).
 //!
 //! The file is complete before the session can refer to it, and float WAV
-//! preserves the exact samples used in its content-addressed name.
-//! Keep it in the derived store so a discarded staged run leaves an orphan
-//! the existing reclaimer can collect. Committed audio follows the same
-//! policy as other derived files: keep the current head and verify a replay
-//! before reclaiming anything undo history needs.
+//! preserves the exact samples used in its content-addressed name
+//! (`provenance::audio_hash`). Like `generate_tone` and `generate_noise`, it
+//! goes in the project's `generated/` folder, which no sweep reclaims: a
+//! replay on another OS can compute different samples (libm differences) and
+//! so a different name, so the file must never be rebuilt from its op. A run
+//! that is discarded after a lost race leaves its file there, as theirs does.
 
 use std::path::{Path, PathBuf};
 
@@ -19,6 +20,7 @@ pub(super) const MAX_DURATION_SEC: f64 = 600.0;
 
 // Ten minutes at 96 kHz: bound the allocation even if the session carries an
 // unusually high sample rate. This is at most about 220 MiB of mono samples.
+// So the 600 s limit shrinks above 96 kHz.
 const MAX_FRAMES: usize = 57_600_000;
 
 pub(super) fn frame_count(sample_rate: u32, duration_sec: f64) -> Result<usize, String> {
@@ -31,9 +33,12 @@ pub(super) fn frame_count(sample_rate: u32, duration_sec: f64) -> Result<usize, 
         ));
     }
     let frames = (sample_rate as f64 * duration_sec).round();
-    if frames < 1.0 || frames > MAX_FRAMES as f64 {
+    if frames < 1.0 {
+        return Err("duration is too short: it rounds to zero frames at this sample rate".into());
+    }
+    if frames > MAX_FRAMES as f64 {
         return Err(format!(
-            "generated audio must contain between 1 and {MAX_FRAMES} frames; reduce the duration"
+            "generated audio is limited to {MAX_FRAMES} frames (600 s at 96 kHz, less above that rate)"
         ));
     }
     Ok(frames as usize)
@@ -52,12 +57,13 @@ fn publish(samples: &[f32], sample_rate: u32, directory: &Path) -> Result<PathBu
         .map_err(|e| format!("could not prepare generated audio: {e}"))?;
     audio_engine::write_wav_f32(samples, sample_rate, 1, temporary.path())
         .map_err(|e| format!("write_wav failed: {e}"))?;
-    match temporary.persist_noclobber(&path) {
-        Ok(_) => Ok(path),
-        // An identical concurrent generation may have published first.
-        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists && path.is_file() => Ok(path),
-        Err(e) => Err(format!("could not publish generated audio: {}", e.error)),
-    }
+    // Content-addressed: a concurrent identical generation writes the same
+    // bytes, so a plain atomic rename is safe (and portable, unlike the
+    // exclusive form).
+    temporary
+        .persist(&path)
+        .map(|_| path)
+        .map_err(|e| format!("could not publish generated audio: {}", e.error))
 }
 
 pub(super) fn append_generated(
@@ -80,7 +86,7 @@ pub(super) fn append_generated(
     let path = match publish(
         &samples,
         state.sample_rate,
-        &crate::provenance::derived_dir(ctx.store.project_dir()),
+        &ctx.store.project_dir().join("generated"),
     ) {
         Ok(path) => path,
         Err(error) => return Ok(ToolResult::Error(error)),
