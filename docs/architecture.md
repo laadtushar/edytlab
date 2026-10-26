@@ -1,7 +1,10 @@
-# edytlab — System Architecture
+---
+title: "System architecture"
+description: "Workspace layout, the AI subsystem, tool dispatch, the session graph, the audio engine, IPC and the security model."
+---
 
 > **Audience:** Engineers contributing to the core, extending the tool surface, or adding LLM providers.
-> For a product-level overview start with the [root README](../README.md).
+> For a product-level overview start with the [root README](https://github.com/laadtushar/edytlab#readme).
 
 ---
 
@@ -645,7 +648,7 @@ pub fn persistence() -> Persistence                              // Durable | Se
 pub fn set_settings_dir(dir: PathBuf) -> bool                    // once, at startup; absolute path only
 ```
 
-Two homes (#734, [ADR 0009](adr/0009-settings-and-secrets-storage.md)). **Secrets** are one keychain item, account `secrets`, whose value is a JSON object from slot name to value: `<provider>_api_key` per hosted provider (`anthropic_api_key`, `openrouter_api_key`, …) and `chatgpt_refresh_token`. It is read once per process and cached; a save or a delete updates the item and the cache together under one lock, so a key save and a ChatGPT token refresh cannot lose each other. **Settings** are a JSON file, `provider-settings.json`, in the directory the app registers with `set_settings_dir` (the app config directory), written as a temporary file renamed over the old one and never holding a secret:
+Two homes (#734, [ADR 0009](./adr/0009-settings-and-secrets-storage.md)). **Secrets** are one keychain item, account `secrets`, whose value is a JSON object from slot name to value: `<provider>_api_key` per hosted provider (`anthropic_api_key`, `openrouter_api_key`, …) and `chatgpt_refresh_token`. It is read once per process and cached; a save or a delete updates the item and the cache together under one lock, so a key save and a ChatGPT token refresh cannot lose each other. **Settings** are a JSON file, `provider-settings.json`, in the directory the app registers with `set_settings_dir` (the app config directory), written as a temporary file renamed over the old one and never holding a secret:
 
 ```json
 { "version": 1,
@@ -1098,7 +1101,7 @@ Measured by hand against the real model (`crates/ml-whisper/tests/transcribe_kno
 - The result is a bounded listing (6,000 bytes): `[text, start_sec, end_sec]` per word if they fit, else sentence-sized segments with `from_word`/`to_word`, and it never carries a local path. It goes to the model provider like any tool result.
 - Four problems answer with a marker the window turns into a card (`[speech_model_not_downloaded]`, `[onnx_runtime_unavailable]`, `[speech_model_damaged]`, `[speech_model_path_invalid]`; `agent_loop::extract_error_view` makes a `ToolView::SpeechSetup` from the start of the error, since the window is never sent a tool's error text), each saying what the user does and that the agent does nothing itself.
 
-Measured through the tool on the real model (release build, a shared four-core machine; `transcribe_end_to_end.rs`): the twelve known words with 0 wrong and every start within 0.23 s; 7 s of audio in 2.5 to 3.3 s the first time, which includes loading the model, and 3 to 6 ms the second, from the cache; `models::cached` takes 0.7 to 0.9 s to hash the 139 MB and then remembers a verified model by each file's size and modified time, so a repeat call is free; a Cancel lands in 0.4 to 1.3 s. That is one synthetic voice: it says the path works, not how accurate Whisper base is on hard audio.
+Measured through the tool on the real model (release build, a shared four-core machine; `transcribe_end_to_end.rs`): the twelve known words with 0 wrong and every start within 0.22 s; 7 s of audio in 2.1 to 3.3 s the first time, which includes loading the model, and 3 to 6 ms the second, from the cache; `models::cached` takes 0.7 to 0.9 s to hash the 139 MB and then remembers a verified model by each file's size and modified time, so a repeat call is free; a Cancel lands in 0.4 to 1.3 s. That is one synthetic voice: it says the path works, not how accurate Whisper base is on hard audio.
 
 Tested without a model in CI (`transcribe_tool.rs`, `transcribe_off_lock.rs`, `transcribe_progress.rs`, `transcribe_then_edit.rs`, and the `ai` and frontend tests), and on the real model by `crates/tools/tests/transcribe_end_to_end.rs` (`#[ignore]`d).
 
@@ -1395,7 +1398,7 @@ No per-provider keychain code is needed: the slots are keyed by provider id (`<i
 2. Return the tool descriptor, including the JSON schema for the input, from `schema()`
 3. Register it in `ToolDispatcher::default_dispatcher()` in `crates/tools/src/dispatcher.rs`
 4. Tests: cover happy path, invalid input, edge cases (empty session, out-of-range times)
-5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/app/docs/tools/page.tsx` — both are checked by tests
+5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/lib/docs/tools-data.ts` — both are checked by tests
 6. Nothing to do for local models: Ollama is sent a core of common tools plus the ones a message names, so a new tool reaches it by being named, and is listed by name in the system prompt until then (a test checks that every permitted tool is sent or listed). If it is an edit a small model should see without being asked, add it to `SLIM_CORE_TOOLS` in `crates/ai/src/tool_selection.rs`; a test holds the core's compacted size within its budget. If people will ask for it in words that are not in its name ("less harsh" for `de_esser`), add a `Cue` there; the three phrasings in `request_size.rs` show how
 
 ### Adding a Skill

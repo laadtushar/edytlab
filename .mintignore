@@ -1,0 +1,17 @@
+# Mintlify publishes only what is allowed here. Everything else is removed from the site.
+# A new published doc: allow it below, and add it to docs.json "navigation".
+/*
+!/docs.json
+!/docs/
+!/GLOSSARY.md
+
+# Inside docs/: internal material stays private.
+/docs/superpowers/
+/docs/specs/
+/docs/brand/
+/docs/saas-evaluation.md
+/docs/HANDOVER.md
+/docs/README.md
+
+# Not listed here on purpose: docs/contributing.md and docs/adr/README.md. Mintlify never
+# publishes a markdown file named README, CONTRIBUTING, LICENSE or CONTRIBUTE, whatever this file says.

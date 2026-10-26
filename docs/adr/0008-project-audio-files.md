@@ -1,4 +1,7 @@
-# 0008. The project's own audio files are one content-addressed store
+---
+title: "0008. The project's own audio files are one content-addressed store"
+sidebarTitle: "0008 Project audio files"
+---
 
 Status: Accepted, deferred until the stem writers (#385) need it, or a quiet period with no
 data-loss fixes in flight.

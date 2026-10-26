@@ -197,13 +197,13 @@ const DAYS = [
     id: "prep", title: "Before Tue 27 Oct (this weekend and Monday)",
     note: "From calendar.md, README.md (\"Before the first post\") and issue #728, step 0 and 1.",
     items: [
-      ["prep-install", "Install v0.9.1 on one machine per OS you will claim (not v0.9.0: its first message after Continue with ChatGPT failed). Check the macOS xattr step in the release notes works as written.", {}],
-      ["prep-chatgpt", "Sign in with a real ChatGPT plan on v0.9.1 and send a message before any post that names the ChatGPT plan. (Recorded as working on a Plus account in #727.)", {}],
+      ["prep-install", "Install v0.9.2 on one machine per OS you will claim (not v0.9.0: its first message after Continue with ChatGPT failed). Check the macOS xattr step in the release notes works as written.", {}],
+      ["prep-chatgpt", "Sign in with a real ChatGPT plan on v0.9.2 and send a message before any post that names the ChatGPT plan. (Recorded as working on a Plus account in #727.)", {}],
       ["prep-accounts", "Decide which accounts exist and are yours to post on: LinkedIn Showcase page, X, Instagram, TikTok, YouTube, Bluesky, Threads, Facebook, Pinterest, Reddit, Hacker News, Product Hunt.", {}],
       ["prep-media", "Download the videos and images you need into one folder, and play each video once.", { jump: "videos" }],
       ["prep-youtube", "Upload launch-video.mp4 to YouTube with the theme 1 YouTube title and description. Product Hunt takes video as a YouTube link only.", { jump: "cap-1-youtube", links: [vid("launch-video")] }],
       ["prep-ph-account", "Create the Product Hunt maker account and read the live submission form (limits and topic names change).", { jump: "dest-ph" }],
-      ["prep-ph-gallery", "Make the Product Hunt gallery: five images of 1280x720 (themes 1, 2, 3, 5, 4) or screenshots from the running v0.9.1 app at 1280x776.", { jump: "ph-gallery" }],
+      ["prep-ph-gallery", "Make the Product Hunt gallery: five images of 1280x720 (themes 1, 2, 3, 5, 4) or screenshots from the running v0.9.2 app at 1280x776.", { jump: "ph-gallery" }],
       ["prep-claude-line", "Decide the Claude Code disclosure (LinkedIn post 3, Show HN, r/rust and r/opensource include it; the kit says keep it).", {}],
       ["prep-gfi", "Label two small issues good first issue, so LinkedIn post 5 and r/opensource can name real ones (or edit that paragraph).", {}],
       ["prep-rules", "Read the sidebars of r/rust, r/LocalLLaMA, r/DJs, r/opensource, r/edmproduction and r/WeAreTheMusicMakers. Drop or move any post a sub forbids.", { jump: "rd-rules" }],
@@ -335,7 +335,7 @@ ${h3("Gallery plan", "ph-gallery")}
 <h4>Option A: the theme images at 1280x720, in this order</h4>
 <div class="gal">${galleryOptionA}</div>
 <p class="sub">Keep the "Real app, real Claude" labels. Put the launch video's YouTube link in the video slot. Expect a little letterboxing: none of the images is exactly 1270x760.</p>
-<h4>Option B: capture from the running v0.9.1 app (1280x776), as product-hunt.md plans</h4>
+<h4>Option B: capture from the running v0.9.2 app (1280x776), as product-hunt.md plans</h4>
 ${table(gal)}
 <h4>Topics</h4>${ul(topics)}
 <h4>Launch-day notes</h4>${ul(notes)}</div>`;
@@ -359,7 +359,7 @@ function hnHtml() {
     return ls.slice(a + 1, b).join("\n").trim();
   })();
   const altQa = tableRows(section("launch/show-hn.md", /^Questions/));
-  return `<div class="dest" id="dest-hn">${h3("Show HN")}${sourceNote("social-kit/more.md", "(section 6, refreshed for v0.9.1), with launch/show-hn.md as the alternate")}
+  return `<div class="dest" id="dest-hn">${h3("Show HN")}${sourceNote("social-kit/more.md", "(section 6, refreshed for v0.9.2), with launch/show-hn.md as the alternate")}
 <div class="note info"><strong>Where it goes:</strong> submit ${ext("https://edytlab.com", "https://edytlab.com")} with no UTM, at <strong>12:00 UTC</strong>. Post the first comment as soon as it is up and stay for several hours. Never on the same day as a Reddit post. Do not ask anyone to upvote.</div>
 ${titles.map((t, i) => card("hn-title-" + (i === titles.indexOf(REC) ? 0 : i + 1), "Title" + (t === REC ? "" : " option"), t, { limit: 80, badge: t === REC ? "recommended" : "" })).join("")}
 ${card("hn-comment", "First comment (post it yourself, right after submitting)", first, { nolimit: true })}
@@ -430,7 +430,7 @@ ${card("li-6-comment", "L6: first comment", com6, { limit: 1250, badge: "derived
   // alternate post
   const alt = pick(LIA, { h2: /^Post/ });
   const altc = pick(LIA, { h2: /^First comment/ });
-  out += `<details class="alt"><summary>Alternate: the single v0.9.1 DJ-demo post (social/linkedin.md)</summary>${card("lia-post", "Alternate post: v0.9.1 and the DJ demo", alt, { limit: 3000, badge: "alternate" })}${card("lia-comment", "Alternate post: first comment", altc, { limit: 1250, badge: "alternate" })}<p class="sub">Not in the L1 to L6 schedule. Use it only instead of one of those, never as well (no text is posted twice).</p></details>`;
+  out += `<details class="alt"><summary>Alternate: the single v0.9.2 DJ-demo post (social/linkedin.md)</summary>${card("lia-post", "Alternate post: v0.9.2 and the DJ demo", alt, { limit: 3000, badge: "alternate" })}${card("lia-comment", "Alternate post: first comment", altc, { limit: 1250, badge: "alternate" })}<p class="sub">Not in the L1 to L6 schedule. Use it only instead of one of those, never as well (no text is posted twice).</p></details>`;
   return `<div class="dest" id="dest-linkedin">${h3("LinkedIn page")}${sourceNote("social-kit/linkedin-posts.md", "(posts 1 to 5) and social-kit/images/captions.md (L6). Times are from issue #728.")}${out}</div>`;
 }
 
@@ -443,7 +443,7 @@ function xHtml() {
   let alt = "";
   for (let i = 1; i <= 8; i++) alt += card(`xa-${i}`, `Alternate thread: post ${i} of 8`, pick(XT, { label: new RegExp("^" + i + "/8") }), { limit: 280, mode: "x", badge: i === 1 ? "attach the 2:45 DJ demo" : "" });
   return `<div class="dest" id="dest-x">${h3("X thread")}${sourceNote("social-kit/more.md", "(section 1). Each post is counted against 280, and a link counts as 23. The theme captions for X are under Images.")}${out}
-<details class="alt"><summary>Alternate: the 8-post thread built around the v0.9.1 release (social/x-thread.md)</summary>${alt}<p class="sub">Use one thread or the other, not both. Check its post 6 against the latest release notes before posting.</p></details></div>`;
+<details class="alt"><summary>Alternate: the 8-post thread built around the v0.9.2 release (social/x-thread.md)</summary>${alt}<p class="sub">Use one thread or the other, not both. Check its post 6 against the latest release notes before posting.</p></details></div>`;
 }
 
 // --- Instagram / TikTok / Shorts / YouTube
@@ -662,7 +662,7 @@ function build() {
 ${css}</style>
 <div class="wrap">
 <header>
-<p class="eyebrow">edytlab / launch kit / v0.9.1</p>
+<p class="eyebrow">edytlab / launch kit / v0.9.2</p>
 <h1>Launch edytlab with <span>real footage</span>.</h1>
 <p class="lede">Every post, image and video for the relaunch, and the checklist to run it, in one place. Each text has a copy button and a count against its platform's limit. Nothing here posts anywhere by itself, and nobody is asked to upvote, star or share.</p>
 <div class="facts" aria-label="Facts every post respects"><span>Free and open source (MIT)</span><span>macOS, Windows, Linux</span><span>94 tools</span><span>6 API providers plus your ChatGPT plan</span><span>Unsigned installers</span><span>Audio never uploaded</span><span>No stem separation yet</span></div>

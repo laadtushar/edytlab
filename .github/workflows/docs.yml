@@ -1,0 +1,61 @@
+name: Docs
+
+# Checks the Mintlify site that publishes docs/ (docs.json and .mintignore at the
+# repo root, see CLAUDE.md): `mint validate` fails on any warning, including a
+# markdown file that does not parse as MDX, and `mint broken-links` checks every
+# link between the published pages.
+#
+# Why this is its own workflow and not a job in ci.yml: auto-release.yml tags a dev
+# release only when the run named "CI" succeeds on a push to main. A docs problem
+# must never be able to turn that run red and skip a release, so this workflow is
+# named "Docs" and nothing waits on it. Do not make it a required status check: a PR
+# the path filter skips would wait on it forever.
+#
+# The version of `mint` is pinned. Bump it on purpose: a new release can add a
+# warning, and `validate` fails on warnings.
+on:
+  pull_request:
+    paths:
+      - docs/**
+      - docs.json
+      - .mintignore
+      - GLOSSARY.md
+      - .github/workflows/docs.yml
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - docs.json
+      - .mintignore
+      - GLOSSARY.md
+      - .github/workflows/docs.yml
+
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  mintlify:
+    name: mintlify (validate, broken links)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+
+      # Installed with --ignore-scripts so no dependency's install script runs on
+      # the runner (`npx` would run them); mint needs none to validate.
+      - name: Install mint
+        run: npm install --global --ignore-scripts --no-audit --no-fund mint@4.2.1126
+
+      - name: mint validate
+        run: mint validate
+
+      - name: mint broken-links
+        run: mint broken-links

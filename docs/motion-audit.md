@@ -1,4 +1,7 @@
-# Motion audit — the desktop app
+---
+title: "Motion audit"
+description: "The bar a piece of motion has to clear in the desktop app, and a verdict on every component."
+---
 
 Phase one of #211. The deliverable is the verdict on every component,
 including the ones that should stay still, because "add some animation"

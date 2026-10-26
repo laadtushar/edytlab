@@ -183,7 +183,8 @@ that is what the category promises.
 > words, or have the "um"s found (it reports first and changes nothing until you
 > say so). Audio never leaves your computer, but the words go to your AI
 > provider as text, unless you use Ollama. What I can't tell you: I have only
-> checked it on one short synthetic English recording (twelve words, none wrong),
+> checked it on one short synthetic English recording (twelve words, none wrong)
+> and about 16 minutes of English audiobook speech (4% to 7% of the words wrong),
 > not on real episodes, other accents or noisy rooms. It doesn't split a
 > recording into one track per speaker automatically. There's no cloud, no
 > hosting, no publishing.

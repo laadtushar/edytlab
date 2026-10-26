@@ -1,4 +1,7 @@
-# 0007. A turn is split at the model exchange, behind a port with two adapters
+---
+title: "0007. A turn is split at the model exchange, behind a port with two adapters"
+sidebarTitle: "0007 A turn"
+---
 
 Status: Accepted, 2026-10-22. Starts after 0002.
 

@@ -1,6 +1,6 @@
 # edytlab launch kit
 
-Copy-paste material for launching edytlab v0.9.1. Everything here is written
+Copy-paste material for launching edytlab v0.9.2. Everything here is written
 to be posted as-is, by the owner, from their own accounts. Nothing in this
 folder posts anywhere by itself, and nothing here opens a PR on another repo.
 
@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.9.1 today (published 2026-10-25). (The website's own buttons point at the
+non-prerelease, which is v0.9.2 today (published 2026-10-26). (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -25,7 +25,7 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/show-hn.md`](launch/show-hn.md) | Show HN title, body and the author's first comment, plus answers to the questions HN will ask |
 | [`launch/product-hunt.md`](launch/product-hunt.md) | Tagline, description, maker's first comment, 5 gallery captions, topics |
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
-| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.1 release and the DJ demo |
+| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.2 release and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
 | [`social-kit/linkedin/`](social-kit/linkedin/README.md) | The LinkedIn visuals in the website's design: five 1200x1200 images (one per post in `social-kit/linkedin-posts.md`), a seven-page carousel PDF for post 3, the HTML templates, staged screenshots of the real app and the script that renders them |
@@ -60,8 +60,12 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
   text (not audio), and stay local with Ollama.
 - Any accuracy, speed or language-quality figure beyond what was measured: on
   one short synthetic English recording of twelve words, none was wrong and
-  every start was within 0.23 s; 7 s of audio took 2.5 to 3.3 s the first time
-  on a shared four-core machine. That is one recording and one machine. Do not
+  every start was within 0.22 s; 7 s of audio took 2.1 to 3.3 s the first time
+  on a shared four-core machine. On about 16 minutes of English audiobook
+  speech (two LibriSpeech chapters, `scripts/word-timing-eval`), 4% to 7% of
+  the words were wrong and the median word start was 0.07 s from a
+  forced-alignment reference. That is two kinds of English recording and one
+  machine. Do not
   say "accurate", "fast", "human-level" or "supports 99 languages"; the tool
   takes a two-letter language code or detects it, and only English was checked.
 - That `cut_words` and `remove_fillers` are tested on real recordings. They
@@ -103,6 +107,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 |---|---|
 | 94 tools | `docs/tools-reference.md` (generated from the tool registry) |
 | Six API providers plus your ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama, and (from v0.9.0, a preview for Plus and Pro) Continue with ChatGPT | `README.md`, `website/app/docs/getting-started/page.tsx`, `crates/ai/tests/website_provider_claims.rs` |
+| Keys and the ChatGPT sign-in token share one OS-keychain entry, so macOS asks for the login password at most once per launch; provider, model and base URL are in `provider-settings.json`, never a secret | `website/app/privacy/page.tsx`, `docs/adr/0009-settings-and-secrets-storage.md`; counted against fake keychain slots, not yet on a real Mac (see below) |
 | Ollama needs no key and can keep the chat on your machine | `website/app/privacy/page.tsx`, user guide |
 | The ChatGPT plan has no key: its sign-in keeps one refresh token in the keychain and a small registration file; signing out does not disconnect edytlab in ChatGPT (the user does that in ChatGPT settings) | `website/app/privacy/page.tsx` ("Signing in with ChatGPT"), user guide ("Using your ChatGPT plan"); OpenAI's Help Center article 20001542 |
 | Audio is never uploaded; only the chat goes to the provider (Settings also asks it for its model list, with your key and no prompt or audio) | `website/app/privacy/page.tsx` |
@@ -112,7 +117,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.9.1 | GitHub release v0.9.1 (its page lists the six installers), `LICENSE` |
+| macOS universal, Windows, Linux builds; MIT; v0.9.2 | GitHub release v0.9.2 (its page lists the six installers), `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -133,6 +138,12 @@ getting caught.
   keyring, where an unlock prompt can come up at startup
   ([#497](https://github.com/laadtushar/edytlab/issues/497)). Say "should
   survive a reboot", not "does".
+- macOS password prompts: since v0.9.2 keys and the ChatGPT sign-in share one
+  keychain entry, so a launch asks at most once ([#734](https://github.com/laadtushar/edytlab/issues/734),
+  ADR 0009). That count comes from tests over fake keychain slots; nobody has
+  yet checked it on a real Mac. The first launch after updating from v0.9.1 or
+  older may ask once for each old entry it moves. Say "at most once per launch",
+  not "never".
 - Local models: in v0.4.0 a first request was measured at about 15,000 tokens,
   which an 8,192-token context refuses
   ([#395](https://github.com/laadtushar/edytlab/issues/395)). Since v0.5.0
@@ -178,10 +189,10 @@ getting caught.
 
 ## Before the first post
 
-- [ ] Install the v0.9.1 build on at least one machine per OS you will claim
+- [ ] Install the v0.9.2 build on at least one machine per OS you will claim
       (not v0.9.0: its first message after Continue with ChatGPT failed with
-      "Unsupported content type", which v0.9.1 fixes).
-- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.1 and send a message.
+      "Unsupported content type", which v0.9.2 and later fix).
+- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.2 and send a message.
       Until that has worked once, leave every line about the ChatGPT plan out
       of the posts: the fix was checked against a mock of OpenAI's API, not a
       real account.
@@ -196,10 +207,10 @@ getting caught.
       `website/public/demos/dj-beatmatched-transition.jpg` is the clearest
       still in the repo. `docs/brand/` also holds before and after screenshots
       of the app's colours (#515, 1440x900, taken with the IPC faked, so they
-      show fake data; `after-06-settings-dialog.png` was retaken on 2026-10-25 for v0.9.0, so it shows the ChatGPT plan button the others lack); the `before-*` set is the look v0.5.0 and earlier
+      show fake data; the `after-*` set was retaken on 2026-10-26 for v0.9.2 (the status bar says V0.9.2), so it shows the ChatGPT logo on the provider button and the message box at the pane's full width); the `before-*` set is the look v0.5.0 and earlier
       shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
-      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.1 build.
+      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.2 build.
       The only UI screenshots in the repo are the `docs/brand/` pair above and the staged ones in `social-kit/linkedin/shots/` (fake data, retaken by `social-kit/linkedin/render.mjs --shots`).
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a
@@ -218,7 +229,7 @@ comments, and one thread cannot be answered well while three others are open.
 | 2 | **r/LocalLLaMA** | Wants the Ollama angle and honest numbers. Bring the #395 data and the request sizes from #479, and say that no local model has run a full job. |
 | 3 | **r/DJs** | Lead with the demo video. |
 | 4 | **r/WeAreTheMusicMakers** | Read the sidebar the same day; self-promotion is often limited to a set thread. |
-| 5 | **r/podcasting** | Say plainly what transcription was checked on (one short English recording), that it needs a one-time model download, and that there is no speaker splitting by voice. |
+| 5 | **r/podcasting** | Say plainly what transcription was checked on (a short synthetic English recording and 16 minutes of English audiobook speech), that it needs a one-time model download, and that there is no speaker splitting by voice. |
 | 6 | **r/audioengineering** | Expect scrutiny of the DSP. Post only if the current rules allow it. |
 | 7 to 14 | **Product Hunt** ([`launch/product-hunt.md`](launch/product-hunt.md)) | Needs the screenshots and a launch-day calendar. Schedule it for 00:01 PT. Later is fine; it works better with a few real users to show up. |
 | After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. The repo had 4 on 2026-10-10 and 6 on 2026-10-22. |

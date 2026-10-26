@@ -1,4 +1,4 @@
-# X thread: v0.9.1 and the DJ demo
+# X thread: v0.9.2 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -54,13 +54,13 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.9.1 is out. It fixes the "Unsupported content type" error that stopped the first message after Sign in with ChatGPT (a preview from v0.9.0: your Plus or Pro plan instead of an API key). Since v0.8.0 it also transcribes, once you download the speech model.
+v0.9.2 is out. macOS asks for your password at most once per launch: keys and the ChatGPT sign-in share one keychain entry. Transcription (one-time model download, since v0.8.0) no longer skips stretches of speech. Sign in with ChatGPT is a preview; use v0.9.1 or later.
 ```
 
 **7/8**
 
 ```
-What it can't do yet, so you don't have to find out: no stem separation. Transcription needs a one-time model download and is checked on one short English clip only. Builds are unsigned, so macOS and Windows warn on first launch. The release notes have the fix.
+What it can't do yet, so you don't have to find out: no stem separation. Transcription needs a one-time model download and was tested on English only (a clip, 16 min of audiobooks). Builds are unsigned, so macOS and Windows warn at first launch. Release notes have the steps.
 ```
 
 **8/8**
@@ -81,6 +81,6 @@ Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.9.1 release notes. Check them against
+- Post 6 repeats the v0.9.2 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.

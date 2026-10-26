@@ -54,6 +54,18 @@ export default function PrivacyPage() {
         started. Keys are never written to plain-text files and never sent
         anywhere except directly to the provider whose key it is.
       </p>
+      <p>
+        All your keys, and the ChatGPT sign-in token below, are kept together
+        in one entry of that store, so macOS asks for your login password at
+        most once per launch rather than once per key. What you chose (the
+        active provider, each provider&apos;s model, a base URL, a reasoning
+        effort) is not a secret and is not in the store: it is in a small
+        settings file, <code>provider-settings.json</code>, in the
+        app&apos;s config folder, and no key is ever written to it. An install
+        that kept its keys one entry each moves them into the single entry the
+        first time it starts and deletes the old entries only once the new
+        ones read back; that first launch may ask once for each old entry.
+      </p>
 
       <h2>Network traffic</h2>
       <p>
@@ -196,11 +208,13 @@ export default function PrivacyPage() {
       <p>
         <strong>What edytlab keeps.</strong> Only the refresh token is a
         secret that edytlab keeps. It goes in your operating system&apos;s
-        credential store, in the slot <code>chatgpt_refresh_token</code>, and
-        is replaced at every renewal. On Linux with no Secret Service running
-        it is held in the kernel keyring until you restart, and on Windows a
-        token too long for Credential Manager is held in memory only; in
-        either case Settings says so, and you sign in again after a restart.
+        credential store, in the same entry as your API keys (as{" "}
+        <code>chatgpt_refresh_token</code>), and is replaced at every renewal.
+        On Linux with no Secret Service running it is held in the kernel
+        keyring until you restart, and on Windows a token that does not fit in
+        Credential Manager (the entry is shared with your keys) is held in
+        memory only; in either case Settings says so, and you sign in again
+        after a restart.
         The access token is held in memory and never written anywhere, and the
         identity token is not kept once it has been checked. The rest is in a
         file, <code>registration.json</code>, in a <code>chatgpt</code> folder

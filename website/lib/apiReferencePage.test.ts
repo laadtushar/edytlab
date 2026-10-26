@@ -1,20 +1,21 @@
 /**
- * The API reference page against the commands the app registers.
+ * The API reference against the commands the app registers.
  *
- * `app/docs/api-reference/page.tsx` says it lists "every Tauri command the
- * frontend can call". It lost track of 24 of them (track gain, pan, mute and
- * solo, memory, sync-lock, clip moves, transcript cuts, timer recording and
- * more) until a manual sweep (#560) added a row for each of the 92. Nothing
- * checked it, so the next command would have started the drift again.
+ * The reference says it lists "every Tauri command the frontend can call".
+ * It lost track of 24 of them (track gain, pan, mute and solo, memory,
+ * sync-lock, clip moves, transcript cuts, timer recording and more) until a
+ * manual sweep (#560) added a row for each of the 92. Nothing checked it, so
+ * the next command would have started the drift again.
  *
- * This is the check. Like the other reference guards in this repo it is
- * crude on purpose: read both files as text and compare name sets, because a
- * parser clever enough to be elegant is one that can silently stop matching.
- * The source of truth is the `generate_handler![...]` list in
- * `apps/desktop/src-tauri/src/lib.rs`: a command that is not listed there
- * cannot be invoked, and one that is listed can. The page names each command
- * the way the TypeScript bridge does, in camelCase (`set_track_gain` is
- * `setTrackGain(...)`).
+ * This is the check. The source of truth is the `generate_handler![...]`
+ * list in `apps/desktop/src-tauri/src/lib.rs`: a command that is not listed
+ * there cannot be invoked, and one that is listed can. That file is read as
+ * text, crudely on purpose (a parser clever enough to be elegant is one that
+ * can silently stop matching). The rows are the `apiAreas` data the pages
+ * are rendered from (`lib/docs/api-data.ts`), imported rather than parsed,
+ * so what is checked is exactly what is on the site, whichever area's page
+ * a row is on. The rows name each command the way the TypeScript bridge
+ * does, in camelCase (`set_track_gain` is `setTrackGain(...)`).
  *
  * `docs/api-reference.md` is not checked here. Its headings pair some
  * commands on one line and name the bridge's exports, and
@@ -31,14 +32,16 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { apiAreas } from "./docs/api-data";
+import { bareName } from "./docs/reference";
+
 const REPO_ROOT = new URL("../../", import.meta.url);
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, REPO_ROOT)), "utf8");
 
 const LIB_RS = "apps/desktop/src-tauri/src/lib.rs";
-const PAGE = "website/app/docs/api-reference/page.tsx";
+const DATA = "website/lib/docs/api-data.ts";
 
 const libRs = read(LIB_RS);
-const page = read(PAGE);
 
 /** `set_track_gain` -> `setTrackGain`, the name the bridge and the page use. */
 function camelCase(command: string): string {
@@ -66,28 +69,21 @@ function registeredCommands(): string[] {
 }
 
 /**
- * Every command the page has a row for.
- *
- * The page keeps commands in `const commands = [...]` and the events the
- * backend emits (`onTextDelta(cb)` and friends) in `const events = [...]`
- * after it. Only the first is a list of commands, so only it is read. A row
- * is `name: "setTrackGain(track, db)"` or, when the arguments contain a
- * double quote, `name: 'readMemory("global" | "project")'`.
+ * Every command the reference has a row for, in whichever area it is. The
+ * events the backend emits (`onTextDelta(cb)` and friends) are rows of a
+ * different kind (`kind: "events"`) and are not commands.
  */
 function documentedCommands(): string[] {
-  const start = page.indexOf("const commands = [");
-  const end = page.indexOf("const events = [");
-  if (start < 0 || end < start) {
-    throw new Error(`${PAGE} no longer has "const commands" followed by "const events": update this test`);
-  }
-  return [...page.slice(start, end).matchAll(/^\s*name:\s*(["'])([A-Za-z0-9_]+)\(/gm)].map((m) => m[2]);
+  return apiAreas.flatMap((area) =>
+    area.sections.flatMap((section) => (section.kind === "commands" ? section.items.map((i) => bareName(i.name)) : [])),
+  );
 }
 
-describe("the API reference page", () => {
+describe("the API reference", () => {
   it("is being read by this test at all", () => {
-    // A regex that stopped matching would leave the "no stale row" check
+    // A reader that stopped matching would leave the "no stale row" check
     // below with nothing to look at, and pass. There are 94 commands today;
-    // a page with fewer than half of them has other problems, which the
+    // a reference with fewer than half of them has other problems, which the
     // next test names.
     expect(registeredCommands().length).toBeGreaterThan(80);
     expect(documentedCommands().length).toBeGreaterThan(registeredCommands().length / 2);
@@ -100,8 +96,8 @@ describe("the API reference page", () => {
       .map((command) => `${command}: add a row named ${camelCase(command)}(...)`);
     expect(
       missing,
-      `${LIB_RS} registers these commands but ${PAGE} has no row for them. ` +
-        `Add a row to the matching group of \`commands\`, named in camelCase.`,
+      `${LIB_RS} registers these commands but ${DATA} has no row for them. ` +
+        `Add a row to the matching area's commands, named in camelCase.`,
     ).toEqual([]);
   });
 
@@ -112,8 +108,18 @@ describe("the API reference page", () => {
       .map((row) => `${row}(...): not in generate_handler!`);
     expect(
       stale,
-      `${PAGE} has rows for commands that ${LIB_RS} does not register, so they ` +
+      `${DATA} has rows for commands that ${LIB_RS} does not register, so they ` +
         `were renamed or removed. Rename or delete the row (events belong in \`events\`).`,
     ).toEqual([]);
+  });
+
+  it("has exactly one row for each command", () => {
+    // The reference used to be one table per group on one page, where a
+    // repeated row was easy to see. Now a command is on one of several
+    // pages, and a second row for it on another would answer one question
+    // twice (and could answer it differently).
+    const rows = documentedCommands();
+    const repeated = [...new Set(rows.filter((row, i) => rows.indexOf(row) !== i))];
+    expect(repeated, `${DATA} documents these commands more than once`).toEqual([]);
   });
 });

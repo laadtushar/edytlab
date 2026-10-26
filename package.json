@@ -1,7 +1,7 @@
 {
   "name": "edytlab",
   "private": true,
-  "version": "0.9.1",
+  "version": "0.9.2",
   "scripts": {
     "dev": "pnpm --filter @edytlab/desktop dev",
     "tauri:dev": "pnpm --filter @edytlab/desktop tauri dev",

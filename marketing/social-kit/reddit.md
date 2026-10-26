@@ -6,7 +6,7 @@ with a question. Do not cross-post one text, and do not post two of these on
 the same day (`calendar.md` spaces them out).
 
 This supersedes the v0.3.0-era text in `marketing/launch/reddit.md` for these
-six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's) and for v0.9.1 (2026-10-25; the version and download lines), includes the other two DJ demos, and
+six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's), for v0.9.1 (2026-10-25; the version and download lines) and for v0.9.2 (2026-10-26; the version and download lines, and what transcription was checked on), includes the other two DJ demos, and
 discloses that the demo tracks are synthetic. (That file still has posts for
 r/audioengineering, r/podcasting and r/tauri if you want them later.)
 
@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.1 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.1>
+v0.9.2 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.2>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -189,14 +189,14 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.1 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.2 is the current release.
 
 Where I'd like help:
 
 - Effects on a chain (issue 520, closed, has the background). Since v0.6.0 the agent can put an effect on the master bus and on a bus, but only five kinds run in a chain: gain, the limiter and three filters. Still missing: streaming versions of the other eleven (reverb, echo, EQ, compressor and others), which today can only be baked into a track. Rust, in the audio-engine and tools crates.
 - macOS microphone (issue 464). Since v0.5.0 the build has the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
 - A real pass on Linux with a locked Secret Service (issue 497). The code is tested against fakes only.
-- Shipping the ML pieces (issues 383 to 385). Transcription (Whisper base) runs from v0.8.0 on a model the user downloads. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording.
+- Shipping the ML pieces (issues 383 to 385). Transcription (Whisper base) runs from v0.8.0 on a model the user downloads. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording and about 16 minutes of English audiobook speech.
 - New audio tools and new LLM providers. docs/contributing.md walks through both. Six API providers today: Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama for local models, plus a preview that uses a ChatGPT Plus or Pro plan instead of a key.
 
 No open issue carries the "good first issue" label right now. If you want a starter task, say so and I'll write one up.

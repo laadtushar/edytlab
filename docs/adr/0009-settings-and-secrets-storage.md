@@ -1,4 +1,7 @@
-# 0009. Secrets are one keychain item, and settings are a file
+---
+title: "0009. Secrets are one keychain item, and settings are a file"
+sidebarTitle: "0009 Settings and secrets storage"
+---
 
 Status: Accepted, 2026-10-25.
 

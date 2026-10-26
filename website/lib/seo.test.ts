@@ -44,10 +44,22 @@ import {
   videosHubJsonLd,
   websiteJsonLd,
 } from "./seo";
+import { areaPath } from "./docs/reference";
+import { API_BASE, TOOLS_BASE, apiReference, toolsReference } from "./docs/references";
 import { siteConfig } from "./site";
 import { demoVideos, getVideo, hubVideos, videoPath, videoPosterSrc, videoSrc, watchVideos } from "./videos";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
+
+/**
+ * The page of each area of the tools and API references, by path. They are
+ * dynamic routes (`/docs/tools/[area]`), so `staticRoutes` skips them; they
+ * are listed from the data the pages are made from.
+ */
+const referencePaths = [
+  ...toolsReference.areas.map((a) => areaPath(TOOLS_BASE, a.slug)),
+  ...apiReference.areas.map((a) => areaPath(API_BASE, a.slug)),
+];
 
 /** Every `page.tsx` under `app/`, as its route. Dynamic segments are skipped: the posts are listed from data. */
 function staticRoutes(): string[] {
@@ -78,6 +90,11 @@ describe("sitemap", () => {
     for (const v of watchVideos) expect(urls).toContain(absoluteUrl(videoPath(v.slug)));
   });
 
+  it("lists every area page of the tools and API references, at its canonical URL", () => {
+    expect(referencePaths.length).toBeGreaterThan(10);
+    for (const path of referencePaths) expect(urls, `${path} is a page but not in the sitemap`).toContain(absoluteUrl(path));
+  });
+
   it("lists every page under app/", () => {
     for (const route of staticRoutes()) {
       expect(urls, `${route} is a page but not in the sitemap`).toContain(absoluteUrl(route));
@@ -90,6 +107,7 @@ describe("sitemap", () => {
       ...staticRoutes().map(absoluteUrl),
       ...posts.map((p) => absoluteUrl(postPath(p.slug))),
       ...watchVideos.map((v) => absoluteUrl(videoPath(v.slug))),
+      ...referencePaths.map(absoluteUrl),
     ]);
     expect(urls.filter((u) => !known.has(u))).toEqual([]);
   });
@@ -467,7 +485,7 @@ describe("sitemap dates", () => {
   const entries = sitemap();
   const dateOf = (route: string) =>
     (entries.find((e) => e.url === absoluteUrl(route))?.lastModified as Date).toISOString().slice(0, 10);
-  const routes = [...staticRoutes(), ...watchVideos.map((v) => videoPath(v.slug))];
+  const routes = [...staticRoutes(), ...watchVideos.map((v) => videoPath(v.slug)), ...referencePaths];
 
   it("gives every page, but the blog index, a date of its own", () => {
     // One date on every page cannot be verified for any of them, and

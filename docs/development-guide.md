@@ -1,4 +1,7 @@
-# edytlab — Development Guide
+---
+title: "Development guide"
+description: "Dev setup for macOS, Windows and Linux, daily workflow, testing, debugging, building a release, CI and common issues."
+---
 
 > Complete guide to setting up, building, testing, and debugging edytlab. Covers every platform.
 
@@ -115,14 +118,16 @@ sudo apt-get install -y \
   `[onnx_runtime_unavailable]` answer. They used to hang the agent.
   Installing the library does not make `separate_stems` work.
 
-<!-- historical:begin -->
+[//]: # "historical:begin"
+
 Earlier revisions of this guide described a `~/.edytlab/models` cache, an
 automatic first-use download, a `scripts/fetch-models.sh` installer and
 an `EDYTLAB_MODEL_DIR` override. None of those existed: the script was
 never in the repository, the download path was never wired up, and
 `EDYTLAB_MODEL_DIR` was read by no code in the tree. They are removed
 rather than corrected, because the honest instruction at the time was "wait".
-<!-- historical:end -->
+
+[//]: # "historical:end"
 
 `WHISPER_MODEL_PATH` and `DEMUCS_MODEL_PATH` *are* read. `WHISPER_MODEL_PATH`
 is how a developer points `transcribe` at a speech model that is not the one
@@ -297,7 +302,7 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
    Whatever edits the session also has to be sent in order by the frontend. Send it through the session's line (`inOrder` from `useSession`, `src/lib/sessionQueue.ts`), with its head adopted inside the turn, so two edits made in quick succession cannot apply or be answered the wrong way round (#498).
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
 4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
-5. Update [API Reference](./api-reference.md) and the site's `website/app/docs/api-reference/page.tsx`, and give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
+5. Update [API Reference](./api-reference.md) and the site's `website/lib/docs/api-data.ts`, and give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
 
 ---
 
@@ -640,7 +645,7 @@ Defined in `apps/desktop/src-tauri/tauri.conf.json`:
 
 App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 ```json
-"version": "0.9.1"
+"version": "0.9.2"
 ```
 
 The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.ts` fails if any drifts. When bumping a version:
@@ -738,7 +743,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux|macos|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
+| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux\|macos\|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
 | `WHISPER_MODEL_PATH` | unset | The speech model's **folder** (`onnx/encoder_model.onnx`, `onnx/decoder_model_merged_int8.onnx`, `tokenizer.json`). `transcribe` uses it instead of the model downloaded in Settings; the ignored `ml-whisper` and `tools` tests need it — see [ML Model Files](#ml-model-files-whisperdemucs) |
 | `DEMUCS_MODEL_PATH` | unset | The Demucs model **file** — see [ML Model Files](#ml-model-files-whisperdemucs) |
 
@@ -788,7 +793,7 @@ Add `-- --test-threads=1` to serialize tests within each binary, as CI does: tes
 
 On macOS, reading a keychain item the running build was not given access to triggers a system dialog, once for each item. edytlab keeps all its secrets in one item (`secrets`) and reads it once per process, so a launch asks at most once; **Always Allow** keeps it from asking again until the next update (the installers are ad-hoc signed, so each update is a new build, #386). In CI, keychain access is pre-authorized.
 
-The first launch of a build with this layout (#734) also reads the per-slot items an earlier build made (`<provider>_api_key`, `<provider>_model`, `active_provider`, …), and macOS asks once for each that exists: that is the last time. It then writes the `secrets` item and `provider-settings.json`, reads both back and deletes the old items. If it cannot (the keychain refused the write, the config folder is read-only, the Secret Service did not answer), the old items stay, are used as before and the migration is tried again at the next launch; the log says why, without a value. To run it again by hand, delete `provider-settings.json` from the app's config folder while the old items are still there; to start over, delete the `secrets` item too.
+The first launch of v0.9.2 or later (#734) also reads the per-slot items an earlier build made (`<provider>_api_key`, `<provider>_model`, `active_provider`, …), and macOS asks once for each that exists: that is the last time. It then writes the `secrets` item and `provider-settings.json`, reads both back and deletes the old items. If it cannot (the keychain refused the write, the config folder is read-only, the Secret Service did not answer), the old items stay, are used as before and the migration is tried again at the next launch; the log says why, without a value. To run it again by hand, delete `provider-settings.json` from the app's config folder while the old items are still there; to start over, delete the `secrets` item too.
 
 ### Linux: settings gone after a restart, or the "No Secret Service" banner
 

@@ -28,6 +28,16 @@ interface Entry {
 // one-line bullets each. Older releases are on GitHub Releases, not here.
 const entries: Entry[] = [
   {
+    version: "v0.9.2",
+    date: "2026-10",
+    summary: "One keychain entry for your keys, and transcription that no longer skips speech.",
+    bullets: [
+      "Changed: keys and the ChatGPT sign-in share one keychain entry, so macOS asks for your password at most once per launch. Existing keys move over on the first launch.",
+      "Fixed: transcription no longer misses stretches of speech, and word times are closer.",
+      "Fixed: Retry sends your message once, empty tracks get a lane, and tone and noise work in an empty project.",
+    ],
+  },
+  {
     version: "v0.9.1",
     date: "2026-10",
     summary: "Fixes the first message after signing in with ChatGPT.",
@@ -44,16 +54,6 @@ const entries: Entry[] = [
       { text: "New: Sign in with ChatGPT (preview) uses your Plus or Pro plan instead of an API key.", href: "/docs/user-guide#chatgpt-plan" },
       "Fixed: noise reduction no longer adds a loud click at the start and end of a track.",
       "Fixed: tempo and key detection, now with confidence.",
-    ],
-  },
-  {
-    version: "v0.8.1",
-    date: "2026-10",
-    summary: "Fixes editing a voice recorded at a different sample rate from the project.",
-    bullets: [
-      "Fixed: cuts, shifts, labels and transcript words landed in the wrong place on such tracks.",
-      "Fixed: volume envelopes, such as ducking under speech, landed at the wrong time.",
-      "Changed: tools that need one rate for a track with two refuse it instead of guessing.",
     ],
   },
 ];

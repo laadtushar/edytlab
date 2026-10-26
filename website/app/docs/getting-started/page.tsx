@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { siteConfig } from "@/lib/site";
 import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
@@ -206,9 +207,13 @@ export default function GettingStartedPage() {
       <p>
         Keys go in your OS keychain (macOS Keychain, Windows Credential
         Manager, the Secret Service on Linux), never to disk or to any edytlab
-        server. On a Linux desktop with no Secret Service running they are
-        kept in memory until you restart, and the app tells you so, at launch
-        and again at Save if the service went away after the app started.
+        server. They share one keychain entry, with the ChatGPT sign-in, so
+        macOS asks for your login password at most once per launch. Your
+        provider and model choices are not secret and are saved in a settings
+        file in the app&apos;s config folder. On a Linux desktop with no
+        Secret Service running keys are kept in the kernel keyring until you
+        restart, and the app tells you so, at launch and again at Save if the
+        service went away after the app started.
       </p>
 
       <h2>4. Load your first audio file</h2>
@@ -297,7 +302,7 @@ export default function GettingStartedPage() {
           <a href="/docs/user-guide">User Guide</a> — every feature
         </li>
         <li>
-          <a href="/docs/tools">Audio Tools Reference</a> — all 94 tools the
+          <Link href="/docs/tools">Audio Tools Reference</Link> — all 94 tools the
           agent can call
         </li>
         <li>

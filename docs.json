@@ -1,0 +1,67 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "edytlab",
+  "description": "Developer documentation for edytlab, the conversational audio editor: architecture, development guide, API and tools references, and architecture decision records.",
+  "colors": {
+    "primary": "#9D4EF5",
+    "light": "#B57BF8",
+    "dark": "#9D4EF5"
+  },
+  "logo": {
+    "light": "/docs/logo/logo.svg",
+    "dark": "/docs/logo/logo.svg",
+    "href": "https://www.edytlab.com"
+  },
+  "favicon": "/docs/logo/logo.svg",
+  "appearance": {
+    "default": "dark"
+  },
+  "navbar": {
+    "links": [
+      { "label": "Website", "href": "https://www.edytlab.com" },
+      { "type": "github", "href": "https://github.com/laadtushar/edytlab" }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/laadtushar/edytlab",
+      "website": "https://www.edytlab.com"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Start here",
+        "pages": ["docs/index", "GLOSSARY"]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "docs/architecture",
+          "docs/development-guide",
+          "docs/packaging-windows",
+          "docs/motion-audit"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": ["docs/api-reference", "docs/tools-reference"]
+      },
+      {
+        "group": "Architecture decisions",
+        "pages": [
+          "docs/adr/0001-session-state-in-the-window",
+          "docs/adr/0002-plan-gate-is-a-oneshot",
+          "docs/adr/0003-rendering-a-node",
+          "docs/adr/0004-time-edits",
+          "docs/adr/0005-provider-settings",
+          "docs/adr/0006-the-open-project",
+          "docs/adr/0007-a-turn",
+          "docs/adr/0008-project-audio-files",
+          "docs/adr/0009-settings-and-secrets-storage"
+        ]
+      }
+    ]
+  }
+}
