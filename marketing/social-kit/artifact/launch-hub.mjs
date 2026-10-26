@@ -349,7 +349,7 @@ function hnHtml() {
   const hnaTitles = bullets(section("launch/show-hn.md", /^Title/).filter((l) => /^\d\. `/.test(l)));
   const raw = [...hnaTitles, ...moreTitles].map((l) => /^`(.+)` \((\d+)\)$/.exec(l)).filter(Boolean).map((m) => m[1]);
   const titles = [...new Set(raw)];
-  const REC = "Show HN: edytlab – desktop audio editor where an LLM calls 95 DSP tools";
+  const REC = "Show HN: edytlab – desktop audio editor where an LLM calls 96 DSP tools";
   if (!titles.includes(REC)) throw new Error("recommended HN title not found");
   const first = pick(MORE, { h2: /^6\. Show HN/, label: /^First comment/ });
   const qa = tableRows(section("social-kit/more.md", /^6\. Show HN/));
@@ -620,7 +620,7 @@ ${table([["#", "Date", "ET", "UK", "Post", "Attach", "Thumbnail"], ...li])}
 <section class="sec" id="rules"><h2>Rules</h2>
 <h3 style="margin-top:8px">Don't</h3>${ul(dont)}
 <h3>Principles of the calendar</h3>${ul(principles)}
-<p class="sub">Facts every post respects: free and open source (MIT); macOS, Windows and Linux; the installers are unsigned; audio is edited on your computer and never uploaded, only the chat goes to the provider you choose; 6 API providers plus your ChatGPT plan, Ollama runs locally with no key; 95 tools; every edit is a node in a history graph. Stem separation is not shipped.</p></section>`;
+<p class="sub">Facts every post respects: free and open source (MIT); macOS, Windows and Linux; the installers are unsigned; audio is edited on your computer and never uploaded, only the chat goes to the provider you choose; 6 API providers plus your ChatGPT plan, Ollama runs locally with no key; 96 tools; every edit is a node in a history graph. Stem separation is not shipped.</p></section>`;
 }
 
 // ---------------------------------------------------------------- assemble
@@ -665,7 +665,7 @@ ${css}</style>
 <p class="eyebrow">edytlab / launch kit / v0.9.2</p>
 <h1>Launch edytlab with <span>real footage</span>.</h1>
 <p class="lede">Every post, image and video for the relaunch, and the checklist to run it, in one place. Each text has a copy button and a count against its platform's limit. Nothing here posts anywhere by itself, and nobody is asked to upvote, star or share.</p>
-<div class="facts" aria-label="Facts every post respects"><span>Free and open source (MIT)</span><span>macOS, Windows, Linux</span><span>95 tools</span><span>6 API providers plus your ChatGPT plan</span><span>Unsigned installers</span><span>Audio never uploaded</span><span>No stem separation yet</span></div>
+<div class="facts" aria-label="Facts every post respects"><span>Free and open source (MIT)</span><span>macOS, Windows, Linux</span><span>96 tools</span><span>6 API providers plus your ChatGPT plan</span><span>Unsigned installers</span><span>Audio never uploaded</span><span>No stem separation yet</span></div>
 </header>
 <nav class="top" aria-label="Sections"><div class="navrow"><a href="#checklist" aria-current="true">Checklist</a><a href="#posts">Posts</a><a href="#images">Images</a><a href="#videos">Videos</a><a href="#where">Where it goes</a><a href="#when">When to post</a><a href="#rules">Rules</a></div></nav>
 <section class="sec" id="checklist"><h2>Checklist</h2>

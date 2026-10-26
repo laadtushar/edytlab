@@ -126,7 +126,7 @@ holds up only if the rules allow it.
 >
 > The design: the model gets a text description of the session (tracks, levels,
 > effects, and measurements like BPM, key, beat grid and EBU R128 loudness) and
-> a list of 95 tools (gain, EQ, compressor, limiter, filters, fades, time
+> a list of 96 tools (gain, EQ, compressor, limiter, filters, fades, time
 > stretch, pitch shift, normalise to a LUFS target, and so on). It picks and
 > orders tools. The audio is processed by the tools, in Rust, deterministically,
 > so the same tool call on the same file gives the same bytes. (The model's
@@ -209,14 +209,14 @@ calling, and quantisation. They want real numbers, not slogans. Do not claim
 any model works unless you have tried it.
 
 **Title:**
-`Open-source desktop app where a local model (Ollama) edits audio by calling 95 tools. Looking for which tool-calling models can handle it`
+`Open-source desktop app where a local model (Ollama) edits audio by calling 96 tools. Looking for which tool-calling models can handle it`
 
 **Body:**
 
 > Disclosure: my project, MIT-licensed.
 >
 > edytlab is a desktop audio editor driven by an LLM agent. The model chooses
-> and orders calls to 95 deterministic audio tools (EQ, compression, time
+> and orders calls to 96 deterministic audio tools (EQ, compression, time
 > stretch, fades, loudness, export); the DSP is in Rust and runs on your
 > machine. Ollama is one of six API providers (the others are Anthropic, OpenAI,
 > OpenRouter, Groq and Gemini), and there is a preview that uses a ChatGPT

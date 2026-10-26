@@ -7,7 +7,7 @@ Nothing here posts anywhere by itself.
 Facts used, all true of the released app: free and open source (MIT); macOS,
 Windows and Linux; the installers are unsigned; audio is edited on your
 computer and never uploaded, only the chat goes to the provider you choose;
-six API providers plus your ChatGPT plan, Ollama runs locally with no key; 95 tools; every edit is a node
+six API providers plus your ChatGPT plan, Ollama runs locally with no key; 96 tools; every edit is a node
 in a history graph. No caption claims anything that has not shipped, and none carries a version
 number, a user count or another product's name. The `edytlab.com/videos/<slug>` pages are the
 site's own watch pages. The frames of themes 1, 5 and 6 come from the v0.7.0 video
@@ -239,38 +239,38 @@ Description: Every edit is a node in a history graph, so you can go back to any 
 Image: `6-free-and-open-source__*`. Links: <https://edytlab.com>, <https://github.com/laadtushar/edytlab>
 
 **X**
-edytlab is free and open source (MIT): an audio editor you drive in plain English, with 95 tools, for macOS, Windows and Linux. The installers are unsigned. Source: https://github.com/laadtushar/edytlab Site: https://edytlab.com
+edytlab is free and open source (MIT): an audio editor you drive in plain English, with 96 tools, for macOS, Windows and Linux. The installers are unsigned. Source: https://github.com/laadtushar/edytlab Site: https://edytlab.com
 
 **LinkedIn**
 edytlab is free and open source, under the MIT license.
-It is a desktop audio editor driven by an AI assistant, with 95 tools.
+It is a desktop audio editor driven by an AI assistant, with 96 tools.
 It runs on macOS, Windows and Linux. The installers are unsigned.
 The source is open for anyone to read.
 https://edytlab.com and https://github.com/laadtushar/edytlab
 
 **Instagram**
 Free and open source.
-MIT licensed, 95 tools, for macOS, Windows and Linux.
+MIT licensed, 96 tools, for macOS, Windows and Linux.
 The installers are unsigned, and the source is open for anyone to read.
 Link in bio: edytlab.com
 #opensource #mitlicense #audioeditor #musicproduction #foss #madewithrust #aitools #desktopapp #github
 
 **Facebook**
-edytlab is a free, open-source (MIT) desktop audio editor driven by an AI assistant. It has 95 tools and runs on macOS, Windows and Linux. The installers are unsigned for now. You can read the code and open an issue at https://github.com/laadtushar/edytlab and see it in action at https://edytlab.com
+edytlab is a free, open-source (MIT) desktop audio editor driven by an AI assistant. It has 96 tools and runs on macOS, Windows and Linux. The installers are unsigned for now. You can read the code and open an issue at https://github.com/laadtushar/edytlab and see it in action at https://edytlab.com
 
 **Threads**
-edytlab is free and open source (MIT): an AI-driven audio editor with 95 tools for macOS, Windows and Linux. Installers are unsigned. https://edytlab.com and https://github.com/laadtushar/edytlab
+edytlab is free and open source (MIT): an AI-driven audio editor with 96 tools for macOS, Windows and Linux. Installers are unsigned. https://edytlab.com and https://github.com/laadtushar/edytlab
 
 **Bluesky**
-Free and open source (MIT). An audio editor you drive in plain English, with 95 tools, for macOS, Windows and Linux. Installers are unsigned. https://github.com/laadtushar/edytlab https://edytlab.com
+Free and open source (MIT). An audio editor you drive in plain English, with 96 tools, for macOS, Windows and Linux. Installers are unsigned. https://github.com/laadtushar/edytlab https://edytlab.com
 
 **TikTok**
-Free and open source audio editor you talk to. MIT, 95 tools, macOS, Windows, Linux. edytlab.com #opensource #audioediting #musicproduction #foss #aitools
+Free and open source audio editor you talk to. MIT, 96 tools, macOS, Windows, Linux. edytlab.com #opensource #audioediting #musicproduction #foss #aitools
 
 **YouTube**
 Title: edytlab: a free, open-source audio editor you talk to
-Description: edytlab is a desktop audio editor driven by an AI assistant. It is free and open source (MIT), has 95 tools, and runs on macOS, Windows and Linux. The installers are unsigned. The audio is edited on your computer; only the chat goes to the AI provider you choose, and Ollama runs fully local with no key. Source: https://github.com/laadtushar/edytlab . Site: https://edytlab.com
+Description: edytlab is a desktop audio editor driven by an AI assistant. It is free and open source (MIT), has 96 tools, and runs on macOS, Windows and Linux. The installers are unsigned. The audio is edited on your computer; only the chat goes to the AI provider you choose, and Ollama runs fully local with no key. Source: https://github.com/laadtushar/edytlab . Site: https://edytlab.com
 
 **Pinterest**
 Title: Free, open-source audio editor with an AI assistant
-Description: MIT licensed, 95 tools, for macOS, Windows and Linux. Your audio stays on your computer. Source: https://github.com/laadtushar/edytlab Site: https://edytlab.com
+Description: MIT licensed, 96 tools, for macOS, Windows and Linux. Your audio stays on your computer. Source: https://github.com/laadtushar/edytlab Site: https://edytlab.com

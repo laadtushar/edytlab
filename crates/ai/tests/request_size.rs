@@ -20,8 +20,8 @@
 //!
 //! The split is what showed where the size is. The system prompt is
 //! small (about 1.2 KB, session block included); the tool schemas are
-//! nearly all of it (about 63 KB of 64.5 KB for Anthropic, 66 KB of 67 KB
-//! as chat-completions JSON, with 94 tools; it was 54 KB of 55 KB and
+//! nearly all of it (about 64.5 KB of 66 KB for Anthropic, 67 KB of 68 KB
+//! as chat-completions JSON, with 96 tools; it was 54 KB of 55 KB and
 //! 57 KB of 58 KB when #395 was fixed). So the fix is not a shorter prompt but
 //! fewer, terser tools, and only for a provider that needs it:
 //!
@@ -164,9 +164,10 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // to 64,505 B, 87 B. It went up by that and no more. #763 then added
 // `measure` (loudness, peaks, noise floor, clipping, digital silence and the
 // ACX check), whose descriptor is 977 B (64,505 B to 65,482 B). It went up by
-// that and no more.
+// that and no more. #168 then added `diarize` (who speaks when), whose
+// descriptor is 1,304 B (65,482 B to 66,786 B). It went up by that and no more.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 65_496; // measured 65,482 (`measure` added 977 B, #763)
+const FULL_TOOLS_MAX_BYTES: usize = 66_800; // measured 66,786 (`measure` added 977 B, #763; `diarize` 1,304 B, #168)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -730,7 +731,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 68_506; // measured 68,488 (`measure` added 1,008 B, #763)
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 69_841; // measured 69,823 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

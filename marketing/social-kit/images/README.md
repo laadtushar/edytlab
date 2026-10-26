@@ -23,7 +23,7 @@ Claude" (the assistant is in the shot) or "Real app, recorded live" (it is not).
 | 3 | Extend a club intro. | the request to repeat the first 8 bars: Copy, Paste |
 | 4 | Your audio stays on your computer. | a three-track session with the chat beside it |
 | 5 | Every edit is a version. | the history graph, with its branches |
-| 6 | Free and open source. | the chat's list of Gain edits beside the lanes of a large session (MIT, 95 tools, macOS · Windows · Linux, the repo) |
+| 6 | Free and open source. | the chat's list of Gain edits beside the lanes of a large session (MIT, 96 tools, macOS · Windows · Linux, the repo) |
 
 ## Sizes and platforms
 
@@ -79,7 +79,7 @@ and `CLAUDE.md`.
 | macOS, Windows and Linux; the installers are unsigned | `README.md` ("The installers are unsigned", #386) |
 | Audio is edited on your computer; only the chat goes to the provider you choose | `website/app/privacy/page.tsx` ("Network traffic": chat requests carry prompt text, agent context and tool results, never raw audio) |
 | Ollama runs fully local, with no key | `website/app/privacy/page.tsx` ("Ollama for a local model, which needs no key") |
-| 95 tools | read at render time from `docs/tools-reference.md` (`toolCount()` in `../linkedin/tokens.mjs`), the same source as the site's tool count |
+| 96 tools | read at render time from `docs/tools-reference.md` (`toolCount()` in `../linkedin/tokens.mjs`), the same source as the site's tool count |
 | Every edit is a node in a history graph; go back to any version | `README.md`, `docs/architecture.md`; the frame is the real History graph |
 | The DJ steps (beatmatch, crossfade with a low-pass filter on the outgoing track; 8 bars become 16, a high-pass holds the low end until the drop) | the demos' captions in `website/lib/demos.ts` and the videos' own moments in `website/lib/videos.ts` |
 | "Real app, real Claude" / "Real app, recorded live" | the videos' own disclosures (`disclosure` in `website/lib/videos.ts`; `marketing/promo-v0.7.0/claims.md`) |

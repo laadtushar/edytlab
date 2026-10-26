@@ -35,7 +35,12 @@ import { timerLabel } from "../lib/recording";
  * An allow-list rather than a deny-list, so a new report kind has to opt
  * in rather than accidentally pinning a broken strip.
  */
-const PROGRESS_KINDS = new Set(["batch_apply", "timer_record", "transcribe"]);
+const PROGRESS_KINDS = new Set([
+  "batch_apply",
+  "timer_record",
+  "transcribe",
+  "diarize",
+]);
 
 export function ToolProgressBar() {
   const [progress, setProgress] = useState<ToolProgress | null>(null);
@@ -80,7 +85,8 @@ export function ToolProgressBar() {
   if (!mounted || !shown) return null;
 
   // Three shapes share this channel. `batch_apply` counts files and
-  // `transcribe` (#384) counts 30 s windows of one recording, with the track
+  // `diarize` (#168) counts 10 s windows, then voiceprints, with the stage in
+  // the `file` slot after the track or file. `transcribe` (#384) counts 30 s windows of one recording, with the track
   // or file in the `file` slot; both read "1 of 3". `timer_record` counts down
   // and sends no `total`, `index` or `file`. The rest of this comment is about
   // that one:

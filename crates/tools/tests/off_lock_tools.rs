@@ -51,6 +51,13 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// filled, so it costs a hash and an append. It reports `progress` and reads
 /// the cancel switch; see [`ALLOWED`].
 ///
+/// `diarize` is on it (#168). The model run takes a third of the audio's
+/// length and reads only the head: one track's audio (the `track` argument,
+/// which the re-run guard reads) or one file. It appends no node, so a lost
+/// race changes nothing it answered, and the re-run hits the inference cache
+/// the first run filled. It reports `progress` and reads the cancel switch;
+/// see [`ALLOWED`].
+///
 /// `measure` is on it (#763). It renders the head to a temporary file and
 /// reads it back, which takes as long as the audio is long, and it reads only
 /// the head and appends nothing, so it is never run again. It does not call
@@ -66,13 +73,14 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// `voice_tracks`), so a user's edit to the clips of one of them refuses its
 /// re-run. `select_region` reports its selection on the `progress` sink,
 /// which takes no lock; see [`ALLOWED`].
-const OFF_LOCK: [&str; 44] = [
+const OFF_LOCK: [&str; 45] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
     "click_removal",
     "compressor",
     "de_esser",
+    "diarize",
     "distortion",
     "duck_under_speech",
     "echo",
@@ -295,6 +303,26 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "select_region appends nothing, so `Store::commit` publishes its one run whatever the \
          head did and it is never run again: the selection it reports is the call's own answer, \
          reported once. `report` hands the event to the process-wide sink and takes no lock.",
+    ),
+    (
+        "diarize.rs",
+        "crate::progress::report(",
+        "`report` takes no lock. A diarization that loses the race is run again on the new \
+         head, and the re-run is a hit in the inference cache the first run filled, so the \
+         steps are not reported twice; a hit reports nothing. The closing `done` comes from a \
+         guard that exists only if a step was shown, so a strip is never left up.",
+    ),
+    (
+        "diarize.rs",
+        "crate::progress::begin(",
+        "clears a Cancel pressed before this run began, once, at the start of the model run \
+         (a cache hit never reaches it), as `transcribe` does.",
+    ),
+    (
+        "diarize.rs",
+        "crate::progress::cancelled(",
+        "read before every window and every voiceprint to stop the run, which then appends \
+         nothing. It only reads the switch, and the one the window's Cancel button sets.",
     ),
     (
         "transcribe.rs",
@@ -1019,6 +1047,21 @@ fn the_scan_finds_the_spellings_that_hide_a_second_store() {
 /// a place the guard does not look. Keyed by tool as well as by argument,
 /// so a second tool that adds a `times` is read again, not waved through.
 const NOT_TRACKS: &[(&str, &str, &str)] = &[
+    (
+        "diarize",
+        "max_speakers",
+        "an upper bound on how many people speak (the track is `track`)",
+    ),
+    (
+        "diarize",
+        "min_speakers",
+        "a lower bound on how many people speak (the track is `track`)",
+    ),
+    (
+        "diarize",
+        "num_speakers",
+        "how many people speak, when the user said (the track is `track`)",
+    ),
     (
         "measure",
         "max_clip_times",
