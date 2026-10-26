@@ -196,7 +196,7 @@ getting caught.
       `website/public/demos/dj-beatmatched-transition.jpg` is the clearest
       still in the repo. `docs/brand/` also holds before and after screenshots
       of the app's colours (#515, 1440x900, taken with the IPC faked, so they
-      show fake data; the `after-*` set was retaken on 2026-10-26 for v0.9.1, so it shows the ChatGPT logo on the provider button and the message box at the pane's full width); the `before-*` set is the look v0.5.0 and earlier
+      show fake data; the `after-*` set was retaken on 2026-10-26 for v0.9.2 (the status bar says V0.9.2), so it shows the ChatGPT logo on the provider button and the message box at the pane's full width); the `before-*` set is the look v0.5.0 and earlier
       shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
       [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.1 build.
