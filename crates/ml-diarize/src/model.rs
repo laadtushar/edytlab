@@ -216,14 +216,15 @@ impl DiarizeModel {
     /// Nothing is downloaded: the folder is the user's, from Settings, or a
     /// developer's (`DIARIZE_MODEL_PATH` in the tools crate).
     pub fn load(dir: &Path) -> Result<Self, LoadError> {
+        // First, before the folder is looked at: a build with no runtime is
+        // never sent to download a model, so the answer on a machine without
+        // the runtime is the same whatever the path holds.
+        ml_pipeline::runtime::ensure().map_err(|e| LoadError::RuntimeUnavailable(e.to_string()))?;
         if !dir.exists() {
             return Err(LoadError::ModelMissing {
                 path: dir.display().to_string(),
             });
         }
-        // Before the folder is looked at, so the answer on a machine without
-        // the runtime is the same whatever the path holds.
-        ml_pipeline::runtime::ensure().map_err(|e| LoadError::RuntimeUnavailable(e.to_string()))?;
         let seg_path: PathBuf = dir.join(SEGMENTATION_FILE);
         let emb_path: PathBuf = dir.join(EMBEDDING_FILE);
         for p in [&seg_path, &emb_path] {
@@ -391,7 +392,12 @@ mod tests {
         let err = DiarizeModel::load(Path::new("/definitely/not/here"))
             .err()
             .unwrap();
-        assert!(matches!(err, LoadError::ModelMissing { .. }), "{err:?}");
+        if ml_pipeline::runtime::ensure().is_err() {
+            // No runtime (CI): that is the answer, before the folder is looked at.
+            assert!(matches!(err, LoadError::RuntimeUnavailable(_)), "{err:?}");
+        } else {
+            assert!(matches!(err, LoadError::ModelMissing { .. }), "{err:?}");
+        }
     }
 
     #[test]
