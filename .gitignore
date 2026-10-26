@@ -84,3 +84,6 @@ ml-runtime/
 
 # Python bytecode
 __pycache__/
+
+# Output of marketing/social-kit/artifact/launch-hub.mjs
+marketing/social-kit/artifact/out/
