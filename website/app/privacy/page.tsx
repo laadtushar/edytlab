@@ -75,7 +75,7 @@ export default function PrivacyPage() {
         Download (below). Your OS network tools show every request.
       </p>
       <p>
-        <strong>The speech model download</strong> Settings &rarr; Account has a Download button for the
+        <strong>The speech model download.</strong> Settings &rarr; Account has a Download button for the
         speech model (Whisper base, about 139 MB). The app contacts Hugging
         Face only when you click Download. It does not download anything at
         launch, when Settings opens, or when the assistant asks; no tool and
