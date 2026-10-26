@@ -91,10 +91,34 @@ const READ_ONLY_LINE: &str = "_Read-only — never held for approval._";
 /// and full of backticked names — a raw `|` in one would silently split
 /// the row into a wrong column.
 fn cell(text: &str) -> String {
-    text.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .replace('|', "\\|")
+    mdx_safe(
+        &text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace('|', "\\|"),
+    )
+}
+
+/// Backslash-escape the characters that start markup in MDX (`<`, `{`, `}`),
+/// outside backtick code spans.
+///
+/// Mintlify publishes this file (`docs.json`) and reads Markdown as MDX, where a
+/// bare `{start_sec, end_sec}` is a JavaScript expression that renders as nothing
+/// and a `<tag` is a parse error. A backslash escape renders as the character on
+/// GitHub too. Inside a code span a backslash would show, so those are left alone.
+fn mdx_safe(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_code = false;
+    for c in text.chars() {
+        if c == '`' {
+            in_code = !in_code;
+        } else if !in_code && matches!(c, '<' | '{' | '}') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// The first sentence of a description, for the index.
@@ -145,19 +169,23 @@ fn render() -> String {
     let tools = tools();
     let mut out = String::new();
 
-    out.push_str("# edytlab — Tools Reference\n\n");
+    // Front matter, not a heading: Mintlify publishes this file (docs.json) and takes the
+    // page title from it, so a `#` heading would show the title twice.
+    out.push_str("---\ntitle: \"Tools reference\"\n---\n\n");
     out.push_str(&format!(
         "> Every one of the {} tools the AI agent can call: parameters, types, \
          and what each one does.\n\n",
         tools.len()
     ));
+    // A link reference definition, not an HTML comment: it renders as nothing on GitHub and
+    // Mintlify reads `.md` as MDX, where `<!--` is a parse error.
     out.push_str(
-        "<!-- GENERATED FILE — do not edit by hand.\n     \
-         Regenerate with:\n       \
-         UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc\n     \
-         The source of truth is the tool registry itself\n     \
-         (`ToolDispatcher::default_dispatcher()`), so this file cannot\n     \
-         disagree with what the agent can actually call. -->\n\n",
+        "[//]: # \"GENERATED FILE — do not edit by hand. \
+         Regenerate with: \
+         UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. \
+         The source of truth is the tool registry itself \
+         (ToolDispatcher::default_dispatcher()), so this file cannot \
+         disagree with what the agent can actually call.\"\n\n",
     );
 
     out.push_str("## What a tool is\n\n");

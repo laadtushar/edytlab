@@ -1,4 +1,7 @@
-# edytlab — API Reference
+---
+title: "API reference"
+description: "Every Tauri command and TypeScript bridge function: signature, parameters, return type and errors."
+---
 
 > Every function `tauri-bridge.ts` exports, which is the whole IPC surface the
 > frontend can reach. Commands are invoked from the frontend via that module —

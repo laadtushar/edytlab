@@ -1,4 +1,7 @@
-# edytlab — Development Guide
+---
+title: "Development guide"
+description: "Dev setup for macOS, Windows and Linux, daily workflow, testing, debugging, building a release, CI and common issues."
+---
 
 > Complete guide to setting up, building, testing, and debugging edytlab. Covers every platform.
 
@@ -115,14 +118,16 @@ sudo apt-get install -y \
   `[onnx_runtime_unavailable]` answer. They used to hang the agent.
   Installing the library does not make `separate_stems` work.
 
-<!-- historical:begin -->
+[//]: # "historical:begin"
+
 Earlier revisions of this guide described a `~/.edytlab/models` cache, an
 automatic first-use download, a `scripts/fetch-models.sh` installer and
 an `EDYTLAB_MODEL_DIR` override. None of those existed: the script was
 never in the repository, the download path was never wired up, and
 `EDYTLAB_MODEL_DIR` was read by no code in the tree. They are removed
 rather than corrected, because the honest instruction at the time was "wait".
-<!-- historical:end -->
+
+[//]: # "historical:end"
 
 `WHISPER_MODEL_PATH` and `DEMUCS_MODEL_PATH` *are* read. `WHISPER_MODEL_PATH`
 is how a developer points `transcribe` at a speech model that is not the one
@@ -738,7 +743,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux|macos|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
+| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux\|macos\|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
 | `WHISPER_MODEL_PATH` | unset | The speech model's **folder** (`onnx/encoder_model.onnx`, `onnx/decoder_model_merged_int8.onnx`, `tokenizer.json`). `transcribe` uses it instead of the model downloaded in Settings; the ignored `ml-whisper` and `tools` tests need it — see [ML Model Files](#ml-model-files-whisperdemucs) |
 | `DEMUCS_MODEL_PATH` | unset | The Demucs model **file** — see [ML Model Files](#ml-model-files-whisperdemucs) |
 

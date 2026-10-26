@@ -1,4 +1,7 @@
-# 0006. The open project is one module that owns its locks
+---
+title: "0006. The open project is one module that owns its locks"
+sidebarTitle: "0006 The open project"
+---
 
 Status: Accepted, 2026-10-22.
 

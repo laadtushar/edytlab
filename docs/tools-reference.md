@@ -1,13 +1,10 @@
-# edytlab — Tools Reference
+---
+title: "Tools reference"
+---
 
 > Every one of the 94 tools the AI agent can call: parameters, types, and what each one does.
 
-<!-- GENERATED FILE — do not edit by hand.
-     Regenerate with:
-       UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc
-     The source of truth is the tool registry itself
-     (`ToolDispatcher::default_dispatcher()`), so this file cannot
-     disagree with what the agent can actually call. -->
+[//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
 ## What a tool is
 
@@ -225,7 +222,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `change_speed`
 
-Resample a track to change playback speed without pitch preservation. factor > 1 speeds up (shorter duration), factor < 1 slows down (longer). Appends a new session node.
+Resample a track to change playback speed without pitch preservation. factor > 1 speeds up (shorter duration), factor \< 1 slows down (longer). Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1028,7 +1025,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `silence_finder`
 
-Analyse a track and return the time ranges of silent regions. Does not modify audio. Returns a list of {start_sec, end_sec} objects.
+Analyse a track and return the time ranges of silent regions. Does not modify audio. Returns a list of \{start_sec, end_sec\} objects.
 
 _Read-only — never held for approval._
 

@@ -1,4 +1,7 @@
-# 0004. A time edit is a pure function over the session state
+---
+title: "0004. A time edit is a pure function over the session state"
+sidebarTitle: "0004 Time edits"
+---
 
 Status: Accepted, 2026-10-22.
 

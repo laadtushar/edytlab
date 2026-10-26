@@ -122,9 +122,13 @@ fn strip_rust_comments(src: &str) -> String {
 /// Unbalanced markers fail closed: an unterminated `begin` would
 /// otherwise silence everything after it, so the region runs to the
 /// marker or not at all.
+///
+/// The markers are link reference definitions, which render as nothing on
+/// GitHub, and not HTML comments, which are a parse error where Mintlify
+/// reads the guide as MDX (`docs.json`).
 fn strip_historical_regions(text: &str) -> String {
-    const BEGIN: &str = "<!-- historical:begin -->";
-    const END: &str = "<!-- historical:end -->";
+    const BEGIN: &str = "[//]: # \"historical:begin\"";
+    const END: &str = "[//]: # \"historical:end\"";
 
     let mut out = String::with_capacity(text.len());
     let mut rest = text;

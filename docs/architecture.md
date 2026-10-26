@@ -1,7 +1,10 @@
-# edytlab — System Architecture
+---
+title: "System architecture"
+description: "Workspace layout, the AI subsystem, tool dispatch, the session graph, the audio engine, IPC and the security model."
+---
 
 > **Audience:** Engineers contributing to the core, extending the tool surface, or adding LLM providers.
-> For a product-level overview start with the [root README](../README.md).
+> For a product-level overview start with the [root README](https://github.com/laadtushar/edytlab#readme).
 
 ---
 
@@ -645,7 +648,7 @@ pub fn persistence() -> Persistence                              // Durable | Se
 pub fn set_settings_dir(dir: PathBuf) -> bool                    // once, at startup; absolute path only
 ```
 
-Two homes (#734, [ADR 0009](adr/0009-settings-and-secrets-storage.md)). **Secrets** are one keychain item, account `secrets`, whose value is a JSON object from slot name to value: `<provider>_api_key` per hosted provider (`anthropic_api_key`, `openrouter_api_key`, …) and `chatgpt_refresh_token`. It is read once per process and cached; a save or a delete updates the item and the cache together under one lock, so a key save and a ChatGPT token refresh cannot lose each other. **Settings** are a JSON file, `provider-settings.json`, in the directory the app registers with `set_settings_dir` (the app config directory), written as a temporary file renamed over the old one and never holding a secret:
+Two homes (#734, [ADR 0009](./adr/0009-settings-and-secrets-storage.md)). **Secrets** are one keychain item, account `secrets`, whose value is a JSON object from slot name to value: `<provider>_api_key` per hosted provider (`anthropic_api_key`, `openrouter_api_key`, …) and `chatgpt_refresh_token`. It is read once per process and cached; a save or a delete updates the item and the cache together under one lock, so a key save and a ChatGPT token refresh cannot lose each other. **Settings** are a JSON file, `provider-settings.json`, in the directory the app registers with `set_settings_dir` (the app config directory), written as a temporary file renamed over the old one and never holding a secret:
 
 ```json
 { "version": 1,

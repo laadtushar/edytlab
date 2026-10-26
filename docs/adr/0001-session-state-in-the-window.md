@@ -1,4 +1,7 @@
-# 0001. The window changes the session through one module, built on TanStack Query
+---
+title: "0001. The window changes the session through one module, built on TanStack Query"
+sidebarTitle: "0001 Session state in the window"
+---
 
 Status: Accepted, 2026-10-22.
 

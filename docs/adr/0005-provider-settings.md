@@ -1,4 +1,7 @@
-# 0005. Provider settings are saved in one call by one module
+---
+title: "0005. Provider settings are saved in one call by one module"
+sidebarTitle: "0005 Provider settings"
+---
 
 Status: Accepted, 2026-10-22.
 

@@ -1,4 +1,7 @@
-# 0002. The plan gate is one value built on a oneshot channel
+---
+title: "0002. The plan gate is one value built on a oneshot channel"
+sidebarTitle: "0002 The plan gate"
+---
 
 Status: Accepted, 2026-10-22.
 

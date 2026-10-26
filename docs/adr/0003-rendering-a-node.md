@@ -1,4 +1,7 @@
-# 0003. One module renders a node and returns what it left out
+---
+title: "0003. One module renders a node and returns what it left out"
+sidebarTitle: "0003 Rendering a node"
+---
 
 Status: Accepted, 2026-10-22.
 

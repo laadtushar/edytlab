@@ -1,4 +1,7 @@
-# Windows packaging notes (M15)
+---
+title: "Windows packaging"
+description: "Signing, the WebView2 bootstrapper, and the ONNX Runtime and Visual C++ DLLs the Windows installers carry."
+---
 
 ## What's wired up already
 

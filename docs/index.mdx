@@ -1,0 +1,33 @@
+---
+title: edytlab developer docs
+description: Architecture, development guide, API and tools references, and decision records for edytlab.
+---
+
+edytlab is a desktop audio editor you talk to. You describe an edit in chat, the assistant calls audio-editing tools on a branchable session graph, and you hear the result. It runs on Tauri 2 with a Rust backend and a React frontend, and works with your own key for Anthropic, OpenRouter, OpenAI, Groq or Gemini, with a local Ollama model, or with your ChatGPT plan (a preview).
+
+These pages are for people who build on it or contribute to it. For the app itself (download, getting started, user guide, privacy), see [www.edytlab.com](https://www.edytlab.com). The source is at [github.com/laadtushar/edytlab](https://github.com/laadtushar/edytlab).
+
+## Where to start
+
+<CardGroup cols={2}>
+  <Card title="Architecture" href="/docs/architecture">
+    Workspace layout, the AI subsystem, tool dispatch, the session graph, the audio engine, IPC and the security model.
+  </Card>
+  <Card title="Development guide" href="/docs/development-guide">
+    Set up on macOS, Windows or Linux, run the tests, debug, and build a release.
+  </Card>
+  <Card title="Contributing" href="https://github.com/laadtushar/edytlab/blob/main/docs/contributing.md">
+    Pull request workflow, code style, and how to add a tool, a provider or a component. Read on GitHub.
+  </Card>
+  <Card title="API reference" href="/docs/api-reference">
+    Every Tauri command and TypeScript bridge function.
+  </Card>
+  <Card title="Tools reference" href="/docs/tools-reference">
+    Every audio-editing tool the assistant can call, with its parameters.
+  </Card>
+  <Card title="Architecture decisions" href="/docs/adr/0001-session-state-in-the-window">
+    One record per decision that a later change could otherwise reopen by accident. The index is on [GitHub](https://github.com/laadtushar/edytlab/blob/main/docs/adr/README.md).
+  </Card>
+</CardGroup>
+
+Terms used across the docs are defined in the [glossary](/GLOSSARY).

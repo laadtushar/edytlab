@@ -1,4 +1,6 @@
-# Glossary
+---
+title: "Glossary"
+---
 
 Terms the code, the docs and the architecture records use with one meaning each. Add a term when a
 module is named after it; sharpen a definition when it turns out to be fuzzy.
