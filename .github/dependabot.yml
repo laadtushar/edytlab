@@ -28,6 +28,13 @@ updates:
       # (as #800 did); patches are safe on their own.
       - dependency-name: "tauri*"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # ort is pinned exactly (=2.0.0-rc.13 in Cargo.toml): its release
+      # candidates change how the ONNX Runtime library is loaded (CLAUDE.md,
+      # the onnx_session note), rc.15 needs rustc 1.92, and only the opt-in
+      # ML workflow runs the real model. An ort upgrade is a PR of its own,
+      # with ml.yml run on it.
+      - dependency-name: "ort"
+      - dependency-name: "ort-sys"
     groups:
       tauri-patch:
         patterns: ["tauri*"]
