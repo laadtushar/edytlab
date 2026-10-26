@@ -3000,6 +3000,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ml-diarize"
+version = "0.9.2"
+dependencies = [
+ "hound",
+ "ml-pipeline",
+ "ort",
+ "realfft",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "ml-pipeline"
 version = "0.9.2"
 dependencies = [

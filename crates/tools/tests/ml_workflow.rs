@@ -258,6 +258,7 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
     assert_eq!(
         checked,
         vec![
+            "crates/ml-diarize/tests/real_model.rs".to_string(),
             "crates/ml-pipeline/tests/model_real_download.rs".to_string(),
             "crates/ml-pipeline/tests/onnx_session_builder.rs".to_string(),
             "crates/ml-whisper/src (--lib)".to_string(),
@@ -307,6 +308,28 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
         yaml.contains(&format!("fetch-ml-model.sh {model} ml-models/{model}")),
         "ml.yml does not fetch {model} with fetch-ml-model.sh"
     );
+    let speakers = ml_pipeline::models::SPEAKER_DIARIZATION_ID;
+    assert!(
+        ml_pipeline::Catalog::built_in().get(speakers).is_some(),
+        "models.json does not pin {speakers}"
+    );
+    assert!(
+        yaml.contains(&format!(
+            "fetch-ml-model.sh {speakers} ml-models/{speakers}"
+        )),
+        "ml.yml does not fetch {speakers} with fetch-ml-model.sh"
+    );
+    let test = read("crates/ml-diarize/tests/real_model.rs");
+    for var in ["ORT_DYLIB_PATH", "DIARIZE_MODEL_PATH"] {
+        assert!(
+            test.contains(var),
+            "the speaker model's test does not read {var}"
+        );
+        assert!(
+            yaml.contains(&format!("{var}: ${{{{ github.workspace }}}}/")),
+            "ml.yml does not set {var}"
+        );
+    }
 
     // The caches are keyed by the manifests, so a changed pin misses them.
     for manifest in [
@@ -347,7 +370,11 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
         );
     }
     // The fetch steps run on a cache hit as well, which is what checks it.
-    for name in ["Fetch ONNX Runtime", "Fetch the whisper-base model"] {
+    for name in [
+        "Fetch ONNX Runtime",
+        "Fetch the whisper-base model",
+        "Fetch the speaker model",
+    ] {
         for line in step_body(&yaml, name) {
             assert!(
                 !line.trim_start().starts_with("if:"),

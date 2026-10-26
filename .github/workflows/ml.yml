@@ -28,7 +28,12 @@ name: ML
 #   - tools `transcribe_load_errors`: the tool's answers for a model that is
 #     not there or will not load. It needs only the ONNX Runtime;
 #   - ml-pipeline `model_real_download`: the downloader fetches the same three
-#     files for real (a resume with a `Range` request included).
+#     files for real (a resume with a `Range` request included);
+#   - ml-diarize `real_model` (#168): the pinned speaker model (segmentation and
+#     embedding networks, 32.5 MB) on the pinned ONNX Runtime, over a 40 s
+#     excerpt of the AMI corpus. Asserts that each window's classes, each
+#     voiceprint and the turns are those of pyannote.audio's algorithm run on
+#     the same files, and the error against the corpus' human annotation.
 #
 # Both inputs are pinned in the repository, not here, and verified before use:
 #
@@ -125,6 +130,19 @@ jobs:
       - name: Fetch the whisper-base model
         run: bash scripts/fetch-ml-model.sh whisper-base ml-models/whisper-base
 
+      # The two speaker-model files, 32.5 MB, from two repositories. Keyed on
+      # the manifest, so a new pin misses.
+      - name: Cache the speaker model
+        id: cache-speaker-model
+        uses: actions/cache@v6
+        with:
+          path: ml-models/speaker-diarization
+          key: ml-model-speaker-diarization-${{ hashFiles('crates/ml-pipeline/models.json') }}
+
+      # Runs on a hit too, as the whisper-base step does.
+      - name: Fetch the speaker model
+        run: bash scripts/fetch-ml-model.sh speaker-diarization ml-models/speaker-diarization
+
       # `--release`: the realtime factor it prints is the one worth reading,
       # and a debug build of the mel transform is several times slower.
       # `--ignored` runs only the ignored tests, and they fail rather than
@@ -173,6 +191,14 @@ jobs:
       - name: The pinned model downloads, resumes and verifies
         run: cargo test -p ml-pipeline --release --test model_real_download -- --ignored --nocapture --test-threads=1
 
+      # The speaker model (#168): the networks on real audio, against the
+      # reference run of pyannote.audio's algorithm on the same files.
+      - name: Speaker diarization on the AMI excerpt
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DIARIZE_MODEL_PATH: ${{ github.workspace }}/ml-models/speaker-diarization
+        run: cargo test -p ml-diarize --release --test real_model -- --ignored --nocapture --test-threads=1
+
       # Which caches were hit, on the run's summary page.
       - name: Summary
         if: always()
@@ -182,4 +208,5 @@ jobs:
             echo ""
             echo "- ONNX Runtime cache hit: \`${{ steps.cache-runtime.outputs.cache-hit || 'false' }}\`"
             echo "- whisper-base model cache hit: \`${{ steps.cache-model.outputs.cache-hit || 'false' }}\`"
+            echo "- speaker model cache hit: \`${{ steps.cache-speaker-model.outputs.cache-hit || 'false' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

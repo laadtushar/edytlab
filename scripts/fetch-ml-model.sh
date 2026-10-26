@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Fetch a pinned speech model for the opt-in ML tests (#383, #384).
+# Fetch a pinned model for the opt-in ML tests (#383, #384, #168).
 #
 #   scripts/fetch-ml-model.sh <model-id> <outdir>
 #
 # <model-id> is the "id" of an entry in crates/ml-pipeline/models.json
-# (whisper-base), which is the only place the repository, the commit, each
+# (whisper-base, speaker-diarization), which is the only place the repository, the commit, each
 # file's URL, size and SHA-256 are written down. The script downloads every
 # file of the entry into <outdir>/<path> (the same layout the app's model
 # folder has), checks each one's size and SHA-256 before it is given its
@@ -14,7 +14,9 @@
 #   export WHISPER_MODEL_PATH="$(scripts/fetch-ml-model.sh whisper-base models/whisper-base)"
 #
 # (WHISPER_MODEL_PATH names the model's folder, the one that holds onnx/ and
-# tokenizer.json, since #652.)
+# tokenizer.json, since #652. DIARIZE_MODEL_PATH names the speaker model's, the
+# one that holds segmentation/ and embedding/: its two files come from two
+# repositories, and each file's url is the manifest's own.)
 #
 # This is a developer and CI script, run by hand or by .github/workflows/ml.yml.
 # The app never runs it, and nothing the app ships downloads through it: the
@@ -47,7 +49,7 @@ die() {
   exit 1
 }
 
-[[ $# -eq 2 ]] || die "usage: $0 <model-id> <outdir>   (model-id: whisper-base)"
+[[ $# -eq 2 ]] || die "usage: $0 <model-id> <outdir>   (model-id: whisper-base, speaker-diarization)"
 model=$1
 outdir=$2
 
