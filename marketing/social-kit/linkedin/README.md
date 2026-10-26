@@ -34,12 +34,18 @@ other four files render to the same picture; a render on Linux sets the text a
 few pixels differently from the Windows render that made posts 2 and 5, so those
 two were left as committed.
 
+Post 4 was re-rendered on 2026-10-26 after `shots/ollama.png` was retaken, because the ChatGPT
+plan button in Settings gained OpenAI's logo (#749). Only that button differs from the
+2026-10-25 render. The other four renders (posts 1, 2, 3 and 5) and the carousel draw no
+Settings and no message box, so they were not replaced. The files post 4 replaces are in
+[`../../archive/linkedin/2026-10-26-v0.9.1-chatgpt-logo/`](../../archive/README.md).
+
 | File | Size | Goes with | What it shows |
 |---|---|---|---|
 | `out/post-1-launch.png` | 1200x1200, 576 KB | Post 1, launch | "An audio editor you talk to": a "v0.9.1 · open source" pill, the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 API providers, 94 tools) |
 | `out/post-2-before-after.png` | 1200x1200, 396 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same scripted example conversation in the app's chat panel |
 | `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 203 KB | Post 3, build story | The model reads text and answers with tool calls; the 94 tools and the audio are on your machine |
-| `out/post-4-privacy.png` | 1200x1200, 224 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected (the six API providers and the ChatGPT plan button) |
+| `out/post-4-privacy.png` | 1200x1200, 226 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected (the six API providers and the ChatGPT plan button) |
 | `out/post-5-help-wanted.png` | 1200x1200, 249 KB | Post 5, open source | Four places a contributor would make a difference, with issue numbers |
 | `out/post-3-carousel.pdf` | 7 pages of 1080x1350, each an image (2x, JPEG), 2691 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline (94 tools), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, 6 API providers, 94 tools, and "v0.9.1 for macOS, Windows and Linux. The installers are unsigned") |
 
@@ -127,6 +133,13 @@ so a command the app calls that nothing answers fails the run.
 - **Not part of CI.** `apps/desktop/playwright.config.ts` has `testDir: ./e2e`, so it
   never sees this folder, and no spec under `apps/desktop/e2e` changed. The config
   uses port 5391 (`SHOTS_PORT` moves it); 5199 is the CI config's.
+
+Retaken on 2026-10-26 against the v0.9.1 frontend plus #749 and #760 (`render.mjs --shots`; the
+ChatGPT plan button gained OpenAI's logo, and the chat's message box now takes the pane's full
+width): `ollama.png` is the new file, the same size, with the logo on that one button and no other
+pixel different. The other four were retaken too and look the same (anti-aliasing only, as before;
+none of them crops the message box), so they are the earlier files. The earlier `ollama.png` is in
+[`../../archive/linkedin/2026-10-26-v0.9.1-chatgpt-logo/shots/`](../../archive/README.md).
 
 Retaken on 2026-10-25 against the v0.9.0 frontend (`render.mjs --shots`; the Settings
 provider picker gained the ChatGPT plan button, #703): `ollama.png` is the new file, one
