@@ -14,3 +14,11 @@ hound = "3"
 tokio = { version = "1", features = ["rt"] }
 tracing = "0.1"
 thiserror = "2"
+# The workspace-blessed FFT path (see audio-analysis); the sweep locator
+# is a cross-correlation done in the frequency domain.
+realfft = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

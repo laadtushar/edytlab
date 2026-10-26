@@ -45,7 +45,7 @@ export default [
       }, { timeout: 20000, label: "test result" });
       await ctx.shot(`The connection test reports: ${outcome}`);
       assert(outcome === "settings-test-ok", `test said ${outcome}: ${await d.text(`[data-testid='${outcome}']`)}`);
-      for (const tab of ["project", "memory", "skills", "agents", "mcp"]) {
+      for (const tab of ["project", "audio", "memory", "skills", "agents", "mcp"]) {
         await d.click(`[data-testid='settings-tab-${tab}']`);
         await sleep(500);
         await ctx.shot(`Settings, ${tab} tab`);
