@@ -50,6 +50,29 @@ export default function TermsPage() {
         <a href="https://huggingface.co/openai/whisper-base">the model card</a>
         {" "}and the <a href="/privacy">privacy page</a>.
       </p>
+      <p>
+        The speaker model you can download from Settings is two files. The
+        speaker-turn (segmentation) network is pyannote&apos;s{" "}
+        <a href="https://huggingface.co/pyannote/segmentation-3.0">
+          segmentation-3.0
+        </a>
+        , released under the MIT licence (&copy; CNRS) and downloaded as the
+        ONNX export{" "}
+        <a href="https://huggingface.co/onnx-community/pyannote-segmentation-3.0">
+          onnx-community/pyannote-segmentation-3.0
+        </a>
+        . The voiceprint (speaker embedding) network is{" "}
+        <a href="https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM">
+          WeSpeaker ResNet34-LM
+        </a>
+        , by the WeSpeaker authors, licensed under{" "}
+        <a href="https://creativecommons.org/licenses/by/4.0/">
+          Creative Commons Attribution 4.0 (CC BY 4.0)
+        </a>
+        . edytlab does not include or redistribute either: when you click
+        Download, the app fetches the files from Hugging Face, whose terms
+        apply to that download, and they are kept on your computer.
+      </p>
 
       <h2>Disclaimer</h2>
       <p>

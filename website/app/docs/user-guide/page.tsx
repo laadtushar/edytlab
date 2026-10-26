@@ -593,6 +593,18 @@ export default function UserGuidePage() {
         the <a href="/privacy">privacy page</a>).
       </p>
       <p>
+        The <strong>Speaker model</strong> row below it is the same on a
+        smaller model (about 33 MB, from Hugging Face): the pyannote
+        segmentation network and the WeSpeaker voiceprint network, which
+        together find who speaks when. <strong>Download</strong> fetches its
+        two files from <code>huggingface.co</code>, with the same progress bar,{" "}
+        <strong>Cancel</strong>, <strong>Retry</strong> and{" "}
+        <strong>Remove</strong>, the same checks, and the same promise:
+        nothing downloads unless you press Download, and the requests carry no
+        audio. Until it says <code>Ready</code> the assistant has no speaker
+        model to use.
+      </p>
+      <p>
         The runtime&rsquo;s licence and notices are installed with it, in{" "}
         <code>licenses/onnxruntime/</code>: inside{" "}
         <code>edytlab.app/Contents/Resources</code> on macOS, in{" "}
@@ -615,6 +627,21 @@ export default function UserGuidePage() {
         </a>
         , the second of which states no licence of its own. edytlab fetches the
         files when you click Download and does not redistribute them.
+      </p>
+      <p>
+        The speaker model is two files, and each has its own licence. The
+        segmentation network is pyannote&rsquo;s segmentation-3.0 (MIT licence,
+        &copy; CNRS), as an ONNX export by the onnx-community:{" "}
+        <a href="https://huggingface.co/onnx-community/pyannote-segmentation-3.0">
+          onnx-community/pyannote-segmentation-3.0
+        </a>
+        . The voiceprint network is WeSpeaker ResNet34-LM, published by the
+        WeSpeaker authors under CC BY 4.0:{" "}
+        <a href="https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM">
+          Wespeaker/wespeaker-voxceleb-resnet34-LM
+        </a>
+        . Both are pinned to one commit, fetched when you click Download and
+        not redistributed. The credit is on the <a href="/terms">Terms page</a>.
       </p>
 
       <h2 id="chatgpt-plan">Using your ChatGPT plan</h2>

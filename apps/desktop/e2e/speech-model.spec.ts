@@ -14,6 +14,7 @@
  */
 
 import {
+  modelStatuses,
   readyToLoad,
   speechModelCommands,
   speechModelStatus,
@@ -54,7 +55,11 @@ test("opening Settings shows the model, its size and source, and downloads nothi
   await expect(note).toContainText("huggingface.co");
 
   await app.settle();
-  expect(await app.requestsFor("ml_model_status")).toEqual([{ model: "whisper-base" }]);
+  // One status read for each row (the speaker model's is speaker-model.spec.ts's).
+  expect(await app.requestsFor("ml_model_status")).toEqual(
+    expect.arrayContaining([{ model: "whisper-base" }]),
+  );
+  expect(await app.requestsFor("ml_model_status")).toHaveLength(2);
   for (const cmd of ["download_ml_model", "cancel_ml_model_download", "remove_ml_model"]) {
     expect(await app.requestsFor(cmd), `${cmd} was called`).toEqual([]);
   }
@@ -89,7 +94,7 @@ test("Download starts it once, and the bar follows the events to Ready", async (
 
 test("Cancel asks the backend to stop, and Download then resumes", async ({ app }) => {
   const { row, page } = await openSettings(app, {
-    ml_model_status: { ok: speechModelStatus({ state: "downloading", received: 20_000_000 }) },
+    ...modelStatuses({ speech: speechModelStatus({ state: "downloading", received: 20_000_000 }) }),
     // Cancel answers the state at the time of the call: still 20 MB in.
     ...speechModelCommands({ received: 20_000_000 }),
   });
@@ -117,7 +122,7 @@ test("Cancel asks the backend to stop, and Download then resumes", async ({ app 
 
 test("Remove asks first, and removes only when told yes", async ({ app }) => {
   const { row, page } = await openSettings(app, {
-    ml_model_status: { ok: speechModelStatus({ state: "ready" }) },
+    ...modelStatuses({ speech: speechModelStatus({ state: "ready" }) }),
   });
   await expect(row).toHaveAttribute("data-state", "ready");
 
@@ -145,7 +150,7 @@ test("Remove asks first, and removes only when told yes", async ({ app }) => {
 test("a failed download shows its reason and Retry starts it again", async ({ app }) => {
   const reason = "downloading https://huggingface.co/x failed (HTTP 503): Service Unavailable";
   const { row, page } = await openSettings(app, {
-    ml_model_status: { ok: speechModelStatus({ state: "failed", reason }) },
+    ...modelStatuses({ speech: speechModelStatus({ state: "failed", reason }) }),
   });
 
   await expect(row).toHaveAttribute("data-state", "failed");
