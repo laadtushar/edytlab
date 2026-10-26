@@ -58,7 +58,7 @@ dependencies = [
  "ai",
  "audio-decoder",
  "audio-engine",
- "base64 0.22.1",
+ "base64 0.23.1",
  "eventsource-stream",
  "fs4",
  "futures-util",

@@ -40,7 +40,7 @@ tracing = "0.1"
 # dependency of reqwest/rustls/tokio, so none adds a crate to the build.
 # ring: RS256 ID-token signatures, SHA-256 for PKCE, the OS random generator.
 ring = "0.17"
-base64 = "0.22"
+base64 = "0.23"
 url = "2"
 # A response put back together after its body was read (`credential.rs`): a
 # 401 is read to see whether it is worth renewing the credential for. Already
