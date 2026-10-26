@@ -45,7 +45,8 @@
 //!   returned alongside an error.
 //! - The browser is shown a fixed page that echoes nothing from the request,
 //!   with `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP of
-//!   `default-src 'none'`, and no CORS headers, so no other page can read it.
+//!   `default-src 'none'` (plus `style-src 'unsafe-inline'` for the two pages,
+//!   which carry one inline `<style>` and no script), and no CORS headers, so no other page can read it.
 //!
 //! **Ports.** Leaving `SO_REUSEADDR` off has a cost. The listener closes its
 //! side of each connection first, so after an attempt those connections sit
@@ -94,8 +95,39 @@ const MAX_PATH_LEN: usize = 256;
 const LINGER: Duration = Duration::from_secs(1);
 const MAX_DRAIN: usize = 64 * 1024;
 
-const SUCCESS_PAGE: &str = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Signed in</title></head>\n<body><p>You can close this tab and return to edytlab.</p></body></html>\n";
-const FAILURE_PAGE: &str = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Sign-in did not finish</title></head>\n<body><p>Sign-in did not finish. You can close this tab and return to edytlab.</p></body></html>\n";
+/// The one inline `<style>` of both pages: light by default, dark under
+/// `prefers-color-scheme`. No script, font, image or other resource, because
+/// the page is served under `default-src 'none'`.
+macro_rules! page_style {
+    () => {
+        "<style>\n\
+:root{color-scheme:light dark;--bg:#f6f7f9;--card:#fff;--fg:#14161a;--muted:#5b6370;--line:#e1e4ea}\n\
+@media (prefers-color-scheme: dark){:root{--bg:#101215;--card:#1a1d22;--fg:#eceef2;--muted:#9aa3b2;--line:#2a2f37}}\n\
+*{box-sizing:border-box}\n\
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif}\n\
+main{max-width:28rem;width:100%;padding:32px 28px;background:var(--card);border:1px solid var(--line);border-radius:12px;text-align:center}\n\
+h1{margin:0 0 8px;font-size:1.375rem;line-height:1.3}\n\
+p{margin:0;color:var(--muted)}\n\
+</style>\n"
+    };
+}
+
+const SUCCESS_PAGE: &str = concat!(
+    "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">",
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+    "<title>Signed in</title>\n",
+    page_style!(),
+    "</head>\n<body><main><h1>edytlab is connected to ChatGPT</h1>",
+    "<p>You can close this tab and return to edytlab.</p></main></body></html>\n"
+);
+const FAILURE_PAGE: &str = concat!(
+    "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">",
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+    "<title>Sign-in did not finish</title>\n",
+    page_style!(),
+    "</head>\n<body><main><h1>Sign-in did not finish</h1>",
+    "<p>Sign-in did not finish. You can close this tab and return to edytlab.</p></main></body></html>\n"
+);
 
 /// The host in the redirect URI, which is also the address the listener
 /// binds.
@@ -666,6 +698,13 @@ async fn respond(
     content_type: &str,
     body: &str,
 ) {
+    // The two pages carry one inline `<style>`; nothing else is let in, and
+    // scripts stay blocked by `default-src 'none'`.
+    let policy = if content_type.starts_with("text/html") {
+        "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
+    } else {
+        "default-src 'none'; frame-ancestors 'none'"
+    };
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\n\
          Content-Type: {content_type}\r\n\
@@ -674,7 +713,7 @@ async fn respond(
          Pragma: no-cache\r\n\
          Referrer-Policy: no-referrer\r\n\
          X-Content-Type-Options: nosniff\r\n\
-         Content-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\n\
+         Content-Security-Policy: {policy}\r\n\
          X-Frame-Options: DENY\r\n\
          Connection: close\r\n\
          \r\n\
