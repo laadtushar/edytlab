@@ -101,7 +101,7 @@ describe("the feature grid", () => {
   it("puts the limit of text-based editing in its headline", () => {
     // The body says the speech model is a one-time download (#384); the
     // headline is what snippets and assistants quote, so it has to say it too.
-    const title = src.match(/title:\s*"([^"]+)",\s*\n\s*body:\s*"Transcribe a take on your computer/)?.[1];
+    const title = src.match(/title:\s*"([^"]+)",\s*\n\s*body:\s*"Delete words to cut the audio/)?.[1];
     expect(title, "the text-editing card moved; update this test").toBeDefined();
     expect(title).toMatch(/download/i);
   });

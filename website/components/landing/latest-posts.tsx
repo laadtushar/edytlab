@@ -36,7 +36,7 @@ export function LatestPosts() {
                 data-lift
                 className="ring-hover group flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 hover:bg-card"
               >
-                <div className="hidden aspect-[1200/630] border-b border-border/60 md:block">
+                <div className="hidden aspect-[1200/630] border-b border-border/60 md:block overflow-hidden">
                   <BlogCover slug={post.slug} alt={post.coverAlt} />
                 </div>
                 <div className="flex flex-1 flex-col gap-2 p-5">

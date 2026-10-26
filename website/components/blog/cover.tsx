@@ -54,6 +54,7 @@ function Cover({ alt, className, children }: { alt: string; className?: string; 
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 640 336"
       role="img"
+      data-poster=""
       aria-label={alt}
       className={cn("block h-full w-full", className)}
       fill="none"

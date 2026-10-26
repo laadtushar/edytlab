@@ -103,6 +103,7 @@ export function FeaturedVideo({
         // `fetchpriority` in lower case: React 18 does not know the
         // camel-case prop and warns, though the browser reads either.
         {...(lazy ? { loading: "lazy" as const } : { fetchpriority: "high" })}
+        data-poster=""
         className="block h-full w-full object-cover"
       />
       <span aria-hidden className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/10">

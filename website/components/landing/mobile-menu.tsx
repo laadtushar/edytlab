@@ -30,6 +30,7 @@ export function MobileMenu() {
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
   const close = (returnFocus: boolean) => {
@@ -55,6 +56,9 @@ export function MobileMenu() {
       if (e.key === "Escape") close(true);
     };
     const onPointer = (e: PointerEvent) => {
+      // A tap on the backdrop closes on its click instead (below), so the
+      // tap is consumed by the backdrop and cannot reach a link under it.
+      if (e.target === backdrop.current) return;
       if (details.current && !details.current.contains(e.target as Node)) close(true);
     };
     document.addEventListener("keydown", onKey);
@@ -67,6 +71,24 @@ export function MobileMenu() {
   }, [open]);
 
   return (
+    <>
+    {/* The dimmed page behind the panel. A sibling of the disclosure, not
+        inside it, so it stays rendered while it fades out (a closed
+        <details> drops its content at once). Absolute against the header
+        rather than fixed: the header's backdrop-filter and its slide-in
+        transform make it the containing block of fixed children. It hangs
+        from the bottom of the bar, so the menu button stays undimmed. The
+        visibility change is delayed by the fade, so a tap that closes it
+        is still caught by the backdrop and not by a link underneath. */}
+    <div
+      ref={backdrop}
+      aria-hidden
+      data-menu=""
+      onClick={() => close(true)}
+      className={`absolute left-1/2 top-full h-[100dvh] w-screen -translate-x-1/2 bg-black/50 backdrop-blur-sm md:hidden motion-safe:transition-[opacity,visibility] motion-safe:duration-200 ${
+        open ? "visible opacity-100" : "invisible opacity-0"
+      }`}
+    />
     <details
       ref={details}
       data-menu
@@ -112,7 +134,7 @@ export function MobileMenu() {
           <Link
             href={siteConfig.releases}
             onClick={() => close(false)}
-            className="inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="btn-motion btn-lift inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Download aria-hidden className="size-4" />
             Download
@@ -122,7 +144,7 @@ export function MobileMenu() {
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => close(false)}
-            className="inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="btn-motion btn-lift inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Github aria-hidden className="size-4" />
             GitHub
@@ -130,5 +152,6 @@ export function MobileMenu() {
         </div>
       </div>
     </details>
+    </>
   );
 }

@@ -567,11 +567,8 @@ fn the_landing_page_claims_only_what_the_registry_can_do() {
     let claims: &[(&str, &str)] = &[
         // Text-based editing (#157): the transcript is the editor, and
         // deleting words cuts the audio. `transcribe` runs the model since
-        // v0.8.0 (#384); the headline says the model is a download.
-        (
-            "Text-based editing, after a one-time model download",
-            "cut_words",
-        ),
+        // v0.8.0 (#384); the card says the model is a download.
+        ("one-time model download", "cut_words"),
         ("the transcript becomes the editor", "transcribe"),
         // The phase vocoder.
         ("Time-stretch", "time_stretch"),

@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { LineDraw, Stagger, TiltCard } from "@/components/motion";
+import { LineDraw, Stagger } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
 
 /**
@@ -23,44 +23,43 @@ import { SectionHeading } from "@/components/motion/section-heading";
  * so the two DSP cards are one card now, and the other two live where
  * their detail is.
  *
- * The phrases `website_tool_docs.rs` pins to registered tools ("Text-based
- * editing, after a one-time model download", "Warp a performance onto a
- * beat grid", "Loudness-normalise", "Fork, A/B compare, and revert" …) are
- * load-bearing: reword one and update
- * that test in the same change. The text-editing headline carries its
- * limit on purpose (the model is a download, not part of the app): headings
- * are what snippets and assistants quote.
+ * The phrases `website_tool_docs.rs` pins to registered tools ("one-time
+ * model download", "Warp a performance onto a beat grid",
+ * "Loudness-normalise", "Fork, A/B compare, and revert" …) are
+ * load-bearing: reword one and update that test in the same change. The
+ * text-editing card carries its limit on purpose (the model is a download,
+ * not part of the app).
  */
 const features = [
   {
     icon: FileText,
-    title: "Text-based editing, after a one-time model download",
-    body: "Transcribe a take on your computer and the transcript becomes the editor: delete a sentence and the audio is cut and the gap closed, as an ordinary undoable edit. It needs the speech model (about 139 MB), which you download once in Settings; the words it finds reach your AI provider as text, unless you use Ollama.",
+    title: "Text editing, one-time model download",
+    body: "Delete words to cut the audio; the transcript becomes the editor.",
   },
   {
     icon: MessageSquare,
     title: "Conversational multi-track",
-    body: "Match B's tempo to A's, start it eight bars before A ends, crossfade, give me three takes. The agent plans (and can show you the plan first) and renders branches you can A/B.",
+    body: "Describe the edit; the agent plans it and renders takes to compare.",
   },
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation. Warp a performance onto a beat grid in a single pass.",
+    body: "Time-stretch and pitch-shift keep formants. Warp a performance onto a beat grid.",
   },
   {
     icon: GitBranch,
     title: "Undo, branch & compare",
-    body: "Every state is a node in a graph. Fork, A/B compare, and revert are first-class, not hidden behind a linear undo stack.",
+    body: "Fork, A/B compare, and revert any state.",
   },
   {
     icon: FileDown,
     title: "Export that plays anywhere",
-    body: "WAV, FLAC or MP3. Loudness-normalise to a LUFS target with a true-peak ceiling. It opens WAV, MP3, FLAC and OGG.",
+    body: "WAV, FLAC or MP3. Loudness-normalise to a LUFS target.",
   },
   {
     icon: Zap,
     title: "MCP extensibility",
-    body: "Register Model Context Protocol servers from Settings to give the agent new tools, without touching core code.",
+    body: "Add Model Context Protocol servers in Settings for new agent tools.",
   },
 ];
 
@@ -72,33 +71,30 @@ export function FeatureGrid() {
           eyebrow="Features"
           title="Built for producers who want help — not handcuffs."
         />
-        {/* Cards settle in a stagger, each icon is drawn stroke by
-            stroke as its card lands, and a card tilts toward the cursor
-            once it is there. */}
+        {/* Six equal cards: the grid stretches every card to the tallest
+            in its row, and the text is short enough never to set it. They
+            rise in a small stagger; hover or focus lifts one, tints its
+            border and gives its icon a small turn (`globals.css`). */}
         <LineDraw>
           <Stagger
-            className="mx-auto grid max-w-6xl gap-3 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3"
-            each={0.06}
-            distance={28}
-            scale
+            className="mx-auto grid max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3"
+            each={0.05}
+            distance={8}
+            duration={0.4}
           >
             {features.map((f) => (
-              <div key={f.title} className="group">
-                <TiltCard className="h-full">
-                  <Card className="surface h-full border-border/60 backdrop-blur transition-colors group-hover:border-primary/40">
-                    <CardHeader className="max-sm:p-4 max-sm:pb-2">
-                      <div className="mb-3 hidden size-11 items-center justify-center rounded-lg sm:flex bg-primary/10 text-primary ring-1 ring-primary/20 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
-                        <f.icon className="size-5" />
-                      </div>
-                      <CardTitle>{f.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="max-sm:p-4 max-sm:pt-0">
-                      <CardDescription className="text-sm leading-relaxed sm:text-[0.95rem]">
-                        {f.body}
-                      </CardDescription>
-                    </CardContent>
-                  </Card>
-                </TiltCard>
+              <div key={f.title} className="group card-hover h-full rounded-lg">
+                <Card className="surface h-full border-border/60 group-hover:border-primary/50 group-focus-within:border-primary/50">
+                  <CardHeader className="p-5 pb-2">
+                    <div className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out motion-safe:group-hover:rotate-6 motion-safe:group-hover:scale-[1.08] motion-safe:group-focus-within:rotate-6 motion-safe:group-focus-within:scale-[1.08]">
+                      <f.icon className="size-5" />
+                    </div>
+                    <CardTitle>{f.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-5 pt-0">
+                    <CardDescription className="text-sm leading-relaxed">{f.body}</CardDescription>
+                  </CardContent>
+                </Card>
               </div>
             ))}
           </Stagger>

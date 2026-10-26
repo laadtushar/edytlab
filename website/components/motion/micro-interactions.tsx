@@ -59,7 +59,7 @@ export function MicroInteractions() {
         if (e.button !== 0) return;
         const el = closest(e.target, PRESS);
         if (!el) return;
-        gsap.to(el, { scale: 0.96, duration: 0.12, ease: "power2.out", overwrite: "auto" });
+        gsap.to(el, { scale: 0.98, duration: 0.15, ease: "power2.out", overwrite: "auto" });
         // Released anywhere — a press that drags off the control still
         // has to spring back.
         const done = new AbortController();
@@ -87,7 +87,7 @@ export function MicroInteractions() {
 
         const lift = closest(e.target, LIFT);
         if (lift && !within(lift, e.relatedTarget)) {
-          gsap.to(lift, { y: -4, duration: 0.35, overwrite: "auto" });
+          gsap.to(lift, { y: -2, duration: 0.2, overwrite: "auto" });
         }
 
         const nudge = closest(e.target, NUDGE);
@@ -117,7 +117,7 @@ export function MicroInteractions() {
 
         const lift = closest(e.target, LIFT);
         if (lift && !within(lift, e.relatedTarget)) {
-          gsap.to(lift, { y: 0, duration: 0.45, overwrite: "auto" });
+          gsap.to(lift, { y: 0, duration: 0.2, overwrite: "auto" });
         }
 
         const nudge = closest(e.target, NUDGE);

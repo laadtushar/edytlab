@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BookOpen, Download } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { Reveal } from "@/components/motion";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site";
 
@@ -23,13 +24,17 @@ export function VideoSection({
 }) {
   return (
     <section aria-labelledby={id} className="mt-14">
-      <h2 id={id} className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
-        {title}
-      </h2>
-      {lead ? (
-        <p className="mt-3 max-w-2xl text-pretty leading-relaxed text-muted-foreground">{lead}</p>
-      ) : null}
-      <div className="mt-6">{children}</div>
+      <Reveal distance={8} duration={0.4}>
+        <h2 id={id} className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
+          {title}
+        </h2>
+        {lead ? (
+          <p className="mt-3 max-w-2xl text-pretty leading-relaxed text-muted-foreground">{lead}</p>
+        ) : null}
+      </Reveal>
+      <Reveal distance={8} duration={0.4} delay={0.06} className="mt-6">
+        {children}
+      </Reveal>
     </section>
   );
 }

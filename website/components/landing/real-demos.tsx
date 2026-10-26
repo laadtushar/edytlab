@@ -35,7 +35,7 @@ export function DemoCard({ demo, index, brief = false }: { demo: Demo; index: nu
   const text = brief ? (getVideo(demo.slug)?.blurb ?? demo.caption) : demo.caption;
 
   return (
-    <figure className="overflow-hidden rounded-xl border border-border/60 bg-card lg:grid lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+    <figure className="card-hover overflow-hidden rounded-xl border border-border/60 bg-card lg:grid lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
       <div className="bg-black">
         <FeaturedVideo
           href={videoPath(demo.slug)}

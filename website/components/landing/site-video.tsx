@@ -124,12 +124,12 @@ export function VideoLinkCard({
   return (
     <article
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card transition-colors focus-within:border-primary/60 hover:border-primary/40",
+        "group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card card-hover",
         row && "md:flex-row",
         className,
       )}
     >
-      <div className={cn("relative bg-black", row && "md:w-3/5 md:shrink-0")}>
+      <div className={cn("relative overflow-hidden bg-black", row && "md:w-3/5 md:shrink-0")}>
         {/* The poster is a frame of the video, laid out at the video's
             own size so the card does not move as it loads. The title
             names the card, so the picture is not read out again. */}
@@ -141,6 +141,7 @@ export function VideoLinkCard({
           height={video.height}
           loading="lazy"
           decoding="async"
+          data-poster=""
           className="block h-auto w-full"
           style={{ aspectRatio: `${video.width} / ${video.height}` }}
         />
