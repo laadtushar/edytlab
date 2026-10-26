@@ -1,7 +1,7 @@
 # Decode fixtures
 
-Half a second of a synthetic sine tone in each format the decoder opens (and
-two it does not). They are made here from `aevalsrc`, so there is no recording
+A short synthetic sine tone in each format the decoder opens (and one it does
+not, M4A/AAC), plus Opus files of layouts it refuses. They are made here from `aevalsrc`, so there is no recording
 and no third-party audio in them. They are the project's own work, dedicated
 to the public domain under CC0 1.0.
 
@@ -22,8 +22,18 @@ ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:
 # FLAC, 16-bit mono 44.1 kHz
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a flac -sample_fmt s16 -compression_level 8 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.flac
 
-# Not supported (tests/unsupported.rs): Opus in Ogg, and AAC in M4A
+# Opus in Ogg (tests/opus.rs): mono 0.5 s, and stereo 0.97 s (not a whole
+# number of 20 ms packets, so the end trim cuts the last one). libopus, ffmpeg's
+# default pre-skip of 312 frames.
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=0.5" -c:a libopus -b:a 32k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_48000.opus
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.97:c=stereo" -c:a libopus -b:a 48k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_440_880_stereo_48000.opus
+
+# Opus the decoder refuses by name (tests/opus.rs): 5.1 surround (mapping
+# family 1, 6 channels), and two discrete channels (mapping family 255)
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*550*t)|0.5*sin(2*PI*660*t)|0.5*sin(2*PI*770*t)|0.5*sin(2*PI*880*t)|0.5*sin(2*PI*990*t):s=48000:d=0.1:c=5.1" -c:a libopus -b:a 96k -mapping_family 1 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_surround_6ch_48000.opus
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.1:c=stereo" -c:a libopus -b:a 48k -mapping_family 255 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_discrete_2ch_48000.opus
+
+# Not supported (tests/unsupported.rs): AAC in M4A
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a aac -b:a 64k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.m4a
 ```
 
@@ -36,6 +46,8 @@ The encoded properties are what the tests assert (`tests/formats.rs`):
 | `tone_440_mono_44100_s16.aiff` | 44,100 | 1 | 440 Hz | exactly 22,050 frames, each sample within 1.5 LSB |
 | `tones_440_880_stereo_48000_s24.aiff` | 48,000 | 2 | 440 / 880 Hz | exactly 24,000 frames, each sample within 1e-4 |
 | `tone_440_mono_44100.flac` | 44,100 | 1 | 440 Hz | exactly 22,050 frames, each sample within 1.5 LSB |
+| `tone_440_mono_48000.opus` | 48,000 | 1 | 440 Hz | exactly 24,000 frames (`ffprobe` `duration_ts` 24,312 less 312 pre-skip) |
+| `tones_440_880_stereo_48000.opus` | 48,000 | 2 | 440 / 880 Hz | exactly 46,560 frames (`duration_ts` 46,872 less 312), the last packet trimmed |
 
 Measured: the mono Vorbis decodes to 22,080 frames (30 more than encoded,
 0.7 ms) and the stereo one to 24,256 (256 more, 5.3 ms); the tolerance is

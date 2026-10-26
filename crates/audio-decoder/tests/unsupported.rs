@@ -1,10 +1,10 @@
 //! Formats the decoder does not open (#764), and what it says about them.
 //!
-//! M4A/AAC is left out for a patent-licence reason and Opus because no
-//! published symphonia decodes it. Both used to come back as "corrupt or
-//! unrecognised audio data" or a bare "unsupported codec", which sends a
-//! person looking for a fault in a good file. They now name the format and
-//! say what to do.
+//! M4A/AAC is left out for a patent-licence reason. It used to come back as
+//! "corrupt or unrecognised audio data" or a bare "unsupported codec", which
+//! sends a person looking for a fault in a good file. It now names the format
+//! and says what to do. (Opus is decoded since it got a codec of its own; the
+//! layouts it refuses are in `opus.rs`.)
 
 use std::path::{Path, PathBuf};
 
@@ -36,13 +36,6 @@ fn an_m4a_file_is_named_not_called_corrupt() {
 }
 
 #[test]
-fn an_opus_file_is_named_not_called_unsupported_codec() {
-    let m = message(decode_file(&fixture("tone_440_mono_48000.opus")).unwrap_err());
-    assert!(m.contains("Opus"), "{m}");
-    assert!(m.contains("not supported"), "{m}");
-}
-
-#[test]
 fn the_name_is_found_from_the_bytes_not_the_extension() {
     // A phone voice memo renamed `.wav`, and bytes handed over with no name.
     let m4a = std::fs::read(fixture("tone_440_mono_44100.m4a")).unwrap();
@@ -56,8 +49,6 @@ fn the_name_is_found_from_the_bytes_not_the_extension() {
 
 #[test]
 fn probing_the_rate_of_an_m4a_says_the_same() {
-    // An Opus file's header does carry a rate, so the probe reads it; `load`
-    // refuses the file at the decode, before any clip names it.
     let m = message(probe_sample_rate(&fixture("tone_440_mono_44100.m4a")).unwrap_err());
     assert!(m.contains("M4A"), "{m}");
 }
@@ -75,7 +66,7 @@ fn a_file_that_is_just_garbage_is_not_given_a_format_name() {
 
 #[test]
 fn the_supported_list_leaves_out_what_does_not_decode() {
-    for ext in ["m4a", "aac", "mp4", "opus"] {
+    for ext in ["m4a", "aac", "mp4"] {
         assert!(
             !SUPPORTED_EXTENSIONS.contains(&ext),
             "{ext} does not decode, so it must not be listed"
