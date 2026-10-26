@@ -24,7 +24,8 @@ sha2 = "0.10"
 # The cross-process lock on an artifact (`download.rs`): `flock` on Unix,
 # `LockFileEx` on Windows, over a plain `std::fs::File`. Its `FileExt`
 # mirrors the `File::try_lock` that std stabilised in Rust 1.89, so this
-# crate can go once the toolchain pin (1.88) moves past that.
+# crate could go now that the toolchain pin (1.90) is past that (a
+# follow-up: the pin moved with the Tauri 2.12 upgrade).
 fs4 = "1.1"
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }

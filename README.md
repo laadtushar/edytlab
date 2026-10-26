@@ -45,7 +45,7 @@ The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails
 
 Prerequisites:
 
-- Rust toolchain pinned by `rust-toolchain.toml` (currently 1.88, installs automatically via `rustup`)
+- Rust toolchain pinned by `rust-toolchain.toml` (currently 1.90, installs automatically via `rustup`)
 - Node 20+ and `pnpm` 9.15+
 - Platform Tauri prerequisites: see <https://tauri.app/start/prerequisites/> (Xcode CLT on macOS, MSVC build tools + WebView2 on Windows, the WebKitGTK / GTK / ALSA dev packages on Linux — the exact `apt` list is in [`docs/development-guide.md`](docs/development-guide.md#linux-ubuntu-2204))
 
@@ -111,7 +111,7 @@ For the long version, read [`docs/specs/2026-05-05-conversational-audio-editor-d
 
 ## Tech stack
 
-- **Shell:** Tauri 2, Rust workspace (edition 2021, toolchain 1.88), `cargo` profile-release with `lto = true`
+- **Shell:** Tauri 2, Rust workspace (edition 2021, toolchain 1.90), `cargo` profile-release with `lto = true`
 - **Frontend:** React 19, Vite 7, Tailwind 4, `@xyflow/react` for the graph view, `wavesurfer.js` for waveforms
 - **Audio:** `cpal` (microphone capture), `symphonia` (decode), `rubato` (resampling), `realfft` (spectral), `hound` (WAV), `flac-codec` and `rusty_mp3` (export), plus in-house effects in `crates/audio-dsp`
 - **ML:** `ort` (ONNX Runtime, `load-dynamic`) for Demucs / Whisper — the installers carry the runtime library (1.23.2, since v0.7.0), and `ml-whisper` runs Whisper on a model the user downloads (`transcribe`), but no model is bundled and stem separation does not run in the app yet ([#383](https://github.com/laadtushar/edytlab/issues/383))

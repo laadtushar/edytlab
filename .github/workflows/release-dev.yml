@@ -415,7 +415,7 @@ jobs:
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         # `@stable` bootstraps rustup; rust-toolchain.toml is then
         # auto-applied by rustup's shim on the first cargo invocation
-        # (channel = 1.88, required by Tauri 2's edition2024 deps).
+        # (channel = 1.90, the MSRV of Tauri 2.12).
         #
         # Deliberately no `targets:` here — see the next step. Passing
         # them to this action installs them on **stable**, which is not
@@ -432,8 +432,8 @@ jobs:
       #
       # It installed the target on the wrong toolchain. The action
       # installs `stable` and adds the targets to `stable`; then
-      # rust-toolchain.toml pins channel 1.88 with `profile = "minimal"`,
-      # so the first cargo invocation switches to 1.88 — which has only
+      # rust-toolchain.toml pins channel 1.90 with `profile = "minimal"`,
+      # so the first cargo invocation switches to 1.90 — which has only
       # the host target. Hence:
       #
       #   failed to build x86_64-apple-darwin binary: Target

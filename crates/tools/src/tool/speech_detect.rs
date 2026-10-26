@@ -271,7 +271,7 @@ fn band_limited_decimated(samples: &[f32], sample_rate: u32, channels: usize) ->
             low_b.process(&mut mono, 1);
         }
         for &v in &mono {
-            if frame % k == 0 {
+            if frame.is_multiple_of(k) {
                 x.push(v);
             }
             frame += 1;

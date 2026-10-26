@@ -160,7 +160,7 @@ pub fn encoder_frames(samples: usize) -> usize {
 /// reflect-padded by `width / 2` at both ends, as upstream's `median_filter`.
 /// A row no longer than `width / 2` is left as it is.
 pub fn median_filter_rows(m: &mut Matrix, width: usize) -> Result<(), TimingError> {
-    if width == 0 || width % 2 == 0 {
+    if width == 0 || width.is_multiple_of(2) {
         return Err(TimingError::EvenFilterWidth(width));
     }
     let pad = width / 2;

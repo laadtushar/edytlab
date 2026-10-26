@@ -381,7 +381,7 @@ pub struct Logits {
 impl Logits {
     /// Wrap `data`, whose length must be a whole number of `vocab`-wide rows.
     pub fn new(vocab: usize, data: Vec<f32>) -> Result<Self, DecodeError> {
-        if vocab == 0 || data.len() % vocab != 0 {
+        if vocab == 0 || !data.len().is_multiple_of(vocab) {
             return Err(DecodeError::LogitsShape {
                 rows: 0,
                 vocab: data.len(),

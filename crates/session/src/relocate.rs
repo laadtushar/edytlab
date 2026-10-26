@@ -645,7 +645,7 @@ mod tests {
                 std::fs::write(dir.join("abc.wav"), b"audio").unwrap();
             }
 
-            let mut state = state_with(&[named.clone()]);
+            let mut state = state_with(std::slice::from_ref(&named));
             assert_eq!(rebind(&mut state, &copy), 0, "{cache}");
             assert_eq!(state.tracks[0].clips[0].source_path, named, "{cache}");
 
@@ -655,7 +655,7 @@ mod tests {
                 std::fs::remove_file(dir.join("abc.wav")).unwrap();
             }
             std::fs::remove_dir_all(&original).unwrap();
-            let mut state = state_with(&[named.clone()]);
+            let mut state = state_with(std::slice::from_ref(&named));
             assert_eq!(rebind(&mut state, &copy), 0, "{cache}, gone");
             assert_eq!(state.tracks[0].clips[0].source_path, named, "{cache}, gone");
         }

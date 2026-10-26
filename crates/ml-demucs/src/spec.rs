@@ -327,7 +327,7 @@ impl Stft {
         let frames = frames_for(length);
         let plane = FREQS * frames;
         assert!(
-            plane > 0 && planes.len() % (2 * plane) == 0,
+            plane > 0 && planes.len().is_multiple_of(2 * plane),
             "{} values are not whole (re, im) plane pairs of {FREQS} x {frames}",
             planes.len()
         );

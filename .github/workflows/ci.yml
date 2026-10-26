@@ -28,7 +28,11 @@ jobs:
   build:
     name: build (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 30
+    # 45, not 30: a warm Windows run already takes ~27 min, and a toolchain
+    # bump empties the cache (rust-cache keys on rustc), so the first run
+    # after one compiles cold; a cancelled job saves no cache, so a run that
+    # timed out would leave the next one cold too.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -116,7 +120,7 @@ jobs:
 
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         # `@stable` bootstraps rustup; the rust-toolchain.toml in the
-        # repo (channel = 1.88 + rustfmt + clippy) is then auto-applied
+        # repo (channel = 1.90 + rustfmt + clippy) is then auto-applied
         # by rustup's shim on the first cargo invocation. The `@master`
         # ref of this action requires an explicit `toolchain:` input,
         # which would just duplicate the pin in two places.

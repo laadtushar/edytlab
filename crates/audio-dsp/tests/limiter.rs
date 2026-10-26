@@ -154,7 +154,7 @@ fn random_signal(
                 let period = 2 + rng.below(200);
                 let phase = rng.below(period);
                 for f in 0..frames {
-                    let high = ((f + phase) / (period / 2).max(1)) % 2 == 0;
+                    let high = ((f + phase) / (period / 2).max(1)).is_multiple_of(2);
                     x[f * channels + c] = if high { scale } else { -scale };
                 }
             }

@@ -244,12 +244,12 @@ jobs:
       # ── Toolchain ────────────────────────────────────────────────
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         # No `targets:` — they would install on `stable`, and
-        # rust-toolchain.toml pins 1.88. See the next step.
+        # rust-toolchain.toml pins 1.90. See the next step.
         uses: dtolnay/rust-toolchain@stable
 
       # Same fix as release-dev.yml, and the long explanation lives
       # there. Short version: passing `targets:` to the action above
-      # adds them to `stable`, but rust-toolchain.toml pins 1.88 with
+      # adds them to `stable`, but rust-toolchain.toml pins 1.90 with
       # `profile = "minimal"`, so the build runs on a toolchain that has
       # only the host target and the universal macOS build fails with
       # "Target x86_64-apple-darwin is not installed".
