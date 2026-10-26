@@ -267,11 +267,13 @@ test.describe("whatever brings a session's audio in, the timeline follows", () =
       // The folder picker, answered with the chosen folder.
       "plugin:dialog|open": ok(other),
       open_project: ok({ path: other, head: nodeId(9) }),
-      ...sessionWith([emptyTrack("Track 1", "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d")]),
+      ...sessionWith([emptyTrack("Voice", "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d")]),
     });
     await page.getByTestId("open-project-button").click();
 
-    await expect(page.getByTestId("empty-state")).toBeVisible();
+    // The new project's one empty track gets a lane of its own (#742); the
+    // last project's file is not drawn over it.
+    await expect(page.getByTestId("timeline-lane-name")).toHaveText(["Voice"]);
   });
 });
 
