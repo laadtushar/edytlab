@@ -1174,6 +1174,71 @@ Emits `tool-progress` events throughout; see `onToolProgress`.
 
 ---
 
+### `getRecordingLatency() → RecordingLatency`
+
+The recording latency kept for the current default speakers and microphone:
+how late the microphone hears what this computer plays. Plays and records
+nothing, so it is safe to call whenever Settings opens or the window regains
+focus.
+
+**Returns:**
+```typescript
+interface RecordingLatency {
+  devices: {
+    host: string;      // the audio system: "ALSA", "CoreAudio", "WASAPI"
+    output: string;
+    input: string;
+    out_sr: number;
+    in_sr: number;
+  } | null;            // null: no speakers or no microphone
+  problem: string | null;   // why `devices` is null
+  latency: {
+    latency_ms: number;
+    spread_ms?: number;     // how far apart the measurements were
+    measured_at: number;    // seconds since the Unix epoch
+    source: "measured" | "manual";
+  } | null;            // null until measured for this pair
+}
+```
+
+A latency belongs to the pair of devices *and their sample rates*: change
+either and `latency` is null again until it is measured. The values are kept in
+`~/.edytlab/audio-latency.json`.
+
+**Errors:** the file was written by a newer version of the app (it is left
+alone, not read as empty).
+
+---
+
+### `calibrateRecordingLatency() → CalibrationResult`
+
+Measure the round trip of the default speakers and microphone, and keep it for
+that pair. Plays five test sweeps through the speakers three times and finds
+them in the microphone; takes about ten seconds and makes noise, so ask first.
+
+**Returns:** `{ cancelled: true }` when `cancelLongRunningTool()` ended it, or
+
+```typescript
+{
+  cancelled: false;
+  devices: RecordingDevices;   // as in getRecordingLatency
+  latency: StoredLatency;      // what was kept
+  sweeps_heard: number;        // 15 when all three runs heard all five
+  runs: number;
+}
+```
+
+**Errors**, each with a reason the person can act on: not every sweep was heard
+(speakers off, headphones the microphone cannot hear, a noisy room); the
+measurements disagree by more than 1 ms, which means the device's delay is not
+steady enough to compensate (nothing is kept); the device dropped out; another
+measurement or a recording is running.
+
+Emits `tool-progress` events with `kind: "calibrate_latency"`, `run` and
+`runs`, then a final `done`.
+
+---
+
 ## Templates
 
 ### `listTemplates() → TemplateInfo[]`
@@ -1790,7 +1855,7 @@ Progress from a long-running tool.
 
 ```typescript
 interface ToolProgress {
-  kind: string;        // "batch_apply", "timer_record", "selection", …
+  kind: string;        // "batch_apply", "timer_record", "calibrate_latency", "selection", …
   index?: number;      // Absent on the final event
   total: number;
   file?: string;

@@ -39,7 +39,7 @@
 ┌─────────────────────────────────▼───────────────────────────────────────────┐
 │  APPLICATION LAYER  (apps/desktop/src-tauri — Rust)                        │
 │                                                                             │
-│  commands.rs (~100 commands)  ·  state.rs (AppState)  ·  events.rs          │
+│  commands.rs (~110 commands)  ·  state.rs (AppState)  ·  events.rs          │
 └───────────┬──────────┬────────────────────┬──────────────┬──────────────────┘
             │          │                    │              │
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
@@ -94,7 +94,7 @@ edytlab/
     ├── ml-demucs/                # Stem separation via ONNX Demucs (inference is a stub, #385)
     ├── ml-pipeline/              # Shared ONNX runtime gate, model downloader + the user-started speech-model download, and inference cache (the installers carry the runtime, #383)
     ├── ml-whisper/               # Transcription via ONNX Whisper-base (run by the `transcribe` tool on the model the user downloaded, #384)
-    ├── recorder/                 # Microphone capture to WAV (cpal)
+    ├── recorder/                 # Microphone capture to WAV; recording-latency measurement (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
     └── tools/                    # 94 deterministic audio-editing tools
@@ -113,7 +113,7 @@ apps/desktop/src-tauri
     │       │   └── crates/ml-pipeline
     │       └── crates/ml-whisper
     │           └── crates/ml-pipeline    (the ONNX Runtime gate only; it builds its own `ort` session)
-    ├── crates/recorder           (cpal input)
+    ├── crates/recorder           (cpal input; one output for the latency sweeps)
     ├── crates/memory
     ├── crates/skills
     ├── crates/agent_profiles
@@ -1006,7 +1006,7 @@ pub struct RenderReport {
 }
 ```
 
-There is no native playback path. All playback happens in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol, including the A/B crossfade — so the engine never opens an output device. The only native audio I/O in the workspace is microphone capture in `crates/recorder` (cpal input). A cpal output crate (`audio-io`) and a `play_state` entry point existed until [#388](https://github.com/laadtushar/edytlab/issues/388) removed them: nothing called them, and `play_state` pushed a whole mix into a ~250 ms ring buffer that dropped whatever did not fit.
+There is no native playback path. All playback happens in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol, including the A/B crossfade — so the engine never opens an output device. The only native audio I/O in the workspace is `crates/recorder` (cpal): microphone capture, and, since [#203](https://github.com/laadtushar/edytlab/issues/203), one output stream that plays a single in-memory buffer while the microphone is recorded on the same process clock, which is how the recording latency is measured (test sweeps) and what a punch-in's monitor will use. It is not a player. A cpal output crate (`audio-io`) and a `play_state` entry point existed until [#388](https://github.com/laadtushar/edytlab/issues/388) removed them: nothing called them, and `play_state` pushed a whole mix into a ~250 ms ring buffer that dropped whatever did not fit.
 
 ### What the Render Processes
 

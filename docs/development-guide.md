@@ -351,7 +351,7 @@ src/
 ```
 src/
 ├── bundled_skills.rs # Keeps the skills that ship in the app current in ~/.edytlab/skills/ (#574, #631)
-├── commands.rs    # The #[tauri::command] functions (~100 of them)
+├── commands.rs    # The #[tauri::command] functions (~110 of them)
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup

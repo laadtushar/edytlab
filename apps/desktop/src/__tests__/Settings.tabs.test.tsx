@@ -1,7 +1,7 @@
 /**
  * The Settings tab strip scrolls itself and never shifts the dialog (#392).
  *
- * Seven tabs did not fit in a 30rem dialog: Plugins sat past the right
+ * Seven tabs (eight since Audio, #203) did not fit in a 30rem dialog: Plugins sat past the right
  * edge of a card that is `overflow-hidden`, so it was clipped and could
  * not be clicked. Worse, the card is then the nearest scroll container,
  * so keyboard focus on Plugins (or any scroll-into-view) slid the whole
@@ -9,7 +9,7 @@
  *
  * The strip is now its own scroller. jsdom has no layout, so each test
  * stubs the strip's measurements and the tabs' rectangles with a model
- * of the layout: seven 60px tabs behind 12px of padding, scrolled by
+ * of the layout: eight 60px tabs behind 12px of padding, scrolled by
  * `scrollLeft`. The real widths and the real clipping are checked in
  * Chromium by `e2e/settings-tabs.spec.ts`.
  */
@@ -73,6 +73,7 @@ import { Settings } from "../components/Settings";
 const TAB_IDS = [
   "account",
   "project",
+  "audio",
   "memory",
   "skills",
   "agents",
@@ -137,10 +138,10 @@ function stubStrip(
   });
 }
 
-/** 7 tabs of 60px between 12px of padding: 444px, in a 300px strip. */
-const OVERFLOWING = { clientWidth: 300, scrollWidth: 444 };
-/** The most the overflowing strip can scroll: 444 - 300. */
-const MAX_SCROLL = 144;
+/** 8 tabs of 60px between 12px of padding: 504px, in a 300px strip. */
+const OVERFLOWING = { clientWidth: 300, scrollWidth: 504 };
+/** The most the overflowing strip can scroll: 504 - 300. */
+const MAX_SCROLL = 204;
 
 async function renderPanel() {
   render(
@@ -225,7 +226,7 @@ describe("Settings tab strip", () => {
 
   it("flags nothing when every tab fits", async () => {
     const strip = await renderPanel();
-    stubStrip(strip, { clientWidth: 444, scrollWidth: 444 });
+    stubStrip(strip, { clientWidth: 504, scrollWidth: 504 });
 
     fireEvent.scroll(strip);
     await waitFor(() => {
@@ -242,11 +243,12 @@ describe("Settings tab strip", () => {
 
     act(() => account.focus());
     const user = userEvent.setup();
-    for (let i = 0; i < 6; i += 1) await user.tab();
+    for (let i = 0; i < 7; i += 1) await user.tab();
 
     expect(plugins).toHaveFocus();
-    // Agents scrolls it by 36, MCP by 60 more, and Plugins would need 60
-    // more still but the strip ends at 144.
+    // Each tab past the strip's edge scrolls it by one tab's width more
+    // than the last, and Plugins would need more still than the strip
+    // has: it ends at 204.
     expect(strip.scrollLeft).toBe(MAX_SCROLL);
 
     await user.keyboard("{Enter}");
@@ -276,7 +278,7 @@ describe("Settings tab strip", () => {
     const plugins = screen.getByTestId("settings-tab-plugins");
 
     // Plugins starts half under the right-hand fade: at 0 its right edge
-    // is 432 in a 300px strip. Pressing it focuses it, and if focus
+    // is 492 in a 300px strip. Pressing it focuses it, and if focus
     // scrolled the strip the tab would slide out from under the pointer
     // before the button came up. The release would then land on the
     // padding or the next tab, the click would go to their common

@@ -98,7 +98,7 @@ crates/
   audio-engine/       DSP graph and render
   audio-time/         Time-stretch and pitch-shift
   audio-analysis/     BPM, key, beat grid
-  recorder/           Microphone capture to WAV
+  recorder/           Microphone capture to WAV; recording-latency measurement
   ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
   ml-whisper/         Transcription (ONNX Whisper; run by transcribe)
   ml-pipeline/        Shared ONNX runtime gate (finds the bundled library), model downloader (called by the user's Download click), inference cache
@@ -139,7 +139,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
           WebView. All state lives in Rust.
         </li>
         <li>
-          <strong>Rust application layer</strong> — about 100 Tauri commands in{" "}
+          <strong>Rust application layer</strong> — about 110 Tauri commands in{" "}
           <code>commands.rs</code>. Manages <code>AppState</code>: Store,
           Engine, Agent, Clipboard.
         </li>

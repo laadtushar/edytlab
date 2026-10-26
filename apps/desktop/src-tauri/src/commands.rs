@@ -6586,6 +6586,164 @@ pub async fn timer_record(
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Recording latency (#203): how late the microphone hears what the
+// speakers play, measured once per device pair.
+// ---------------------------------------------------------------------------
+
+/// `~/.edytlab/audio-latency.json`, where [`recorder::store::LatencyStore`]
+/// keeps one entry per device pair.
+fn audio_latency_store(app: &tauri::AppHandle) -> Result<recorder::store::LatencyStore, String> {
+    let base = match app.path().home_dir() {
+        Ok(home) => home,
+        Err(_) => app.path().app_data_dir().map_err(|e| e.to_string())?,
+    };
+    Ok(recorder::store::LatencyStore::at(
+        base.join(".edytlab").join("audio-latency.json"),
+    ))
+}
+
+/// The devices as the window shows them: names and rates, never a path.
+fn devices_json(pair: &recorder::duplex::DevicePair) -> serde_json::Value {
+    serde_json::json!({
+        "host": pair.host,
+        "output": pair.output,
+        "input": pair.input,
+        "out_sr": pair.out_sr,
+        "in_sr": pair.in_sr,
+    })
+}
+
+/// What `get_recording_latency` answers for the default devices: which they
+/// are, and the latency kept for them if there is one.
+///
+/// A machine with no microphone or speakers is an answer, not an error:
+/// Settings shows the reason where the value would be.
+fn recording_latency_status(
+    store: &recorder::store::LatencyStore,
+    pair: Result<recorder::duplex::DevicePair, recorder::RecorderError>,
+) -> CmdResult<serde_json::Value> {
+    let pair = match pair {
+        Ok(p) => p,
+        Err(e) => {
+            return Ok(serde_json::json!({
+                "devices": null,
+                "problem": e.to_string(),
+                "latency": null,
+            }))
+        }
+    };
+    let latency = store.get(&pair).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "devices": devices_json(&pair),
+        "problem": null,
+        "latency": latency,
+    }))
+}
+
+/// The latency kept for the current default speakers and microphone.
+///
+/// Reads the device list and one small file, and plays and records
+/// nothing. Async only so the device query is off the window's thread.
+#[tauri::command]
+pub async fn get_recording_latency(app: tauri::AppHandle) -> CmdResult<serde_json::Value> {
+    let store = audio_latency_store(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        recording_latency_status(&store, recorder::duplex::default_pair())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Only one calibration at a time: two would play over each other, and
+/// each would hear the other's sweeps.
+static CALIBRATING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct CalibrationSlot;
+
+impl CalibrationSlot {
+    fn take() -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        CALIBRATING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for CalibrationSlot {
+    fn drop(&mut self) {
+        CALIBRATING.store(false, std::sync::atomic::Ordering::SeqCst);
+        // The strip closes however the run ended.
+        tools::progress::report(serde_json::json!({ "kind": "calibrate_latency", "done": true }));
+    }
+}
+
+/// Measure the round trip of the default speakers and microphone and keep
+/// it (#203).
+///
+/// Plays five test sweeps, three times, and listens: the speaker has to be
+/// heard by the microphone, which is why Settings tells the person to put
+/// them close together. Refuses, with a reason they can act on, when the
+/// sweeps are not all heard or do not agree to within a millisecond; a
+/// number that is not steady cannot be compensated, and is not stored.
+///
+/// Runs on a blocking thread (the audio streams are not `Send`) and reports
+/// `{kind: "calibrate_latency", run, runs}` on the tool-progress channel,
+/// with the same Cancel as the other long jobs.
+#[tauri::command]
+pub async fn calibrate_recording_latency(
+    app: tauri::AppHandle,
+    recording: State<'_, RecorderState>,
+) -> CmdResult<serde_json::Value> {
+    if recording.0.lock().unwrap().is_some() {
+        return Err("Stop the recording before measuring the latency.".into());
+    }
+    let slot = CalibrationSlot::take()
+        .ok_or_else(|| "A latency measurement is already running.".to_string())?;
+    let store = audio_latency_store(&app)?;
+
+    tools::progress::begin();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let pair = recorder::duplex::default_pair().map_err(|e| e.to_string())?;
+        let result = recorder::calibration::calibrate(
+            &pair,
+            &tools::progress::cancelled,
+            &mut |run, runs| {
+                tools::progress::report(serde_json::json!({
+                    "kind": "calibrate_latency", "run": run, "runs": runs,
+                }));
+            },
+        );
+        match result {
+            Err(recorder::calibration::CalibrateError::Cancelled) => {
+                Ok(serde_json::json!({ "cancelled": true }))
+            }
+            Err(e) => Err(e.to_string()),
+            Ok(cal) => {
+                let entry = recorder::store::Stored {
+                    latency_ms: cal.latency_ms,
+                    spread_ms: Some(cal.spread_ms),
+                    measured_at: recorder::store::unix_now(),
+                    source: recorder::store::Source::Measured,
+                };
+                store.put(&pair, entry.clone()).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({
+                    "cancelled": false,
+                    "devices": devices_json(&pair),
+                    "latency": entry,
+                    "sweeps_heard": cal.sweeps_heard,
+                    "runs": cal.runs,
+                }))
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    drop(slot);
+    outcome
+}
+
 #[tauri::command]
 pub fn stop_recording(
     state: State<'_, RecorderState>,
@@ -11281,5 +11439,102 @@ mod plugin_archive_tests {
         let meta = std::fs::symlink_metadata(&link).unwrap();
         assert!(!meta.file_type().is_symlink(), "a symlink was created");
         assert!(!target.exists(), "something was written outside the folder");
+    }
+}
+
+#[cfg(test)]
+mod recording_latency_tests {
+    use super::*;
+    use recorder::duplex::DevicePair;
+    use recorder::store::{LatencyStore, Source, Stored};
+
+    fn pair() -> DevicePair {
+        DevicePair {
+            host: "ALSA".into(),
+            output: "Speakers".into(),
+            input: "Mic".into(),
+            out_sr: 48_000,
+            out_ch: 2,
+            in_sr: 44_100,
+            in_ch: 1,
+        }
+    }
+
+    fn store() -> (tempfile::TempDir, LatencyStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = LatencyStore::at(dir.path().join("audio-latency.json"));
+        (dir, s)
+    }
+
+    #[test]
+    fn an_uncalibrated_pair_reports_its_devices_and_no_latency() {
+        let (_d, s) = store();
+        let v = recording_latency_status(&s, Ok(pair())).unwrap();
+        assert_eq!(v["devices"]["output"], "Speakers");
+        assert_eq!(v["devices"]["out_sr"], 48_000);
+        assert_eq!(v["devices"]["in_sr"], 44_100);
+        assert!(v["latency"].is_null());
+        assert!(v["problem"].is_null());
+    }
+
+    #[test]
+    fn a_stored_latency_is_reported_with_where_it_came_from() {
+        let (_d, s) = store();
+        s.put(
+            &pair(),
+            Stored {
+                latency_ms: 42.5,
+                spread_ms: Some(0.3),
+                measured_at: 1_700_000_000,
+                source: Source::Measured,
+            },
+        )
+        .unwrap();
+        let v = recording_latency_status(&s, Ok(pair())).unwrap();
+        assert_eq!(v["latency"]["latency_ms"], 42.5);
+        assert_eq!(v["latency"]["spread_ms"], 0.3);
+        assert_eq!(v["latency"]["source"], "measured");
+        assert_eq!(v["latency"]["measured_at"], 1_700_000_000u64);
+    }
+
+    #[test]
+    fn the_window_is_told_names_and_rates_and_nothing_else_about_the_devices() {
+        let (_d, s) = store();
+        let v = recording_latency_status(&s, Ok(pair())).unwrap();
+        let mut keys: Vec<&String> = v["devices"].as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["host", "in_sr", "input", "out_sr", "output"]);
+    }
+
+    #[test]
+    fn a_machine_with_no_microphone_answers_with_the_reason_not_an_error() {
+        let (_d, s) = store();
+        let v = recording_latency_status(&s, Err(recorder::RecorderError::NoDevice)).unwrap();
+        assert!(v["devices"].is_null());
+        assert_eq!(v["problem"], "no input device available");
+        assert!(v["latency"].is_null());
+    }
+
+    #[test]
+    fn a_file_from_a_newer_app_is_an_error_not_an_empty_answer() {
+        let (d, s) = store();
+        std::fs::write(
+            d.path().join("audio-latency.json"),
+            r#"{"version":9,"entries":{}}"#,
+        )
+        .unwrap();
+        let e = recording_latency_status(&s, Ok(pair())).unwrap_err();
+        assert!(e.contains("newer version"), "{e}");
+    }
+
+    #[test]
+    fn only_one_calibration_runs_at_a_time() {
+        let first = CalibrationSlot::take().expect("free at first");
+        assert!(
+            CalibrationSlot::take().is_none(),
+            "a second would play over the first"
+        );
+        drop(first);
+        assert!(CalibrationSlot::take().is_some(), "free again once it ends");
     }
 }

@@ -637,6 +637,16 @@ const commands = [
         returns: "{ path?, cancelled }",
         desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Emits tool-progress events throughout.",
       },
+      {
+        name: "getRecordingLatency()",
+        returns: "RecordingLatency",
+        desc: "The recording latency kept for the current default speakers and microphone: how late the microphone hears what the computer plays. Resolves with { devices, problem, latency }; devices is null when there are no speakers or no microphone (problem says why), and latency is null until it has been measured for this pair and these sample rates. Plays and records nothing.",
+      },
+      {
+        name: "calibrateRecordingLatency()",
+        returns: "CalibrationResult",
+        desc: "Measure the round trip of the default speakers and microphone with test sweeps, and keep it for that pair. Takes about ten seconds and makes noise. Rejects, with a reason to act on, when not every sweep is heard or the measurements disagree by more than 1 ms; resolves { cancelled: true } when cancelLongRunningTool() stopped it. Emits tool-progress events with kind calibrate_latency.",
+      },
     ],
   },
   {

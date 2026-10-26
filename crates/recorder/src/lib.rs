@@ -1,5 +1,10 @@
 //! Microphone capture → WAV file writer.
 
+pub mod calibration;
+pub mod duplex;
+pub mod latency;
+pub mod store;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -10,6 +15,10 @@ use thiserror::Error;
 pub enum RecorderError {
     #[error("no input device available")]
     NoDevice,
+    #[error("no output device available")]
+    NoOutputDevice,
+    #[error("the audio device changed while this was being prepared; try again")]
+    DeviceChanged,
     #[error("stream error: {0}")]
     Stream(String),
     #[error("io error: {0}")]

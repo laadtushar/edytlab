@@ -253,6 +253,63 @@ export function chatgptModelList(): Record<string, unknown> {
 }
 
 /**
+ * The devices `get_recording_latency` names, as `devices_json`
+ * (`commands.rs`) writes them: the default output and input by name and
+ * rate, nothing else. These are what a Linux desktop on PulseAudio shows
+ * through ALSA's `default`.
+ */
+export const RECORDING_DEVICES = {
+  host: "ALSA",
+  output: "default",
+  input: "default",
+  out_sr: 48_000,
+  in_sr: 48_000,
+};
+
+/**
+ * `get_recording_latency` (`recording_latency_status`) on a machine with
+ * devices where nothing was measured: `latency` is `null` until a
+ * calibration stores one. The Audio tab asks for it when it opens; the
+ * calibration button's own answer is {@link recordingLatencyCommands}.
+ */
+export function recordingLatencyStatus(
+  latency: Record<string, unknown> | null = null,
+): Record<string, unknown> {
+  return { devices: RECORDING_DEVICES, problem: null, latency };
+}
+
+/**
+ * `calibrate_recording_latency` for the spec that presses Measure: a
+ * measurement that was heard and agreed (`CalibrationResult`, camelCase
+ * nowhere: the fields are snake_case as `serde_json::json!` writes them),
+ * or the refusal `CalibrationError::NotHeard` words when the speakers were
+ * not heard.
+ */
+export function recordingLatencyCommands(
+  outcome: "measured" | "not_heard" = "measured",
+): Backend {
+  return {
+    calibrate_recording_latency:
+      outcome === "measured"
+        ? ok({
+            cancelled: false,
+            devices: RECORDING_DEVICES,
+            latency: {
+              latency_ms: 75.3,
+              spread_ms: 0.1,
+              measured_at: 1_800_000_000,
+              source: "measured",
+            },
+            sweeps_heard: 15,
+            runs: 3,
+          })
+        : reject(
+            "heard 2 of 5 test sweeps. Turn the speakers up, or hold the headphones against the microphone, and try again in a quiet room",
+          ),
+  };
+}
+
+/**
  * What Settings asks for when it opens, for a user who has never
  * changed a provider setting.
  */
@@ -291,6 +348,9 @@ function providerCommands(): Backend {
       state: "missing",
       searched: ["/usr/lib/edytlab/libonnxruntime.so", "/usr/bin/libonnxruntime.so"],
     }),
+    // `recording_latency_status` for a machine with devices and nothing
+    // measured, which the Audio tab asks for when it opens.
+    get_recording_latency: ok(recordingLatencyStatus()),
     // `ml_model_status("whisper-base")` on a machine that never downloaded
     // it, which the panel's Account tab asks for (the first-run card does
     // not). `ModelDownloads::status`: no transfer is running, so the disk

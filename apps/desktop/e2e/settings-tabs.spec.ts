@@ -1,7 +1,8 @@
 /**
  * Every Settings tab is inside the dialog, and reachable (#392).
  *
- * There are seven tabs and the dialog is 30rem wide. In WebKitGTK the
+ * There were seven tabs and the dialog was 30rem wide (eight and 32rem since
+ * Audio, #203). In WebKitGTK the
  * labels add up to about 305px and the strip needs about 497px of the
  * 438px it has, so Plugins sat past the right edge of an `overflow-hidden`
  * card: clipped, impossible to click, and, because the card was then the
@@ -26,7 +27,7 @@ import { expect, test, type App } from "./fixtures";
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
-const TAB_IDS = ["account", "project", "memory", "skills", "agents", "mcp", "plugins"] as const;
+const TAB_IDS = ["account", "project", "audio", "memory", "skills", "agents", "mcp", "plugins"] as const;
 
 interface Box {
   x: number;
@@ -136,7 +137,7 @@ test("in a narrow window, Tab reaches Plugins and the strip scrolls to show it",
   ).toBe(false);
 
   await tab("account").focus();
-  for (let i = 0; i < 6; i += 1) await app.page.keyboard.press("Tab");
+  for (let i = 0; i < 7; i += 1) await app.page.keyboard.press("Tab");
   await expect(tab("plugins")).toBeFocused();
 
   await expect
