@@ -302,7 +302,7 @@ export default function GettingStartedPage() {
           <a href="/docs/user-guide">User Guide</a> — every feature
         </li>
         <li>
-          <Link href="/docs/tools">Audio Tools Reference</Link> — all 94 tools the
+          <Link href="/docs/tools">Audio Tools Reference</Link> — all 95 tools the
           agent can call
         </li>
         <li>

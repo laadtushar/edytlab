@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 94 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 95 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -38,6 +38,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`cut_range`](#cut_range) — Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
+- [`diarize`](#diarize) — Find who spoke when, on this computer.
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
@@ -335,6 +336,22 @@ Reduce harsh sibilant 's' and 'sh' sounds. frequency_hz sets where sibilance det
 | `start_sec` | number | no |  |
 | `threshold_db` | number | yes | Detection threshold in dBFS (e.g. -20) |
 | `track` | integer | yes |  |
+
+## `diarize`
+
+Find who spoke when, on this computer. Returns speaker turns [start_sec, end_sec, "speaker_N"] (numbered by who speaks first) and changes nothing; pass them to split_by_speaker as segments to give each voice a track. Give `track` (session seconds) or `path` (a file's own). If the user said how many people speak, pass `num_speakers`: it is the best way to improve the result; else the count is estimated, bounded by `min_speakers` and `max_speakers`. Sound-alike voices can merge, and overlapping speech goes to one speaker. Needs the speaker model the user downloads once; if the call says the model or runtime is missing, tell the user and stop, and do not try to install anything. CPU, about a third of the audio's length; cancellable.
+
+_Read-only — never held for approval._
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `max_speakers` | integer | no | At most this many speakers. |
+| `min_speakers` | integer | no | At least this many speakers. |
+| `num_speakers` | integer | no | Exactly this many speakers, when the user said. |
+| `path` | string | no | An audio file that is not in the session. |
+| `track` | integer | no | Index of a track in the session. |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `distortion`
 

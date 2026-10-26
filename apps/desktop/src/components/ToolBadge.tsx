@@ -43,6 +43,7 @@ const TOOL_LABELS: Record<string, string> = {
   plot_spectrum: "Spectrum",
   silence_finder: "Find silence",
   transcribe: "Transcribe",
+  diarize: "Find speakers",
   separate_stems: "Separate stems",
   split_by_speaker: "Split by speaker",
 
