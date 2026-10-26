@@ -165,6 +165,20 @@ describe("the tool progress strip", () => {
     }
   });
 
+  it("shows a speaker diarization with its stage after the track", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "diarize", index: 4, total: 60, file: "track 2 (finding speech)" });
+    await waitFor(() => expect(screen.getByText("5 of 60")).toBeTruthy());
+    expect(screen.getByTestId("tool-progress-file").textContent).toBe(
+      "track 2 (finding speech)",
+    );
+    emit({ kind: "diarize", done: true, cancelled: false, total: 60, file: "track 2" });
+    await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull(), {
+      timeout: LEAVE_MS * 6,
+    });
+  });
+
   it("names a file by its file name, not its path", async () => {
     render(<ToolProgressBar />);
     await waitFor(() => expect(handlers.length).toBeGreaterThan(0));

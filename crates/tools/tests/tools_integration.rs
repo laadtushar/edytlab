@@ -792,6 +792,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "cut_range",
             "cut_words",
             "de_esser",
+            "diarize",
             "distortion",
             "duck_under_speech",
             "duplicate_track",

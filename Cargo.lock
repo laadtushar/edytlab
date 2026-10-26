@@ -5905,6 +5905,7 @@ dependencies = [
  "hound",
  "jsonschema",
  "ml-demucs",
+ "ml-diarize",
  "ml-pipeline",
  "ml-whisper",
  "realfft",

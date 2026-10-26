@@ -248,14 +248,14 @@ impl ToolDispatcher {
             AddEffectTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool,
             ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool, ClickRemovalTool,
             CompactSessionTool, CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool,
-            CutRangeTool, CutWordsTool, DeEsserTool, DistortionTool, DuckUnderSpeechTool,
-            DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool, ExportMultipleTool,
-            ExportRecipeTool, FadeTool, ForkNodeTool, GainTool, GenerateChirpTool,
-            GenerateClickTrackTool, GenerateDtmfTool, GenerateNoiseTool, GenerateToneTool,
-            HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool,
-            LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool,
-            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool,
-            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            CutRangeTool, CutWordsTool, DeEsserTool, DiarizeTool, DistortionTool,
+            DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
+            ExportMultipleTool, ExportRecipeTool, FadeTool, ForkNodeTool, GainTool,
+            GenerateChirpTool, GenerateClickTrackTool, GenerateDtmfTool, GenerateNoiseTool,
+            GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
+            LabelTool, LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool,
+            MeasureTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
+            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
             NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
             PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
             RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
@@ -272,6 +272,7 @@ impl ToolDispatcher {
         d.register(Box::new(TranscribeTool::new()));
         d.register(Box::new(SeparateStemsTool));
         d.register(Box::new(SplitBySpeakerTool));
+        d.register(Box::new(DiarizeTool::new()));
         d.register(Box::new(AnalyzeTrackTool));
         d.register(Box::new(CutRangeTool));
         d.register(Box::new(TrimTool));

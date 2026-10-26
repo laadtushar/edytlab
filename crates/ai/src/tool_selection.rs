@@ -210,10 +210,14 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// the room left for MCP names is what it was. It went up again by 39 B when
 /// `transcribe`, `cut_words` and `remove_fillers` stopped being left out
 /// (#384): their names, 33 B with the separators of the line, are on it now.
-/// And by 9 B for `measure` (#763), its name with the separator.
-// #770's new names require 47 B more to keep the 400 B MCP reserve.
-// The first-request tests still enforce the same 500 B context headroom.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_709;
+/// And by `measure` (#763, 1,662 B) and `diarize` (#168, 1,663 B), each
+/// raised on its own branch; with both, the built-in names are 1,265 B and
+/// the smallest budget that leaves 400 B for MCP names is 1,665 B.
+/// `diarize` is left out of a slim request until a message names it.
+/// #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`,
+/// 53 B of names with their separators: the built-in names are 1,318 B and
+/// the smallest budget that leaves 400 B for MCP names is 1,718 B.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_718;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still
