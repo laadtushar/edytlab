@@ -59,7 +59,7 @@ publish = false
 # nothing: whether a provider works is decided when a session is built, and
 # which one is asked for is a `cfg(target_os = ...)` choice in
 # `ml-pipeline`'s `onnx_session.rs`.
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-23", "coreml", "cuda"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-23", "coreml", "cuda"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
