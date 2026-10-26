@@ -673,7 +673,7 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 1. Install platform build deps (Linux only: GTK, WebKit, AppIndicator, libssl, libasound2)
 2. Install Rust toolchain (from `rust-toolchain.toml`)
 3. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform; saved from `main` only, so a PR restores `main`'s cache and never uploads its own, #610)
-4. Install pnpm + Node 20
+4. Install pnpm + Node 24
 5. `pnpm install --frozen-lockfile`
 6. `cargo fmt --all --check`
 7. `cargo clippy --workspace --all-targets -- -D warnings`
