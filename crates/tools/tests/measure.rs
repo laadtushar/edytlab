@@ -516,7 +516,8 @@ fn acx_fails_a_noise_floor_over_minus_60() {
     );
 }
 
-/// Each rule states its limit in words, in the order RMS, peak, noise floor.
+/// Each rule states its limit in words, in the order RMS, peak, noise floor,
+/// digital silence.
 #[test]
 fn each_acx_rule_states_its_limit() {
     let mut p = Project::new();
@@ -533,7 +534,8 @@ fn each_acx_rule_states_its_limit() {
         [
             "-23 to -18 dBFS RMS",
             "at or below -3 dBFS peak",
-            "at or below -60 dBFS RMS noise floor"
+            "at or below -60 dBFS RMS noise floor",
+            "no digital silence (exact zeros): room tone, not silence, in every pause and at both ends"
         ]
     );
 }
@@ -556,6 +558,178 @@ fn the_acx_block_cites_the_requirements_and_the_rules_it_leaves_out() {
     // Without `check` there is no verdict at all.
     let plain = p.ok("measure", json!({ "track": 0 }));
     assert!(plain.get("acx").is_none(), "{plain}");
+}
+
+// ---- digital silence ---------------------------------------------------------
+
+/// A clip that starts at 1 s leaves 1 s of exact zeros at the head of the
+/// render. The room tone after it is the noise floor, the silence is reported
+/// and fails ACX with a message about room tone, and the level to correct is
+/// worked out from the audio that is there.
+#[test]
+fn a_clip_that_starts_late_is_digital_silence_and_not_a_quiet_room() {
+    let mut p = Project::new();
+    let rate = 48_000;
+    // 1.5 s of room tone at -62 dBFS, then 6 s of a sine at -37 dB RMS.
+    let file = concat(&[noise(rate, 1.5, -62.0, 3), sine(rate, 6.0, 440.0, -34.0)]);
+    p.load("late.wav", rate, 1, &file);
+    p.ok("time_shift", json!({ "track": 0, "offset_sec": 1.0 }));
+
+    let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
+    close(
+        "silence",
+        num(&r, &["digital_silence", "seconds"]),
+        1.0,
+        0.03,
+    );
+    close("noise floor", num(&r, &["noise_floor", "dbfs"]), -62.0, 0.6);
+    assert!(
+        num(&r, &["noise_floor", "at_sec"]) >= 0.95,
+        "the floor is the room tone, not the gap: {r}"
+    );
+    assert_eq!(r["acx"]["pass"], false, "{r}");
+    let silence = rule(&r, "digital_silence");
+    assert_eq!(silence["pass"], false);
+    assert!(
+        silence["note"].as_str().unwrap().contains("room tone"),
+        "{silence}"
+    );
+    assert_eq!(rule(&r, "noise_floor")["pass"], true, "{r}");
+    assert!(r["summary"].as_str().unwrap().contains("digital silence"));
+
+    // The whole-file RMS counts the second of silence; the advice is for the
+    // rest, which is what the file reads once room tone fills the gap.
+    let whole = rule(&r, "rms")["measured"].as_f64().unwrap();
+    let active = num(&r, &["digital_silence", "rms_without_silence_dbfs"]);
+    assert!(active > whole + 0.4, "{active} vs {whole}");
+    close(
+        "gain advice",
+        rule(&r, "rms")["gain_to_centre_db"].as_f64().unwrap(),
+        -20.5 - active,
+        0.02,
+    );
+    assert!(rule(&r, "rms")["gain_note"].is_string());
+}
+
+/// A gap between two clips (here, two tracks with a second of nothing
+/// between them) is digital silence in the mix.
+#[test]
+fn a_gap_between_two_clips_is_digital_silence() {
+    let mut p = Project::new();
+    let rate = 48_000;
+    let voice = concat(&[noise(rate, 1.0, -64.0, 5), sine(rate, 3.0, 440.0, -23.0)]);
+    p.load("one.wav", rate, 1, &voice);
+    p.load("two.wav", rate, 1, &voice);
+    // The second clip starts at 5 s; the first ends at 4 s.
+    p.ok("time_shift", json!({ "track": 1, "offset_sec": 5.0 }));
+
+    let r = p.ok("measure", json!({ "check": "acx" }));
+    close("gap", num(&r, &["digital_silence", "seconds"]), 1.0, 0.03);
+    assert_eq!(rule(&r, "digital_silence")["pass"], false, "{r}");
+    assert_eq!(r["acx"]["pass"], false);
+    // The room tone before the first voice is still found.
+    close("noise floor", num(&r, &["noise_floor", "dbfs"]), -64.0, 0.6);
+    assert_eq!(rule(&r, "noise_floor")["pass"], true);
+
+    // A range inside the gap is nothing but silence: there is no room tone
+    // to measure and ACX does not pass it.
+    let gap = p.ok(
+        "measure",
+        json!({ "start_sec": 4.1, "end_sec": 4.9, "check": "acx" }),
+    );
+    assert_eq!(gap["noise_floor"]["found"], false, "{gap}");
+    assert!(gap["noise_floor"]["dbfs"].is_null());
+    assert!(gap["contrast"]["difference_db"].is_null());
+    let floor = rule(&gap, "noise_floor");
+    assert_eq!(floor["pass"], false);
+    assert!(floor["measured"].is_null());
+    assert!(floor["note"].as_str().unwrap().contains("room tone"));
+}
+
+/// Room tone is never silence: the narration fixtures carry none.
+#[test]
+fn room_tone_reports_no_digital_silence() {
+    let mut p = Project::new();
+    p.load("ok.wav", 44_100, 1, &narration(-19.0, -66.0, None));
+    let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
+    assert_eq!(num(&r, &["digital_silence", "seconds"]), 0.0);
+    assert_eq!(rule(&r, "digital_silence")["pass"], true);
+    assert_eq!(r["acx"]["pass"], true, "{r}");
+}
+
+// ---- a range renders the range -------------------------------------------------
+
+/// The range is measured as the same audio is measured on its own: loudness,
+/// peaks and RMS of seconds 5 to 7 of a ten-second file with the mix's
+/// gain (a master limiter is far above it), whatever came before them.
+#[test]
+fn a_range_measures_the_same_as_that_audio_alone() {
+    let mut p = Project::new();
+    let rate = 48_000u32;
+    let a = lin(-30.0);
+    let file: Vec<f32> = (0..rate as usize * 10)
+        .map(|i| {
+            let t = i as f64 / rate as f64;
+            // Louder from 4 s, so a range that leaked its lead-in would show.
+            let env = if t < 4.0 {
+                0.2
+            } else {
+                1.0 + 0.5 * (TAU * 0.7 * t).sin()
+            };
+            (a * env * ((TAU * 220.0 * t).sin() + (TAU * 330.0 * t + 1.0).sin())) as f32
+        })
+        .collect();
+    p.load("long.wav", rate, 1, &file);
+    p.ok(
+        "add_effect",
+        json!({ "track": 0, "kind": "limiter", "params": { "ceiling_db": -1.0 } }),
+    );
+
+    let r = p.ok(
+        "measure",
+        json!({ "track": 0, "start_sec": 5.0, "end_sec": 7.0 }),
+    );
+    // What the file holds in those seconds, after the 16-bit round trip the
+    // renderer does.
+    let slice: Vec<f32> = file[5 * rate as usize..7 * rate as usize]
+        .iter()
+        .map(|&x| ((x * 32_768.0).round().clamp(-32_768.0, 32_767.0)) / 32_768.0)
+        .collect();
+    let want = audio_analysis::qc::measure(&slice, rate, 1, Default::default()).unwrap();
+    close("start", num(&r, &["start_sec"]), 5.0, 0.001);
+    close("end", num(&r, &["end_sec"]), 7.0, 0.001);
+    close("duration", num(&r, &["duration_sec"]), 2.0, 0.001);
+    close("rms", num(&r, &["rms_dbfs"]), want.rms_dbfs, 0.05);
+    close(
+        "sample peak",
+        num(&r, &["peak", "sample_dbfs"]),
+        want.sample_peak_dbfs,
+        0.05,
+    );
+    close(
+        "momentary max",
+        num(&r, &["loudness", "momentary_max_lufs"]),
+        want.momentary_max_lufs.unwrap(),
+        0.1,
+    );
+    close(
+        "noise floor",
+        num(&r, &["noise_floor", "dbfs"]),
+        want.noise_floor_dbfs,
+        0.1,
+    );
+
+    // An end past the audio and a range at the head read as before.
+    let head = p.ok(
+        "measure",
+        json!({ "track": 0, "start_sec": 0.0, "end_sec": 1.0 }),
+    );
+    close("head duration", num(&head, &["duration_sec"]), 1.0, 0.001);
+    let tail = p.ok(
+        "measure",
+        json!({ "track": 0, "start_sec": 9.0, "end_sec": 50.0 }),
+    );
+    close("tail end", num(&tail, &["end_sec"]), 10.0, 0.001);
 }
 
 // ---- the bundled skill, end to end ------------------------------------------

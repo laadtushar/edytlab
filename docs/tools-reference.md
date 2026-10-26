@@ -591,7 +591,7 @@ Apply a Butterworth low-pass filter to a track, removing frequencies above cutof
 
 ## `measure`
 
-Measure the mix, or one track as it plays (gain and effects included), over the whole thing or start_sec to end_sec. Reports integrated, momentary-max and short-term-max loudness (LUFS, EBU R128), loudness range (LU), sample and true peak, RMS, noise floor (quietest 0.5 s), clipping (count and first times) and speech-to-background contrast. check "acx" adds pass or fail with the measured value for ACX audiobook rules: RMS -23 to -18 dBFS, peak at most -3, noise floor at most -60. Read-only.
+Measure the mix, or one track as it plays (gain and effects included), over the whole thing or start_sec to end_sec. Reports integrated, momentary-max and short-term-max loudness (LUFS, EBU R128), loudness range (LU), sample and true peak, RMS, noise floor (quietest 0.5 s without digital silence), digital silence, clipping (count and first times) and speech-to-background contrast. check "acx" adds pass or fail with the measured value for ACX audiobook rules: RMS -23 to -18 dBFS, peak at most -3, noise floor at most -60, no digital silence. Read-only.
 
 _Read-only — never held for approval._
 

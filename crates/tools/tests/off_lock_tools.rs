@@ -318,6 +318,20 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "read between windows and between decoder steps to stop the run, which then appends \
          nothing. It only reads the switch, and the one the window's Cancel button sets.",
     ),
+    (
+        "measure.rs",
+        "crate::progress::begin(",
+        "clears a Cancel pressed before this call began, once, before the render. `measure` \
+         appends nothing, so a lost race changes nothing and it is never run again: a Cancel \
+         pressed during a call is the call's own.",
+    ),
+    (
+        "measure.rs",
+        "crate::progress::cancelled(",
+        "read after the render and between the chunks of the pass over it, to stop with a \
+         message that nothing was changed. It only reads the switch the window's Cancel button \
+         sets.",
+    ),
 ];
 
 /// What may be named at the crate root: the tool traits and results, and

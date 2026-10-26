@@ -38,8 +38,9 @@ use tools::{
 ///
 /// `measure` is here for what it reads: the head, rendered to a temporary file
 /// outside the project (removed when the call ends) and read back. It writes
-/// nothing in the project, and like `render_preview` it first puts back audio
-/// a history sweep removed (#763).
+/// nothing in the project. Unlike `render_preview` it does not call
+/// `materialize` (put back audio a history sweep removed): it reads only the
+/// head, whose audio a sweep keeps (#763).
 ///
 /// `list_session` is here for what it reads: the head's tracks, buses and
 /// markers, as text, one page at a time (#618). It writes nothing and opens

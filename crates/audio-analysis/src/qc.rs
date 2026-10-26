@@ -31,8 +31,18 @@
 //!   whole measured audio, silence included. That is what ACX's own checker
 //!   and Audacity's RMS report for a selection.
 //! * **Noise floor**: the RMS of the quietest 500 ms stretch (windows start
-//!   every 100 ms). On audio with no pause that is the quietest passage, and
-//!   the report says where it is.
+//!   every 100 ms) that holds no digital silence. On audio with no pause that
+//!   is the quietest passage, and the report says where it is.
+//! * **Digital silence**: a run of at least [`DEAD_RUN_S`] of frames in which
+//!   every channel is exactly 0.0 (a gap between clips, a clip that starts
+//!   late, a gated pause). Room tone is never exactly zero, and ACX rejects
+//!   a file with digital silence, so such a stretch is not a noise floor: a
+//!   500 ms window that holds any of it is left out when the quietest one is
+//!   chosen, and when every window holds some the report says the noise floor
+//!   was not found (`noise_floor_found`, with the floor at [`DB_FLOOR`])
+//!   rather than report -120 dBFS as a room. The RMS still counts it (that is
+//!   how ACX measures a file), and `rms_without_silence_dbfs` is the RMS of
+//!   the rest, which is what the file reads once room tone fills the gaps.
 //! * **Clipping**: a run of at least [`CLIP_MIN_RUN`] consecutive samples of
 //!   one channel at or beyond [`CLIP_THRESHOLD`] of full scale (Audacity's
 //!   Find Clipping default). Runs on several channels that overlap in time
@@ -54,6 +64,10 @@ pub const DB_FLOOR: f64 = -120.0;
 /// A sample this close to full scale or beyond counts as clipped
 /// (-0.0009 dBFS). A 16-bit file's top code, 32767/32768, is above it.
 pub const CLIP_THRESHOLD: f32 = 0.9999;
+
+/// Exactly-zero frames in a row, in seconds, that count as digital silence.
+/// Quantised room tone never holds 10 ms of exact zeros, even at -90 dBFS.
+pub const DEAD_RUN_S: f64 = 0.010;
 
 /// Consecutive clipped samples that make a clip (Audacity's Find Clipping
 /// start threshold). One full-scale sample is a peak; three in a row is a
@@ -140,9 +154,19 @@ pub struct QcReport {
     pub sample_peak_dbfs: f64,
     pub true_peak_dbtp: f64,
     pub rms_dbfs: f64,
+    /// The quietest 500 ms stretch without digital silence, or [`DB_FLOOR`]
+    /// when `noise_floor_found` is false.
     pub noise_floor_dbfs: f64,
     /// Where the quietest stretch starts, in seconds.
     pub noise_floor_at_s: f64,
+    /// False when every 500 ms stretch holds digital silence (or the audio is
+    /// all of it), so there is no room tone to measure.
+    pub noise_floor_found: bool,
+    /// Seconds of digital silence (runs of exact zeros of 10 ms or more).
+    pub digital_silence_s: f64,
+    /// RMS of the audio outside the digital silence; `Some` only when there
+    /// is digital silence and something besides it.
+    pub rms_without_silence_dbfs: Option<f64>,
     pub clipping: Clipping,
     pub contrast: Contrast,
 }
@@ -170,6 +194,16 @@ pub struct QcMeter {
     /// power of each finished 100 ms block.
     block_sq: f64,
     block_powers: Vec<f64>,
+    /// Whether each finished 100 ms block holds digital silence.
+    block_dead: Vec<bool>,
+    /// Frames of the block being filled that are in a dead run.
+    block_dead_frames: u64,
+    /// Frames in a row so far in which every channel is exactly 0.0.
+    zero_run: u64,
+    /// Frames in a dead run: the run length that makes one dead, then each
+    /// frame after it.
+    dead_run_frames: u64,
+    dead_frames: u64,
     /// Consecutive clipped samples so far, per channel.
     runs: Vec<usize>,
     in_clip: bool,
@@ -233,6 +267,11 @@ impl QcMeter {
             sum_sq: 0.0,
             block_sq: 0.0,
             block_powers: Vec::new(),
+            block_dead: Vec::new(),
+            block_dead_frames: 0,
+            zero_run: 0,
+            dead_run_frames: ((sample_rate as f64 * DEAD_RUN_S) as u64).max(1),
+            dead_frames: 0,
             runs: vec![0; channels as usize],
             in_clip: false,
             clip_events: 0,
@@ -280,6 +319,18 @@ impl QcMeter {
             let at = first_frame + i as u64;
             let mut clipped_now = false;
             let mut earliest = u64::MAX;
+            if frame.iter().all(|&x| x == 0.0) {
+                self.zero_run += 1;
+                if self.zero_run == self.dead_run_frames {
+                    self.dead_frames += self.dead_run_frames;
+                    self.block_dead_frames += self.dead_run_frames;
+                } else if self.zero_run > self.dead_run_frames {
+                    self.dead_frames += 1;
+                    self.block_dead_frames += 1;
+                }
+            } else {
+                self.zero_run = 0;
+            }
             for (c, &x) in frame.iter().enumerate() {
                 let a = x.abs();
                 if a > self.peak {
@@ -330,6 +381,8 @@ impl QcMeter {
             self.block_powers
                 .push(self.block_sq / (block_frames * self.channels as f64));
             self.block_sq = 0.0;
+            self.block_dead.push(self.block_dead_frames > 0);
+            self.block_dead_frames = 0;
             if self.frames >= self.short_term_frames {
                 let s = self
                     .ebu
@@ -369,30 +422,44 @@ impl QcMeter {
         // Window powers: the mean of five 100 ms blocks, every 100 ms; the
         // whole audio as one window when it is under 500 ms.
         let block_s = (self.hop_frames * HOPS_PER_BLOCK) as f64 / self.rate as f64;
-        let mut windows: Vec<(f64, f64)> = if self.block_powers.len() >= WINDOW_BLOCKS {
+        // Each carries whether it holds digital silence.
+        let mut windows: Vec<(f64, f64, bool)> = if self.block_powers.len() >= WINDOW_BLOCKS {
             self.block_powers
                 .windows(WINDOW_BLOCKS)
+                .zip(self.block_dead.windows(WINDOW_BLOCKS))
                 .enumerate()
-                .map(|(i, w)| {
+                .map(|(i, (w, dead))| {
                     (
                         w.iter().sum::<f64>() / WINDOW_BLOCKS as f64,
                         i as f64 * block_s,
+                        dead.iter().any(|&d| d),
                     )
                 })
                 .collect()
         } else {
-            vec![(self.sum_sq / total_samples, 0.0)]
+            vec![(self.sum_sq / total_samples, 0.0, self.dead_frames > 0)]
         };
-        let (quiet_power, quiet_at) = windows.iter().copied().fold(
-            (f64::INFINITY, 0.0),
-            |best, w| if w.0 < best.0 { w } else { best },
+        let found = windows.iter().filter(|w| !w.2).copied().fold(
+            None,
+            |best: Option<(f64, f64, bool)>, w| match best {
+                Some(b) if b.0 <= w.0 => Some(b),
+                _ => Some(w),
+            },
         );
+        let (quiet_power, quiet_at) = found.map_or((0.0, 0.0), |w| (w.0, w.1));
         windows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         // The 95th percentile, indexed as Tech 3342 indexes its percentiles.
         let speech_power = windows[((windows.len() - 1) as f64 * 0.95).round() as usize].0;
         let noise_floor = power_db(quiet_power);
         let speech = power_db(speech_power);
         let difference = speech - noise_floor;
+        let silence_s = self.dead_frames as f64 / self.rate as f64;
+        let rms_without_silence =
+            (self.dead_frames > 0 && self.frames > self.dead_frames).then(|| {
+                power_db(
+                    self.sum_sq / ((self.frames - self.dead_frames) as f64 * self.channels as f64),
+                )
+            });
 
         Ok(QcReport {
             duration_s: self.frames as f64 / self.rate as f64,
@@ -407,6 +474,9 @@ impl QcMeter {
             rms_dbfs: power_db(self.sum_sq / total_samples),
             noise_floor_dbfs: noise_floor,
             noise_floor_at_s: quiet_at,
+            noise_floor_found: found.is_some(),
+            digital_silence_s: silence_s,
+            rms_without_silence_dbfs: rms_without_silence,
             clipping: Clipping {
                 events: self.clip_events,
                 samples: self.clip_samples,
@@ -416,7 +486,7 @@ impl QcMeter {
                 speech_dbfs: speech,
                 background_dbfs: noise_floor,
                 difference_db: difference,
-                wcag_pass: difference >= WCAG_CONTRAST_DB,
+                wcag_pass: found.is_some() && difference >= WCAG_CONTRAST_DB,
             },
         })
     }
@@ -896,6 +966,76 @@ mod tests {
             "noise floor {}",
             r.noise_floor_dbfs
         );
+    }
+
+    fn mono_zeros(seconds: f64) -> Vec<f32> {
+        vec![0.0; (seconds * SR as f64).round() as usize]
+    }
+
+    /// Exact zeros before, between and after the audio are not a room: the
+    /// noise floor is the room tone, not -120 dBFS.
+    #[test]
+    fn digital_silence_is_not_a_noise_floor() {
+        let s = concat(&[
+            mono_zeros(1.0),
+            noise(-62.0, 1.5, 7),
+            mono_tone(-20.0, 3.0),
+            mono_zeros(1.0),
+            mono_tone(-20.0, 2.0),
+        ]);
+        let r = measure(&s, SR, 1, QcOptions::default()).unwrap();
+        assert!(r.noise_floor_found);
+        assert!(
+            (r.noise_floor_dbfs - (-62.0)).abs() < 0.3,
+            "noise floor {}",
+            r.noise_floor_dbfs
+        );
+        assert!(r.noise_floor_at_s >= 0.9, "at {}", r.noise_floor_at_s);
+        assert!(
+            (r.digital_silence_s - 2.0).abs() < 0.02,
+            "silence {}",
+            r.digital_silence_s
+        );
+        // The RMS counts the silence; the rest reads louder.
+        let active = r.rms_without_silence_dbfs.expect("some audio besides it");
+        assert!(active > r.rms_dbfs + 1.0, "{active} vs {}", r.rms_dbfs);
+        assert!(r.contrast.wcag_pass);
+    }
+
+    /// Nothing but digital silence, or silence in every half second, has no
+    /// room tone to measure, and says so.
+    #[test]
+    fn audio_with_no_room_tone_has_no_noise_floor() {
+        let r = measure(&mono_zeros(2.0), SR, 1, QcOptions::default()).unwrap();
+        assert!(!r.noise_floor_found);
+        assert_eq!(r.noise_floor_dbfs, DB_FLOOR);
+        assert!((r.digital_silence_s - 2.0).abs() < 0.02);
+        assert!(r.rms_without_silence_dbfs.is_none());
+        assert!(!r.contrast.wcag_pass);
+
+        // Speech with a gap every 0.4 s: every 0.5 s window holds one.
+        let mut s = Vec::new();
+        for _ in 0..8 {
+            s.extend(mono_tone(-20.0, 0.4));
+            s.extend(mono_zeros(0.05));
+        }
+        let r = measure(&s, SR, 1, QcOptions::default()).unwrap();
+        assert!(!r.noise_floor_found);
+        assert!(!r.contrast.wcag_pass);
+    }
+
+    /// Room tone, even very quiet, is not digital silence: a 16-bit file of
+    /// noise at about 3 LSB never holds 10 ms of exact zeros.
+    #[test]
+    fn quiet_room_tone_is_not_digital_silence() {
+        let s: Vec<f32> = noise(-90.0, 3.0, 5)
+            .iter()
+            .map(|&x| (x * 32_768.0).round() / 32_768.0)
+            .collect();
+        let r = measure(&s, SR, 1, QcOptions::default()).unwrap();
+        assert!(r.noise_floor_found);
+        assert_eq!(r.digital_silence_s, 0.0);
+        assert!(r.rms_without_silence_dbfs.is_none());
     }
 
     /// The report says where the quietest stretch is.
