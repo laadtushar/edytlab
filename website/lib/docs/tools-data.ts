@@ -529,6 +529,12 @@ export const toolAreas: ToolArea[] = [
             output: "bpm, bpm_confidence, bpm_alternatives, key, key_score, key_runner_up, beats, downbeats, sections, rms_curve, lufs_integrated",
           },
           {
+            name: "measure",
+            prompt: 'measure the mix and check it against ACX',
+            what: "Measure the mix or one track as it plays (gain and effects included), over all of it or a range of seconds: integrated, momentary-max and short-term-max loudness (EBU R128), loudness range, sample and true peak, RMS, noise floor (the quietest half second without digital silence), digital silence (exact zeros, which ACX rejects), clipping with the first times, and speech-to-background contrast. With check acx it gives a pass or fail per ACX audiobook rule (RMS -23 to -18 dBFS, peak at most -3, noise floor at most -60, no digital silence) with the measured value. Reads only; nothing is changed.",
+            output: "source, start_sec, end_sec, duration_sec, loudness, peak, rms_dbfs, noise_floor, digital_silence, clipping, contrast, acx",
+          },
+          {
             name: "align_to_beat",
             prompt: 'find the beats, then warp this onto a steady grid',
             what: "Warp a track in time so its beats land on a target grid, without changing the pitch. Each segment between beats is stretched by its own ratio in one pass, so there is no seam at the beats. Get source_beats from analyze_track.",
@@ -585,6 +591,13 @@ export const toolAreas: ToolArea[] = [
             what: "Turn one track and a set of speaker segments into a track per speaker, so each voice gets its own gain, EQ and noise treatment. Writes no new audio — every speaker track points at the same source file, which is why combined playback is unchanged. Audio no segment covers goes to an 'unassigned' track rather than being dropped, and overlapping turns are awarded to whoever was listed first and reported back.",
             output: "node_id, tracks, speakers, unassigned_samples, overlapping_segments",
             note: "Segments can come from anywhere — a diariser, a transcript that names speakers, or a cue sheet you type. Speaker turns land as ordinary clips, so you correct a boundary by dragging it.",
+          },
+          {
+            name: "diarize",
+            prompt: "who is speaking on track 1? there are two of them",
+            what: "Find who spoke when, on this computer, and return the speaker turns without changing the session. Give `track` (turn times are then session seconds) or `path` for a file (the file's times). Pass `num_speakers` when you know how many people speak; otherwise the count is estimated, bounded by `min_speakers` and `max_speakers`. The audio never leaves the computer, and the tool never downloads the speaker model. The user can cancel.",
+            output: "speakers, turn_count, duration_sec, cached, talk_time, and the turns as [start_sec, end_sec, speaker_N] numbered by who speaks first",
+            note: "The listing is bounded to 6,000 bytes; a longer conversation is cut off and says so. Hand the turns to split_by_speaker. Voices that sound alike can merge, and overlapping speech goes to one speaker. If the speaker model or the ONNX Runtime library is missing, the result says so. The user downloads the speaker model in Settings → Account.",
           },
           {
             name: "transcribe",

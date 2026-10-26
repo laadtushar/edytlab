@@ -89,7 +89,7 @@ export default function GettingStartedPage() {
         You bring your own API key; it is stored in your OS keychain. With a
         ChatGPT Plus or Pro plan you can skip the key (a
         preview): see the last row and &ldquo;Using your ChatGPT plan&rdquo; in
-        the <a href="/docs/user-guide#chatgpt-plan">user guide</a>.
+        the <Link href="/docs/user-guide/chatgpt-plan">user guide</Link>.
       </p>
       <table>
         <thead>
@@ -299,10 +299,10 @@ export default function GettingStartedPage() {
       <h2>Next steps</h2>
       <ul>
         <li>
-          <a href="/docs/user-guide">User Guide</a> — every feature
+          <Link href="/docs/user-guide">User Guide</Link> — every feature
         </li>
         <li>
-          <Link href="/docs/tools">Audio Tools Reference</Link> — all 94 tools the
+          <Link href="/docs/tools">Audio Tools Reference</Link> — all 96 tools the
           agent can call
         </li>
         <li>

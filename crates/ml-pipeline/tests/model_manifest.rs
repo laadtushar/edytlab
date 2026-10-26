@@ -230,7 +230,7 @@ fn the_privacy_copy_names_the_host_and_the_size() {
     let size = size_in_mb();
     for page in [
         "website/app/privacy/page.tsx",
-        "website/app/docs/user-guide/page.tsx",
+        "website/components/docs/user-guide/providers.tsx",
     ] {
         let text = flat(&read(page));
         assert!(
@@ -267,7 +267,7 @@ fn every_page_that_lists_what_hugging_face_sees_says_it_learns_the_version() {
     for page in [
         "website/app/privacy/page.tsx",
         "website/app/use-cases/local-ai-audio-editor/page.tsx",
-        "website/app/docs/user-guide/page.tsx",
+        "website/components/docs/user-guide/providers.tsx",
         "marketing/press-kit.md",
     ] {
         let text = flat(&read(page));

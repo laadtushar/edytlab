@@ -1,5 +1,6 @@
 {
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Not a workspace package (pnpm-workspace.yaml lists apps/* only). It marks this folder as ES modules for Node and Playwright's TypeScript loader; nothing is installed here."
 }

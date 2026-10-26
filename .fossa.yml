@@ -1,0 +1,15 @@
+# FOSSA analysis settings (fossa-cli .fossa.yml, version 3:
+# https://github.com/fossas/fossa-cli/blob/master/docs/references/files/fossa-yml.md).
+#
+# Scan what ships: the desktop app, its crates and the website. Left out:
+# - marketing/: the promo-video project (Remotion), the LinkedIn renderer
+#   (with the OFL Inter font) and archived recording scripts. None of it
+#   ships in the app or the site, and it carries its own notices.
+# - crates/ml-diarize/tests/fixtures/: test data only, including 40 s of the
+#   AMI corpus (CC BY 4.0, credited in AMI-LICENSE.md there).
+version: 3
+
+paths:
+  exclude:
+    - ./marketing
+    - ./crates/ml-diarize/tests/fixtures

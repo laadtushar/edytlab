@@ -51,7 +51,7 @@ const entries: Entry[] = [
     date: "2026-10",
     summary: "Sign in with ChatGPT (preview), and better noise reduction, tempo and key.",
     bullets: [
-      { text: "New: Sign in with ChatGPT (preview) uses your Plus or Pro plan instead of an API key.", href: "/docs/user-guide#chatgpt-plan" },
+      { text: "New: Sign in with ChatGPT (preview) uses your Plus or Pro plan instead of an API key.", href: "/docs/user-guide/chatgpt-plan" },
       "Fixed: noise reduction no longer adds a loud click at the start and end of a track.",
       "Fixed: tempo and key detection, now with confidence.",
     ],

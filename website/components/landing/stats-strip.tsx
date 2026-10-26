@@ -26,7 +26,7 @@ import "@/lib/gsap-text";
 const stats = [
   { value: "0", unit: "bytes", label: "of your audio uploaded" },
   { value: "6", unit: "API providers", label: "plus your ChatGPT plan" },
-  { value: "94", unit: "tools", label: "the agent can call" },
+  { value: "96", unit: "tools", label: "the agent can call" },
 ];
 
 export function StatsStrip() {
@@ -61,7 +61,7 @@ export function StatsStrip() {
         >
           {stats.map((s) => (
             <div key={s.unit} className="flex flex-col items-center gap-1 text-center">
-              {/* The term is the figure with its unit ("94 tools") and the
+              {/* The term is the figure with its unit ("96 tools") and the
                   description follows it. `dt` and `dd` are the `div`'s
                   own children, as HTML wants for a grouped list: they
                   used to sit two `div`s down, which fails Lighthouse's

@@ -43,6 +43,7 @@ pub mod bpm;
 pub mod key;
 pub mod loudness;
 mod onset;
+pub mod qc;
 pub mod sections;
 
 pub use bpm::{Tempo, TempoAlternative, TempoRelation};

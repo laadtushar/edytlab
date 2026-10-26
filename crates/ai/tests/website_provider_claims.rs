@@ -380,7 +380,7 @@ fn the_site_words_eligibility_as_the_settings_card_does() {
         "the card's eligibility sentence changed to {sentence:?}; the site must be re-worded with it"
     );
     for page in [
-        "app/docs/user-guide/page.tsx",
+        "components/docs/user-guide/chatgpt-plan.tsx",
         "app/docs/getting-started/page.tsx",
     ] {
         assert!(

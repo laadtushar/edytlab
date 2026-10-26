@@ -40,9 +40,11 @@ const TOOL_LABELS: Record<string, string> = {
 
   // Analysis (read-only)
   analyze_track: "Analyze audio",
+  measure: "Measure",
   plot_spectrum: "Spectrum",
   silence_finder: "Find silence",
   transcribe: "Transcribe",
+  diarize: "Find speakers",
   separate_stems: "Separate stems",
   split_by_speaker: "Split by speaker",
 

@@ -36,9 +36,20 @@ use tools::{
 /// already references (`Tool::mutates` states this). The read-only test
 /// below checks what they leave, and that it is exactly that.
 ///
+/// `measure` is here for what it reads: the head, rendered to a temporary file
+/// outside the project (removed when the call ends) and read back. It writes
+/// nothing in the project. Unlike `render_preview` it does not call
+/// `materialize` (put back audio a history sweep removed): it reads only the
+/// head, whose audio a sweep keeps (#763).
+///
 /// `list_session` is here for what it reads: the head's tracks, buses and
 /// markers, as text, one page at a time (#618). It writes nothing and opens
 /// no file, so it leaves no cache entry either.
+///
+/// `diarize` is here for what it does: it finds who spoke when and answers
+/// with turns, and appends no node and writes no audio. It leaves one entry in
+/// the project's inference cache, which is the kind of write `Tool::mutates`
+/// does not count; `split_by_speaker`, which acts on its answer, is held.
 ///
 /// Deliberately **not** on this list, though they look harmless:
 ///
@@ -51,12 +62,14 @@ use tools::{
 /// * `mute_track`, `solo_track` and `set_sync_lock` append state.
 /// * `apply_recipe` and `batch_apply` run nested edits.
 /// * `load` appends a node.
-const READ_ONLY: [&str; 10] = [
+const READ_ONLY: [&str; 12] = [
     "analyze_track",
     "audition_effect",
     "compare_nodes",
+    "diarize",
     "export_labels",
     "list_session",
+    "measure",
     "plot_spectrum",
     "render_preview",
     "select_region",
@@ -132,6 +145,48 @@ fn write_clicks(path: &Path) {
     w.finalize().unwrap();
 }
 
+/// A speaker model that is not a model: two voices, taking turns.
+struct TwoVoices;
+
+impl tools::tool::diarize::SpeakerModel for TwoVoices {
+    fn locate(
+        &self,
+    ) -> Result<tools::tool::diarize::ModelRef, tools::tool::diarize::DiarizeFailure> {
+        Ok(tools::tool::diarize::ModelRef {
+            folder: std::path::PathBuf::from("/models/fake"),
+            fingerprint: "fake".to_string(),
+            downloaded: true,
+        })
+    }
+
+    fn diarize(
+        &self,
+        _model: &tools::tool::diarize::ModelRef,
+        audio: &[f32],
+        _bounds: (Option<usize>, Option<usize>, Option<usize>),
+        _on_progress: &dyn Fn(tools::tool::diarize::Stage, usize, usize),
+        _cancel: &(dyn Fn() -> bool + Sync),
+    ) -> Result<tools::tool::diarize::Heard, tools::tool::diarize::DiarizeFailure> {
+        use tools::tool::diarize::{Heard, Turn};
+        Ok(Heard {
+            turns: vec![
+                Turn {
+                    start_s: 0.0,
+                    end_s: 3.0,
+                    speaker: 0,
+                },
+                Turn {
+                    start_s: 3.0,
+                    end_s: 6.0,
+                    speaker: 1,
+                },
+            ],
+            speakers: 2,
+            duration_s: audio.len() as f64 / 16_000.0,
+        })
+    }
+}
+
 /// Relative path -> size of every file under `dir`.
 fn files_under(dir: &Path) -> BTreeMap<String, u64> {
     fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, u64>) {
@@ -180,6 +235,8 @@ fn invoke(
 /// one of the app's own caches, which `Tool::mutates` documents as not
 /// counting: content-addressed, bounded and rebuildable.
 ///
+/// The inference cache is a folder of finished `<hash>.bin` entries.
+///
 /// The preview and audition caches are folders of finished `.wav` entries
 /// and nothing else. A staging file left in one, or a file of any other
 /// kind, is not a cache entry and is not allowed. The flattened-track cache
@@ -190,7 +247,11 @@ fn is_cache_entry(path: &str) -> bool {
         path.strip_prefix(&prefix)
             .is_some_and(|name| !name.contains('/') && name.ends_with(".wav"))
     };
-    in_folder(tools::preview_cache::CACHE_DIR)
+    let inference_entry = path
+        .strip_prefix(&format!("{}/inference-cache/", session::STORE_DIR))
+        .is_some_and(|name| !name.contains('/') && name.ends_with(".bin"));
+    inference_entry
+        || in_folder(tools::preview_cache::CACHE_DIR)
         || in_folder(tools::tool::audition::AUDITION_DIR)
         || (path.starts_with(&format!("{}/derived/track-", session::STORE_DIR))
             && path.ends_with(".wav"))
@@ -246,7 +307,12 @@ fn every_read_only_tool_leaves_the_session_untouched() {
 
     let mut store = session::Store::open(dir.path()).expect("open store");
     let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
+    let mut dispatcher = ToolDispatcher::default_dispatcher();
+    // The real model is not in CI; the tool's own behaviour is what is checked.
+    assert!(dispatcher.unregister("diarize"));
+    dispatcher.register(Box::new(tools::tool::diarize::DiarizeTool::with(
+        std::sync::Arc::new(TwoVoices),
+    )));
     let mut clipboard: Option<tools::Clipboard> = None;
 
     {
@@ -305,19 +371,26 @@ fn every_read_only_tool_leaves_the_session_untouched() {
     );
     let swept_hex = swept.to_hex();
 
-    let calls: [(&str, Value); 14] = [
+    let calls: [(&str, Value); 17] = [
         ("analyze_track", json!({ "track": 0 })),
         (
             "audition_effect",
             json!({ "track": 0, "kind": "gain", "params": { "db": 3.0 } }),
         ),
         ("compare_nodes", json!({ "a": hex, "b": hex })),
+        ("diarize", json!({ "track": 0 })),
         ("export_labels", json!({})),
         // One page of each list: the calls the session block's cut lines
         // tell the model to make.
         ("list_session", json!({ "what": "tracks" })),
         ("list_session", json!({ "what": "buses" })),
         ("list_session", json!({ "what": "markers" })),
+        // The mix, and a track over a range with the ACX check.
+        ("measure", json!({})),
+        (
+            "measure",
+            json!({ "track": 0, "start_sec": 1.0, "end_sec": 5.0, "check": "acx" }),
+        ),
         (
             "plot_spectrum",
             json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.5 }),

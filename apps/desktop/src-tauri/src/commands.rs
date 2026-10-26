@@ -2504,7 +2504,7 @@ pub struct Capabilities {
 fn category_for(name: &str) -> &'static str {
     match name {
         "load" | "render_preview" | "render_final" | "add_track" | "remove_track" => "session",
-        "transcribe" | "separate_stems" | "analyze_track" => "analysis",
+        "transcribe" | "diarize" | "separate_stems" | "analyze_track" | "measure" => "analysis",
         "fork_node" | "apply_diff" | "compare_nodes" | "revert_to" | "name_node" => "history",
         "label" => "annotation",
         _ => "audio",
@@ -9099,6 +9099,7 @@ mod tests {
         // Category map covers the names we explicitly group.
         assert_eq!(super::category_for("load"), "session");
         assert_eq!(super::category_for("transcribe"), "analysis");
+        assert_eq!(super::category_for("diarize"), "analysis");
         assert_eq!(super::category_for("fork_node"), "history");
         assert_eq!(super::category_for("label"), "annotation");
         // Anything unmapped lands in `audio` so new tools render without

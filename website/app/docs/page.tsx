@@ -36,7 +36,7 @@ const cards = [
     href: "/docs/tools",
     icon: Wrench,
     title: "Audio Tools Reference",
-    desc: "All 94 tools the agent can call.",
+    desc: "All 96 tools the agent can call.",
     audience: "User",
   },
   {
