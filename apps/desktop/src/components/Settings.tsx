@@ -62,6 +62,7 @@ import { ChatGptLogo } from "./ChatGptLogo";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { MlRuntimeLine } from "./MlRuntimeLine";
+import { RecordingLatencyRow } from "./RecordingLatencyRow";
 import { SpeechModelRow } from "./SpeechModelRow";
 import { ProjectEditor } from "./ProjectEditor";
 import { SkillsEditor } from "./SkillsEditor";
@@ -69,10 +70,12 @@ import { IDENTIFIER_INPUT } from "../lib/identifierInput";
 
 /** Settings panel tabs. The blocking onboarding flow is locked to
  *  "account"; the panel mode lets the user switch. Phases 1-5 ship
- *  "account", "memory", "skills", "agents", "mcp", "plugins". */
+ *  "account", "memory", "skills", "agents", "mcp", "plugins"; "audio" (#203)
+ *  holds the devices' recording latency. */
 type SettingsTab =
   | "account"
   | "project"
+  | "audio"
   | "memory"
   | "skills"
   | "agents"
@@ -340,8 +343,9 @@ export function Settings({
 
   // The tab strip scrolls by itself (#392).
   //
-  // Seven tabs only just fit in the 30rem card, and a narrower window or
-  // a wider font tips them over. The card is `overflow-hidden` for its
+  // Seven tabs only just fit in a 30rem card, and Audio (#203) made it eight
+  // and the card 32rem; a narrower window or a wider font still tips them
+  // over. The card is `overflow-hidden` for its
   // rounded corners, which made *it* the nearest scroll container: focus
   // on a clipped tab (or anything calling `scrollIntoView`) slid the
   // whole dialog sideways and left Plugins half off it. So the strip is
@@ -1044,7 +1048,7 @@ export function Settings({
         data-testid="settings-card"
         className="
           overlay-in
-          relative flex max-h-[calc(100vh-2rem)] w-[30rem] max-w-[90vw] flex-col overflow-hidden
+          relative flex max-h-[calc(100vh-2rem)] w-[32rem] max-w-[90vw] flex-col overflow-hidden
           rounded-xl border border-[var(--border-strong)]
           bg-[var(--surface-elev)]
           shadow-(--shadow-dialog)
@@ -1116,6 +1120,13 @@ export function Settings({
                 onReveal={revealTab}
               />
               <SettingsTabButton
+                id="audio"
+                label="Audio"
+                active={tab === "audio"}
+                onClick={() => setTab("audio")}
+                onReveal={revealTab}
+              />
+              <SettingsTabButton
                 id="memory"
                 label="Memory"
                 active={tab === "memory"}
@@ -1170,6 +1181,7 @@ export function Settings({
               editors already remount per tab. */}
           <div key={tab} className="fade-in-quick">
           {tab === "project" && mode === "panel" ? <ProjectEditor /> : null}
+          {tab === "audio" && mode === "panel" ? <RecordingLatencyRow /> : null}
           {tab === "memory" && mode === "panel" ? <MemoryEditor /> : null}
           {tab === "skills" && mode === "panel" ? <SkillsEditor /> : null}
           {tab === "agents" && mode === "panel" ? (

@@ -6536,10 +6536,46 @@ pub(crate) fn batch_load_inner(state: &AppState, paths: &[String]) -> CmdResult<
 
 pub struct RecorderState(pub std::sync::Mutex<Option<recorder::Recorder>>);
 
+/// Lock the recorder slot, whatever happened to it before.
+///
+/// `Recorder::start` runs with the slot locked (that is what keeps a latency
+/// measurement from beginning between the gate's check and the store), so a
+/// panic inside the audio backend while opening the device poisons the
+/// mutex. Every later `lock().unwrap()` would then panic and recording would
+/// stay broken until a restart. The slot holds an `Option` that is only ever
+/// replaced whole after `start` has returned, so a poisoned slot is still a
+/// whole one (empty if the panic was in `start`): take it and clear the
+/// poison.
+fn lock_recorder_slot(
+    slot: &std::sync::Mutex<Option<recorder::Recorder>>,
+) -> std::sync::MutexGuard<'_, Option<recorder::Recorder>> {
+    slot.lock().unwrap_or_else(|poisoned| {
+        slot.clear_poison();
+        poisoned.into_inner()
+    })
+}
+
 #[tauri::command]
 pub fn start_recording(state: State<'_, RecorderState>) -> CmdResult<String> {
-    let rec = recorder::Recorder::start().map_err(|e| e.to_string())?;
-    *state.0.lock().unwrap() = Some(rec);
+    start_recording_with(&recorder::gate::GATE, &state.0, recorder::Recorder::start)
+}
+
+/// `start_recording` with its collaborators passed in, so the refusal is
+/// tested without a microphone.
+///
+/// A latency measurement plays test tones and listens for them: a take made
+/// during one has the tones in it, and a take that starts mid-measurement
+/// makes the measurement hear the person. The slot stays locked from the
+/// check to the store, so a measurement that begins in between finds the
+/// take and refuses itself (`recorder::gate`).
+fn start_recording_with(
+    gate: &recorder::gate::Gate,
+    slot: &std::sync::Mutex<Option<recorder::Recorder>>,
+    start: impl FnOnce() -> Result<recorder::Recorder, recorder::RecorderError>,
+) -> CmdResult<String> {
+    let mut slot = lock_recorder_slot(slot);
+    gate.check_can_record().map_err(|e| e.to_string())?;
+    *slot = Some(start().map_err(|e| e.to_string())?);
     Ok("recording started".into())
 }
 
@@ -6573,7 +6609,13 @@ pub async fn timer_record(
         )
         .into());
     }
-    if state.0.lock().unwrap().is_some() {
+    // Armed until this function returns however it returns: a timer that
+    // will start recording by the clock cannot share the microphone with a
+    // latency measurement (`recorder::gate`).
+    let _armed = recorder::gate::GATE
+        .arm_timer()
+        .map_err(|e| e.to_string())?;
+    if lock_recorder_slot(&state.0).is_some() {
         return Err(CommandError::InvalidPath("already recording".into()).into());
     }
 
@@ -6586,7 +6628,7 @@ pub async fn timer_record(
         // still counting down or already capturing. Stopping during the
         // countdown simply never starts.
         if tools::progress::cancelled() {
-            let rec = state.0.lock().unwrap().take();
+            let rec = lock_recorder_slot(&state.0).take();
             if let Some(rec) = rec {
                 let path = std::path::PathBuf::from(&output_path);
                 let _ = rec.stop_and_save(&path);
@@ -6602,7 +6644,7 @@ pub async fn timer_record(
             recorder::Action::Wait | recorder::Action::Continue => {}
             recorder::Action::Start => {
                 let rec = recorder::Recorder::start().map_err(|e| e.to_string())?;
-                *state.0.lock().unwrap() = Some(rec);
+                *lock_recorder_slot(&state.0) = Some(rec);
                 recording = true;
             }
             recorder::Action::Stop => break,
@@ -6619,10 +6661,7 @@ pub async fn timer_record(
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 
-    let rec = state
-        .0
-        .lock()
-        .unwrap()
+    let rec = lock_recorder_slot(&state.0)
         .take()
         .ok_or_else(|| "the recording vanished before it could be saved".to_string())?;
     let path = std::path::PathBuf::from(&output_path);
@@ -6640,15 +6679,197 @@ pub async fn timer_record(
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Recording latency (#203): how late the microphone hears what the
+// speakers play, measured once per device pair.
+// ---------------------------------------------------------------------------
+
+/// `~/.edytlab/audio-latency.json`, where [`recorder::store::LatencyStore`]
+/// keeps one entry per device pair. Under [`edytlab_home`] like the other
+/// files that belong to no project.
+fn audio_latency_store() -> recorder::store::LatencyStore {
+    recorder::store::LatencyStore::at(edytlab_home().join(".edytlab").join("audio-latency.json"))
+}
+
+/// The devices as the window shows them: names and rates, never a path.
+fn devices_json(pair: &recorder::duplex::DevicePair) -> serde_json::Value {
+    serde_json::json!({
+        "host": pair.host,
+        "output": pair.output,
+        "input": pair.input,
+        "out_sr": pair.out_sr,
+        "in_sr": pair.in_sr,
+    })
+}
+
+/// What `get_recording_latency` answers for the default devices: which they
+/// are, and the latency kept for them if there is one.
+///
+/// A machine with no microphone or speakers is an answer, not an error:
+/// Settings shows the reason where the value would be.
+fn recording_latency_status(
+    store: &recorder::store::LatencyStore,
+    pair: Result<recorder::duplex::DevicePair, recorder::RecorderError>,
+) -> CmdResult<serde_json::Value> {
+    let pair = match pair {
+        Ok(p) => p,
+        Err(e) => {
+            return Ok(serde_json::json!({
+                "devices": null,
+                "problem": e.to_string(),
+                "latency": null,
+            }))
+        }
+    };
+    let latency = store.get(&pair).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "devices": devices_json(&pair),
+        "problem": null,
+        "latency": latency,
+    }))
+}
+
+/// The latency kept for the current default speakers and microphone.
+///
+/// Reads the device list and one small file, and plays and records
+/// nothing. Async only so the device query is off the window's thread.
+#[tauri::command]
+pub async fn get_recording_latency() -> CmdResult<serde_json::Value> {
+    let store = audio_latency_store();
+    tauri::async_runtime::spawn_blocking(move || {
+        recording_latency_status(&store, recorder::duplex::default_pair())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Closes the calibration's progress strip however the run ended.
+struct CalibrationStrip;
+
+impl Drop for CalibrationStrip {
+    fn drop(&mut self) {
+        tools::progress::report(serde_json::json!({ "kind": "calibrate_latency", "done": true }));
+    }
+}
+
+/// The right to measure, or the reason there is none: one measurement at a
+/// time (two would play over each other, and each would hear the other's
+/// sweeps), none while a timer is armed or a take is running.
+fn begin_calibration_with<'g>(
+    gate: &'g recorder::gate::Gate,
+    recording: &std::sync::Mutex<Option<recorder::Recorder>>,
+) -> Result<recorder::gate::CalibrationRun<'g>, String> {
+    let run = gate.begin_calibration().map_err(|e| e.to_string())?;
+    // Taken after the gate, so a take that starts meanwhile is refused by
+    // `start_recording` and one that already started is seen here.
+    if lock_recorder_slot(recording).is_some() {
+        return Err("Stop the recording before measuring the latency.".into());
+    }
+    Ok(run)
+}
+
+/// Run a measurement's `work` on a blocking thread (the audio streams are
+/// not `Send`), with the run's right to the gate moved onto that thread.
+///
+/// The gate has to stay closed exactly as long as the sweeps can be playing.
+/// A command's future is dropped when its caller goes away, but a blocking
+/// task cannot be stopped from outside and plays on to its next checkpoint,
+/// so a guard held by the future would free the gate under it and let a take
+/// start that hears the test tones. Held by the closure, the guard is freed
+/// when the work returns (or panics), whatever became of the future.
+async fn measure_exclusively<T: Send + 'static>(
+    run: recorder::gate::CalibrationRun<'static>,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _run = run;
+        work()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Measure the round trip of the default speakers and microphone and keep
+/// it (#203).
+///
+/// Plays five test sweeps, three times, and listens: the speaker has to be
+/// heard by the microphone, which is why Settings tells the person to put
+/// them close together. Refuses, with a reason they can act on, when the
+/// sweeps are not all heard or do not agree to within a millisecond; a
+/// number that is not steady cannot be compensated, and is not stored. It
+/// also refuses when the default devices cannot be named (on Linux the
+/// sound server has to say which sink `default` is), because a number kept
+/// for the wrong pair is applied silently to another.
+///
+/// Runs on a blocking thread (the audio streams are not `Send`) and reports
+/// `{kind: "calibrate_latency", run, runs}` on the tool-progress channel.
+/// Its Cancel is `cancel_recording_latency`, a flag of its own
+/// (`recorder::gate`): the agent's batch and the timer keep
+/// `tools::progress`'s, and neither is begun or cancelled from here.
+#[tauri::command]
+pub async fn calibrate_recording_latency(
+    recording: State<'_, RecorderState>,
+) -> CmdResult<serde_json::Value> {
+    let run = begin_calibration_with(&recorder::gate::GATE, &recording.0)?;
+    let store = audio_latency_store();
+    let strip = CalibrationStrip;
+
+    measure_exclusively(run, move || {
+        // Closed when the work ends, with the gate freed just after.
+        let _strip = strip;
+        let pair = recorder::duplex::default_pair().map_err(|e| e.to_string())?;
+        let result = recorder::calibration::calibrate(
+            &pair,
+            &|| recorder::gate::GATE.calibration_cancelled(),
+            &mut |run, runs| {
+                tools::progress::report(serde_json::json!({
+                    "kind": "calibrate_latency", "run": run, "runs": runs,
+                }));
+            },
+        );
+        match result {
+            Err(recorder::calibration::CalibrateError::Cancelled) => {
+                Ok(serde_json::json!({ "cancelled": true }))
+            }
+            Err(e) => Err(e.to_string()),
+            Ok(cal) => {
+                let entry = recorder::store::Stored {
+                    latency_ms: cal.latency_ms,
+                    spread_ms: Some(cal.spread_ms),
+                    measured_at: recorder::store::unix_now(),
+                    source: recorder::store::Source::Measured,
+                };
+                store.put(&pair, entry.clone()).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({
+                    "cancelled": false,
+                    "devices": devices_json(&pair),
+                    "latency": entry,
+                    "sweeps_heard": cal.sweeps_heard,
+                    "runs": cal.runs,
+                }))
+            }
+        }
+    })
+    .await?
+}
+
+/// Stop the running latency measurement at its next checkpoint.
+///
+/// Its own command and its own flag: `cancel_long_running_tool` is the
+/// agent's batch and the timer's Cancel, and pressing one must not stop the
+/// other. Harmless when no measurement is running.
+#[tauri::command]
+pub fn cancel_recording_latency() -> CmdResult<()> {
+    recorder::gate::GATE.cancel_calibration();
+    Ok(())
+}
+
 #[tauri::command]
 pub fn stop_recording(
     state: State<'_, RecorderState>,
     output_path: String,
 ) -> CmdResult<serde_json::Value> {
-    let rec = state
-        .0
-        .lock()
-        .unwrap()
+    let rec = lock_recorder_slot(&state.0)
         .take()
         .ok_or_else(|| "no active recording".to_string())?;
     let path = std::path::PathBuf::from(&output_path);
@@ -11355,5 +11576,301 @@ mod plugin_archive_tests {
         let meta = std::fs::symlink_metadata(&link).unwrap();
         assert!(!meta.file_type().is_symlink(), "a symlink was created");
         assert!(!target.exists(), "something was written outside the folder");
+    }
+}
+
+#[cfg(test)]
+mod recording_latency_tests {
+    use super::*;
+    use recorder::duplex::DevicePair;
+    use recorder::store::{LatencyStore, Source, Stored};
+
+    fn pair() -> DevicePair {
+        DevicePair {
+            host: "ALSA".into(),
+            output: "Speakers".into(),
+            input: "Mic".into(),
+            out_sr: 48_000,
+            out_ch: 2,
+            in_sr: 44_100,
+            in_ch: 1,
+        }
+    }
+
+    fn store() -> (tempfile::TempDir, LatencyStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = LatencyStore::at(dir.path().join("audio-latency.json"));
+        (dir, s)
+    }
+
+    #[test]
+    fn an_uncalibrated_pair_reports_its_devices_and_no_latency() {
+        let (_d, s) = store();
+        let v = recording_latency_status(&s, Ok(pair())).unwrap();
+        assert_eq!(v["devices"]["output"], "Speakers");
+        assert_eq!(v["devices"]["out_sr"], 48_000);
+        assert_eq!(v["devices"]["in_sr"], 44_100);
+        assert!(v["latency"].is_null());
+        assert!(v["problem"].is_null());
+    }
+
+    #[test]
+    fn a_stored_latency_is_reported_with_where_it_came_from() {
+        let (_d, s) = store();
+        s.put(
+            &pair(),
+            Stored {
+                latency_ms: 42.5,
+                spread_ms: Some(0.3),
+                measured_at: 1_700_000_000,
+                source: Source::Measured,
+            },
+        )
+        .unwrap();
+        let v = recording_latency_status(&s, Ok(pair())).unwrap();
+        assert_eq!(v["latency"]["latency_ms"], 42.5);
+        assert_eq!(v["latency"]["spread_ms"], 0.3);
+        assert_eq!(v["latency"]["source"], "measured");
+        assert_eq!(v["latency"]["measured_at"], 1_700_000_000u64);
+    }
+
+    #[test]
+    fn the_window_is_told_names_and_rates_and_nothing_else_about_the_devices() {
+        let (_d, s) = store();
+        let v = recording_latency_status(&s, Ok(pair())).unwrap();
+        let mut keys: Vec<&String> = v["devices"].as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["host", "in_sr", "input", "out_sr", "output"]);
+    }
+
+    #[test]
+    fn a_machine_with_no_microphone_answers_with_the_reason_not_an_error() {
+        let (_d, s) = store();
+        let v = recording_latency_status(&s, Err(recorder::RecorderError::NoDevice)).unwrap();
+        assert!(v["devices"].is_null());
+        assert_eq!(v["problem"], "no input device available");
+        assert!(v["latency"].is_null());
+    }
+
+    #[test]
+    fn a_file_from_a_newer_app_is_an_error_not_an_empty_answer() {
+        let (d, s) = store();
+        std::fs::write(
+            d.path().join("audio-latency.json"),
+            r#"{"version":9,"entries":{}}"#,
+        )
+        .unwrap();
+        let e = recording_latency_status(&s, Ok(pair())).unwrap_err();
+        assert!(e.contains("newer version"), "{e}");
+    }
+
+    fn free_slot() -> std::sync::Mutex<Option<recorder::Recorder>> {
+        std::sync::Mutex::new(None)
+    }
+
+    #[test]
+    fn recording_is_refused_while_a_measurement_runs() {
+        let gate = recorder::gate::Gate::new();
+        let slot = free_slot();
+        let run = gate.begin_calibration().unwrap();
+        let e = start_recording_with(&gate, &slot, || panic!("must not open the microphone"))
+            .unwrap_err();
+        assert!(e.contains("latency measurement"), "{e}");
+        assert!(slot.lock().unwrap().is_none());
+        drop(run);
+        // Once it ends, the start is attempted again (and here the
+        // microphone is the test's, so it is what answers).
+        let e = start_recording_with(&gate, &slot, || Err(recorder::RecorderError::NoDevice))
+            .unwrap_err();
+        assert_eq!(e, "no input device available");
+    }
+
+    /// `Recorder::start` runs with the slot locked (that is what closes the
+    /// race with a measurement), so a panic inside the audio backend poisons
+    /// the mutex. Recording has to come back without a restart.
+    #[test]
+    fn a_panic_while_the_microphone_opens_leaves_recording_usable() {
+        let gate = recorder::gate::Gate::new();
+        let slot = free_slot();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            start_recording_with(&gate, &slot, || panic!("the audio backend panicked"))
+        }));
+        assert!(panicked.is_err(), "the test's starter did not panic");
+
+        // The next start is attempted, not refused by a poisoned lock.
+        let e = start_recording_with(&gate, &slot, || Err(recorder::RecorderError::NoDevice))
+            .unwrap_err();
+        assert_eq!(e, "no input device available");
+        // A measurement can still check the slot.
+        assert!(begin_calibration_with(&gate, &slot).is_ok());
+        // And the slot is whole again: empty, lockable, no longer poisoned.
+        assert!(lock_recorder_slot(&slot).is_none());
+        assert!(!slot.is_poisoned());
+    }
+
+    /// The gate is held by the blocking thread that plays the sweeps, not by
+    /// the command's future: if the webview goes away and the future is
+    /// dropped, the sweeps keep playing until the next checkpoint, and a
+    /// take started meanwhile would hear them.
+    #[test]
+    fn the_gate_stays_closed_until_the_blocking_measurement_ends_even_if_the_command_is_dropped() {
+        static GATE: recorder::gate::Gate = recorder::gate::Gate::new();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let run = GATE.begin_calibration().unwrap();
+
+        tauri::async_runtime::block_on(async {
+            let command = measure_exclusively(run, move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                "done"
+            });
+            // Poll it until the blocking work is under way, then drop it,
+            // as a cancelled command's future is.
+            let timed_out = tokio::time::timeout(std::time::Duration::from_millis(300), command)
+                .await
+                .is_err();
+            assert!(timed_out, "the measurement ended on its own");
+            started_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("the blocking work never started");
+
+            assert!(
+                GATE.calibrating(),
+                "dropping the future freed the gate while the sweeps still play"
+            );
+            assert_eq!(
+                GATE.check_can_record(),
+                Err(recorder::gate::Busy::Calibrating)
+            );
+
+            // The work ends: the gate frees, and only then.
+            release_tx.send(()).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while GATE.calibrating() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the gate was never freed"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            assert_eq!(GATE.check_can_record(), Ok(()));
+        });
+    }
+
+    #[test]
+    fn the_gate_is_freed_when_the_measurement_ends_normally() {
+        static GATE: recorder::gate::Gate = recorder::gate::Gate::new();
+        let run = GATE.begin_calibration().unwrap();
+        let out = tauri::async_runtime::block_on(measure_exclusively(run, || 7)).unwrap();
+        assert_eq!(out, 7);
+        assert!(!GATE.calibrating());
+    }
+
+    #[test]
+    fn a_measurement_is_refused_while_a_timer_is_armed() {
+        let gate = recorder::gate::Gate::new();
+        let slot = free_slot();
+        let timer = gate.arm_timer().unwrap();
+        let e = begin_calibration_with(&gate, &slot).err().unwrap();
+        assert!(e.contains("timed recording"), "{e}");
+        drop(timer);
+        assert!(begin_calibration_with(&gate, &slot).is_ok());
+    }
+
+    #[test]
+    fn a_timer_is_refused_while_a_measurement_runs() {
+        let gate = recorder::gate::Gate::new();
+        let slot = free_slot();
+        let run = begin_calibration_with(&gate, &slot).unwrap();
+        assert!(gate.arm_timer().is_err());
+        drop(run);
+        assert!(gate.arm_timer().is_ok());
+    }
+
+    #[test]
+    fn only_one_measurement_runs_at_a_time() {
+        let gate = recorder::gate::Gate::new();
+        let slot = free_slot();
+        let first = begin_calibration_with(&gate, &slot).unwrap();
+        let e = begin_calibration_with(&gate, &slot).err().unwrap();
+        assert!(e.contains("already running"), "{e}");
+        drop(first);
+        assert!(begin_calibration_with(&gate, &slot).is_ok());
+    }
+
+    /// The measurement's Cancel and `tools::progress`'s (the agent's
+    /// `batch_apply` and the timer's) are different flags. This is the
+    /// only test in this crate that uses the process's gate or that flag.
+    #[test]
+    fn cancelling_a_measurement_leaves_the_agents_cancel_alone_and_the_reverse() {
+        use recorder::gate::GATE;
+        tools::progress::begin();
+        let run = GATE.begin_calibration().unwrap();
+
+        cancel_recording_latency().unwrap();
+        assert!(GATE.calibration_cancelled());
+        assert!(!tools::progress::cancelled(), "the batch's flag was set");
+
+        // And a Cancel meant for a batch does not stop the measurement,
+        // nor does a measurement beginning clear the batch's request.
+        drop(run);
+        tools::progress::request_cancel();
+        let run = GATE.begin_calibration().unwrap();
+        assert!(!GATE.calibration_cancelled(), "a batch's cancel stopped it");
+        assert!(
+            tools::progress::cancelled(),
+            "beginning cleared the batch's cancel"
+        );
+        drop(run);
+        tools::progress::begin();
+    }
+
+    /// The commands' own text: neither may begin, read or set the shared
+    /// flag. (The test above pins behaviour; this keeps a later edit that
+    /// reaches for `tools::progress` out of them.)
+    #[test]
+    fn the_measurement_commands_never_touch_the_shared_progress_flag() {
+        for name in ["calibrate_recording_latency", "cancel_recording_latency"] {
+            let body = command_body(include_str!("commands.rs"), name);
+            for banned in [
+                "progress::begin",
+                "progress::cancelled",
+                "progress::request_cancel",
+            ] {
+                assert!(!body.contains(banned), "{name} calls {banned}");
+            }
+        }
+    }
+
+    /// The text of `fn name(` up to its closing brace at column 0. A Windows
+    /// checkout has CRLF line endings, which have no `"\n}\n"` in them, so
+    /// every carriage return is dropped first.
+    fn command_body(src: &str, name: &str) -> String {
+        let src = src.replace('\r', "");
+        let at = src
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body = &src[at..];
+        body[..body
+            .find("\n}\n")
+            .unwrap_or_else(|| panic!("{name} has no end"))]
+            .to_string()
+    }
+
+    #[test]
+    fn a_command_is_found_in_a_source_with_windows_line_endings() {
+        // `include_str!` is already CRLF on a Windows checkout, so start from LF.
+        let lf = include_str!("commands.rs").replace('\r', "");
+        let crlf = lf.replace('\n', "\r\n");
+        for name in ["calibrate_recording_latency", "cancel_recording_latency"] {
+            let body = command_body(&crlf, name);
+            assert_eq!(body, command_body(&lf, name), "{name} differs under CRLF");
+            assert!(!body.contains('\r'));
+            assert!(body.len() > 40, "{name}: {body}");
+            // What the test above sees on a Windows checkout: CRLF made CRLF again.
+            let doubled = crlf.replace('\n', "\r\n");
+            assert_eq!(command_body(&doubled, name), body, "{name} under \\r\\r\\n");
+        }
     }
 }
