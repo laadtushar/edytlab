@@ -26,7 +26,7 @@ Alternates:
 ## Description (260 characters or fewer)
 
 ```
-A free, open-source desktop audio editor. Describe an edit in chat and an AI agent runs 95 audio tools. The DSP runs locally in Rust, so audio is never uploaded. Bring a key (Anthropic, OpenAI, OpenRouter, Groq, Gemini), a ChatGPT plan (preview) or Ollama.
+A free, open-source desktop audio editor. Describe an edit in chat and an AI agent runs 96 audio tools. The DSP runs locally in Rust, so audio is never uploaded. Bring a key (Anthropic, OpenAI, OpenRouter, Groq, Gemini), a ChatGPT plan (preview) or Ollama.
 ```
 
 ## Maker's first comment
@@ -34,7 +34,7 @@ A free, open-source desktop audio editor. Describe an edit in chat and an AI age
 ```
 Hi Product Hunt. I'm the maker of edytlab.
 
-edytlab is a desktop audio editor (macOS, Windows, Linux, MIT) where you edit by describing what you want. "Time-stretch track 2 to match track 1's tempo, crossfade the last 8 bars, limit at -1 dB, bring it to -14 LUFS, export a WAV." An AI agent turns that into calls to 95 audio tools. The tools do the signal processing; the model only picks and orders them, and never touches the samples.
+edytlab is a desktop audio editor (macOS, Windows, Linux, MIT) where you edit by describing what you want. "Time-stretch track 2 to match track 1's tempo, crossfade the last 8 bars, limit at -1 dB, bring it to -14 LUFS, export a WAV." An AI agent turns that into calls to 96 audio tools. The tools do the signal processing; the model only picks and orders them, and never touches the samples.
 
 What I care about:
 

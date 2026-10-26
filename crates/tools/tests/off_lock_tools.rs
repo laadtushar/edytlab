@@ -58,6 +58,12 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// the first run filled. It reports `progress` and reads the cancel switch;
 /// see [`ALLOWED`].
 ///
+/// `measure` is on it (#763). It renders the head to a temporary file and
+/// reads it back, which takes as long as the audio is long, and it reads only
+/// the head and appends nothing, so it is never run again. It does not call
+/// `materialize` (the reason `render_preview` is not on this list): a sweep
+/// keeps the audio the head names.
+///
 /// `select_region` and `duck_under_speech` are on it (#570). With
 /// `voice_tracks` both decode and scan every clip of the voice tracks, which
 /// takes as long as the voice is long, and they read only the head.
@@ -67,7 +73,7 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// `voice_tracks`), so a user's edit to the clips of one of them refuses its
 /// re-run. `select_region` reports its selection on the `progress` sink,
 /// which takes no lock; see [`ALLOWED`].
-const OFF_LOCK: [&str; 44] = [
+const OFF_LOCK: [&str; 45] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
@@ -87,6 +93,7 @@ const OFF_LOCK: [&str; 44] = [
     "limiter",
     "load",
     "low_pass_filter",
+    "measure",
     "mix_to_new_track",
     "mono_to_stereo",
     "noise_gate",
@@ -338,6 +345,20 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "crate::progress::cancelled(",
         "read between windows and between decoder steps to stop the run, which then appends \
          nothing. It only reads the switch, and the one the window's Cancel button sets.",
+    ),
+    (
+        "measure.rs",
+        "crate::progress::begin(",
+        "clears a Cancel pressed before this call began, once, before the render. `measure` \
+         appends nothing, so a lost race changes nothing and it is never run again: a Cancel \
+         pressed during a call is the call's own.",
+    ),
+    (
+        "measure.rs",
+        "crate::progress::cancelled(",
+        "read after the render and between the chunks of the pass over it, to stop with a \
+         message that nothing was changed. It only reads the switch the window's Cancel button \
+         sets.",
     ),
 ];
 
@@ -1040,6 +1061,11 @@ const NOT_TRACKS: &[(&str, &str, &str)] = &[
         "diarize",
         "num_speakers",
         "how many people speak, when the user said (the track is `track`)",
+    ),
+    (
+        "measure",
+        "max_clip_times",
+        "how many clip times the result lists (0-50)",
     ),
     (
         "phaser",

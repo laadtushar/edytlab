@@ -7,6 +7,7 @@ import {
   type Reference,
 } from "./reference";
 import { toolAreas, type ToolArea } from "./tools-data";
+import { guidePages, type GuidePage } from "./user-guide-data";
 
 /**
  * The two references as `Reference`s: the outline of each area, derived
@@ -18,6 +19,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 
 export const TOOLS_BASE = "/docs/tools";
 export const API_BASE = "/docs/api-reference";
+export const USER_GUIDE_BASE = "/docs/user-guide";
 
 function toolOutline(area: ToolArea): AreaOutline {
   const sections: OutlineSection[] = area.sections.map((s) => ({
@@ -67,10 +69,41 @@ function apiOutline(area: ApiArea): AreaOutline {
   };
 }
 
+/**
+ * A guide page lists its `h2`s as the entries of one section, so the
+ * "On this page" list and the sticky column work as on the references. A
+ * page with one heading lists nothing.
+ */
+function guideOutline(page: GuidePage): AreaOutline {
+  const topics = Math.max(page.headings.length, 1);
+  return {
+    slug: page.slug,
+    title: page.title,
+    summary: page.summary,
+    countLabel: plural(topics, "topic", "topics"),
+    sections:
+      page.headings.length > 1
+        ? [
+            {
+              id: `${page.slug}-headings`,
+              title: page.title,
+              entries: page.headings.map((h) => ({ id: h.id, label: h.title })),
+            },
+          ]
+        : [],
+  };
+}
+
 export const toolsReference: Reference = {
   base: TOOLS_BASE,
   name: "Audio Tools Reference",
   areas: toolAreas.map(toolOutline),
+};
+
+export const userGuideReference: Reference = {
+  base: USER_GUIDE_BASE,
+  name: "User Guide",
+  areas: guidePages.map(guideOutline),
 };
 
 export const apiReference: Reference = {
@@ -89,6 +122,13 @@ export const API_ALIASES: Readonly<Record<string, string>> = {
 };
 
 export const TOOLS_ALIASES: Readonly<Record<string, string>> = {};
+
+/**
+ * The user guide's headings before it was split: only two had an id
+ * (`#transcription`, `#chatgpt-plan`), and both are an id or a slug now.
+ * Every other `h2` has an id on its page, so a hash for one resolves too.
+ */
+export const USER_GUIDE_ALIASES: Readonly<Record<string, string>> = {};
 
 /** How many tools the reference documents: the number the site quotes. */
 export const toolCount = toolAreas.reduce(

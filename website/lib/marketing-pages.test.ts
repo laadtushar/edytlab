@@ -126,6 +126,7 @@ describe("footer and marketing pages", () => {
   it.each([
     ["app/docs/tools/page.tsx", "/docs/tools"],
     ["app/docs/api-reference/page.tsx", "/docs/api-reference"],
+    ["app/docs/user-guide/page.tsx", "/docs/user-guide"],
   ])("gives the reference index %s its own canonical and social card", (file, path) => {
     const source = read(join(WEBSITE, file));
     expect(source).toContain(`canonical: "${path}"`);
@@ -133,13 +134,14 @@ describe("footer and marketing pages", () => {
   });
 
   it.each([
-    ["app/docs/tools/[area]/page.tsx", "TOOLS_BASE"],
-    ["app/docs/api-reference/[area]/page.tsx", "API_BASE"],
-  ])("builds the canonical and social card of every area page in %s from its own path", (file, base) => {
+    ["app/docs/tools/[area]/page.tsx", "TOOLS_BASE", "area"],
+    ["app/docs/api-reference/[area]/page.tsx", "API_BASE", "area"],
+    ["app/docs/user-guide/[section]/page.tsx", "USER_GUIDE_BASE", "page"],
+  ])("builds the canonical and social card of every area page in %s from its own path", (file, base, v) => {
     // One file makes every area's page, so the path is computed from the
     // area, not written: `docsReference.test.ts` checks the result of each.
     const source = read(join(WEBSITE, file));
-    expect(source).toContain(`const path = areaPath(${base}, area.slug)`);
+    expect(source).toContain(`const path = areaPath(${base}, ${v}.slug)`);
     expect(source).toContain("alternates: pageAlternates(path)");
     expect(source).toContain("...pageSocial(path");
   });
@@ -148,7 +150,7 @@ describe("footer and marketing pages", () => {
     // The reference pages link by computed paths (`components/docs`), so the
     // static check above sees none of them; these two pages and the shell
     // hold the literal ones.
-    for (const file of ["app/docs/tools/page.tsx", "app/docs/api-reference/page.tsx", "components/docs/doc-shell.tsx"]) {
+    for (const file of ["app/docs/tools/page.tsx", "app/docs/api-reference/page.tsx", "app/docs/user-guide/page.tsx", "components/docs/doc-shell.tsx"]) {
       for (const href of internalHrefs(read(join(WEBSITE, file)))) {
         expect(existsSync(join(WEBSITE, "app", href.replace(/^\//, ""), "page.tsx")), `${file} links to ${href}`).toBe(true);
       }

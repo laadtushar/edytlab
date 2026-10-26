@@ -253,16 +253,16 @@ impl ToolDispatcher {
             ExportMultipleTool, ExportRecipeTool, FadeTool, ForkNodeTool, GainTool,
             GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
             InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, ListSessionTool,
-            LoadTool, LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool,
-            MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool,
-            NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
-            PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool,
-            RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
-            RevertToTool, SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool,
-            SetEffectBypassedTool, SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool,
-            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
-            SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            LoadTool, LowPassFilterTool, MeasureTool, MixToNewTrackTool, MonoToStereoTool,
+            MoveClipTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
+            NormalizeLoudnessTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool,
+            PitchShiftTool, PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool,
+            RemoveFillersTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool,
+            RenderPreviewTool, ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool,
+            ReverbTool, ReverseTool, RevertToTool, SelectRegionTool, SeparateStemsTool,
+            SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
+            SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool,
+            SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
             StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
             TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
@@ -399,6 +399,8 @@ impl ToolDispatcher {
         // #618: the way to the tracks, buses and markers the session block
         // cut.
         d.register(Box::new(ListSessionTool));
+        // #763: loudness, peaks, noise floor, clipping and the ACX check.
+        d.register(Box::new(MeasureTool));
         d
     }
 

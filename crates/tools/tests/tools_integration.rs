@@ -816,6 +816,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "list_session",
             "load",
             "low_pass_filter",
+            "measure",
             "mix_to_new_track",
             "mono_to_stereo",
             "move_clip",
