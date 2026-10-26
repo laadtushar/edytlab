@@ -72,7 +72,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use audio_decoder::DecodedAudio;
-use ml_pipeline::ContentHash;
+use ml_pipeline::{onnx_session, ContentHash, SessionOptions};
 use serde::{Deserialize, Serialize};
 
 mod cache;
@@ -255,9 +255,7 @@ impl DemucsModel {
         let bytes = std::fs::read(path)?;
         let model_path_hash = ContentHash::from_bytes(&bytes);
 
-        let session = ort::session::Session::builder()
-            .map_err(|e| DemucsError::Ort(e.to_string()))?
-            .commit_from_file(path)
+        let session = onnx_session::build(path, SessionOptions::default())
             .map_err(|e| DemucsError::Ort(e.to_string()))?;
 
         Ok(Self {

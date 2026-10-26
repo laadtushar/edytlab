@@ -13,6 +13,9 @@
 //!   Loading the same model twice returns the same `Arc`. Registry
 //!   creation does not touch the runtime; sessions are built lazily by
 //!   [`ModelRegistry::load`].
+//! - [`onnx_session::build`] is the shared entry point for constructing a
+//!   session from a model file. It applies [`SessionOptions`] and checks the
+//!   runtime before calling ONNX Runtime; the registry and Demucs use it.
 //! - [`InferenceCache`] is an on-disk content-addressed store rooted at
 //!   `<project>/.audiograph/inference-cache/`. Keys are blake3 hashes
 //!   (callers fold the model file's hash into the key so cache entries
@@ -45,12 +48,13 @@
 //!
 //! Left alone, `ort` **panics** when it cannot load the library (and, with
 //! no path given, searches the system for it by bare name); in 2.0.0-rc.12
-//! it deadlocked instead. So every caller that builds an `ort` session
-//! goes through [`runtime::ensure`] first, which turns a missing or
-//! unloadable library into [`Error::MissingRuntime`] /
-//! [`Error::RuntimeLoad`], and, on a macOS older than the runtime's minimum,
-//! into [`Error::RuntimeUnsupported`] before the library is opened. See the
-//! [`runtime`] module for why that matters. Tests that build real sessions are `#[ignore]`d — see
+//! it deadlocked instead. [`onnx_session::build`] checks through
+//! [`runtime::ensure`] before calling ORT, returning a missing or unloadable
+//! library as [`Error::MissingRuntime`] / [`Error::RuntimeLoad`], and, on a
+//! macOS older than the runtime's minimum, as [`Error::RuntimeUnsupported`]
+//! before the library is opened. Whisper keeps an earlier check before
+//! inspecting its model folder. See the [`runtime`] module for why that
+//! matters. Tests that build real sessions are `#[ignore]`d — see
 //! `tests/cache_smoke.rs`.
 
 use std::io;
@@ -59,7 +63,7 @@ use std::path::PathBuf;
 mod cache;
 mod download;
 pub mod models;
-mod onnx_session;
+pub mod onnx_session;
 pub mod runtime;
 
 pub use cache::{ContentHash, InferenceCache};
@@ -67,7 +71,9 @@ pub use download::{
     fetched_model_path, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore, OnDisk,
 };
 pub use models::{Catalog, CatalogModel, ModelDownloads, ModelState, ModelStatus};
-pub use onnx_session::{ExecProvider, ModelRegistry, SharedSession};
+pub use onnx_session::{
+    ExecProvider, GraphOptimizationLevel, ModelRegistry, SessionOptions, SharedSession,
+};
 
 /// Crate-wide error type. One enum, lives at the crate root so callers
 /// only ever match against a single shape.

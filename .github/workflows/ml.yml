@@ -13,6 +13,8 @@ name: ML
 # What it runs, all `#[ignore]`d in the crates so that `cargo test` skips them
 # visibly (#263) and all failing, not passing, when what they need is missing:
 #
+#   - ml-pipeline `onnx_session_builder`: the shared builder's caller options
+#     and inference on the committed identity model, using the pinned runtime;
 #   - ml-whisper `transcribe_known_words`: the pinned whisper-base files on the
 #     pinned ONNX Runtime, over a committed speech fixture. Asserts the words
 #     and when they start, and prints the realtime factor;
@@ -102,6 +104,11 @@ jobs:
       # and fetched again if it is not that.
       - name: Fetch ONNX Runtime
         run: bash scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64
+
+      - name: The shared session builder runs a model
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+        run: cargo test -p ml-pipeline --release --test onnx_session_builder -- --ignored --nocapture --test-threads=1
 
       # The three model files, 139 MB. Keyed on the manifest, so a new pin
       # misses.
