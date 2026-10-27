@@ -38,9 +38,11 @@ ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:
 # Decoded by the operating system on macOS and Windows (tests/formats.rs); refused
 # on Linux, which has no system decoder (tests/unsupported.rs). ffmpeg has no
 # HE-AAC encoder (`libfdk_aac` is not built into the Ubuntu package), so there is
-# no HE-AAC fixture.
+# no HE-AAC fixture. The stereo file uses `-aac_coder fast -aac_pns 0`: with the
+# default coder this two-tone signal decodes with peaks of 0.71 and 0.78 (ffmpeg's
+# own decoder and Media Foundation read it alike), past the 0.1 level tolerance.
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a aac -b:a 64k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.m4a
-ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.5:c=stereo" -c:a aac -b:a 96k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_440_880_stereo_48000.m4a
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.5:c=stereo" -c:a aac -b:a 96k -aac_coder fast -aac_pns 0 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_440_880_stereo_48000.m4a
 ```
 
 The encoded properties are what the tests assert (`tests/formats.rs`):
