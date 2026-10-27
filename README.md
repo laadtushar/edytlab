@@ -96,12 +96,13 @@ Ollama is sent a smaller set of tools than the hosted providers: the common edit
 │   crates/tools       — 99 deterministic tools + dispatcher       │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, DSP, engine, time-domain ops      │
-│   crates/ml-*        — Demucs (not shipped), Whisper (runs)      │
+│   crates/ml-*        — Whisper, diarize (run); Demucs (stub)     │
 └──────────────────────────────────────────────────────────────────┘
                        │
 ┌──────────────────────────────────────────────────────────────────┐
 │  LLM providers (pluggable at runtime)                            │
 │   Anthropic · OpenRouter · OpenAI · Groq · Gemini · Ollama       │
+│   (six API providers plus your ChatGPT plan)                     │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -186,7 +187,7 @@ App version is canonical in `apps/desktop/src-tauri/tauri.conf.json`; the `packa
 
 ## Contributing
 
-Working-style rules, branch naming, conventional-commit prefixes, and acceptance gates are codified in [`CLAUDE.md`](CLAUDE.md). One concern per PR; open as draft, squash-merge once CI is green. No formal CONTRIBUTING wall — read `CLAUDE.md` and ship.
+Working-style rules, branch naming, conventional-commit prefixes, and acceptance gates are codified in [`CLAUDE.md`](CLAUDE.md). One concern per PR; open as draft, squash-merge once CI is green. The contributor guide is [`docs/contributing.md`](docs/contributing.md) (how to add a tool, provider or component, test requirements); there is no separate CONTRIBUTING file.
 
 ## Roadmap
 

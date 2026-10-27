@@ -60,6 +60,7 @@ description: "Workspace layout, the AI subsystem, tool dispatch, the session gra
      │  EXTERNAL SERVICES (network only for LLM tokens)   │
      │  Anthropic · OpenRouter · OpenAI · Groq · Gemini   │
      │  Ollama — a local daemon by default, no key        │
+     │  ChatGPT plan — browser sign-in, no key            │
      └────────────────────────────────────────────────────┘
 ```
 
@@ -387,7 +388,7 @@ server, takes the first streaming request, and prints its parts. Read them with
 cargo test -p ai --test request_size -- --nocapture
 ```
 
-On v0.7.0 (`0bc50ce`, 2026-10-22), with ninety-six tools in the registry. The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
+On v0.7.0 (`0bc50ce`, 2026-10-22), with ninety-four tools in the registry (the registry at that commit; this table is a dated measurement, not the current size). The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
 
 | Request | System prompt | Tool schemas | Total |
 |---------|---------------|--------------|-------|

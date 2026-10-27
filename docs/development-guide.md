@@ -417,7 +417,7 @@ src/
 ├── oauth/          # Generic OAuth 2.0 / OpenID Connect client: PKCE, loopback listener, OIDC checks, token endpoint (#474)
 ├── plan_gate.rs    # The plan gate: one oneshot per card, one answer, a timeout (ADR 0002)
 ├── prompt.rs       # System prompt construction
-├── provider.rs     # LlmProvider trait + 6 implementations
+├── provider.rs     # LlmProvider trait + 6 implementations (Anthropic, OpenRouter, OpenAI, Groq, Gemini, Ollama; the ChatGPT one is in chatgpt/provider.rs)
 ├── responses.rs    # OpenAI Responses API codec (#474; the `chatgpt` provider uses it)
 ├── session_context.rs  # Per-turn context: head, tracks, buses, master chain, selection, markers; written within a byte budget (#573)
 ├── tool_selection.rs   # The slim tool set sent to small-context models
@@ -710,11 +710,11 @@ Linux, with `--ignored`, against the pins in
 `apps/desktop/src-tauri/ml-runtime.json` and `crates/ml-pipeline/models.json`
 (about 22 MB of runtime and 139 MB of model, both from third parties):
 
-- `ml-whisper`: `transcribe_known_words`, and the two ignored tests of `transcribe_smoke`;
+- `ml-pipeline`: `onnx_session_builder` (the shared session builder runs a model; needs only the runtime) and `model_real_download` (the downloader against huggingface.co);
+- `ml-whisper`: `transcribe_known_words`, the two ignored tests of `transcribe_smoke`, and the lib test that a decoder step does not copy its key-value cache (#657);
 - `tools`: `transcribe_end_to_end` (the `transcribe` tool on the real model,
   through a session, #668) and `transcribe_load_errors` (needs only the runtime);
-- `ml-pipeline`: `model_real_download` (the downloader against huggingface.co);
-- `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168).
+- `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168);
 - `tools`: `diarize_end_to_end` (the `diarize` tool on that excerpt, through a session, #168).
 
 **Trigger:** `workflow_dispatch` only. It does not run on push, on a pull
