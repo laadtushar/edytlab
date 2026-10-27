@@ -83,7 +83,7 @@ export default function PrivacyPage() {
         contact <code>auth.openai.com</code> (see &ldquo;Signing in with
         ChatGPT&rdquo; below). Beyond that, the app connects only where you tell
         it to: a plugin you install from a URL is downloaded from that URL, an
-        MCP server you add is contacted at the address you gave it, and the speech model and the speaker model are each downloaded from
+        MCP server you add is contacted at the address you gave it, and the speech model, the speaker model and the stem model are each downloaded from
         Hugging Face when you click their Download (below). Your OS network tools show every request.
       </p>
       <p>
@@ -137,6 +137,27 @@ export default function PrivacyPage() {
         speech model above, and it sees nothing about your audio. Using the
         model makes no network request of its own; it is only read from your
         computer.
+      </p>
+      <p>
+        <strong>The stem model download.</strong> Settings &rarr; Account has
+        a third Download button, for the stem model that splits a recording
+        into vocals, drums, bass and other (about 171 MB). It works the same
+        way as the other two: the app contacts Hugging Face only when you click
+        it, and not at launch, when Settings opens, or when the assistant asks.
+        The click sends GET requests to <code>huggingface.co</code>, one for
+        each of two files (a retry or a resume makes more), fixed to one commit
+        of the{" "}
+        <a href="https://huggingface.co/Intel/demucs-openvino">
+          Intel/demucs-openvino
+        </a>{" "}
+        repository (an ONNX export of Meta&apos;s HT-Demucs v4, MIT licence).
+        What Hugging Face sees, the checks against SHA-256 hashes, Remove, and
+        the absence of any telemetry are the same as for the speech model
+        above, and it sees nothing about your audio. Separating stems makes no
+        network request of its own; the model is only read from your computer,
+        and the four stems are written into your project. The assistant is told
+        where they are, as it is told the result of any tool, and never
+        receives the audio.
       </p>
       <p>
         <strong>Transcripts.</strong> Transcription runs on your computer with
@@ -366,7 +387,7 @@ export default function PrivacyPage() {
         whether a new release exists. New versions are published on the
         GitHub releases page and announced on this website; you download and
         install them yourself. It does not check for newer models either: the
-        speech and speaker models&apos; files are pinned to one fixed version,
+        speech, speaker and stem models&apos; files are pinned to one fixed version,
         and only your click on Download fetches them.
       </p>
 

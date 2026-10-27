@@ -48,7 +48,12 @@ describe("Settings: the speech model row", () => {
         model,
         state: "not_downloaded",
         bytes: 0,
-        size: model === "speaker-diarization" ? 32_517_217 : 138_644_904,
+        size:
+          model === "speaker-diarization"
+            ? 32_517_217
+            : model === "htdemucs"
+              ? 170_747_491
+              : 138_644_904,
       }),
     );
     downloadMock.mockReset();
@@ -91,6 +96,21 @@ describe("Settings: the speech model row", () => {
     expect(downloadMock).not.toHaveBeenCalled();
   });
 
+  it("has the stem model's row after the speaker model's, asked for by its own id, and downloads nothing", async () => {
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    const speaker = await screen.findByTestId("settings-speaker-model");
+    const stem = await screen.findByTestId("settings-stem-model");
+    expect(
+      speaker.compareDocumentPosition(stem) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(await screen.findByTestId("stem-model-download")).toHaveTextContent(
+      "Download (171 MB)",
+    );
+    expect(mlModelStatusMock).toHaveBeenCalledWith("htdemucs");
+    expect(downloadMock).not.toHaveBeenCalled();
+  });
+
   it("is on the Account tab only", async () => {
     const user = userEvent.setup();
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
@@ -99,6 +119,7 @@ describe("Settings: the speech model row", () => {
     await user.click(screen.getByTestId("settings-tab-plugins"));
     expect(screen.queryByTestId("settings-speech-model")).toBeNull();
     expect(screen.queryByTestId("settings-speaker-model")).toBeNull();
+    expect(screen.queryByTestId("settings-stem-model")).toBeNull();
     expect(downloadMock).not.toHaveBeenCalled();
   });
 
@@ -108,6 +129,7 @@ describe("Settings: the speech model row", () => {
 
     expect(screen.queryByTestId("settings-speech-model")).toBeNull();
     expect(screen.queryByTestId("settings-speaker-model")).toBeNull();
+    expect(screen.queryByTestId("settings-stem-model")).toBeNull();
     expect(mlModelStatusMock).not.toHaveBeenCalled();
     expect(downloadMock).not.toHaveBeenCalled();
   });

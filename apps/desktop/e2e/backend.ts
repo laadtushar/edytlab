@@ -163,19 +163,61 @@ export function speakerModelCommands({ received = 0 }: { received?: number } = {
   };
 }
 
+/** Bytes of the stem model: both files of `htdemucs` as pinned. */
+export const STEM_MODEL_BYTES = 170_747_491;
+
 /**
- * `ml_model_status` for both rows, one answer for each model id, since the
+ * `MlModelStatusDto` (`commands.rs`) for `htdemucs` (#385): the same flat
+ * object as {@link speechModelStatus}, for the model whose two files add up to
+ * 2,385,507 + 168,361,984 bytes in `models.json`.
+ */
+export function stemModelStatus(
+  fields:
+    | { state: "not_downloaded"; bytes?: number }
+    | { state: "downloading"; received: number }
+    | { state: "ready" }
+    | { state: "failed"; reason: string; bytes?: number },
+): Record<string, unknown> {
+  return {
+    ...speechModelStatus(fields as Parameters<typeof speechModelStatus>[0]),
+    model: "htdemucs",
+    size: STEM_MODEL_BYTES,
+    ...(fields.state === "downloading" ? { total: STEM_MODEL_BYTES } : {}),
+    ...(fields.state === "ready" ? { bytes: STEM_MODEL_BYTES } : {}),
+  };
+}
+
+/**
+ * The stem model buttons' commands: the answers of
+ * {@link speechModelCommands} for `htdemucs`.
+ */
+export function stemModelCommands({ received = 0 }: { received?: number } = {}): Backend {
+  return {
+    download_ml_model: ok(stemModelStatus({ state: "downloading", received: 0 })),
+    cancel_ml_model_download: ok(stemModelStatus({ state: "downloading", received })),
+    remove_ml_model: ok(stemModelStatus({ state: "not_downloaded" })),
+  };
+}
+
+/**
+ * `ml_model_status` for every row, one answer for each model id, since the
  * command takes the model as its argument. A spec that starts a row from a
  * state passes it here.
  */
 export function modelStatuses({
   speech = speechModelStatus({ state: "not_downloaded" }),
   speaker = speakerModelStatus({ state: "not_downloaded" }),
-}: { speech?: Record<string, unknown>; speaker?: Record<string, unknown> } = {}): Backend {
+  stem = stemModelStatus({ state: "not_downloaded" }),
+}: {
+  speech?: Record<string, unknown>;
+  speaker?: Record<string, unknown>;
+  stem?: Record<string, unknown>;
+} = {}): Backend {
   return {
     ml_model_status: byArg("model", {
       "whisper-base": ok(speech),
       "speaker-diarization": ok(speaker),
+      htdemucs: ok(stem),
     }),
   };
 }
@@ -443,8 +485,9 @@ function providerCommands(): Backend {
     // `remove_ml_model`) are answered by `speechModelCommands` for the spec
     // that presses them; nothing here calls them.
     // The speaker model's row (#168) asks the same command for
-    // `speaker-diarization`, whose two files total 32,517,217 bytes, so the
-    // answer depends on the model argument (`byArg`).
+    // `speaker-diarization`, whose two files total 32,517,217 bytes, and the
+    // stem model's (#385) for `htdemucs`, 170,747,491 bytes, so the answer
+    // depends on the model argument (`byArg`).
     ...modelStatuses(),
     // `list_models_at`'s Anthropic arm with no key saved, which is what a
     // fresh profile has: `anthropic_fallback_models()` in

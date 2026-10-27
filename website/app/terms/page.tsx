@@ -73,6 +73,22 @@ export default function TermsPage() {
         Download, the app fetches the files from Hugging Face, whose terms
         apply to that download, and they are kept on your computer.
       </p>
+      <p>
+        The stem model you can download from Settings is two files, the graph
+        and its weights, of Meta&apos;s{" "}
+        <a href="https://github.com/facebookresearch/demucs">HT-Demucs</a> v4
+        (Demucs is released under the MIT licence, &copy; Meta Platforms, Inc.
+        and affiliates), downloaded as the ONNX export{" "}
+        <a href="https://huggingface.co/Intel/demucs-openvino">
+          Intel/demucs-openvino
+        </a>{" "}
+        by Intel, which is also marked MIT. edytlab does not include or
+        redistribute it: when you click Download, the app fetches the files
+        from Hugging Face, whose terms apply to that download, and they are
+        kept on your computer. The model was trained on the MUSDB18-HQ
+        dataset and about 800 further songs; the licence of the weights is the
+        one the authors state, MIT.
+      </p>
 
       <h2>Disclaimer</h2>
       <p>

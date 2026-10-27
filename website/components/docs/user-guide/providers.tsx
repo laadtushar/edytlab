@@ -68,8 +68,8 @@ export function Providers() {
         <code>bundled</code>; a build from source says{" "}
         <code>not installed in this build</code>. It is a status line: it
         installs nothing and does not mean any on-device audio model is
-        available. No model comes with the runtime, and stem separation still
-        returns an error.
+        available. No model comes with the runtime: each feature that uses one
+        works once you have downloaded its model, and not before.
       </p>
       <p>
         The{" "}
@@ -101,6 +101,21 @@ export function Providers() {
         nothing downloads unless you press Download, and the requests carry no
         audio. Until it says <code>Ready</code> the assistant has no speaker
         model to use.
+      </p>
+      <p>
+        The <strong>Stem model</strong> row below that is the same again, on
+        the largest model (about 171 MB, from Hugging Face): HT-Demucs v4,
+        which splits a recording into vocals, drums, bass and other.{" "}
+        <strong>Download</strong> fetches its two files from{" "}
+        <code>huggingface.co</code> with the same progress bar,{" "}
+        <strong>Cancel</strong>, <strong>Retry</strong> and{" "}
+        <strong>Remove</strong>, the same checks, and the same promise:
+        nothing downloads unless you press Download, and the requests carry no
+        audio. Until it says <code>Ready</code> the assistant has no stem model
+        to use. Separating needs about 4&nbsp;GB of free memory and takes about
+        half the length of the audio on a four-core processor; the four stems
+        are written into your project, and you can ask for any of them as a
+        track.
       </p>
       <p>
         The runtime&rsquo;s licence and notices are installed with it, in{" "}
@@ -139,6 +154,16 @@ export function Providers() {
           Wespeaker/wespeaker-voxceleb-resnet34-LM
         </a>
         . Both are pinned to one commit, fetched when you click Download and
+        not redistributed. The credit is on the <a href="/terms">Terms page</a>.
+      </p>
+      <p>
+        The stem model is Meta&rsquo;s HT-Demucs v4 (Demucs is released under the
+        MIT licence, &copy; Meta Platforms, Inc. and affiliates), as the ONNX
+        export by Intel:{" "}
+        <a href="https://huggingface.co/Intel/demucs-openvino">
+          Intel/demucs-openvino
+        </a>
+        , marked MIT, pinned to one commit, fetched when you click Download and
         not redistributed. The credit is on the <a href="/terms">Terms page</a>.
       </p>
     </>

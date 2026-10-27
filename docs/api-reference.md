@@ -1425,13 +1425,14 @@ is not a model loaded: `transcribe` loads the speech model when it is asked, and
 
 ## Speech Model
 
-The Settings → Account "Speech model" and "Speaker model" rows drive these four
-commands and the `ml-model-progress` event (#383, #168). They all take `model`,
-the id of a model in `crates/ml-pipeline/models.json`: `"whisper-base"`, Whisper
-base (about 139 MB, three files pinned by commit, byte size and SHA-256, from
-huggingface.co), and `"speaker-diarization"`, the pyannote segmentation and
-WeSpeaker voiceprint networks (about 33 MB, two files, from huggingface.co).
-Each row filters the event by `model`. An id that is not listed is an error naming it; nothing is
+The Settings → Account "Speech model", "Speaker model" and "Stem model" rows
+drive these four commands and the `ml-model-progress` event (#383, #168, #385).
+They all take `model`, the id of a model in `crates/ml-pipeline/models.json`:
+`"whisper-base"`, Whisper base (about 139 MB, three files pinned by commit, byte
+size and SHA-256, from huggingface.co), `"speaker-diarization"`, the pyannote
+segmentation and WeSpeaker voiceprint networks (about 33 MB, two files, from
+huggingface.co), and `"htdemucs"`, HT-Demucs v4 as Intel's ONNX export (about
+171 MB, two files, from huggingface.co). Each row filters the event by `model`. An id that is not listed is an error naming it; nothing is
 made into a path from it.
 
 **The only way a model is downloaded is `downloadMlModel`, which the user's
@@ -1443,7 +1444,8 @@ thread of its own and never waits for, or stalls, a turn. The request goes to
 huggingface.co and carries no audio. A model on disk is what the `transcribe`
 tool uses (#384): it finds the files with `ml_pipeline::models::cached`, never
 downloads, and answers that the model is not downloaded, with a card that sends
-the user to this row, when they are not there.
+the user to this row, when they are not there. `diarize` and `separate_stems`
+do the same with their models, and answer in words that name the row.
 
 ```typescript
 type MlModelStatus = { model: string; bytes: number; size: number } & (
