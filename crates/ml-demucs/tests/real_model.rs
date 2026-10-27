@@ -139,7 +139,15 @@ fn load_model() -> (DemucsModel, f64) {
     require_env("ORT_DYLIB_PATH");
     let dir = require_env("DEMUCS_MODEL_PATH");
     let started = Instant::now();
-    let model = DemucsModel::load("htdemucs", &dir).unwrap_or_else(|e| {
+    let flag = |name: &str| std::env::var(name).ok().map(|v| v == "1");
+    let options = ml_pipeline::onnx_session::SessionOptions {
+        cpu_memory_arena: flag("DEMUCS_TEST_ARENA"),
+        memory_pattern: flag("DEMUCS_TEST_PATTERN"),
+        intra_op_threads: std::env::var("DEMUCS_TEST_THREADS").ok().and_then(|v| v.parse().ok()),
+        ..Default::default()
+    };
+    eprintln!("session options: {options:?}");
+    let model = DemucsModel::load_with("htdemucs", &dir, options).unwrap_or_else(|e| {
         panic!(
             "the model in {} would not load: {e}. DEMUCS_MODEL_PATH names the folder that \
              holds htdemucs_fwd.onnx and htdemucs_fwd.onnx.data",
@@ -254,7 +262,7 @@ fn a_mix_of_known_stems_is_separated_to_a_stated_sdr() {
 #[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library) and DEMUCS_MODEL_PATH (the model folder); run by ml.yml"]
 fn five_minutes_of_audio_takes_bounded_memory() {
     let (_, mix) = fixture();
-    let repeats = 36;
+    let repeats: usize = std::env::var("DEMUCS_TEST_REPEATS").ok().and_then(|v| v.parse().ok()).unwrap_or(36);
     let mut samples = Vec::with_capacity(mix.len() * repeats);
     for _ in 0..repeats {
         samples.extend_from_slice(&mix);
@@ -284,6 +292,9 @@ fn five_minutes_of_audio_takes_bounded_memory() {
         seconds_of_audio / seconds,
         done.segments
     );
+    if repeats != 36 {
+        return;
+    }
     assert_eq!(
         done.segments,
         ml_demucs::separate::segment_count(samples_len / 2, ml_demucs::separate::SEGMENT_SAMPLES)

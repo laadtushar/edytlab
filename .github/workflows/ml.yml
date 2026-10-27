@@ -298,6 +298,75 @@ jobs:
           DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
         run: cargo test -p ml-demucs --release --test real_model -- --ignored --nocapture --test-threads=1
 
+      - name: Bench a_default
+        if: always()
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+          DEMUCS_TEST_REPEATS: '12'
+        run: cargo test -p ml-demucs --release --test real_model five_minutes -- --ignored --nocapture --test-threads=1
+
+      - name: Bench b_arena_off
+        if: always()
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+          DEMUCS_TEST_REPEATS: '12'
+          DEMUCS_TEST_ARENA: '0'
+        run: cargo test -p ml-demucs --release --test real_model five_minutes -- --ignored --nocapture --test-threads=1
+
+      - name: Bench c_arena_off_pattern_off
+        if: always()
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+          DEMUCS_TEST_REPEATS: '12'
+          DEMUCS_TEST_ARENA: '0'
+          DEMUCS_TEST_PATTERN: '0'
+        run: cargo test -p ml-demucs --release --test real_model five_minutes -- --ignored --nocapture --test-threads=1
+
+      - name: Bench d_pattern_off
+        if: always()
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+          DEMUCS_TEST_REPEATS: '12'
+          DEMUCS_TEST_PATTERN: '0'
+        run: cargo test -p ml-demucs --release --test real_model five_minutes -- --ignored --nocapture --test-threads=1
+
+      - name: Bench e_arena_off_pattern_off_t4
+        if: always()
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+          DEMUCS_TEST_REPEATS: '12'
+          DEMUCS_TEST_ARENA: '0'
+          DEMUCS_TEST_PATTERN: '0'
+          DEMUCS_TEST_THREADS: '4'
+        run: cargo test -p ml-demucs --release --test real_model five_minutes -- --ignored --nocapture --test-threads=1
+
+      - name: Bench f_arena_off_pattern_off_t2
+        if: always()
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+          DEMUCS_TEST_REPEATS: '12'
+          DEMUCS_TEST_ARENA: '0'
+          DEMUCS_TEST_PATTERN: '0'
+          DEMUCS_TEST_THREADS: '2'
+        run: cargo test -p ml-demucs --release --test real_model five_minutes -- --ignored --nocapture --test-threads=1
+
+      - name: Bench g_arena_off_pattern_off_t1
+        if: always()
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+          DEMUCS_TEST_REPEATS: '12'
+          DEMUCS_TEST_ARENA: '0'
+          DEMUCS_TEST_PATTERN: '0'
+          DEMUCS_TEST_THREADS: '1'
+        run: cargo test -p ml-demucs --release --test real_model five_minutes -- --ignored --nocapture --test-threads=1
+
       - name: Summary (stems)
         if: always()
         run: |
