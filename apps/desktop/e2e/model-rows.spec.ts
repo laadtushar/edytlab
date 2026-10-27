@@ -5,7 +5,7 @@
  * The rows are the same component with different words, so one table drives
  * the same behaviours for each: every test below runs once per entry of
  * `MODELS`, with the same assertions, and a check only one row has (the
- * speaker model's licence credit, say) is an `extra` of its entry.
+ * speaker model's licence credit, say) is a field of its entry.
  *
  * jsdom cannot see where the row is drawn: that it fits in the dialog at
  * the smallest window, that the progress bar's fill is the share of its
@@ -56,8 +56,8 @@ interface ModelRow {
   downloadText: string;
   /** What the note says: what it is for, the one request, what leaves. */
   noteParts: string[];
-  /** The text asserted only for this row, run after the note's. */
-  extra?: (page: App["page"]) => Promise<void>;
+  /** What the licence credit names, for a row that has one. */
+  licenceParts?: string[];
   halfText: string;
   readyText: string;
   /** `aria-valuenow` of the bar at 20,000,000 received bytes. */
@@ -115,12 +115,7 @@ const MODELS: ModelRow[] = [
       "reach your AI provider",
       "huggingface.co",
     ],
-    extra: async (page) => {
-      // The licences the two files ask to be credited.
-      const licences = page.getByTestId("speaker-model-licences");
-      await expect(licences).toContainText("MIT");
-      await expect(licences).toContainText("CC BY 4.0");
-    },
+    licenceParts: ["MIT", "CC BY 4.0"],
     halfText: "16.3 of 32.5 MB (50%)",
     readyText: "Ready: 33 MB on disk. Ask the assistant who speaks when on a track.",
     cancelPercent: "61",
@@ -148,13 +143,7 @@ const MODELS: ModelRow[] = [
       "two files",
       "huggingface.co",
     ],
-    extra: async (page) => {
-      // The licences the two files ask to be credited.
-      const licences = page.getByTestId("stem-model-licences");
-      await expect(licences).toContainText("MIT");
-      await expect(licences).toContainText("Meta");
-      await expect(licences).toContainText("Intel");
-    },
+    licenceParts: ["MIT", "Meta", "Intel"],
     halfText: "85.4 of 170.7 MB (50%)",
     readyText: "Ready: 171 MB on disk. Ask the assistant to separate the stems of a track.",
     cancelPercent: "11",
@@ -199,7 +188,9 @@ for (const m of MODELS) {
       // Said in the row: what it is for, the one request, what leaves the computer.
       const note = page.getByTestId(id("note"));
       for (const part of m.noteParts) await expect(note).toContainText(part);
-      await m.extra?.(page);
+      // The licences the model's files ask to be credited.
+      const licences = page.getByTestId(id("licences"));
+      for (const part of m.licenceParts ?? []) await expect(licences).toContainText(part);
 
       await app.settle();
       // One status read for each row.

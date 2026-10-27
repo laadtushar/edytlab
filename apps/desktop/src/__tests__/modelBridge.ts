@@ -1,6 +1,6 @@
 /**
- * The bridge mock the two model rows' tests share (`SpeechModelRow.test.tsx`,
- * `SpeakerModelRow.test.tsx`): five mocks, the module that exposes them
+ * The bridge mock the model rows' tests share (`SpeechModelRow.test.tsx`,
+ * `SpeakerAndStemModelRows.test.tsx`): five mocks, the module that exposes them
  * under the bridge's names, and the reset every test starts from.
  *
  *   vi.mock("../lib/tauri-bridge", async () => (await import("./modelBridge")).bridgeModule());
