@@ -9,6 +9,7 @@
 //! buffered API is unchanged — callers that already use [`decode_file`] do
 //! NOT need to migrate.
 
+mod os_aac;
 mod stream;
 
 pub use stream::WavStreamReader;
@@ -25,18 +26,42 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-/// The file extensions the app imports, lower case and without the dot.
+/// The file extensions the app imports on every platform, lower case and
+/// without the dot.
 ///
-/// This is the one list: `batch_apply`'s folder filter reads it, and the
-/// window's file picker and landing screen repeat it in TypeScript, which
-/// `tests/supported_extensions.rs` holds equal. Every entry decodes a real
-/// fixture in that test. A format is added here and in `Cargo.toml`'s
-/// symphonia features together.
+/// [`supported_extensions`] is the list for the platform the app is running
+/// on: this one plus [`OS_DECODER_EXTENSIONS`] where the system decodes them.
+/// `batch_apply`'s folder filter reads that, and the window's file picker and
+/// landing screen repeat it in TypeScript, which `tests/supported_extensions.rs`
+/// holds equal. Every entry decodes a real fixture in that test. A format is
+/// added here and in `Cargo.toml`'s symphonia features together.
 ///
-/// Left out on purpose (#764): `m4a`/`aac` (AAC decoders need a patent
-/// licence) and `opus` (no published symphonia decodes it). Files of those
-/// kinds are named in [`DecodeError::UnsupportedFormat`].
+/// Left out on purpose (#764): `opus` (no published symphonia decodes it) and
+/// `m4a`, which is not on every platform (see [`OS_DECODER_EXTENSIONS`]).
+/// Files of those kinds that the platform cannot open are named in
+/// [`DecodeError::UnsupportedFormat`].
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg", "aif", "aiff"];
+
+/// Extensions opened only by the operating system's own decoder, so only on
+/// the platforms that have one: M4A/AAC on macOS (AudioToolbox) and Windows
+/// (Media Foundation). No AAC decoder is built into the app, because AAC
+/// decoders need a patent licence the project does not hold (#764); Linux has
+/// no system decoder and refuses the file.
+pub const OS_DECODER_EXTENSIONS: &[&str] = &["m4a"];
+
+/// Whether this platform has an operating-system decoder for
+/// [`OS_DECODER_EXTENSIONS`]: true on macOS and Windows.
+pub const OS_DECODER_AVAILABLE: bool = os_aac::AVAILABLE;
+
+/// The extensions the app imports on this platform: [`SUPPORTED_EXTENSIONS`],
+/// and [`OS_DECODER_EXTENSIONS`] where the system decodes them.
+pub fn supported_extensions() -> Vec<&'static str> {
+    let mut all = SUPPORTED_EXTENSIONS.to_vec();
+    if OS_DECODER_AVAILABLE {
+        all.extend_from_slice(OS_DECODER_EXTENSIONS);
+    }
+    all
+}
 
 /// Decoded PCM audio, always interleaved (`L, R, L, R, ...` for stereo).
 #[derive(Debug, Clone)]
@@ -61,6 +86,12 @@ pub enum DecodeError {
     #[error("no audio track found in container")]
     NoAudioTrack,
 
+    /// The operating system's own decoder (used for M4A/AAC on macOS and
+    /// Windows) is missing or cannot be used. The text is the whole message,
+    /// written for the person, and says what to install or do instead.
+    #[error("{0}")]
+    OsDecoderUnavailable(String),
+
     /// A format the decoder recognises by its bytes and does not open. The
     /// name is for the person: it is what to convert from.
     #[error(
@@ -72,7 +103,14 @@ pub enum DecodeError {
 pub type Result<T> = std::result::Result<T, DecodeError>;
 
 /// Decode a full audio file from disk.
+///
+/// An M4A/MP4 file (by its bytes) goes to the operating system's decoder on
+/// macOS and Windows; on other platforms it is refused as
+/// [`DecodeError::UnsupportedFormat`].
 pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
+    if let Some(decoded) = os_aac::decode_file_if_m4a(path) {
+        return decoded;
+    }
     let mut file = File::open(path)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
@@ -86,6 +124,9 @@ pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
 /// Decode an in-memory audio buffer. Used by the corrupt-input property test
 /// and by callers that already have bytes in hand.
 pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
+    if let Some(decoded) = os_aac::decode_bytes_if_m4a(bytes) {
+        return decoded;
+    }
     // MediaSource requires Send+Sync+'static, so we own the buffer.
     decode_with_hint(bytes.to_vec(), Hint::new())
 }
@@ -100,7 +141,13 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
 /// every clip on the timeline.
 ///
 /// This reads the container's headers and stops. No packets are decoded.
+/// (An M4A file on macOS or Windows is the exception: the system decoder is
+/// asked for the rate it decodes at, which is the file decoded. Clips never
+/// name an M4A source, because `load` makes a WAV of it.)
 pub fn probe_sample_rate(path: &Path) -> Result<u32> {
+    if let Some(decoded) = os_aac::decode_file_if_m4a(path) {
+        return decoded.map(|d| d.sample_rate);
+    }
     probe_sample_rate_inner(path).map_err(|e| match e {
         DecodeError::Corrupt | DecodeError::UnsupportedCodec | DecodeError::NoAudioTrack => {
             let mut head = Vec::new();
@@ -235,7 +282,7 @@ fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
 
 /// How much of the start of a file is read to name a format the decoder does
 /// not open. An Ogg stream's first page, with its `OpusHead`, is well inside.
-const SNIFF_BYTES: usize = 4096;
+pub(crate) const SNIFF_BYTES: usize = 4096;
 
 /// A failed decode of a file whose bytes say it is M4A/MP4 or Opus becomes
 /// [`DecodeError::UnsupportedFormat`]; any other failure is returned as it
@@ -247,8 +294,9 @@ fn name_unsupported(e: DecodeError, head: &[u8]) -> DecodeError {
     ) {
         return e;
     }
-    // ISO base media: a box size, then `ftyp` (M4A, MP4, MOV, 3GP).
-    if head.len() >= 12 && &head[4..8] == b"ftyp" {
+    // ISO base media: a box size, then `ftyp` (M4A, MP4, MOV, 3GP). Only a
+    // platform with no system decoder gets here for one of these.
+    if os_aac::is_m4a(head) {
         return DecodeError::UnsupportedFormat("M4A and MP4");
     }
     // Ogg whose first packet is an Opus header.

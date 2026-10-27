@@ -13,6 +13,7 @@ import type { CSSProperties } from "react";
 
 import { LogoMark } from "./LogoMark";
 import { RecentProjects } from "./RecentProjects";
+import { importFormatNames } from "../lib/importFormats";
 import type { RecentProject } from "../lib/tauri-bridge";
 
 interface EmptyStateProps {
@@ -214,7 +215,7 @@ export function EmptyState({
         style={group(3)}
         className="reveal-in font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]"
       >
-        wav · mp3 · flac · ogg · aiff
+        {importFormatNames().join(" \u00b7 ")}
       </p>
 
       <p style={group(3)} className="reveal-in max-w-sm text-xs text-[var(--text-faint)]">

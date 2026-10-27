@@ -220,3 +220,103 @@ fn flac_decodes_to_the_encoded_tone() {
     assert_exact_length(&d);
     assert_samples_match(&d, &[440.0], 1.5 / 32_768.0);
 }
+
+// --- M4A/AAC-LC through the operating system's decoder ----------------------
+//
+// AudioToolbox on macOS and Media Foundation on Windows (#764). Linux has no
+// system decoder and refuses the files (`tests/unsupported.rs`). The tolerances
+// are the lossy ones plus a wider length slack: the two decoders differ in
+// whether they trim the encoder's priming samples (about 1,024 to 2,112
+// frames, up to 48 ms), so the length is checked to 120 ms.
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod os_aac {
+    use super::*;
+    use audio_decoder::decode_bytes;
+
+    const AAC_LENGTH_SLACK_SECS: f32 = 0.12;
+
+    fn assert_aac_length_and_level(d: &DecodedAudio) {
+        let secs = (d.samples.len() / d.channels as usize) as f32 / d.sample_rate as f32;
+        assert!(
+            (secs - DURATION_SECS).abs() <= AAC_LENGTH_SLACK_SECS,
+            "length {secs:.4} s, encoded {DURATION_SECS} s (slack {AAC_LENGTH_SLACK_SECS} s)"
+        );
+        for c in 0..d.channels as usize {
+            let p = peak(&channel(d, c));
+            assert!(
+                (p - 0.5).abs() <= LOSSY_LEVEL_TOLERANCE,
+                "channel {c}: peak {p:.3}, encoded 0.5 (tolerance {LOSSY_LEVEL_TOLERANCE})"
+            );
+        }
+        assert!(
+            d.samples.iter().all(|s| s.is_finite() && s.abs() <= 1.5),
+            "decoded samples must be finite and near full scale"
+        );
+    }
+
+    #[test]
+    fn m4a_aac_lc_mono_decodes_to_the_encoded_tone() {
+        let path = fixture("tone_440_mono_44100.m4a");
+        let d = decode_file(&path).expect("decode m4a");
+        assert_tones(
+            &d,
+            &Expect {
+                rate: 44_100,
+                tones_hz: &[440.0],
+            },
+        );
+        assert_aac_length_and_level(&d);
+        assert_eq!(probe_sample_rate(&path).unwrap(), 44_100);
+    }
+
+    #[test]
+    fn m4a_aac_lc_stereo_keeps_each_channel_and_its_rate() {
+        let path = fixture("tones_440_880_stereo_48000.m4a");
+        let d = decode_file(&path).expect("decode m4a");
+        assert_tones(
+            &d,
+            &Expect {
+                rate: 48_000,
+                tones_hz: &[440.0, 880.0],
+            },
+        );
+        assert_aac_length_and_level(&d);
+        assert_eq!(probe_sample_rate(&path).unwrap(), 48_000);
+    }
+
+    /// A voice memo renamed `.wav`, and bytes handed over with no name, are
+    /// still found to be M4A from their first bytes.
+    #[test]
+    fn m4a_is_recognised_by_its_bytes_not_its_extension() {
+        let bytes = std::fs::read(fixture("tone_440_mono_44100.m4a")).unwrap();
+        let d = decode_bytes(&bytes).expect("decode m4a bytes");
+        assert_eq!((d.sample_rate, d.channels), (44_100, 1));
+        assert_aac_length_and_level(&d);
+
+        let renamed = std::env::temp_dir().join(format!("renamed-m4a-{}.wav", std::process::id()));
+        std::fs::write(&renamed, &bytes).unwrap();
+        let got = decode_file(&renamed);
+        let _ = std::fs::remove_file(&renamed);
+        let d = got.expect("decode a renamed m4a");
+        assert_eq!((d.sample_rate, d.channels), (44_100, 1));
+    }
+
+    /// Bytes that start like an M4A and stop short are an error, not a hang or
+    /// a panic. The system decoder's answer is mapped, whichever it is.
+    #[test]
+    fn a_truncated_m4a_is_an_error_not_a_crash() {
+        let bytes = std::fs::read(fixture("tone_440_mono_44100.m4a")).unwrap();
+        let err = decode_bytes(&bytes[..64]).expect_err("64 bytes are not a file");
+        assert!(
+            matches!(
+                err,
+                audio_decoder::DecodeError::Corrupt
+                    | audio_decoder::DecodeError::UnsupportedCodec
+                    | audio_decoder::DecodeError::NoAudioTrack
+                    | audio_decoder::DecodeError::OsDecoderUnavailable(_)
+            ),
+            "{err:?}"
+        );
+    }
+}

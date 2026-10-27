@@ -11,18 +11,14 @@
 
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { importExtensions } from "./importFormats";
 
-// What the decoder opens, and nothing more: a type the picker offers but the
-// decoder cannot open fails after the person chose it. This repeats
-// `audio_decoder::SUPPORTED_EXTENSIONS`; `crates/audio-decoder/tests/
-// supported_extensions.rs` fails if the two differ. M4A/AAC and Opus are not
-// in it (#764), so they are not offered.
-const AUDIO_FILTERS = [
-  {
-    name: "Audio",
-    extensions: ["wav", "mp3", "flac", "ogg", "aif", "aiff"],
-  },
-];
+// What the decoder opens on this computer, and nothing more: a type the
+// picker offers but the decoder cannot open fails after the person chose it.
+// The list is `importFormats.ts`, which `crates/audio-decoder/tests/
+// supported_extensions.rs` holds equal to the decoder's own. M4A/AAC is in it
+// on macOS and Windows only (the system's decoder, #764); Opus is not.
+const audioFilters = () => [{ name: "Audio", extensions: importExtensions() }];
 
 /**
  * Show the OS file picker. Returns the absolute path the user chose,
@@ -33,7 +29,7 @@ export async function pickAudioFile(): Promise<string | null> {
   const result = await open({
     multiple: false,
     directory: false,
-    filters: AUDIO_FILTERS,
+    filters: audioFilters(),
   });
   // Tauri 2 returns the path as `string | null` when `multiple: false`.
   if (typeof result === "string") return result;
@@ -51,7 +47,7 @@ export async function pickAudioFiles(
   const result = await open({
     multiple,
     directory: false,
-    filters: AUDIO_FILTERS,
+    filters: audioFilters(),
   });
   if (!result) return null;
   return Array.isArray(result) ? result : [result];

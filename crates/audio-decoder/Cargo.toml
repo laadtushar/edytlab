@@ -16,6 +16,7 @@ workspace = true
 # drop them. `aac` and `isomp4` (M4A/AAC) are left out on purpose: AAC decoders
 # need a patent licence from Via LA, and `opus` does not exist in a published
 # symphonia (0.5.5 or 0.6.1). Both are explained in the PR that added AIFF.
+# M4A/AAC is decoded by the operating system instead (`src/os_aac/`, below).
 symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "vorbis", "aiff"] }
 # `hound` powers the streaming WAV reader added in Phase 2 M22 (constant-memory
 # multi-track render). The buffered `decode_file` path still uses symphonia for
@@ -23,6 +24,38 @@ symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "vorbis"
 # graph operates on WAV sources exclusively.
 hound = "3.5"
 thiserror = "2"
+
+# M4A/AAC through the operating system's own decoder (#764), so the AAC patent
+# licence is Apple's or Microsoft's and no AAC decoder is built into the app.
+# Target-specific: a Linux build pulls neither. Only the bindings the module
+# calls are enabled.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-audio-toolbox = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "AudioFile",
+    "ExtendedAudioFile",
+    "objc2-core-audio-types",
+    "objc2-core-foundation",
+] }
+objc2-core-audio-types = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "CoreAudioBaseTypes",
+] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "CFURL",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", default-features = false, features = [
+    "std",
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Variant",
+] }
 
 [build-dependencies]
 hound = "3.5"
