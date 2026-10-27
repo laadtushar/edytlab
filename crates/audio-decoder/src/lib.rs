@@ -16,7 +16,7 @@ mod stream;
 pub use stream::WavStreamReader;
 
 use std::fs::File;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -24,7 +24,7 @@ use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CodecRegistry, DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSource, MediaSourceStream, ReadOnlySource};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
@@ -132,12 +132,12 @@ fn codecs() -> &'static CodecRegistry {
 /// macOS and Windows; on other platforms it is refused as
 /// [`DecodeError::UnsupportedFormat`].
 pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
-    if let Some(decoded) = os_aac::decode_file_if_m4a(path) {
-        return decoded;
-    }
     let mut file = File::open(path)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
+    if let Some(decoded) = os_aac::decode_file_if_m4a(path, &bytes) {
+        return decoded;
+    }
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
@@ -169,28 +169,35 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
 /// asked for the rate it decodes at, which is the file decoded. Clips never
 /// name an M4A source, because `load` makes a WAV of it.)
 pub fn probe_sample_rate(path: &Path) -> Result<u32> {
-    if let Some(decoded) = os_aac::decode_file_if_m4a(path) {
+    // The file is opened once: its first bytes decide the decoder and name
+    // the format on failure, then go back in front of the rest, so a path
+    // that can be read only once (a pipe) is read once.
+    let mut file = File::open(path)?;
+    let mut head = Vec::new();
+    (&mut file)
+        .take(SNIFF_BYTES as u64)
+        .read_to_end(&mut head)?;
+    if let Some(decoded) = os_aac::decode_file_if_m4a(path, &head) {
         return decoded.map(|d| d.sample_rate);
     }
-    probe_sample_rate_inner(path).map_err(|e| match e {
+    let source: Box<dyn MediaSource> = match file.seek(SeekFrom::Start(0)) {
+        Ok(_) => Box::new(file),
+        Err(_) => Box::new(ReadOnlySource::new(Cursor::new(head.clone()).chain(file))),
+    };
+    probe_sample_rate_inner(path, source).map_err(|e| match e {
         DecodeError::Corrupt | DecodeError::UnsupportedCodec | DecodeError::NoAudioTrack => {
-            let mut head = Vec::new();
-            if let Ok(f) = File::open(path) {
-                let _ = f.take(SNIFF_BYTES as u64).read_to_end(&mut head);
-            }
             name_unsupported(e, &head)
         }
         other => other,
     })
 }
 
-fn probe_sample_rate_inner(path: &Path) -> Result<u32> {
-    let file = File::open(path)?;
+fn probe_sample_rate_inner(path: &Path, source: Box<dyn MediaSource>) -> Result<u32> {
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mss = MediaSourceStream::new(source, Default::default());
     let probed = symphonia::default::get_probe()
         .format(
             &hint,
