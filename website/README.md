@@ -69,8 +69,10 @@ standalone project:
 > Next.js builder's SSR/ISR/API-route handling. Setting Root Directory to
 > `website/` is the only path that supports the full Next.js feature set.
 
-Pushes to `main` trigger production deploys; PRs get preview URLs
-automatically. A commit that changes nothing under `website/` is not deployed:
+Pushes to `main` trigger production deploys. Only `main` and branches with
+`website` in the name are deployed at all (`git.deploymentEnabled` in
+`vercel.json`), so a PR from any other branch gets no preview URL: put
+`website` in the branch name of a change to `website/` to get one. A commit that changes nothing under `website/` is not deployed:
 `ignoreCommand` in `vercel.json` runs from the Root Directory, and
 `git diff --quiet HEAD^ HEAD -- .` exits 0 (skip) when the last commit left
 `website/` alone. The team is on Vercel's free plan, which allows 100

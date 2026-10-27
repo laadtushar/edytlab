@@ -30,7 +30,7 @@ description: "Dev setup for macOS, Windows and Linux, daily workflow, testing, d
 | Tool | Version | Install |
 |------|---------|---------|
 | Rust | 1.90 (auto via `rust-toolchain.toml`) | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Node.js | 20+ | [nodejs.org](https://nodejs.org) or `nvm install 20` |
+| Node.js | 22.22.2+ (CI uses 24) | [nodejs.org](https://nodejs.org) or `nvm install 24` |
 | pnpm | 9.15+ | `npm install -g pnpm` |
 | Git | Any recent | |
 
@@ -174,6 +174,9 @@ cargo test -p ml-pipeline --release --test model_real_download -- --ignored --no
 export DIARIZE_MODEL_PATH="$(scripts/fetch-ml-model.sh speaker-diarization /tmp/ml/speaker-diarization)"
 # both networks on 40 s of the AMI corpus, against pyannote.audio's algorithm run on the same files
 cargo test -p ml-diarize --release --test real_model -- --ignored --nocapture --test-threads=1
+# the `diarize` tool end to end on the same excerpt: two speakers through a
+# session, no node written, and the second request answered from the cache
+cargo test -p tools --release --test diarize_end_to_end -- --ignored --nocapture
 ```
 
 `scripts/fetch-ml-model.sh` is for this and for CI: the app never runs it,
@@ -361,6 +364,7 @@ src/
 ```
 src/
 ├── bundled_skills.rs # Keeps the skills that ship in the app current in ~/.edytlab/skills/ (#574, #631)
+├── chatgpt.rs     # Sign in with ChatGPT in the desktop: the session, its commands' state, keychain token store, `chatgpt://status` (#474)
 ├── commands.rs    # The #[tauri::command] functions (~110 of them)
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
@@ -406,15 +410,15 @@ src/
 ├── agent_loop.rs   # Tool-calling state machine
 ├── anthropic.rs    # Canonical message/stream types
 ├── approval.rs     # The approval gate shared by a plan and a held first edit (Plan first)
-├── chatgpt/        # Sign in with ChatGPT: protocol rules, registration store, session (#474; the app does not call it yet)
+├── chatgpt/        # Sign in with ChatGPT: protocol rules, registration store, session (#474; the desktop calls it from `apps/desktop/src-tauri/src/chatgpt.rs`, shipped in v0.9.0)
 ├── context_window.rs  # "The model's context is too small" error (#395)
 ├── keychain.rs     # Secrets: one OS-keychain item (`secrets`) via keyring; settings: a JSON file (ADR 0009)
 ├── models.rs       # Model catalogue + 10-min TTL cache
 ├── oauth/          # Generic OAuth 2.0 / OpenID Connect client: PKCE, loopback listener, OIDC checks, token endpoint (#474)
 ├── plan_gate.rs    # The plan gate: one oneshot per card, one answer, a timeout (ADR 0002)
 ├── prompt.rs       # System prompt construction
-├── provider.rs     # LlmProvider trait + 6 implementations
-├── responses.rs    # OpenAI Responses API codec (#474; no provider uses it yet)
+├── provider.rs     # LlmProvider trait + 6 implementations (Anthropic, OpenRouter, OpenAI, Groq, Gemini, Ollama; the ChatGPT one is in chatgpt/provider.rs)
+├── responses.rs    # OpenAI Responses API codec (#474; the `chatgpt` provider uses it)
 ├── session_context.rs  # Per-turn context: head, tracks, buses, master chain, selection, markers; written within a byte budget (#573)
 ├── tool_selection.rs   # The slim tool set sent to small-context models
 └── validate.rs     # API key validation (1-token probe)
@@ -427,10 +431,11 @@ src/
 ### Full Test Suite (CI-equivalent)
 
 ```bash
-# Rust
+# Rust (once: cargo install cargo-nextest --locked)
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace -- --test-threads=1
+cargo nextest run --workspace --profile ci
+cargo test --workspace --doc
 
 # Frontend
 pnpm --filter @edytlab/desktop test
@@ -442,7 +447,7 @@ pnpm --filter @edytlab/desktop typecheck:e2e
 pnpm --filter @edytlab/desktop test:e2e
 ```
 
-> **Why `--test-threads=1`?** Some tests in `crates/ai` use a shared model cache that is not safe for concurrent test runs. The `--test-threads=1` flag serializes them.
+> **Why nextest?** CI runs each test in its own process (`.config/nextest.toml`, profile `ci`), which isolates the tests that share global state, such as `crates/ai`'s model-catalogue cache. nextest does not run doctests, hence the second command. Plain `cargo test --workspace` also works locally, but tests in one binary share a process: add `-- --test-threads=1` to serialize them.
 
 ### Targeted Test Runs
 
@@ -622,7 +627,7 @@ Requires Apple Developer Program membership + signing secrets in GitHub.
 - `APPLE_ID` (for notarization)
 - `APPLE_PASSWORD` (app-specific password)
 
-Trigger `release-signed.yml` via GitHub Actions manual dispatch. None of these secrets (nor the Windows ones below) are provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). A versioned but unsigned release — every one from v0.2.0 to v0.7.0 — comes from dispatching `release-dev.yml` with `channel: release`.
+Trigger `release-signed.yml` via GitHub Actions manual dispatch. None of these secrets (nor the Windows ones below) are provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). A versioned but unsigned release — every one so far, v0.2.0 onward — comes from dispatching `release-dev.yml` with `channel: release`.
 
 ### Signed Windows Build
 
@@ -713,7 +718,7 @@ How each obligation FOSSA lists for the licences in the dependency graph is met:
 6. `cargo clippy --workspace --all-targets -- -D warnings` (every leg: the `cfg(target_os)` code differs per platform)
 7. Install `cargo-nextest` (`taiki-e/install-action`, pinned) and run `cargo nextest run --workspace --profile ci` (settings in `.config/nextest.toml`: a process per test, all failures reported, a 20-minute kill for a hung test, no retries)
 8. `cargo test --workspace --doc --no-fail-fast` (nextest does not run doctests)
-9. Linux leg only: fetch the pinned ONNX Runtime (`scripts/fetch-ml-runtime.sh linux-x64`, cached by the hash of `apps/desktop/src-tauri/ml-runtime.json`) and run `ml-pipeline`'s ignored `cache_smoke` tests against it with `ORT_DYLIB_PATH` set (see [Environment Variables](#9-environment-variables))
+9. Linux leg only: fetch the pinned ONNX Runtime (`scripts/fetch-ml-runtime.sh linux-x64`, cached by the hash of `apps/desktop/src-tauri/ml-runtime.json`) and run `ml-pipeline`'s ignored `cache_smoke`, `runtime_bundle_real` and `onnx_session_builder` tests against it with `ORT_DYLIB_PATH` set (see [Environment Variables](#9-environment-variables))
 
 The job sets `CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_PROFILE_TEST_DEBUG=0` (no debug info; fewer bytes to link and to cache). To run the suite as CI does on your machine: `cargo install cargo-nextest --locked`, then `cargo nextest run --workspace --profile ci` and `cargo test --workspace --doc`.
 
@@ -742,11 +747,12 @@ Linux, with `--ignored`, against the pins in
 `apps/desktop/src-tauri/ml-runtime.json` and `crates/ml-pipeline/models.json`
 (about 22 MB of runtime and 139 MB of model, both from third parties):
 
-- `ml-whisper`: `transcribe_known_words`, and the two ignored tests of `transcribe_smoke`;
+- `ml-pipeline`: `onnx_session_builder` (the shared session builder runs a model; needs only the runtime) and `model_real_download` (the downloader against huggingface.co);
+- `ml-whisper`: `transcribe_known_words`, the two ignored tests of `transcribe_smoke`, and the lib test that a decoder step does not copy its key-value cache (#657);
 - `tools`: `transcribe_end_to_end` (the `transcribe` tool on the real model,
   through a session, #668) and `transcribe_load_errors` (needs only the runtime);
-- `ml-pipeline`: `model_real_download` (the downloader against huggingface.co);
-- `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168).
+- `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168);
+- `tools`: `diarize_end_to_end` (the `diarize` tool on that excerpt, through a session, #168).
 
 **Trigger:** `workflow_dispatch` only. It does not run on push, on a pull
 request or on a schedule, so a run is always someone's choice. Dispatch it
@@ -789,7 +795,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux\|macos\|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
+| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux\|macos\|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke`, `runtime_bundle_real` and `onnx_session_builder` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real --test onnx_session_builder -- --ignored --test-threads=1` |
 | `WHISPER_MODEL_PATH` | unset | The speech model's **folder** (`onnx/encoder_model.onnx`, `onnx/decoder_model_merged_int8.onnx`, `tokenizer.json`). `transcribe` uses it instead of the model downloaded in Settings; the ignored `ml-whisper` and `tools` tests need it — see [ML Model Files](#ml-model-files-whisperdemucs) |
 | `DIARIZE_MODEL_PATH` | unset | The speaker model's **folder** (`segmentation/model.onnx`, `embedding/model.onnx`, as `crates/ml-pipeline/models.json` pins them). The ignored `ml-diarize` tests need it — see [Running the model tests locally](#running-the-model-tests-locally) |
 | `DEMUCS_MODEL_PATH` | unset | The Demucs model **file** — see [ML Model Files](#ml-model-files-whisperdemucs) |
@@ -834,7 +840,7 @@ if (!wsRef.current || duration === 0) return;
 
 ### `cargo test` flaking on shared state
 
-Add `-- --test-threads=1` to serialize tests within each binary, as CI does: tests that share global state — `crates/ai`'s model-catalogue cache, for one — race otherwise (`cache_returns_within_ttl` flaked on Windows next to a test that calls `clear_cache()`).
+With plain `cargo test`, add `-- --test-threads=1` to serialize tests within each binary (CI uses `cargo nextest`, a process per test, so it does not need it): tests that share global state — `crates/ai`'s model-catalogue cache, for one — race otherwise (`cache_returns_within_ttl` flaked on Windows next to a test that calls `clear_cache()`).
 
 ### Keychain access dialog on macOS
 
@@ -876,7 +882,7 @@ Ensure the return type in `commands.rs` matches the TypeScript interface in `tau
 
 ## 11. Acceptance Gate
 
-Run this before opening any PR. CI runs the same checks.
+Run this before opening any PR. CI runs the same checks (its Rust tests through `cargo nextest`, see section 8).
 
 ```bash
 # 1. Format check
@@ -885,8 +891,9 @@ cargo fmt --all -- --check
 # 2. Lint (zero warnings allowed)
 cargo clippy --workspace --all-targets -- -D warnings
 
-# 3. Rust tests (serialized)
-cargo test --workspace -- --test-threads=1
+# 3. Rust tests (as CI: a process per test; nextest skips doctests)
+cargo nextest run --workspace --profile ci
+cargo test --workspace --doc
 
 # 4. Frontend tests
 pnpm --filter @edytlab/desktop test

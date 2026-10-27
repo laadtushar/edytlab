@@ -43,9 +43,9 @@ export const SITE_UPDATED = "2026-10-27";
  * signs for helpful-content review.
  */
 export const PAGE_UPDATED: Readonly<Record<string, string>> = {
-  "/": "2026-10-26",
-  "/docs": "2026-10-26",
-  "/docs/getting-started": "2026-10-26",
+  "/": "2026-10-27",
+  "/docs": "2026-10-27",
+  "/docs/getting-started": "2026-10-27",
   "/docs/user-guide": "2026-10-26",
   "/docs/user-guide/sessions-and-tracks": "2026-10-26",
   "/docs/user-guide/effects-and-templates": "2026-10-26",
@@ -56,8 +56,8 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/user-guide/skills-and-profiles": "2026-10-26",
   "/docs/user-guide/providers": "2026-10-26",
   "/docs/user-guide/chatgpt-plan": "2026-10-26",
-  "/docs/tools": "2026-10-26",
-  "/docs/tools/files-and-tracks": "2026-10-26",
+  "/docs/tools": "2026-10-27",
+  "/docs/tools/files-and-tracks": "2026-10-27",
   "/docs/tools/region-editing": "2026-10-26",
   "/docs/tools/volume-and-dynamics": "2026-10-26",
   "/docs/tools/effects": "2026-10-26",
@@ -67,7 +67,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/tools/speech": "2026-10-26",
   "/docs/tools/rendering": "2026-10-26",
   "/docs/tools/history-and-session": "2026-10-26",
-  "/docs/developer-guide": "2026-10-26",
+  "/docs/developer-guide": "2026-10-27",
   "/docs/api-reference": "2026-10-27",
   "/docs/api-reference/project": "2026-10-26",
   "/docs/api-reference/session": "2026-10-26",
@@ -95,9 +95,9 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/videos/reel-extended-club-intro": "2026-10-25",
   "/videos/reel-mini-mix": "2026-10-25",
   "/changelog": "2026-10-26",
-  "/press": "2026-10-26",
+  "/press": "2026-10-27",
   "/privacy": "2026-10-26",
-  "/terms": "2026-10-27",
+  "/terms": "2026-10-26",
 };
 
 /** When a page last changed in substance: its own date, else the site's. */

@@ -1,6 +1,10 @@
 # Agentic Chat UI
 
-Status: proposal accompanying PR for `claude/fix-audio-wav-parsing-odiH6`.
+Status: implemented. This was the proposal that accompanied PR
+`claude/fix-audio-wav-parsing-odiH6`; the action chips, thinking indicator and
+capabilities menu it describes exist in the chat panel (`ThinkingIndicator.tsx`,
+`CapabilitiesMenu.tsx`). The text is kept as written, so read the code for the
+current behaviour.
 Scope: chat panel only (`apps/desktop/src/components/Chat.tsx` and friends)
 plus the minimum backend plumbing needed to support it.
 
