@@ -297,9 +297,8 @@ fn float_format(media_type: &IMFMediaType) -> Result<(u32, u32)> {
     Ok((rate, channels))
 }
 
-/// Append the float samples of one decoded `IMFSample` to `out`. Returns how
-/// many samples the buffer held.
-fn append_sample(sample: &IMFSample, out: &mut Vec<f32>) -> Result<usize> {
+/// Append the float samples of one decoded `IMFSample` to `out`.
+fn append_sample(sample: &IMFSample, out: &mut Vec<f32>) -> Result<()> {
     // SAFETY: `sample` is live. The buffer is locked for reading, held by a
     // guard that unlocks it, and read only while locked: `data` points at
     // `len` bytes valid until the unlock.
@@ -312,18 +311,17 @@ fn append_sample(sample: &IMFSample, out: &mut Vec<f32>) -> Result<usize> {
             .map_err(from_windows)?;
         let _unlock = Locked(&buffer);
         if data.is_null() || len == 0 {
-            return Ok(0);
+            return Ok(());
         }
         let bytes = std::slice::from_raw_parts(data, len as usize);
-        let before = out.len();
         // Read as bytes, not as `f32`s: the buffer's alignment is not ours.
         out.extend(
             bytes
                 .chunks_exact(4)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
         );
-        Ok(out.len() - before)
     }
+    Ok(())
 }
 
 /// The presentation duration in 100 ns units (`MF_PD_DURATION` of the media
@@ -339,12 +337,6 @@ fn presentation_duration(reader: &IMFSourceReader) -> Option<u64> {
         let inner = &*value.Anonymous.Anonymous;
         (inner.vt == VT_UI8).then_some(inner.Anonymous.uhVal)
     }
-}
-
-/// The sample's duration in 100 ns units, 0 when it has none.
-fn sample_duration(sample: &IMFSample) -> i64 {
-    // SAFETY: a call on a live sample.
-    unsafe { sample.GetSampleDuration() }.unwrap_or(0)
 }
 
 /// Most frames of priming (before time zero) or of padding after the end that
@@ -425,10 +417,8 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
 
     let mut samples: Vec<f32> = Vec::new();
     let mut empty_reads = 0_u32;
-    let mut diag = String::new(); // DIAG (temporary)
     let mut sample_index = 0_u32;
     let mut lead_frames: Option<usize> = None;
-    let mut last_sample = (0_i64, 0_i64, 0_usize); // DIAG (temporary): ts, duration, frames
     loop {
         let mut flags: u32 = 0;
         let mut stamp: i64 = 0;
@@ -474,7 +464,7 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
                 // output rate.
                 let start_frame = (i128::from(stamp) * i128::from(rate) + 5_000_000) / 10_000_000;
                 let before_frames = samples.len() / channels as usize;
-                let held = append_sample(&sample, &mut samples)?;
+                append_sample(&sample, &mut samples)?;
                 sample_index += 1;
                 // The encoder's priming is the first packet(s): the MP4's edit
                 // list starts the timeline after them, so their time is at or
@@ -489,13 +479,6 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
                 } else if sample_index == 1 && start_frame < 0 {
                     // A source that reports the priming as negative time.
                     lead_frames = Some(usize::try_from(-start_frame).unwrap_or(usize::MAX));
-                }
-                last_sample = (stamp, sample_duration(&sample), held / channels as usize);
-                if diag.len() < 320 {
-                    diag.push_str(&format!(
-                        " [ts={stamp} dur={} start_frame={start_frame} held={held}]",
-                        sample_duration(&sample)
-                    )); // DIAG (temporary)
                 }
             }
             None => {
@@ -532,11 +515,6 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
             samples.truncate(wanted * ch);
         }
     }
-    eprintln!(
-        "MF_DIAG rate={rate} channels={channels} decoded={decoded_frames} lead={lead} duration_hns={duration:?} final={} last(ts,dur,frames)={last_sample:?} first:{diag}",
-        samples.len() / ch
-    ); // DIAG (temporary)
-
     Ok(DecodedAudio {
         samples,
         sample_rate: rate,

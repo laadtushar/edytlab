@@ -56,8 +56,8 @@ The encoded properties are what the tests assert (`tests/formats.rs`):
 | `tone_440_mono_44100.flac` | 44,100 | 1 | 440 Hz | exactly 22,050 frames, each sample within 1.5 LSB |
 | `tone_440_mono_48000.opus` | 48,000 | 1 | 440 Hz | exactly 24,000 frames (`ffprobe` `duration_ts` 24,312 less 312 pre-skip) |
 | `tones_440_880_stereo_48000.opus` | 48,000 | 2 | 440 / 880 Hz | exactly 46,560 frames (`duration_ts` 46,872 less 312), the last packet trimmed |
-| `tone_440_mono_44100.m4a` | 44,100 | 1 | 440 Hz | 0.5 s, within 0.12 s (the two system decoders differ in trimming the encoder's priming samples) |
-| `tones_440_880_stereo_48000.m4a` | 48,000 | 2 | 440 / 880 Hz | same |
+| `tone_440_mono_44100.m4a` | 44,100 | 1 | 440 Hz | exactly 22,050 frames on macOS and Windows (the edit list: 1,024 frames of priming skipped, `ffprobe` `duration_ts` 22,050) |
+| `tones_440_880_stereo_48000.m4a` | 48,000 | 2 | 440 / 880 Hz | exactly 24,000 frames (`duration_ts` 24,000) |
 
 Measured: the mono Vorbis decodes to 22,080 frames (30 more than encoded,
 0.7 ms) and the stereo one to 24,256 (256 more, 5.3 ms); the tolerance is

@@ -199,16 +199,6 @@ pub(crate) fn decode_path(path: &Path) -> Result<DecodedAudio> {
         samples.extend_from_slice(&chunk[..got]);
     }
 
-    eprintln!(
-        "MAC_DIAG file rate={} format={:#x} flags={:#x} framesPerPacket={} channels={} fileLengthFrames={} decoded_frames={}",
-        file_format.mSampleRate,
-        file_format.mFormatID,
-        file_format.mFormatFlags,
-        file_format.mFramesPerPacket,
-        channels,
-        length_frames,
-        samples.len() / channels_usize
-    ); // DIAG (temporary)
     Ok(DecodedAudio {
         samples,
         sample_rate: rate.round() as u32,
