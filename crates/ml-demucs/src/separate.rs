@@ -72,13 +72,14 @@
 //!   offset therefore sum to the mix plus three times the offset. For audio
 //!   that offset is negligible; it is what the reference does.
 //!
-//! ## What is not here
+//! ## What is around it
 //!
-//! The ONNX-backed [`SegmentModel`] (the spectrogram from the STFT port in
-//! `spec.rs`, #385 step 2, and the waveform in, `xt_out + istft(x_out)` out), resampling to 44.1 kHz and
-//! back, mono and surround handling, progress and cancellation, and the stem
-//! cache. [`DemucsModel::separate`](crate::DemucsModel::separate) does not
-//! call any of this and still returns [`DemucsError::NotImplemented`].
+//! The ONNX-backed [`SegmentModel`] is `htdemucs.rs` (the STFT of `spec.rs`,
+//! the per-segment standardisation, the graph, the iSTFT); resampling to and
+//! from 44.1 kHz is `resample.rs`; mono and surround handling, the 16-bit
+//! files and the stem directory are `pipeline.rs` and `cache.rs`. Progress and
+//! cancellation are [`Control`], read here: [`apply_model_streaming`] asks
+//! before every segment and hands the stems on as they are final.
 
 use crate::{DemucsError, Result, STEM_NAMES};
 
