@@ -11,7 +11,7 @@ Long-form technical documentation for contributors and integrators. Marketing co
 | [**api-reference.md**](./api-reference.md) | Every Tauri command and TypeScript bridge function: signature, parameters, return type, error conditions, examples. |
 | [**tools-reference.md**](./tools-reference.md) | All 99 audio-editing tools the agent can call: what each one does and the parameters it takes. Generated from the registry. |
 | [**contributing.md**](./contributing.md) | PR workflow, code style, commit conventions, how to add a tool/provider/component, test requirements. |
-| [**specs/2026-05-05-conversational-audio-editor-design.md**](specs/2026-05-05-conversational-audio-editor-design.md) | Original product + architecture spec. Canonical product reference. |
+| [**specs/2026-05-05-conversational-audio-editor-design.md**](specs/2026-05-05-conversational-audio-editor-design.md) | Original product + architecture spec (a 2026-05-05 draft). Historical: it predates the current tool set, providers and platforms, so read `architecture.md` for how edytlab works now. |
 | [**specs/2026-10-10-chatgpt-subscription-sign-in.md**](specs/2026-10-10-chatgpt-subscription-sign-in.md) | Research and plan: letting users sign in with ChatGPT so the agent runs on their Plus or Pro plan (OpenAI's open-source plan-usage preview), with the OAuth flow, terms, edytlab code changes and tests. |
 | [**archive/**](./archive/) | Historical records kept for reference, not current: the original kickoff brief (`HANDOVER.md`). |
 | [**packaging-windows.md**](./packaging-windows.md) | Windows signing, WebView2 bootstrapper, the ONNX Runtime and Visual C++ DLLs the installers carry, Authenticode, SmartScreen reputation. Read before touching the Windows leg of `release-signed.yml`. |

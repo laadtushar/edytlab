@@ -1,7 +1,9 @@
 # Extensibility: Skills, Memory, Agents, MCP
 
-Status: design proposal. No code lands in this PR — implementation is
-phased across follow-up branches, smallest first.
+Status: implemented. This was the design proposal; all five phases below
+shipped (`crates/memory`, `crates/skills`, `crates/agent_profiles`,
+`crates/mcp`, and their Settings tabs). The text is kept as written, so read
+the code and `docs/architecture.md` for the current behaviour.
 Related: `docs/specs/agentic-chat-ui.md` (the read-only capabilities
 menu surface that this proposal makes editable).
 

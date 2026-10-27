@@ -60,6 +60,7 @@ description: "Workspace layout, the AI subsystem, tool dispatch, the session gra
      │  EXTERNAL SERVICES (network only for LLM tokens)   │
      │  Anthropic · OpenRouter · OpenAI · Groq · Gemini   │
      │  Ollama — a local daemon by default, no key        │
+     │  ChatGPT plan — browser sign-in, no key            │
      └────────────────────────────────────────────────────┘
 ```
 
@@ -95,7 +96,7 @@ edytlab/
     ├── mcp/                      # MCP server lifecycle + JSON-RPC dispatch
     ├── memory/                   # Global/project markdown memory fragments
     ├── ml-demucs/                # Stem separation via ONNX Demucs (inference is a stub, #385)
-    ├── ml-diarize/               # Speaker diarization via ONNX pyannote segmentation + WeSpeaker embeddings (no tool runs it yet and nothing depends on it, #168)
+    ├── ml-diarize/               # Speaker diarization via ONNX pyannote segmentation + WeSpeaker embeddings (run by the `diarize` tool, #831; the app does not offer the model for download yet, #168)
     ├── ml-pipeline/              # Shared ONNX runtime gate, model downloader + the user-started speech-model download, and inference cache (the installers carry the runtime, #383)
     ├── ml-whisper/               # Transcription via ONNX Whisper-base (run by the `transcribe` tool on the model the user downloaded, #384)
     ├── recorder/                 # Microphone capture to WAV; recording-latency measurement (cpal)
@@ -115,7 +116,7 @@ apps/desktop/src-tauri
     │       │   └── crates/audio-decoder
     │       ├── crates/ml-demucs
     │       │   └── crates/ml-pipeline
-    │       ├── crates/ml-diarize     (planned, NOT a dependency of tools or the desktop yet: nothing depends on it; the `diarize` tool is the next step of #168)
+    │       ├── crates/ml-diarize     (the `diarize` tool, #831; the desktop reaches it only through tools)
     │       │   └── crates/ml-pipeline
     │       └── crates/ml-whisper
     │           └── crates/ml-pipeline    (the ONNX Runtime gate only; it builds its own `ort` session)
@@ -221,7 +222,7 @@ unlisten();
 
 pub struct LlmConfig {
     pub provider: Arc<dyn LlmProvider>,
-    pub api_key: String,
+    pub credential: Credential, // an API key from the keychain, or the signed-in ChatGPT session (`Credential::ChatGpt`)
     pub model: String,
     pub base_url_override: Option<String>,
     pub effort: Option<Effort>, // reasoning effort; read via effective_effort()
@@ -387,7 +388,7 @@ server, takes the first streaming request, and prints its parts. Read them with
 cargo test -p ai --test request_size -- --nocapture
 ```
 
-On v0.7.0 (`0bc50ce`, 2026-10-22), with ninety-six tools in the registry. The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
+On v0.7.0 (`0bc50ce`, 2026-10-22), with ninety-four tools in the registry (the registry at that commit; this table is a dated measurement, not the current size). The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
 
 | Request | System prompt | Tool schemas | Total |
 |---------|---------------|--------------|-------|
@@ -450,7 +451,7 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   a tool the profile or the Capabilities menu took away is in neither. The
   built-in tools come first and are always all listed (they come to about
   1 KB). The MCP tools follow, in name order, while the names stay within
-  `SLIM_NAMES_BUDGET_BYTES` (1,709 B), and the line then ends "and N more",
+  `SLIM_NAMES_BUDGET_BYTES` (1,718 B), and the line then ends "and N more",
   which counts MCP tools only. The order matters: an MCP wire name is
   `<server>__<tool>` and can sort ahead of every built-in name, so a cap that
   walked the names alphabetically would cut built-in tools that sort late to
@@ -676,7 +677,7 @@ A locked or refused store is an error, never a silent "nothing stored": `try_loa
 
 Results are cached for 10 minutes, per provider, endpoint and a hash of the key held only in memory (so a changed base URL or a rotated key fetches again), and only live lists are cached, so a fallback is never served after the key is fixed. The OpenAI list keeps the ids that chat and can hold the agent's request (it drops `gpt-4` and `gpt-3.5-turbo`, whose context is smaller than one) and sorts the newest family first, with no generation written into the order. The combo picker in Settings surfaces these alongside free-form input so new model ids work immediately.
 
-The same file holds the one table of per-model output limits (`max_output_tokens`, applied by `clamp_max_tokens`): the OpenAI models with an output limit of 8192 or less (the `gpt-3.5-turbo` and `gpt-4-turbo` families and the `gpt-4-*-preview` snapshots at 4,096, and `gpt-4` at 8,192, which lowers nothing and is there so the figure is written down), and the Groq and Gemini models with a documented limit under it. The OpenAI rows are for models OpenAI is retiring (the last of them on 2026-10-23, dates in the table's doc), so they can be pruned as the dates pass. Each figure is taken from the provider's own documentation, cited next to it; a model nobody has sourced is left out, so its requests go out as built. When the caps in `prompt.rs` are raised, check this table first.
+The same file holds the one table of per-model output limits (`max_output_tokens`, applied by `clamp_max_tokens`): the OpenAI models with an output limit of 8192 or less (the `gpt-3.5-turbo` and `gpt-4-turbo` families and the `gpt-4-*-preview` snapshots at 4,096, and `gpt-4` at 8,192, which lowers nothing and is there so the figure is written down), and the Groq and Gemini models with a documented limit under it. The OpenAI rows are for models OpenAI retires (the last of them on 2026-10-23, dates in the table's doc); the dates have passed but the rows are still in the table, kept so a typed-in id of one of those models is not sent a limit it would refuse, and they can be pruned. Each figure is taken from the provider's own documentation, cited next to it; a model nobody has sourced is left out, so its requests go out as built. When the caps in `prompt.rs` are raised, check this table first.
 
 ### OAuth client
 
@@ -1271,6 +1272,9 @@ The agent turn emits events via Tauri's event system (names in `apps/desktop/src
 | `agent://plan-unavailable` | `{ reason: string, first_edit_held: boolean }` | A plan was asked for and none arrived; `first_edit_held` says whether the first edit will be held for approval or the turn proceeds with no gate |
 | `tool-progress` | `ToolProgress` | Progress from a long-running tool (and `select_region`'s match) |
 | `marker-changed` | none | Marker/annotation added, renamed, moved or removed |
+| `chatgpt://status` | the ChatGPT sign-in status (no token, no path) | The sign-in changed: begun, ended, cancelled, signed out, session ended, message kept or taken (see "ChatGPT in the desktop") |
+| `ml-model-progress` | the model's status | A speech-model download starts, progresses (at most one per 100 ms), ends or is removed |
+| `menu://open-file` | none | The native menu's File > Open Audio… was chosen |
 
 ### Lock Ordering (Deadlock Prevention)
 
@@ -1320,7 +1324,7 @@ Save As (`project::copy_project`) takes the store lock alone, to copy the histor
 
 - Audio processing runs 100% in-process
 - ONNX models run locally. Whisper does (`transcribe`, #384); Demucs does not run yet (#385). Audio bytes never leave the machine. What the speech model hears does reach the model provider as text: the words `transcribe` returns are a tool result, and tool results are part of the chat request (a bounded listing, `RESULT_BUDGET_BYTES`, never the audio)
-- Network traffic is LLM API calls (text tokens only), the requests of the plugin URLs and MCP servers you configure, and, from 0.8.0, the speech model download you start by clicking Download in Settings (the files come from `huggingface.co`; see "The speech model download" above)
+- Network traffic is LLM API calls (text tokens only), the requests of the plugin URLs and MCP servers you configure, and, from 0.8.0, the speech model download you start by clicking Download in Settings (the files come from `huggingface.co`; see "The speech model download" above), and, only if you sign in with ChatGPT, requests to `auth.openai.com` (the sign-in and token renewal) and `api.openai.com` (the model calls and the model list)
 
 ### Tauri Permissions
 
