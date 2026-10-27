@@ -94,7 +94,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/videos/reel-beatmatched-transition": "2026-10-25",
   "/videos/reel-extended-club-intro": "2026-10-25",
   "/videos/reel-mini-mix": "2026-10-25",
-  "/changelog": "2026-10-26",
+  "/changelog": "2026-10-27",
   "/press": "2026-10-26",
   "/privacy": "2026-10-26",
   "/terms": "2026-10-26",
