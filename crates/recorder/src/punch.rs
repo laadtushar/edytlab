@@ -19,7 +19,8 @@
 //! after it (so the performer hears their old line leading in and the music
 //! going on after it) and the second inside it (so the line being replaced
 //! is not in their headphones while they play its replacement). The
-//! switches are at the region's own edges, in output frames. Every other
+//! switches are at the region's own edges, in output frames, with a 5 ms
+//! crossfade across each so they do not click. Every other
 //! track plays throughout.
 //!
 //! ## What is kept
@@ -247,6 +248,73 @@ pub fn convert(
     }
 }
 
+/// How far below the loudest channel a channel is not counted as carrying
+/// signal: 40 dB, as an amplitude ratio.
+const SILENT_RATIO: f64 = 0.01;
+
+/// A take's channels in the track's, chosen by what the microphone
+/// actually delivered rather than by position (#203).
+///
+/// [`channel_map`] is right for a mix going to speakers, where every
+/// channel is signal: it averages, copies, or keeps the first ones. It is
+/// wrong for a *take*: a two-input USB interface with the microphone on
+/// input 1 delivers the voice on one channel and silence on the other, so
+/// keeping the first channels gives a left-only take in a stereo track and
+/// averaging to mono gives one 6 dB down. So:
+///
+/// - going to mono takes the channel with the highest RMS;
+/// - going to several channels while exactly one input channel carries
+///   signal (the others at least 40 dB below it) copies that channel to
+///   all of them;
+/// - anything else (several channels with signal) is [`channel_map`]'s
+///   rule, the first channels; and a silent take is mapped the same way.
+pub fn take_channel_map(samples: &[f32], from_ch: usize, to_ch: usize) -> Vec<f32> {
+    let (from_ch, to_ch) = (from_ch.max(1), to_ch.max(1));
+    if from_ch == 1 {
+        return channel_map(samples, from_ch, to_ch);
+    }
+    let mut energy = vec![0.0f64; from_ch];
+    for frame in samples.chunks_exact(from_ch) {
+        for (e, v) in energy.iter_mut().zip(frame) {
+            *e += f64::from(*v) * f64::from(*v);
+        }
+    }
+    let loudest =
+        energy.iter().enumerate().fold(
+            (0usize, 0.0f64),
+            |best, (i, e)| if *e > best.1 { (i, *e) } else { best },
+        );
+    if loudest.1 <= 0.0 {
+        return channel_map(samples, from_ch, to_ch);
+    }
+    // Energies, so the ratio is squared.
+    let carrying = energy
+        .iter()
+        .filter(|e| **e > loudest.1 * SILENT_RATIO * SILENT_RATIO)
+        .count();
+    if to_ch == 1 || carrying == 1 {
+        let c = loudest.0;
+        return samples
+            .chunks_exact(from_ch)
+            .flat_map(|f| std::iter::repeat_n(f[c], to_ch))
+            .collect();
+    }
+    channel_map(samples, from_ch, to_ch)
+}
+
+/// [`convert`] for a take: the channels by [`take_channel_map`], then the
+/// rate.
+pub fn convert_take(
+    samples: &[f32],
+    from_sr: u32,
+    from_ch: usize,
+    to_sr: u32,
+    to_ch: usize,
+) -> Result<Vec<f32>, PunchError> {
+    let mapped = take_channel_map(samples, from_ch, to_ch);
+    resample(&mapped, to_ch.max(1), from_sr, to_sr)
+}
+
 // ---------------------------------------------------------------------------
 // The monitor.
 // ---------------------------------------------------------------------------
@@ -300,8 +368,35 @@ pub fn build_monitor(
     copy(&mut out, &a, 0, s);
     copy(&mut out, &m, s, e);
     copy(&mut out, &a, e, frames);
+
+    // A hard cut from one render to the other is a step in the signal and
+    // is heard as a click. Everything but the target track is the same in
+    // both renders, so the switch is a short *amplitude* crossfade
+    // (gains summing to one), which leaves that shared audio exactly as it
+    // was and moves only the target's part. (An equal-power fade would be
+    // right for unrelated signals; for these it would lift the shared part
+    // by up to 3 dB for the length of the fade.) Centred on the edge, so
+    // the track is gone by the region's first frame plus half the fade.
+    let half =
+        ((CROSSFADE_SEC * f64::from(out_sr) / 2.0).round() as usize).clamp(1, ((e - s) / 2).max(1));
+    let at = |src: &[f32], f: usize, c: usize| src.get(f * ch + c).copied().unwrap_or(0.0);
+    for (edge, entering) in [(s, true), (e, false)] {
+        let from = edge.saturating_sub(half);
+        let to = (edge + half).min(frames);
+        for f in from..to {
+            let t = ((f + half - edge) as f32 + 0.5) / (2 * half) as f32;
+            let (wa, wm) = if entering { (1.0 - t, t) } else { (t, 1.0 - t) };
+            for c in 0..ch {
+                out[f * ch + c] = at(&a, f, c) * wa + at(&m, f, c) * wm;
+            }
+        }
+    }
     Ok(out)
 }
+
+/// Length of the crossfade where the monitor switches between the two
+/// renders.
+pub const CROSSFADE_SEC: f64 = 0.005;
 
 // ---------------------------------------------------------------------------
 // The take.
@@ -743,6 +838,105 @@ mod tests {
         assert!(resample(&x, 1, 0, 48_000).is_err());
     }
 
+    fn lr(frames: usize, left: f32, right: f32) -> Vec<f32> {
+        (0..frames).flat_map(|_| [left, right]).collect()
+    }
+
+    #[test]
+    fn a_mono_microphone_on_one_of_two_inputs_fills_a_stereo_track() {
+        // Input 1 has the voice, input 2 is silent: both track channels get
+        // the voice, not a left-only take.
+        let left_only = lr(100, 0.5, 0.0);
+        let out = take_channel_map(&left_only, 2, 2);
+        assert_eq!(out, lr(100, 0.5, 0.5), "the voice on both, not left only");
+        // Going to three channels with one carrying signal copies it.
+        let out = take_channel_map(&left_only, 2, 3);
+        assert!(out.chunks_exact(3).all(|f| f == [0.5, 0.5, 0.5]));
+        // The microphone on input 2.
+        let right_only = lr(100, 0.0, 0.25);
+        let out = take_channel_map(&right_only, 2, 6);
+        assert!(out.chunks_exact(6).all(|f| f.iter().all(|v| *v == 0.25)));
+    }
+
+    #[test]
+    fn a_stereo_take_to_mono_takes_the_loudest_channel_not_the_average() {
+        // The average of a voice on one input is 6 dB down.
+        let out = take_channel_map(&lr(100, 0.5, 0.0), 2, 1);
+        assert!(out.iter().all(|v| *v == 0.5), "{:?}", &out[..3]);
+        let out = take_channel_map(&lr(100, 0.1, 0.4), 2, 1);
+        assert!(out.iter().all(|v| *v == 0.4));
+        // Both inputs carry signal: still the louder one, not a mix.
+        let both: Vec<f32> = (0..200)
+            .flat_map(|i| [(i as f32 * 0.3).sin() * 0.3, (i as f32 * 0.7).sin() * 0.5])
+            .collect();
+        let out = take_channel_map(&both, 2, 1);
+        assert_eq!(
+            out,
+            both.iter().skip(1).step_by(2).copied().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn one_carrying_channel_among_six_is_found_wherever_it_is() {
+        let mut six = vec![0.0f32; 6 * 50];
+        for f in 0..50 {
+            six[f * 6 + 3] = 0.2;
+        }
+        let stereo = take_channel_map(&six, 6, 2);
+        assert!(stereo.chunks_exact(2).all(|f| f == [0.2, 0.2]));
+        let mono = take_channel_map(&six, 6, 1);
+        assert!(mono.iter().all(|v| *v == 0.2));
+    }
+
+    #[test]
+    fn two_channels_that_both_carry_signal_keep_the_first_channels_rule() {
+        let both = lr(100, 0.3, 0.2);
+        assert_eq!(take_channel_map(&both, 2, 2), both);
+        let six = take_channel_map(&both, 2, 6);
+        assert_eq!(&six[..6], &[0.3, 0.2, 0.0, 0.0, 0.0, 0.0]);
+        // 6 in, 2 out, with several carrying signal: the first two.
+        let many: Vec<f32> = (0..6 * 20).map(|i| (i % 6) as f32 + 1.0).collect();
+        let first_two = take_channel_map(&many, 6, 2);
+        assert_eq!(&first_two[..2], &[1.0, 2.0]);
+    }
+
+    #[test]
+    fn a_channel_forty_decibels_down_is_silence_and_thirty_nine_is_not() {
+        let down = |db: f32| lr(100, 0.5, 0.5 * 10f32.powf(-db / 20.0));
+        // 41 dB down: the left is copied to the right.
+        let out = take_channel_map(&down(41.0), 2, 3);
+        assert!(out.chunks_exact(3).all(|f| f == [0.5, 0.5, 0.5]));
+        // 39 dB down still carries signal: the first channels, as before.
+        let out = take_channel_map(&down(39.0), 2, 3);
+        assert!(out
+            .chunks_exact(3)
+            .all(|f| f[0] == 0.5 && f[1] > 0.0 && f[1] < 0.01 && f[2] == 0.0));
+    }
+
+    #[test]
+    fn a_silent_take_maps_without_dividing_by_nothing() {
+        let silent = lr(10, 0.0, 0.0);
+        assert_eq!(take_channel_map(&silent, 2, 1), vec![0.0; 10]);
+        assert_eq!(take_channel_map(&silent, 2, 4).len(), 40);
+        assert!(take_channel_map(&[], 2, 1).is_empty());
+    }
+
+    #[test]
+    fn a_mono_microphone_on_input_one_lands_in_a_44_1k_to_48k_stereo_track_on_both_channels() {
+        let mono_of_two: Vec<f32> = burst(44_100, 22_050, 44_100, 2_000.0)
+            .into_iter()
+            .flat_map(|v| [v, 0.0])
+            .collect();
+        let out = convert_take(&mono_of_two, 44_100, 2, 48_000, 2).unwrap();
+        assert_eq!(out.len(), 48_000 * 2);
+        assert!(
+            out.chunks_exact(2).all(|f| (f[0] - f[1]).abs() < 1e-6),
+            "both channels the voice"
+        );
+        let left: Vec<f32> = out.iter().step_by(2).copied().collect();
+        assert!((peak_frame(&left) as i64 - 24_000).abs() <= 24);
+    }
+
     #[test]
     fn a_stereo_render_is_played_by_a_mono_device_and_a_surround_one() {
         let stereo: Vec<f32> = [1.0f32, 0.0].repeat(1_000);
@@ -768,12 +962,68 @@ mod tests {
         let m = build_monitor(&as_is, &muted, REGION, 48_000, 2).unwrap();
         let at = |sec: f64| m[(sec * 48_000.0) as usize * 2];
         assert_eq!(at(0.5), 0.9, "pre-roll: the track is heard");
-        assert_eq!(at(0.999), 0.9);
-        assert_eq!(at(1.0), 0.1, "from the region's first frame it is muted");
-        assert_eq!(at(1.499), 0.1);
-        assert_eq!(at(1.5), 0.9, "post-roll: it is back");
+        assert_eq!(at(0.99), 0.9, "up to the fade before the region");
+        assert_eq!(
+            at(1.01),
+            0.1,
+            "from just after the region's first frame it is muted"
+        );
+        assert_eq!(at(1.49), 0.1);
+        assert_eq!(at(1.51), 0.9, "post-roll: it is back");
         assert_eq!(at(2.9), 0.9);
         assert_eq!(m.len(), 48_000 * 3 * 2);
+    }
+
+    #[test]
+    fn the_monitor_switches_by_a_short_fade_not_a_step() {
+        let as_is = flat(0.9, 48_000 * 3, 2);
+        let muted = flat(0.1, 48_000 * 3, 2);
+        let m = build_monitor(&as_is, &muted, REGION, 48_000, 2).unwrap();
+        let left: Vec<f32> = m.iter().step_by(2).copied().collect();
+        // A hard switch steps by 0.8 between two frames; the fade is 5 ms,
+        // 240 frames, so no frame moves by more than a few thousandths.
+        let biggest = left
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0f32, f32::max);
+        assert!(biggest < 0.01, "a step of {biggest} at a switch");
+        // It does fall from one render to the other across the edge, and
+        // monotonically, and is centred on it.
+        let (s, e) = (48_000usize, 72_000usize);
+        assert!((left[s] - 0.5).abs() < 0.01, "{}", left[s]);
+        assert!((left[e] - 0.5).abs() < 0.01, "{}", left[e]);
+        assert!(left[s - 120..s + 120].windows(2).all(|w| w[1] <= w[0]));
+        assert!(left[e - 120..e + 120].windows(2).all(|w| w[1] >= w[0]));
+        // What both renders share is not touched by it: a bed in both is
+        // the same level all the way through (gains sum to one).
+        let bed = |v: f32| Rendered {
+            samples: vec![v; 48_000 * 3 * 2],
+            sample_rate: 48_000,
+            channels: 2,
+        };
+        let same = build_monitor(&bed(0.4), &bed(0.4), REGION, 48_000, 2).unwrap();
+        assert!(
+            same.iter().all(|v| (*v - 0.4).abs() < 1e-6),
+            "the shared audio dipped"
+        );
+    }
+
+    #[test]
+    fn a_region_shorter_than_the_fade_still_switches() {
+        let tiny = Region {
+            start_sec: 1.0,
+            end_sec: 1.001,
+        };
+        let m = build_monitor(
+            &flat(0.9, 96_000, 1),
+            &flat(0.1, 96_000, 1),
+            tiny,
+            48_000,
+            1,
+        )
+        .unwrap();
+        assert_eq!(m.len(), 96_000);
+        assert!(m.iter().all(|v| v.is_finite() && (0.1..=0.9).contains(v)));
     }
 
     #[test]

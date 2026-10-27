@@ -1886,9 +1886,26 @@ pub fn track_take_format(state: &SessionState, track: usize) -> Result<(u32, u16
         .first()
         .ok_or_else(|| format!("track {track} has no clips"))?;
     let rate = track_clip_rate(t, state.sample_rate)? as u32;
-    let decoded = audio_decoder::decode_file(&clip.source_path)
-        .map_err(|e| format!("failed to decode {}: {e}", clip.source_path.display()))?;
-    Ok((rate, decoded.channels.max(1)))
+    Ok((rate, clip_channels(&clip.source_path)?))
+}
+
+/// A source's channel count: from the header of a WAV (every file an edit
+/// writes, and most of what is loaded), which is a few bytes read under the
+/// store's lock; by decoding for any other format, which has no header
+/// reader here.
+fn clip_channels(path: &Path) -> Result<u16, String> {
+    let is_wav = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
+    if is_wav {
+        if let Ok(r) = hound::WavReader::open(path) {
+            return Ok(r.spec().channels.max(1));
+        }
+    }
+    let decoded = audio_decoder::decode_file(path)
+        .map_err(|e| format!("failed to decode {}: {e}", path.display()))?;
+    Ok(decoded.channels.max(1))
 }
 
 /// Seconds → this clip's own frame domain.

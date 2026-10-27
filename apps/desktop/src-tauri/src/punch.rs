@@ -24,19 +24,26 @@
 //!    while recording the microphone, and cuts the take out at the pair's
 //!    latency (`recorder::punch`). Neither lock is held: this is the long
 //!    part, and the agent, the transport and the faders go on working.
-//! 5. Puts the take in the track's rate and channels, writes it as a WAV
-//!    and applies it with the `punch_in` tool, exactly as the agent's would.
-//!    If the head moved while the take was being recorded, it is not applied
-//!    (the mix the performer heard is not the mix it would go into) and the
-//!    take is kept, with its place named.
+//! 5. Puts the take in the track's rate and channels (by what the
+//!    microphone delivered: `recorder::punch::take_channel_map`), keeps it in
+//!    the project as a WAV named by its samples (as a pasted clipboard is, so
+//!    that a replay of the node finds it), and applies it with the
+//!    `punch_in` tool, exactly as the agent's would, in the same hold of the
+//!    store's lock that checks the head is still the one the performer
+//!    heard. If it is not, the take is not applied (it would go into a mix it
+//!    was not recorded against) and stays in the project, with its place
+//!    named.
+//!
+//! The region is cut at the frames `punch_in` replaces (it truncates), for
+//! the monitor, the capture and the tool alike.
 //!
 //! A cancel, a refusal or a failure before step 5 leaves no node and no
-//! file.
+//! file in the project.
 
 use std::path::PathBuf;
 
 use recorder::duplex::DevicePair;
-use recorder::punch::{self, Phase, PunchError, Region, Rendered};
+use recorder::punch::{self, PunchError, Region, Rendered};
 use recorder::store::{LatencyStore, Source};
 use recorder::RecorderError;
 use serde_json::{json, Value};
@@ -46,6 +53,9 @@ use crate::state::AppState;
 
 /// The `kind` of the progress reports and of the strip that shows them.
 pub const KIND: &str = "punch_record";
+/// The phase after the recording, while the take is placed: Cancel is not
+/// offered in it.
+pub const APPLYING: &str = "applying";
 
 pub const DEFAULT_PREROLL_SEC: f64 = 2.0;
 pub const DEFAULT_POSTROLL_SEC: f64 = 1.0;
@@ -148,6 +158,7 @@ impl Audio for Devices {
 struct Snapshot {
     head: NodeId,
     state: SessionState,
+    project_dir: PathBuf,
     /// The rate and channel count a take for the track has to have.
     rate: u32,
     channels: u16,
@@ -186,12 +197,14 @@ fn snapshot(state: &AppState, req: &Request) -> Result<Snapshot, String> {
             req.end_sec, length_sec
         ));
     }
-    let (rate, channels) = tools::track_take_format(&session, req.track)?;
-    // The render reads the clips' files; make the ones history has lost.
+    // The render reads the clips' files, and so does the format: make the
+    // ones history has lost first.
     tools::rederive::materialize(&store, head).map_err(|e| e.to_string())?;
+    let (rate, channels) = tools::track_take_format(&session, req.track)?;
     Ok(Snapshot {
         head,
         state: session,
+        project_dir: store.project_dir().to_path_buf(),
         rate,
         channels,
     })
@@ -207,25 +220,57 @@ fn render_pair(
 ) -> Result<(Rendered, Rendered), String> {
     let as_is_path = dir.join("as-is.wav");
     let muted_path = dir.join("muted.wav");
-    // A clone with the track muted. It is never stored, so no node is made.
+    // A clone with the track out of the mix: muted, and not soloed, because
+    // a solo overrides a mute (`graph::build` includes a soloed track
+    // whatever its mute) and a soloed target would still be heard inside the
+    // region. It is never stored, so no node is made.
     let mut muted = snap.state.clone();
     muted.tracks[req.track].muted = true;
-    {
+    muted.tracks[req.track].soloed = false;
+    let could_not =
+        |e: audio_engine::Error| format!("could not render the mix for the monitor: {e}");
+    let muted_render = {
         let engine = lock(&state.engine, "engine")?;
         engine
             .render_to_wav(&snap.state, &as_is_path, Some(range))
-            .map_err(|e| format!("could not render the mix for the monitor: {e}"))?;
-        engine
-            .render_to_wav(&muted, &muted_path, Some(range))
-            .map_err(|e| format!("could not render the mix for the monitor: {e}"))?;
-    }
+            .map_err(could_not)?;
+        engine.render_to_wav(&muted, &muted_path, Some(range))
+    };
     let read = |p: &PathBuf| punch::read_wav(p).map_err(|e| e.to_string());
-    Ok((read(&as_is_path)?, read(&muted_path)?))
+    let as_is = read(&as_is_path)?;
+    let muted = match muted_render {
+        Ok(_) => read(&muted_path)?,
+        // The renderer sizes a render from the tracks that contribute, and
+        // refuses a range that starts after they end. With the target out
+        // of the mix there may be nothing left that reaches the region (a
+        // session of one track; a vocal that outlasts the bed), and then
+        // what is heard inside it is silence, which the monitor pads.
+        Err(audio_engine::Error::InvalidRange) => Rendered {
+            samples: Vec::new(),
+            sample_rate: as_is.sample_rate,
+            channels: as_is.channels,
+        },
+        Err(e) => return Err(could_not(e)),
+    };
+    Ok((as_is, muted))
 }
 
 /// What `run` ends with besides an error.
 fn cancelled() -> Value {
     json!({ "cancelled": true })
+}
+
+/// The frames of the track's own buffer that `punch_in` replaces for a
+/// region in seconds: it truncates both ends to a frame
+/// (`punch_in::apply_punch`), so the take, the monitor's region and the
+/// recording all have to be cut at these and not at a rounding of their
+/// own, or they differ by a frame at an edge.
+fn region_frames(start_sec: f64, end_sec: f64, rate: u32) -> (u64, u64) {
+    let r = f64::from(rate);
+    (
+        (start_sec * r).max(0.0) as u64,
+        (end_sec * r).max(0.0) as u64,
+    )
 }
 
 /// Punch in. See the module docs. `cancel` is polled while the take is
@@ -242,26 +287,35 @@ pub fn run(
     let stored = punch::latency_for(store, &pair).map_err(|e| e.to_string())?;
     let latency_sec = stored.latency_ms / 1_000.0;
 
+    // The first report: from here the window has a strip for this job.
     report(json!({ "kind": KIND, "phase": "preparing" }));
     let snap = snapshot(state, req)?;
     if cancel() {
         return Ok(cancelled());
     }
 
+    // The region in the track's own frames, as `punch_in` will cut it.
+    let (f0, f1) = region_frames(req.start_sec, req.end_sec, snap.rate);
+    if f1 <= f0 {
+        return Err("that region is less than one sample long".to_string());
+    }
+    let rate = f64::from(snap.rate);
+    let (start_sec, end_sec) = (f0 as f64 / rate, f1 as f64 / rate);
+
     // Whole frames, so the region's place in the render is exact.
     let sr = f64::from(snap.state.sample_rate.max(1));
-    let start_frame = ((req.start_sec - req.preroll_sec).max(0.0) * sr).floor() as u64;
-    let end_frame = ((req.end_sec + req.postroll_sec) * sr).ceil() as u64;
+    let start_frame = ((start_sec - req.preroll_sec).max(0.0) * sr).floor() as u64;
+    let end_frame = ((end_sec + req.postroll_sec) * sr).ceil() as u64;
     let begins = start_frame as f64 / sr;
     let region = Region {
-        start_sec: req.start_sec - begins,
-        end_sec: req.end_sec - begins,
+        start_sec: start_sec - begins,
+        end_sec: end_sec - begins,
     };
 
     let dir = tempfile::Builder::new()
         .prefix("edytlab-punch-")
         .tempdir()
-        .map_err(|e| format!("could not make a folder for the take: {e}"))?;
+        .map_err(|e| format!("could not make a folder for the renders: {e}"))?;
     let (as_is, muted) = render_pair(
         state,
         &snap,
@@ -275,6 +329,7 @@ pub fn run(
     let monitor = punch::build_monitor(&as_is, &muted, region, pair.out_sr, pair.out_ch)
         .map_err(|e| e.to_string())?;
     drop((as_is, muted));
+    drop(dir);
     if cancel() {
         return Ok(cancelled());
     }
@@ -291,11 +346,12 @@ pub fn run(
         Err(e) => return Err(e.to_string()),
     };
     drop(monitor);
-    report(json!({ "kind": KIND, "phase": Phase::Postroll.as_str(), "remaining_sec": 0.0 }));
+    // The take is over: from here Cancel is no longer offered.
+    report(json!({ "kind": KIND, "phase": APPLYING }));
 
     // The take, in the track's rate and channels and exactly the region
     // long (a frame of rounding either way is trimmed or silent).
-    let mut samples = punch::convert(
+    let mut samples = punch::convert_take(
         &take.samples,
         take.sample_rate,
         take.channels as usize,
@@ -303,51 +359,54 @@ pub fn run(
         snap.channels as usize,
     )
     .map_err(|e| e.to_string())?;
-    let want = ((req.end_sec - req.start_sec) * f64::from(snap.rate)).round() as usize
-        * snap.channels as usize;
-    samples.resize(want, 0.0);
-    let take_path = dir.path().join("take.wav");
-    punch::write_wav(&take_path, &samples, snap.rate, snap.channels).map_err(|e| e.to_string())?;
-
-    // From here the take is the only copy of a performance: whatever goes
-    // wrong, it is kept and its place named.
-    let keep = |dir: tempfile::TempDir, why: String| -> String {
-        let kept = dir.keep();
-        format!(
-            "{why} The take is saved in {}.",
-            kept.join("take.wav").display()
-        )
-    };
-
-    // The head is read with the lock held only for that: `punch_in` takes
-    // its own. A project closed meanwhile is a head that moved.
-    let head_now = state
-        .store_handle()
-        .and_then(|h| h.lock().ok().and_then(|s| s.head()));
-    if head_now != Some(snap.head) {
-        return Err(keep(
-            dir,
-            "The project changed while the take was being recorded, so it was not applied: it \
-             was recorded against a mix that is no longer the current one."
-                .into(),
-        ));
+    samples.resize((f1 - f0) as usize * snap.channels as usize, 0.0);
+    if cancel() {
+        return Ok(cancelled());
     }
 
-    let head = match crate::commands::run_track_tool(
+    // The take is kept in the project, named by its samples, as a pasted
+    // clipboard is: the node records `punch_in` with this path, and a
+    // replay of it (a rebuild after the history sweep) has to find the take
+    // where it was, which a temporary file would not be.
+    let blob = tools::provenance::store_clipboard_blob(
+        &snap.project_dir,
+        &samples,
+        snap.rate,
+        snap.channels,
+    )?;
+    let take_path = tools::provenance::clipboard_blob_path(&snap.project_dir, &blob);
+    // From here the take is the only copy of a performance: whatever goes
+    // wrong, it stays in the project and its place is named.
+    let keep =
+        |why: String| -> String { format!("{why} The take is saved in {}.", take_path.display()) };
+
+    // Compare and apply in one hold of the store's lock: an edit that lands
+    // between a check and the tool would put the take on a mix it was not
+    // recorded against. `punch_in` cuts at a frame by truncating, so the
+    // times given are the middle of the frames meant.
+    let head = match crate::commands::run_track_tool_at(
         state,
         "punch_in",
         json!({
             "track": req.track,
-            "start_sec": req.start_sec,
-            "end_sec": req.end_sec,
+            "start_sec": (f0 as f64 + 0.5) / rate,
+            "end_sec": (f1 as f64 + 0.5) / rate,
             "take_path": take_path,
         }),
+        Some(snap.head),
     ) {
         Ok(h) => h,
-        Err(e) => return Err(keep(dir, format!("The take could not be applied: {e}."))),
+        Err(crate::commands::ApplyError::HeadMoved) => {
+            return Err(keep(
+                "The project changed while the take was being recorded, so it was not \
+                 applied: it was recorded against a mix that is no longer the current one."
+                    .into(),
+            ))
+        }
+        Err(crate::commands::ApplyError::Failed(e)) => {
+            return Err(keep(format!("The take could not be applied: {e}.")))
+        }
     };
-    // Applied: the take is in the session's audio now.
-    drop(dir);
 
     Ok(json!({
         "cancelled": false,
@@ -357,8 +416,8 @@ pub fn run(
             Source::Measured => "measured",
             Source::Manual => "manual",
         },
-        "start_sec": req.start_sec,
-        "end_sec": req.end_sec,
+        "start_sec": start_sec,
+        "end_sec": end_sec,
         "track": req.track,
     }))
 }
@@ -539,10 +598,18 @@ mod tests {
     }
 
     fn project() -> Project {
+        project_with(4.0, Some(4.0))
+    }
+
+    /// The lead track `lead_sec` long, and a bed under it `band_sec` long
+    /// (`None`: no bed, a session of one track).
+    fn project_with(lead_sec: f64, band_sec: Option<f64>) -> Project {
         let dir = tempfile::tempdir().unwrap();
-        let frames = SESSION_SR as usize * 4;
-        let a = noise(frames, 2, 0xA1, 0.4);
-        let b = noise(frames, 1, 0xB2, 0.1);
+        let a = noise((SESSION_SR as f64 * lead_sec) as usize, 2, 0xA1, 0.4);
+        let b = match band_sec {
+            Some(sec) => noise((SESSION_SR as f64 * sec) as usize, 1, 0xB2, 0.1),
+            None => Vec::new(),
+        };
         let (pa, pb) = (dir.path().join("lead.wav"), dir.path().join("band.wav"));
         punch::write_wav(&pa, &a, SESSION_SR, 2).unwrap();
         punch::write_wav(&pb, &b, SESSION_SR, 1).unwrap();
@@ -553,7 +620,12 @@ mod tests {
             let mut engine = audio_engine::Engine::new();
             let mut clipboard = None;
             let dispatcher = tools::ToolDispatcher::default_dispatcher();
-            for path in [&pa, &pb] {
+            let paths: Vec<_> = if band_sec.is_some() {
+                vec![&pa, &pb]
+            } else {
+                vec![&pa]
+            };
+            for path in paths {
                 let mut ctx = tools::ToolContext {
                     store: &mut store,
                     engine: &mut engine,
@@ -802,14 +874,14 @@ mod tests {
 
         assert!(e.contains("changed while"), "{e}");
         assert_eq!(p.nodes(), nodes + 1, "only the fader's node, no punch");
-        // The take is where the message says.
+        // The take is in the project, where the message says.
         let kept = e.rsplit("saved in ").next().unwrap().trim_end_matches('.');
         let kept = std::path::PathBuf::from(kept);
-        assert!(kept.ends_with("take.wav") && kept.exists(), "{e}");
+        assert!(kept.exists(), "{e}");
+        assert!(kept.to_string_lossy().contains(".audiograph"), "{e}");
         let take = punch::read_wav(&kept).unwrap();
         assert_eq!((take.sample_rate, take.channels), (SESSION_SR, 2));
         assert_eq!(take.samples.len(), SESSION_SR as usize * 2, "one second");
-        std::fs::remove_dir_all(kept.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -848,5 +920,333 @@ mod tests {
         assert!(Request::new(0, 1.0, 2.0, None, Some(31.0)).is_err());
         assert!(Request::new(0, 1.0, 2.0, Some(0.0), Some(0.0)).is_ok());
         assert!(Request::new(0, 1.0, 2.0, Some(f64::INFINITY), None).is_err());
+    }
+
+    fn monitor_levels(fake: &Fake) -> (f64, f64, f64) {
+        let m = fake.heard.borrow();
+        let at = |sec: f64| (sec * f64::from(OUT_SR)) as usize * 2;
+        (
+            rms(&m[at(0.05)..at(0.45)]),
+            rms(&m[at(0.6)..at(1.4)]),
+            rms(&m[at(1.55)..at(1.7)]),
+        )
+    }
+
+    #[test]
+    fn a_session_of_one_track_can_be_punched_the_rest_of_the_mix_is_silence() {
+        // Muted, the only track leaves nothing: the renderer refuses a range
+        // that starts after the (empty) mix ends. That is silence, not a
+        // failure.
+        let p = project_with(4.0, None);
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let nodes = p.nodes();
+        let fake = Fake::new();
+
+        let out = run_with(&p, &fake, &store, &req()).expect("a punch into a single track");
+
+        assert_eq!(out["cancelled"], false);
+        assert_eq!(p.nodes(), nodes + 1);
+        let (pre, inside, post) = monitor_levels(&fake);
+        assert!(
+            pre > 0.2 && post > 0.2,
+            "the track leads in and out: {pre} {post}"
+        );
+        assert!(inside < 1e-3, "and nothing else plays inside: {inside}");
+        // The performer played silence: the region is silent, the rest is not.
+        let now = p.track_audio(0);
+        let (s, e) = (SESSION_SR as usize, SESSION_SR as usize * 2);
+        // (the first and last 10 ms hold the monitor's 5 ms fades)
+        let edge = 480 * 2;
+        assert!(rms(&now.samples[s * 2 + edge..e * 2 - edge]) < 1e-3);
+        assert!(rms(&now.samples[..s * 2]) > 0.2);
+        assert!(rms(&now.samples[e * 2..]) > 0.2);
+    }
+
+    #[test]
+    fn a_target_that_outlasts_everything_else_can_be_punched_where_only_it_plays() {
+        // A 4 s lead over a 1 s bed, punched at 2-3 s: the muted mix is over
+        // before the pre-roll even starts.
+        let p = project_with(4.0, Some(1.0));
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let nodes = p.nodes();
+        let fake = Fake::new();
+        let r = Request::new(0, 2.0, 3.0, Some(0.5), Some(0.25)).unwrap();
+
+        let out = run_with(&p, &fake, &store, &r).expect("a punch past the bed");
+
+        assert_eq!(out["cancelled"], false);
+        assert_eq!(p.nodes(), nodes + 1);
+        let (_, inside, _) = monitor_levels(&fake);
+        assert!(inside < 1e-3, "the bed is over: {inside}");
+    }
+
+    #[test]
+    fn a_bed_that_ends_inside_the_region_is_heard_to_its_end_and_then_silence() {
+        // The bed lasts to 1.75 s of a region at 1-2 s: the muted render is
+        // shorter than the monitor and is padded.
+        let p = project_with(4.0, Some(1.75));
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let fake = Fake::new();
+        run_with(&p, &fake, &store, &req()).expect("a punch");
+        let m = fake.heard.borrow();
+        let at = |sec: f64| (sec * f64::from(OUT_SR)) as usize * 2;
+        // The monitor began at 0.5 s of the session.
+        let early = rms(&m[at(0.6)..at(1.0)]); // session 1.1 to 1.5
+        let late = rms(&m[at(1.4)..at(1.49)]); // session 1.9 to 1.99 (the last 10 ms is the fade)
+        assert!(early > 0.02, "the bed plays: {early}");
+        assert!(late < 1e-3, "and is over: {late}");
+    }
+
+    #[test]
+    fn a_soloed_target_is_still_out_of_the_mix_inside_the_region() {
+        // A solo overrides a mute in the renderer, so a clone that only
+        // muted the target would still play it there.
+        let p = project();
+        crate::commands::run_track_tool(
+            &p.state,
+            "solo_track",
+            json!({ "track": 1, "solo": true }),
+        )
+        .unwrap();
+        crate::commands::run_track_tool(
+            &p.state,
+            "solo_track",
+            json!({ "track": 1, "solo": false }),
+        )
+        .unwrap();
+        crate::commands::run_track_tool(
+            &p.state,
+            "solo_track",
+            json!({ "track": 0, "solo": true }),
+        )
+        .unwrap();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let fake = Fake::new();
+        run_with(&p, &fake, &store, &req()).expect("a punch");
+
+        let (pre, inside, post) = monitor_levels(&fake);
+        // Outside the region the user's own solo is what they hear: the target.
+        assert!(pre > 0.2 && post > 0.2, "{pre} {post}");
+        // Inside, the target is out and the rest of the mix plays.
+        assert!(
+            inside < 0.1,
+            "the soloed target is heard in the region: {inside}"
+        );
+        assert!(inside > 0.02, "and the rest is not silent: {inside}");
+    }
+
+    #[test]
+    fn an_edit_is_made_only_on_the_head_the_caller_names_and_otherwise_changes_nothing() {
+        let p = project();
+        let before = p.head();
+        let nodes = p.nodes();
+        crate::commands::run_track_tool(
+            &p.state,
+            "set_track_gain",
+            json!({ "track": 1, "db": -3.0 }),
+        )
+        .unwrap();
+        assert_eq!(p.nodes(), nodes + 1);
+
+        // Named the head it was prepared against, after the head moved.
+        let e = crate::commands::run_track_tool_at(
+            &p.state,
+            "set_track_gain",
+            json!({ "track": 1, "db": -9.0 }),
+            Some(before),
+        )
+        .unwrap_err();
+        assert_eq!(e, crate::commands::ApplyError::HeadMoved);
+        assert_eq!(p.nodes(), nodes + 1, "no node was made");
+
+        // Named the head it is on.
+        let now = p.head();
+        let head = crate::commands::run_track_tool_at(
+            &p.state,
+            "set_track_gain",
+            json!({ "track": 1, "db": -9.0 }),
+            Some(now),
+        )
+        .unwrap();
+        assert_eq!(head, p.head().to_hex());
+        assert_eq!(p.nodes(), nodes + 2);
+    }
+
+    #[test]
+    fn a_head_that_moves_after_the_take_is_cut_never_gets_the_punch() {
+        // The window's edit lands after the take was recorded and before
+        // the tool runs: here, the last thing the fake does. The tool is
+        // asked to run on the head the performer heard, and refuses.
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let fake = Fake::new();
+        let state = p.state.clone();
+        *fake.meanwhile.borrow_mut() = Some(Box::new(move || {
+            crate::commands::run_track_tool(
+                &state,
+                "set_track_gain",
+                json!({ "track": 0, "db": -1.0 }),
+            )
+            .unwrap();
+        }));
+        let before = p.track_audio(0).samples;
+        let e = run_with(&p, &fake, &store, &req()).unwrap_err();
+        assert!(e.contains("changed while"), "{e}");
+        assert_eq!(
+            p.track_audio(0).samples,
+            before,
+            "the audio was not touched"
+        );
+    }
+
+    #[test]
+    fn the_punched_node_can_be_replayed_because_its_take_is_in_the_project() {
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        run_with(&p, &Fake::new(), &store, &req()).unwrap();
+
+        let handle = p.state.store_handle().unwrap();
+        let st = handle.lock().unwrap();
+        let head = st.head().unwrap();
+        let node = st.get(head).unwrap();
+        let op = node.op.expect("the punch recorded its op");
+        assert_eq!(op.tool, "punch_in");
+        assert!(op.reproducible);
+        let take = std::path::PathBuf::from(op.params["take_path"].as_str().unwrap());
+        assert!(take.is_file(), "the op names a take that exists");
+        assert!(
+            take.starts_with(st.project_dir()),
+            "and it is in the project, not a temporary folder: {}",
+            take.display()
+        );
+        // And a replay of the step on its parent rebuilds the punch.
+        let replay = tools::rederive::replay(&st, head).expect("replays");
+        assert!(
+            !replay.produced().is_empty(),
+            "it wrote the punched audio again"
+        );
+    }
+
+    #[test]
+    fn the_strip_is_told_the_take_is_being_placed_once_the_recording_is_over() {
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let seen = RefCell::new(Vec::new());
+        run(&p.state, &Fake::new(), &store, &req(), &|| false, &|v| {
+            seen.borrow_mut()
+                .push(v["phase"].as_str().unwrap_or("").to_string());
+        })
+        .unwrap();
+        let seen = seen.into_inner();
+        assert_eq!(seen.first().map(String::as_str), Some("preparing"));
+        assert_eq!(seen.last().map(String::as_str), Some(APPLYING));
+    }
+
+    #[test]
+    fn a_cancel_pressed_after_the_take_ended_and_before_it_is_applied_applies_nothing() {
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let nodes = p.nodes();
+        let polls = Cell::new(0);
+        // Not cancelled before or during the recording (the fake never
+        // polls); cancelled the third time it is asked: the one after the
+        // take is cut.
+        let out = run(
+            &p.state,
+            &Fake::new(),
+            &store,
+            &req(),
+            &|| {
+                polls.set(polls.get() + 1);
+                polls.get() >= 3
+            },
+            &|_| {},
+        )
+        .unwrap();
+        assert_eq!(out, json!({ "cancelled": true }));
+        assert_eq!(p.nodes(), nodes);
+    }
+
+    #[test]
+    fn a_region_off_the_frame_grid_is_cut_at_the_frames_the_tool_replaces() {
+        // 1.000013 s to 2.000029 s at 48 kHz is frames 48 000.6 to 96 001.4:
+        // the tool truncates both, so frames 48 000 to 96 001.
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let r = Request::new(0, 1.000_013, 2.000_029, Some(0.5), Some(0.25)).unwrap();
+        let out = run_with(&p, &Fake::new(), &store, &r).expect("a punch");
+        assert_eq!(out["start_sec"].as_f64().unwrap(), 48_000.0 / 48_000.0);
+        assert_eq!(out["end_sec"].as_f64().unwrap(), 96_001.0 / 48_000.0);
+
+        let now = p.track_audio(0);
+        let (s, e) = (48_000usize, 96_001usize);
+        let region: Vec<f32> = now.samples[s * 2..e * 2].to_vec();
+        let band: Vec<f32> = p.accompaniment[s..e]
+            .iter()
+            .flat_map(|v| [*v, *v])
+            .collect();
+        assert!(similarity(&region, &band) > 0.9);
+        // The frame before and the frame after are the original's.
+        assert!((now.samples[(s - 1) * 2] - p.original[(s - 1) * 2]).abs() < 1e-4);
+        assert!((now.samples[e * 2] - p.original[e * 2]).abs() < 1e-4);
+        // The edges agree to the frame: shifted by one it would not match.
+        let off: Vec<f32> = p.accompaniment[s + 1..e + 1]
+            .iter()
+            .flat_map(|v| [*v, *v])
+            .collect();
+        assert!(similarity(&region, &off) < 0.3);
+    }
+
+    #[test]
+    fn the_region_frames_are_the_tools_truncation() {
+        assert_eq!(region_frames(1.0, 2.0, 48_000), (48_000, 96_000));
+        assert_eq!(
+            region_frames(1.000_013, 2.000_029, 48_000),
+            (48_000, 96_001)
+        );
+        assert_eq!(
+            region_frames(0.5, 0.5 + 1.0 / 44_100.0, 44_100),
+            (22_050, 22_051)
+        );
+    }
+
+    #[test]
+    fn once_history_moves_on_the_punched_audio_is_swept_and_comes_back_byte_for_byte() {
+        // The proof that the node is replayable: the history sweep deletes
+        // audio only older nodes name, and only once a replay has shown it
+        // can be rebuilt. With the take in a temporary folder that replay
+        // fails and the sweep keeps the file for good; with the take in the
+        // project it is deleted, and `materialize` writes it again.
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        run_with(&p, &Fake::new(), &store, &req()).unwrap();
+        let (punch_node, punched, bytes) = {
+            let handle = p.state.store_handle().unwrap();
+            let st = handle.lock().unwrap();
+            let head = st.head().unwrap();
+            let path = st.get(head).unwrap().state.tracks[0].clips[0]
+                .source_path
+                .clone();
+            (head, path.clone(), std::fs::read(path).unwrap())
+        };
+        for (a, b) in [(0.1, 0.2), (3.2, 3.3)] {
+            crate::commands::run_track_tool(
+                &p.state,
+                "silence_region",
+                json!({ "track": 0, "start_sec": a, "end_sec": b }),
+            )
+            .unwrap();
+        }
+
+        let handle = p.state.store_handle().unwrap();
+        let st = handle.lock().unwrap();
+        let report = tools::reclaim::sweep(&st, 0).expect("sweep");
+        assert_eq!(report.kept_unverified, 0, "{report:?}");
+        assert!(!punched.is_file(), "the punch's audio was kept: {report:?}");
+        tools::rederive::materialize(&st, punch_node).expect("rebuilt");
+        assert!(
+            std::fs::read(&punched).expect("back") == bytes,
+            "and came back byte for byte"
+        );
     }
 }

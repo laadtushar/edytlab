@@ -4759,11 +4759,51 @@ pub(crate) fn run_track_tool(
     tool: &str,
     args: serde_json::Value,
 ) -> CmdResult<String> {
-    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    run_track_tool_at(state, tool, args, None).map_err(|e| match e {
+        ApplyError::Failed(message) => message,
+        // Only a caller that asked for a head can be told this.
+        ApplyError::HeadMoved => "the session changed before the edit was made".to_string(),
+    })
+}
+
+/// Why [`run_track_tool_at`] did not make its edit.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ApplyError {
+    /// The head was not the one the caller named, so nothing was changed.
+    HeadMoved,
+    /// The tool refused, or failed; the text is what the window shows.
+    Failed(String),
+}
+
+/// [`run_track_tool`] that makes its edit only if the head, read under the
+/// same hold of the store's lock the tool then runs in, is `expected`
+/// (when one is given).
+///
+/// A caller that prepared something against one head (a punch-in's take,
+/// recorded against the mix the performer heard) cannot check the head and
+/// then call [`run_track_tool`]: an edit by the user, or an off-lock tool's
+/// commit, can land between the two reads, and the edit would go onto a
+/// session it was not made for. Here there is no between.
+pub(crate) fn run_track_tool_at(
+    state: &AppState,
+    tool: &str,
+    args: serde_json::Value,
+    expected: Option<NodeId>,
+) -> Result<String, ApplyError> {
+    let failed = |m: String| ApplyError::Failed(m);
+    let store_arc = state
+        .store_handle()
+        .ok_or_else(|| failed(CommandError::NoSession.to_string()))?;
     let head_hex = {
-        let mut store = lock_std(&store_arc, "store")?;
-        let mut engine = lock_std(&state.engine, "engine")?;
-        let dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+        let mut store = lock_std(&store_arc, "store").map_err(|e| failed(e.to_string()))?;
+        if let Some(want) = expected {
+            if store.head() != Some(want) {
+                return Err(ApplyError::HeadMoved);
+            }
+        }
+        let mut engine = lock_std(&state.engine, "engine").map_err(|e| failed(e.to_string()))?;
+        let dispatcher =
+            lock_std(&state.dispatcher, "dispatcher").map_err(|e| failed(e.to_string()))?;
         let mut clipboard: Option<tools::Clipboard> = None;
         let mut ctx = tools::ToolContext {
             store: &mut store,
@@ -4777,18 +4817,17 @@ pub(crate) fn run_track_tool(
         // is where "track index 7 out of range" comes from. Surfacing
         // it as a command error is what puts the message in front of
         // the user instead of silently reporting the unchanged head.
-        match dispatcher
-            .invoke(tool, args, &mut ctx)
-            .map_err(|e| CommandError::InvalidTrackControl(format!("{tool}: {e}")))?
-        {
+        match dispatcher.invoke(tool, args, &mut ctx).map_err(|e| {
+            failed(CommandError::InvalidTrackControl(format!("{tool}: {e}")).to_string())
+        })? {
             tools::ToolResult::Ok(_) => {}
             tools::ToolResult::Error(msg) => {
-                return Err(CommandError::InvalidTrackControl(msg).into())
+                return Err(failed(CommandError::InvalidTrackControl(msg).to_string()))
             }
         }
         store.head().map(|id| id.to_hex())
     };
-    head_hex.ok_or_else(|| CommandError::NoSession.into())
+    head_hex.ok_or_else(|| failed(CommandError::NoSession.to_string()))
 }
 
 /// Set a track's gain in dB. Returns the new session head.
@@ -6966,12 +7005,24 @@ fn set_recording_latency_with(
     Ok(serde_json::json!({ "devices": devices_json(&pair), "latency": latency }))
 }
 
-/// Closes the punch-in's progress strip however the run ended.
-struct PunchStrip;
+/// Closes the punch-in's progress strip however the run ended, if it ever
+/// opened one.
+///
+/// The strip is a job's own: a `done` for `punch_record` closes the strip of
+/// the punch-in and no other. A punch-in refused before it reported anything
+/// (no latency kept, something else recording) has opened none, and says
+/// nothing.
+struct PunchStrip {
+    reported: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
 
 impl Drop for PunchStrip {
     fn drop(&mut self) {
-        tools::progress::report(serde_json::json!({ "kind": crate::punch::KIND, "done": true }));
+        if self.reported.load(std::sync::atomic::Ordering::SeqCst) {
+            tools::progress::report(
+                serde_json::json!({ "kind": crate::punch::KIND, "done": true }),
+            );
+        }
     }
 }
 
@@ -7032,18 +7083,26 @@ pub async fn punch_record(
 ) -> CmdResult<serde_json::Value> {
     let request = crate::punch::Request::new(track, start_sec, end_sec, preroll_sec, postroll_sec)?;
     let run = begin_punch_with(&recorder::gate::GATE, &recording.0)?;
-    let strip = PunchStrip;
+    let reported = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let strip = PunchStrip {
+        reported: std::sync::Arc::clone(&reported),
+    };
     blocking(&state, move |state| {
-        // Closed when the work ends, with the gate freed just after.
-        let _strip = strip;
+        // Locals drop in the reverse of the order they are made: the strip
+        // is closed when the work ends, and the gate is freed just after,
+        // so a new punch can never open its strip before this one closed.
         let _run = run;
+        let _strip = strip;
         crate::punch::run(
             state,
             &crate::punch::Devices,
             &audio_latency_store(),
             &request,
             &|| recorder::gate::GATE.punch_cancelled(),
-            &tools::progress::report,
+            &|v| {
+                reported.store(true, std::sync::atomic::Ordering::SeqCst);
+                tools::progress::report(v);
+            },
         )
     })
     .await
