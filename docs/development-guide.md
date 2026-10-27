@@ -30,7 +30,7 @@ description: "Dev setup for macOS, Windows and Linux, daily workflow, testing, d
 | Tool | Version | Install |
 |------|---------|---------|
 | Rust | 1.90 (auto via `rust-toolchain.toml`) | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Node.js | 20+ | [nodejs.org](https://nodejs.org) or `nvm install 20` |
+| Node.js | 22.22.2+ (CI uses 24) | [nodejs.org](https://nodejs.org) or `nvm install 24` |
 | pnpm | 9.15+ | `npm install -g pnpm` |
 | Git | Any recent | |
 
@@ -101,10 +101,11 @@ sudo apt-get install -y \
 - `DemucsModel::separate` returns `NotImplemented`: **stem separation is a
   stub**, and no configuration makes it work.
 - `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
-  pinned model artifact (tested against a local HTTP server). One model is
-  pinned, the speech model `whisper-base` (about 139 MB from
-  huggingface.co, `crates/ml-pipeline/models.json`), and the app downloads
-  it **only when you click Download** in Settings → Account (`Speech
+  pinned model artifact (tested against a local HTTP server). Two models are
+  pinned: the speech model `whisper-base` (about 139 MB from
+  huggingface.co, `crates/ml-pipeline/models.json`) and the speaker model
+  `speaker-diarization` (about 33 MB, two files, #168), and the app downloads
+  each **only when you click its Download** in Settings → Account (`Speech
   model`; from v0.8.0), with a progress bar, Cancel (a resume with a `Range` request
   carries on from what arrived) and Remove. The `transcribe` tool finds the
   files there with `ml_pipeline::models::cached`, which hashes them (0.7 to 0.9 s in a release
@@ -364,6 +365,7 @@ src/
 ```
 src/
 ├── bundled_skills.rs # Keeps the skills that ship in the app current in ~/.edytlab/skills/ (#574, #631)
+├── chatgpt.rs     # Sign in with ChatGPT in the desktop: the session, its commands' state, keychain token store, `chatgpt://status` (#474)
 ├── commands.rs    # The #[tauri::command] functions (~110 of them)
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
@@ -409,15 +411,15 @@ src/
 ├── agent_loop.rs   # Tool-calling state machine
 ├── anthropic.rs    # Canonical message/stream types
 ├── approval.rs     # The approval gate shared by a plan and a held first edit (Plan first)
-├── chatgpt/        # Sign in with ChatGPT: protocol rules, registration store, session (#474; the app does not call it yet)
+├── chatgpt/        # Sign in with ChatGPT: protocol rules, registration store, session (#474; the desktop calls it from `apps/desktop/src-tauri/src/chatgpt.rs`, shipped in v0.9.0)
 ├── context_window.rs  # "The model's context is too small" error (#395)
 ├── keychain.rs     # Secrets: one OS-keychain item (`secrets`) via keyring; settings: a JSON file (ADR 0009)
 ├── models.rs       # Model catalogue + 10-min TTL cache
 ├── oauth/          # Generic OAuth 2.0 / OpenID Connect client: PKCE, loopback listener, OIDC checks, token endpoint (#474)
 ├── plan_gate.rs    # The plan gate: one oneshot per card, one answer, a timeout (ADR 0002)
 ├── prompt.rs       # System prompt construction
-├── provider.rs     # LlmProvider trait + 6 implementations
-├── responses.rs    # OpenAI Responses API codec (#474; no provider uses it yet)
+├── provider.rs     # LlmProvider trait + 6 implementations (Anthropic, OpenRouter, OpenAI, Groq, Gemini, Ollama; the ChatGPT one is in chatgpt/provider.rs)
+├── responses.rs    # OpenAI Responses API codec (#474; the `chatgpt` provider uses it)
 ├── session_context.rs  # Per-turn context: head, tracks, buses, master chain, selection, markers; written within a byte budget (#573)
 ├── tool_selection.rs   # The slim tool set sent to small-context models
 └── validate.rs     # API key validation (1-token probe)
@@ -430,10 +432,11 @@ src/
 ### Full Test Suite (CI-equivalent)
 
 ```bash
-# Rust
+# Rust (once: cargo install cargo-nextest --locked)
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace -- --test-threads=1
+cargo nextest run --workspace --profile ci
+cargo test --workspace --doc
 
 # Frontend
 pnpm --filter @edytlab/desktop test
@@ -445,7 +448,7 @@ pnpm --filter @edytlab/desktop typecheck:e2e
 pnpm --filter @edytlab/desktop test:e2e
 ```
 
-> **Why `--test-threads=1`?** Some tests in `crates/ai` use a shared model cache that is not safe for concurrent test runs. The `--test-threads=1` flag serializes them.
+> **Why nextest?** CI runs each test in its own process (`.config/nextest.toml`, profile `ci`), which isolates the tests that share global state, such as `crates/ai`'s model-catalogue cache. nextest does not run doctests, hence the second command. Plain `cargo test --workspace` also works locally, but tests in one binary share a process: add `-- --test-threads=1` to serialize them.
 
 ### Targeted Test Runs
 
@@ -625,7 +628,7 @@ Requires Apple Developer Program membership + signing secrets in GitHub.
 - `APPLE_ID` (for notarization)
 - `APPLE_PASSWORD` (app-specific password)
 
-Trigger `release-signed.yml` via GitHub Actions manual dispatch. None of these secrets (nor the Windows ones below) are provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). A versioned but unsigned release — every one from v0.2.0 to v0.7.0 — comes from dispatching `release-dev.yml` with `channel: release`.
+Trigger `release-signed.yml` via GitHub Actions manual dispatch. None of these secrets (nor the Windows ones below) are provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). A versioned but unsigned release — every one so far, v0.2.0 onward — comes from dispatching `release-dev.yml` with `channel: release`.
 
 ### Signed Windows Build
 
@@ -663,6 +666,39 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 4. Add the entry to `website/app/changelog/page.tsx`
 5. Commit as `chore(release): X.Y.Z`
 
+### Third-party licences
+
+Every installer carries `licenses/THIRD_PARTY_NOTICES.txt` (in the resource directory, from `bundle.resources` in `tauri.conf.json`), and Settings → Account → Open source licences shows it (the `third_party_notices` command reads that one file). It is a generated, committed file: `apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt`. Do not edit it by hand.
+
+It is made by `scripts/third-party-notices/generate.mjs` from:
+
+- `preface.txt` and `credits.txt` (hand-written, in the same folder): what the file is, the code the Rust crates were derived from (Whisper, Demucs, pyannote.audio, SciPy, torchaudio, Kaldi) with their licence texts, the models the app can download and who made them, and the test data;
+- the JavaScript packages that are in the production bundle, from `vite build` with `rollup-plugin-license` (switched on only by `EDYTLAB_NOTICES_JSON`, so a normal build is unchanged), plus the font and CSS packages the bundle pulls in without a JavaScript import (`CSS_AND_FONT_PACKAGES` in the script; it fails if an `@fontsource` dependency is missing from it). A package whose licence is outside the script's allow-list, or that ships no licence text, stops the script;
+- the Rust crates of `edytlab-desktop` for every installer target, from `cargo-about` (`about.toml`, `about.hbs`): no dev- or build-dependencies, cross-checked against `cargo tree` for every target (a crate that is linked and that `cargo-about` dropped, as it does the macOS-only `security-framework` of `keyring`, gets its licence files read directly and printed in its own section), one block per distinct licence text so a crate's own copyright line is kept, an MPL-2.0 source availability section, and the NOTICE file of any crate that ships one. `about.toml` lists the only licences allowed (`accepted`); a dependency under any other (a GPL, an LGPL, an EPL, an unknown one) makes the generator fail instead of being added, and that is a decision for the project owner. Its `clarify` entries name a crate's licence file by SHA-256 where `cargo-about` does not find it by itself; a crate release that changes the file stops matching and falls back to the standard text (the file then says "no licence file in the crate" and names the Cargo.toml authors).
+
+To regenerate after a dependency change:
+
+```bash
+cargo install --locked cargo-about@0.9.2 --features cli   # the version in generate.mjs and notices.yml
+pnpm install --frozen-lockfile
+node scripts/third-party-notices/generate.mjs             # --check only compares
+```
+
+It takes about a minute (it builds the frontend into a temporary folder and reads every crate's licence files with `--offline`). The `Notices` workflow (`notices.yml`) runs `generate.mjs --check` on PRs that change `Cargo.lock`, a `Cargo.toml`, `pnpm-lock.yaml`, `apps/desktop/package.json`, `vite.config.ts`, the notices inputs or the file itself, and fails when the committed file is not what a fresh run writes. Because a version number is in the file, **every dependency bump (a Dependabot PR too) needs the file regenerated and committed.** `scripts/installer-ml-runtime.py check` then fails a release build whose installer lacks the file or carries a different one, and `apps/desktop/src-tauri/tests/third_party_notices.rs` pins the rest (the resource entry, the sections, the `cargo-about` version).
+
+How each obligation FOSSA lists for the licences in the dependency graph is met:
+
+| Obligation | Licences that ask for it | What edytlab does | Where to see it |
+|---|---|---|---|
+| Include License | MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, CDLA-Permissive-2.0, OFL-1.1, MPL-2.0 | The full text of every licence file, for the Rust crates, the JavaScript packages, the fonts and the code the Rust crates were derived from, in the file every installer carries and Settings shows | `THIRD_PARTY_NOTICES.txt`; `installer-ml-runtime.py check` |
+| Include Copyright | the same | One block per distinct licence file, not per licence name, so each file's copyright line is kept; `clarify` entries for files `cargo-about` misses; for the few crates that ship no licence file, the Cargo.toml authors; the ported upstreams with their copyright lines | `about.toml`, `about.hbs`; `generate.mjs`; CREDITS in the file |
+| Rename | OFL-1.1 with a Reserved Font Name; licences that forbid the original name on a modified version | Nothing shipped is modified, so nothing is renamed. The Geist fonts are shipped as `@fontsource-variable` publishes them and declare no Reserved Font Name; the crates and packages are used as published; no `[patch]`, vendored crate, `patchedDependencies` or copied third-party source file is in a shipped build. The only verbatim copies of upstream code are Python test-fixture scripts (not shipped), and they carry their licence and state their changes | `git grep '\[patch'`; the licence texts; the headers of the `make_*_fixture.py` and `reference.py` files |
+| Include Notice | Apache-2.0 section 4(d) | A NOTICE file in a dependency is reproduced: the generator reads `NOTICE*` from every crate in the graph and every bundled JavaScript package. None ships one today (the file says so); ONNX Runtime and the Visual C++ runtime keep their own notices beside it | "NOTICE FILES OF RUST CRATES" in the file; `licenses/onnxruntime/`, `licenses/vc-runtime/` |
+| State Changes | Apache-2.0 section 4(b), MPL-2.0, and the MIT and BSD code edytlab translated | No third-party file is modified: crates and packages are used as published. The Rust modules derived from Whisper, Demucs, pyannote.audio, SciPy and torchaudio are new files that start with a comment naming the upstream, its licence and copyright, and the change (translated to Rust); the three Python fixture scripts that copy upstream functions say what they changed and carry the licence | the first lines of `crates/ml-whisper/src/{mel,decode,segments,timing}.rs`, `crates/ml-demucs/src/{separate,spec}.rs`, `crates/ml-diarize/src/{cluster,frames,pipeline,fbank}.rs`; CREDITS section B |
+| Give Credit | CC-BY-4.0 (the WeSpeaker model, the AMI recording), OFL-1.1, and every upstream above | A CREDITS section: the code, the models the app downloads on request and their licences, the test data; the fonts and the libraries by name and version | CREDITS in the file; `crates/ml-diarize/tests/fixtures/AMI-LICENSE.md`; the Terms page |
+| Include Original | BSD-3-Clause, ISC, Zlib, Unicode-3.0, CDLA-Permissive-2.0 (original notice and licence text kept unmodified). Python-2.0, W3C, NCSA, Mulan PSL, MIT-0, Unlicense are not in the graph | Texts are copied as the crate or package ships them (only line endings and trailing blanks are normalised); a licence outside `about.toml`'s `accepted` list fails the build of the file | `about.toml`; `generate.mjs` |
+| Disclose Source | MPL-2.0 section 3.2 (cssparser, dtoa-short, option-ext, selectors, symphonia) | A "Source availability (MPL-2.0)" section with each crate's name, version, crates.io page, download address and repository; none is modified; edytlab's own source is public on GitHub. No GPL, LGPL or EPL crate is in the graph (`accepted` would stop it) | the last section of the file |
+
 ---
 
 ## 8. CI Pipeline
@@ -683,7 +719,7 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 6. `cargo clippy --workspace --all-targets -- -D warnings` (every leg: the `cfg(target_os)` code differs per platform)
 7. Install `cargo-nextest` (`taiki-e/install-action`, pinned) and run `cargo nextest run --workspace --profile ci` (settings in `.config/nextest.toml`: a process per test, all failures reported, a 20-minute kill for a hung test, no retries)
 8. `cargo test --workspace --doc --no-fail-fast` (nextest does not run doctests)
-9. Linux leg only: fetch the pinned ONNX Runtime (`scripts/fetch-ml-runtime.sh linux-x64`, cached by the hash of `apps/desktop/src-tauri/ml-runtime.json`) and run `ml-pipeline`'s ignored `cache_smoke` tests against it with `ORT_DYLIB_PATH` set (see [Environment Variables](#9-environment-variables))
+9. Linux leg only: fetch the pinned ONNX Runtime (`scripts/fetch-ml-runtime.sh linux-x64`, cached by the hash of `apps/desktop/src-tauri/ml-runtime.json`) and run `ml-pipeline`'s ignored `cache_smoke`, `runtime_bundle_real` and `onnx_session_builder` tests against it with `ORT_DYLIB_PATH` set (see [Environment Variables](#9-environment-variables))
 
 The job sets `CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_PROFILE_TEST_DEBUG=0` (no debug info; fewer bytes to link and to cache). To run the suite as CI does on your machine: `cargo install cargo-nextest --locked`, then `cargo nextest run --workspace --profile ci` and `cargo test --workspace --doc`.
 
@@ -701,6 +737,10 @@ The job sets `CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_PROFILE_TEST_DEBUG=0` (no de
 
 It is a workflow of its own, not a `ci.yml` job, and it does not run on push: `auto-release.yml` waits only on the run named "CI", so an advisory published on a quiet day can never turn that run red and skip a dev release. Do not make it a required check, since a PR its path filter skips would wait on it forever.
 
+### Workflow: `notices.yml` (Notices)
+
+`generate.mjs --check`: regenerates the third-party notices (see "Third-party licences" above) into a temporary file and fails when the committed `THIRD_PARTY_NOTICES.txt` differs. It runs on PRs and on pushes to `main` that change a lockfile, a `Cargo.toml`, `apps/desktop/package.json`, `vite.config.ts`, anything under `apps/desktop/src/` (a new import changes which packages are in the bundle), the notices inputs or the file, weekly (Monday 06:47 UTC), and on `workflow_dispatch`. The `cargo-about` version is pinned in `CARGO_ABOUT_VERSION` (and in `generate.mjs`; a test holds them equal) and the binary is cached by it. Like `audit.yml` it is a workflow of its own, not a `ci.yml` job, and nothing waits on it, so a dependency bump that has not been regenerated yet, or a registry outage, can never turn the run `auto-release.yml` waits on red. Do not make it a required check.
+
 ### Workflow: `ml.yml` (ML)
 
 The tests that need the real speech model and the real ONNX Runtime, on
@@ -708,11 +748,11 @@ Linux, with `--ignored`, against the pins in
 `apps/desktop/src-tauri/ml-runtime.json` and `crates/ml-pipeline/models.json`
 (about 22 MB of runtime and 139 MB of model, both from third parties):
 
-- `ml-whisper`: `transcribe_known_words`, and the two ignored tests of `transcribe_smoke`;
+- `ml-pipeline`: `onnx_session_builder` (the shared session builder runs a model; needs only the runtime) and `model_real_download` (the downloader against huggingface.co);
+- `ml-whisper`: `transcribe_known_words`, the two ignored tests of `transcribe_smoke`, and the lib test that a decoder step does not copy its key-value cache (#657);
 - `tools`: `transcribe_end_to_end` (the `transcribe` tool on the real model,
   through a session, #668) and `transcribe_load_errors` (needs only the runtime);
-- `ml-pipeline`: `model_real_download` (the downloader against huggingface.co);
-- `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168).
+- `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168);
 - `tools`: `diarize_end_to_end` (the `diarize` tool on that excerpt, through a session, #168).
 
 **Trigger:** `workflow_dispatch` only. It does not run on push, on a pull
@@ -756,7 +796,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux\|macos\|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
+| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux\|macos\|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke`, `runtime_bundle_real` and `onnx_session_builder` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real --test onnx_session_builder -- --ignored --test-threads=1` |
 | `WHISPER_MODEL_PATH` | unset | The speech model's **folder** (`onnx/encoder_model.onnx`, `onnx/decoder_model_merged_int8.onnx`, `tokenizer.json`). `transcribe` uses it instead of the model downloaded in Settings; the ignored `ml-whisper` and `tools` tests need it — see [ML Model Files](#ml-model-files-whisperdemucs) |
 | `DIARIZE_MODEL_PATH` | unset | The speaker model's **folder** (`segmentation/model.onnx`, `embedding/model.onnx`, as `crates/ml-pipeline/models.json` pins them). The ignored `ml-diarize` tests need it — see [Running the model tests locally](#running-the-model-tests-locally) |
 | `DEMUCS_MODEL_PATH` | unset | The Demucs model **file** — see [ML Model Files](#ml-model-files-whisperdemucs) |
@@ -801,7 +841,7 @@ if (!wsRef.current || duration === 0) return;
 
 ### `cargo test` flaking on shared state
 
-Add `-- --test-threads=1` to serialize tests within each binary, as CI does: tests that share global state — `crates/ai`'s model-catalogue cache, for one — race otherwise (`cache_returns_within_ttl` flaked on Windows next to a test that calls `clear_cache()`).
+With plain `cargo test`, add `-- --test-threads=1` to serialize tests within each binary (CI uses `cargo nextest`, a process per test, so it does not need it): tests that share global state — `crates/ai`'s model-catalogue cache, for one — race otherwise (`cache_returns_within_ttl` flaked on Windows next to a test that calls `clear_cache()`).
 
 ### Keychain access dialog on macOS
 
@@ -843,7 +883,7 @@ Ensure the return type in `commands.rs` matches the TypeScript interface in `tau
 
 ## 11. Acceptance Gate
 
-Run this before opening any PR. CI runs the same checks.
+Run this before opening any PR. CI runs the same checks (its Rust tests through `cargo nextest`, see section 8).
 
 ```bash
 # 1. Format check
@@ -852,8 +892,9 @@ cargo fmt --all -- --check
 # 2. Lint (zero warnings allowed)
 cargo clippy --workspace --all-targets -- -D warnings
 
-# 3. Rust tests (serialized)
-cargo test --workspace -- --test-threads=1
+# 3. Rust tests (as CI: a process per test; nextest skips doctests)
+cargo nextest run --workspace --profile ci
+cargo test --workspace --doc
 
 # 4. Frontend tests
 pnpm --filter @edytlab/desktop test

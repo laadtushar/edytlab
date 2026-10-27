@@ -82,7 +82,7 @@ nobody thinks this runs live.
 > Disclosure: I'm the developer. It's free and open source.
 >
 > This is for prep, not for playing live. You load two tracks and describe the
-> transition. In the recording on the site (2:45, with sound), the
+> transition. In the recording on the site (with sound), the
 > request is: get both tracks' tempos, time-stretch the incoming track to match,
 > start it 8 bars before the outgoing track ends, crossfade, put a low-pass on
 > the outgoing track over the overlap, compress and limit the mix, bring it to
@@ -96,9 +96,9 @@ nobody thinks this runs live.
 > Things it will not do for you: it doesn't split tracks into stems or
 > acapellas (not built), it doesn't talk to rekordbox or Serato, and there's no
 > live mode. Beat detection is software, so on a track with a drifting tempo or
-> a long ambient intro it can be off. The recording shows exactly that: the
-> assistant itself points out that at the 16 s start the bars land a beat
-> apart, and I left it in.
+> a long ambient intro it can be off, so check a blend by ear. The assistant's
+> replies in the recording are its own words as they came, readings included,
+> and a take will differ.
 >
 > Demo: https://edytlab.com/#demos
 > Download (unsigned, so there's a first-launch warning on Mac and Windows):

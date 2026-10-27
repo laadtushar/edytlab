@@ -54,6 +54,7 @@ unlisten();
 - [Capabilities](#capabilities)
 - [ONNX Runtime](#onnx-runtime)
 - [Speech Model](#speech-model)
+- [Open Source Licences](#open-source-licences)
 - [ChatGPT Plan](#chatgpt-plan)
 - [Skills (CRUD)](#skills-crud)
 - [Agent Profiles (CRUD)](#agent-profiles-crud)
@@ -1424,11 +1425,13 @@ stem separation is not shipped (#384, #385).
 
 ## Speech Model
 
-The Settings → Account "Speech model" row drives these four commands and the
-`ml-model-progress` event (#383). They all take `model`, the id of a model in
-`crates/ml-pipeline/models.json`: today only `"whisper-base"`, Whisper base
-(about 139 MB, three files pinned by commit, byte size and SHA-256, from
-huggingface.co). An id that is not listed is an error naming it; nothing is
+The Settings → Account "Speech model" and "Speaker model" rows drive these four
+commands and the `ml-model-progress` event (#383, #168). They all take `model`,
+the id of a model in `crates/ml-pipeline/models.json`: `"whisper-base"`, Whisper
+base (about 139 MB, three files pinned by commit, byte size and SHA-256, from
+huggingface.co), and `"speaker-diarization"`, the pyannote segmentation and
+WeSpeaker voiceprint networks (about 33 MB, two files, from huggingface.co).
+Each row filters the event by `model`. An id that is not listed is an error naming it; nothing is
 made into a path from it.
 
 **The only way a model is downloaded is `downloadMlModel`, which the user's
@@ -1469,7 +1472,7 @@ running is left alone, and a model that is already complete is verified rather
 than fetched. Every file is written to a `.part` file and renamed to its final
 name only once its size and SHA-256 match, so a half file never has one. Models
 are kept in `<app local data>/models/<id>/` (the local, non-roaming data folder: `%LOCALAPPDATA%` on Windows).
-Only a model Settings offers can be started (today `whisper-base`): another model of the manifest, such as the pinned speaker model, answers an error that says it is not offered, with no request made.
+Only a model Settings offers can be started (today `whisper-base` and `speaker-diarization`, `OFFERED_ML_MODELS` in `commands.rs`): another model of the manifest answers an error that says it is not offered, with no request made.
 
 ### `cancelMlModelDownload(model: string) → MlModelStatus`
 
@@ -1491,6 +1494,34 @@ Emitted as `ml-model-progress` on every change of a model's state: the start,
 progress (at most one every 100 ms), the end (`ready`, `failed`, or
 `not_downloaded` after a cancel) and a removal. The payload is the same object
 the commands answer with.
+
+---
+
+## Open Source Licences
+
+### `thirdPartyNotices() → Promise<string>`
+
+The text of the third-party notices file the installer carries: the licence
+texts and copyright lines of the Rust crates, JavaScript packages and fonts
+edytlab is built from, the code its Rust files were derived from (Whisper,
+Demucs, pyannote.audio, SciPy, torchaudio, Kaldi), the models the app can
+download and who made them, and where to get the source of the MPL-2.0
+libraries (MPL-2.0 section 3.2). Settings shows it under Account → Open source
+licences, only when Show is pressed; opening Settings reads nothing.
+
+Read-only. It opens one fixed file, `licenses/THIRD_PARTY_NOTICES.txt` in the
+app's resource directory (`bundle.resources` in `tauri.conf.json`), and takes
+no argument, so the window cannot name a path. The file is generated from
+`Cargo.lock` and `pnpm-lock.yaml` by `scripts/third-party-notices/generate.mjs`
+and the `Notices` workflow fails when it is stale. It is file work, so it runs
+on the blocking pool and takes none of the store, engine or dispatcher locks.
+
+**Rejects with** a sentence, never a path: the file is not in this build (a
+build that was not made from the repository), or it could not be read.
+
+```typescript
+const text = await bridge.thirdPartyNotices(); // plain text, LF line endings
+```
 
 ---
 
@@ -1828,7 +1859,7 @@ Emitted when something needs approval before it runs, and the turn is suspended
 until `approvePlan()` or `rejectPlan()`. Each step is
 `{ step: number, tool: string, description: string }`, plus
 `unavailable: true` on a step whose tool does nothing in this build
-(`separate_stems`, `transcribe`: their inference is not shipped).
+(`separate_stems`: its inference is not shipped).
 
 The agent's own plan is checked before it is shown. A step with neither a tool
 nor a description is dropped, and so is a step naming `none` or a tool that is

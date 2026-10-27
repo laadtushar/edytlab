@@ -56,7 +56,7 @@ export const crossfadeTwoSongs: BlogPost = {
     },
     {
       type: "p",
-      text: "In the demos, the assistant pointed out that after the stretch the second track's bars ran a beat behind the first's and offered a half-second correction, and in the mini-mix it started one track on the other's bar line, which made that overlap 8.77 s instead of exactly four bars. How long to overlap is a choice with no standard figure. The demos use about four bars, or eight in the first demo, and their crossfades are straight-line ones.",
+      text: "How long to overlap is a choice with no standard figure. The demos use about four bars, or eight in the first demo, and their crossfades are straight-line ones.",
     },
     { type: "h2", text: "What a run on synthetic audio showed" },
     {
@@ -121,7 +121,7 @@ export const crossfadeTwoSongs: BlogPost = {
     { type: "h3", text: "Does edytlab beatmatch automatically?" },
     {
       type: "p",
-      text: "Not by itself. It analyses both tracks, and the assistant stretches and positions them with the tools above because you asked. The demos show the assistant flagging when the bars do not line up. The detector can be wrong, and the grid is a single steady tempo, so a song with a drifting tempo needs `align_to_beat`, which warps it onto a grid you give it.",
+      text: "Not by itself. It analyses both tracks, and the assistant stretches and positions them with the tools above because you asked. The detector can be wrong, and the grid is a single steady tempo, so a song with a drifting tempo needs `align_to_beat`, which warps it onto a grid you give it.",
     },
     { type: "h2", text: "Sources" },
     {

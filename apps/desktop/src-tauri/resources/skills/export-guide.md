@@ -1,8 +1,8 @@
 ---
 name: export-guide
 description: Audio export workflow and format guidance
-trigger: keywords
-keywords: [export, save, output, render, finish, done, final, wav, flac, format]
+trigger: regex
+pattern: \b(exports?|exporting|exported|bounce|bouncing|render(ing)?|save as|wav|flac|mp3)\b
 enabled: true
 ---
 
@@ -10,13 +10,13 @@ enabled: true
 
 When the user wants to export or save audio:
 
-1. **Single track export**: `export_multiple` track_indices=[N], output_dir="exports", format="wav"
-2. **Mixed export**: `mix_to_new_track` first, then export the new mixed track
-3. **Multiple tracks**: `export_multiple` with all desired track_indices
+1. **Whole mix** (every track and the master bus): `render_final` format="wav", "flac" or "mp3", with the head node as its node id. No `mix_to_new_track` is needed.
+2. **Single track**: `export_multiple` track_indices=[N], output_dir="exports", format="wav"
+3. **Several tracks**: `export_multiple` with all desired track_indices
 
-Before export, recommend:
-- `normalize` target_dbfs=-1.0 for consistent peak level
-- `limiter` ceiling_db=-0.3 as the last level change, after `normalize` (gain first, limiter last; never add gain after the limiter). The limiter's ceiling is a sample-peak ceiling, so inter-sample (true) peaks can still go over it.
-- `measure` (omit `track` to measure the mix) and read `peak.true_dbtp`. If the user has a true-peak target (for example -1 dBTP) and `peak.true_dbtp` is above it, lower `ceiling_db` on the limiter by the overshoot and measure again.
+Before export, `measure` (omit `track` to measure the mix). Stop when `clipping.events` is 0 and `peak.true_dbtp` is at or under -1.0 (or the user's own true-peak target). If not:
+- `normalize` target_dbfs=-1.0 lowers or raises the **peak** only, for headroom. It does not set loudness: for a platform loudness target use `normalize_loudness` (loudness-master has the steps).
+- Hold the peaks with one limiter, last in the chain and after any gain: `add_effect` kind=limiter params={"ceiling_db": -1.0} (scope=master for the mix, track=N for one track). If the session block already lists a limiter there, lower it with `set_effect_params` instead of adding a second. Do not use the `limiter` tool for this: it bakes into the file before the track's gain, so a later gain lifts the peaks past it.
+- The limiter's ceiling is a sample-peak ceiling. If `peak.true_dbtp` is still over, lower `ceiling_db` by the overshoot and measure again (three passes at most).
 
 Ask the user for their target platform to give specific loudness recommendations.

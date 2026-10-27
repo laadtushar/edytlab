@@ -35,8 +35,8 @@
 //! The answers carry no local path and no loader reason (the reason is logged):
 //! tool results go to the model provider. They carry no setup marker either,
 //! because the setup card (`ai::ToolView::SpeechSetup`) speaks of the speech
-//! model; Settings has no row for the speaker model yet (#168 part 3), and the
-//! answers say so rather than send the user to a button that is not there.
+//! model; the answers name the Speaker model row in Settings → Account
+//! instead (#168 part 3).
 //!
 //! ## Testing without a model
 //!
@@ -319,9 +319,10 @@ pub fn answer(failure: &DiarizeFailure) -> String {
     match failure {
         DiarizeFailure::ModelNotDownloaded => format!(
             "The speaker model (about {} MB) is not on this computer, so speakers cannot be told \
-             apart yet. Tell the user; only they can download it, and this build's Settings does \
-             not have a button for it yet. Do not try to download, install or configure anything \
-             yourself, and do not call diarize again until the user says the model is there.",
+             apart yet. Tell the user; only they can download it, with Download on the Speaker \
+             model row in Settings → Account. Do not try to download, install or configure \
+             anything yourself, and do not call diarize again until the user says the model is \
+             there.",
             model_megabytes()
         ),
         DiarizeFailure::RuntimeUnavailable(reason) => format!(
@@ -332,8 +333,9 @@ pub fn answer(failure: &DiarizeFailure) -> String {
              yourself."
         ),
         DiarizeFailure::ModelDamaged => "The speaker model is on this computer but could not be \
-             loaded, so the download is damaged. Tell the user to remove it and download it \
-             again when Settings offers that. Do not try to repair or replace files yourself."
+             loaded, so the download is damaged. Tell the user to press Remove and then \
+             Download on the Speaker model row in Settings → Account. Do not try to repair or \
+             replace files yourself."
             .to_string(),
         DiarizeFailure::ModelPathInvalid => format!(
             "{MODEL_PATH_VAR} is set, and what it names is not the speaker model: the folder has \

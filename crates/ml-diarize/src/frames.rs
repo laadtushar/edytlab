@@ -1,3 +1,10 @@
+// Derived from pyannote.audio 3.3.2, https://github.com/pyannote/pyannote-audio
+// (core/inference.py, pipelines/utils/diarization.py). MIT License, Copyright (c) 2020 CNRS.
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! The frame grid of the segmentation network, and what the pipeline does on
 //! it after the clustering: counting the speakers in each frame, giving each
 //! cluster its frames, and cutting the frames into turns.

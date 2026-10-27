@@ -1,0 +1,74 @@
+{
+  "video": "reel-teaser.mp4",
+  "duration": 14.9,
+  "fps": 30,
+  "size": "1080x1920",
+  "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). The narration lines for the earlier takes are in transcripts.md.",
+  "cues": [
+    {
+      "id": "T01",
+      "kind": "hook",
+      "start": 0.0,
+      "end": 2.5,
+      "onscreen": "Ask for the blend.",
+      "title": [
+        "Ask for",
+        "the blend."
+      ],
+      "sub": ""
+    },
+    {
+      "id": "T02",
+      "kind": "step",
+      "start": 2.5,
+      "end": 5.2,
+      "onscreen": "2 · Beatmatch",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT05",
+        "start": 39.0,
+        "end": 41.7
+      }
+    },
+    {
+      "id": "T03",
+      "kind": "step",
+      "start": 5.2,
+      "end": 7.9,
+      "onscreen": "4 · Blend: crossfade, low-pass on the outgoing track",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT07",
+        "start": 75.0,
+        "end": 77.7
+      }
+    },
+    {
+      "id": "T04",
+      "kind": "listen",
+      "start": 7.9,
+      "end": 12.4,
+      "onscreen": "Listen: the transition, from 0:12",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT08",
+        "start": 91.0,
+        "end": 95.5
+      },
+      "sound": [
+        7.9,
+        12.4
+      ]
+    },
+    {
+      "id": "T05",
+      "kind": "end",
+      "start": 12.4,
+      "end": 14.9,
+      "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux"
+    }
+  ]
+}

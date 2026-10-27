@@ -41,7 +41,7 @@ const assets = [
   {
     label: "Demo video (MP4)",
     href: "/demos/dj-beatmatched-transition.mp4",
-    note: "Beatmatch and blend two tracks, 2:45, with sound",
+    note: "Beatmatch and blend two tracks, with sound",
   },
   {
     label: "Demo video poster (JPG)",

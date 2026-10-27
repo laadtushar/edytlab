@@ -127,6 +127,59 @@ export function speechModelStatus(
   }
 }
 
+/** Bytes of the speaker model: both files of `speaker-diarization` as pinned. */
+export const SPEAKER_MODEL_BYTES = 32_517_217;
+
+/**
+ * `MlModelStatusDto` (`commands.rs`) for `speaker-diarization` (#168): the
+ * same flat object as {@link speechModelStatus}, for the model whose two
+ * files add up to 5,986,908 + 26,530,309 bytes in `models.json`.
+ */
+export function speakerModelStatus(
+  fields:
+    | { state: "not_downloaded"; bytes?: number }
+    | { state: "downloading"; received: number }
+    | { state: "ready" }
+    | { state: "failed"; reason: string; bytes?: number },
+): Record<string, unknown> {
+  return {
+    ...speechModelStatus(fields as Parameters<typeof speechModelStatus>[0]),
+    model: "speaker-diarization",
+    size: SPEAKER_MODEL_BYTES,
+    ...(fields.state === "downloading" ? { total: SPEAKER_MODEL_BYTES } : {}),
+    ...(fields.state === "ready" ? { bytes: SPEAKER_MODEL_BYTES } : {}),
+  };
+}
+
+/**
+ * The speaker model buttons' commands: the answers of
+ * {@link speechModelCommands} for `speaker-diarization`.
+ */
+export function speakerModelCommands({ received = 0 }: { received?: number } = {}): Backend {
+  return {
+    download_ml_model: ok(speakerModelStatus({ state: "downloading", received: 0 })),
+    cancel_ml_model_download: ok(speakerModelStatus({ state: "downloading", received })),
+    remove_ml_model: ok(speakerModelStatus({ state: "not_downloaded" })),
+  };
+}
+
+/**
+ * `ml_model_status` for both rows, one answer for each model id, since the
+ * command takes the model as its argument. A spec that starts a row from a
+ * state passes it here.
+ */
+export function modelStatuses({
+  speech = speechModelStatus({ state: "not_downloaded" }),
+  speaker = speakerModelStatus({ state: "not_downloaded" }),
+}: { speech?: Record<string, unknown>; speaker?: Record<string, unknown> } = {}): Backend {
+  return {
+    ml_model_status: byArg("model", {
+      "whisper-base": ok(speech),
+      "speaker-diarization": ok(speaker),
+    }),
+  };
+}
+
 /**
  * The speech model buttons' commands, for the spec that presses them.
  * Each answers what the command answers when it is called on a model in
@@ -354,6 +407,26 @@ function providerCommands(): Backend {
       state: "missing",
       searched: ["/usr/lib/edytlab/libonnxruntime.so", "/usr/bin/libonnxruntime.so"],
     }),
+    // `third_party_notices` (`commands.rs`): the text of
+    // `licenses/THIRD_PARTY_NOTICES.txt` from the resource directory, asked
+    // for only when Show is pressed in the "Open source licences" row. The
+    // stand-in is long enough to scroll in the panel and carries the same
+    // headings the generated file does.
+    third_party_notices: ok(
+      [
+        "THIRD-PARTY NOTICES",
+        "===================",
+        "",
+        "CREDITS",
+        "=======",
+        ...Array.from({ length: 120 }, (_, i) => `Licence text line ${i + 1}.`),
+        "",
+        "SOURCE AVAILABILITY (MPL-2.0)",
+        "=============================",
+        "",
+        "  * symphonia 0.5.5",
+      ].join("\n"),
+    ),
     // `recording_latency_status` for a machine with devices and nothing
     // measured, which the Audio tab asks for when it opens.
     get_recording_latency: ok(recordingLatencyStatus()),
@@ -369,7 +442,10 @@ function providerCommands(): Backend {
     // buttons' commands (`download_ml_model`, `cancel_ml_model_download`,
     // `remove_ml_model`) are answered by `speechModelCommands` for the spec
     // that presses them; nothing here calls them.
-    ml_model_status: ok(speechModelStatus({ state: "not_downloaded" })),
+    // The speaker model's row (#168) asks the same command for
+    // `speaker-diarization`, whose two files total 32,517,217 bytes, so the
+    // answer depends on the model argument (`byArg`).
+    ...modelStatuses(),
     // `list_models_at`'s Anthropic arm with no key saved, which is what a
     // fresh profile has: `anthropic_fallback_models()` in
     // `crates/ai/src/models.rs`, uncached, with the reason as the notice.

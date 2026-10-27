@@ -35,9 +35,9 @@ Screen recordings of the desktop app with Claude as the agent, each one a DJ job
 
 All three are recorded with sound: waits for Claude are sped up, and every playback is in real time.
 
-- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4) (2:45): the DJ asks what they are working with (Neon Rush about 6.7% faster); Neon Rush is time-stretched to Midnight Drive's 120 BPM and started at 16 s, under its last 8 bars, and Claude points out that its bars then run a beat behind and offers to start it at 15.5 s. Midnight Drive fades out under a 1 kHz low-pass while Neon Rush fades in; the mix is mastered and exported as a 50-second WAV at −13.9 LUFS, peaking at −1 dBFS.
-- [**Extend an intro for mixing**](website/public/demos/dj-extended-club-intro.mp4) (1:55): the DJ asks for Solar Flare's tempo and bar length; the drums-only first 8 bars are copied from the first downbeat and pasted after themselves, so the intro runs 16 bars; a 200 Hz high-pass holds the low end back until the drop, the first 4 bars fade in, and the track is exported as a WAV. Claude flags that it peaks right at full scale. You hear the new intro, then the drop at 0:31.
-- [**A three-track mini-mix**](website/public/demos/dj-mini-mix.mp4) (1:58): three tracks are brought to 124 BPM, sequenced with overlaps of about 4 bars and crossfades, matched to about −14 LUFS each and limited at −1 dB on the master, then exported as a 79-second WAV. Claude brings the last track in on the bar line before it rather than at the exact 4-bar mark.
+- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4): the DJ asks what they are working with; Neon Rush is time-stretched to Midnight Drive's tempo, keeping its pitch, and started under Midnight Drive's last 8 bars. Midnight Drive fades out under a low-pass filter while Neon Rush fades in; the mix is mastered for streaming and exported as a WAV.
+- [**Extend an intro for mixing**](website/public/demos/dj-extended-club-intro.mp4): the DJ asks for Solar Flare's tempo and bar length; the drums-only first 8 bars are copied and pasted after themselves, so the intro runs 16 bars; a high-pass filter holds the low end back until the drop, the first 4 bars fade in, and the track is exported as a WAV. You hear the new intro, then the drop.
+- [**A three-track mini-mix**](website/public/demos/dj-mini-mix.mp4): three tracks are brought to one tempo, sequenced with overlaps of about 4 bars and crossfades, matched to about −14 LUFS each and limited at −1 dB on the master, then exported as a WAV.
 
 The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails if a listed video or poster is missing from `website/public/demos/`.
 
@@ -96,12 +96,13 @@ Ollama is sent a smaller set of tools than the hosted providers: the common edit
 │   crates/tools       — 99 deterministic tools + dispatcher       │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, DSP, engine, time-domain ops      │
-│   crates/ml-*        — Demucs (not shipped), Whisper (runs)      │
+│   crates/ml-*        — Whisper, diarize (run); Demucs (stub)     │
 └──────────────────────────────────────────────────────────────────┘
                        │
 ┌──────────────────────────────────────────────────────────────────┐
 │  LLM providers (pluggable at runtime)                            │
 │   Anthropic · OpenRouter · OpenAI · Groq · Gemini · Ollama       │
+│   (six API providers plus your ChatGPT plan)                     │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -140,7 +141,7 @@ crates/
   agent_profiles/     Saved model + tool-whitelist + prompt profiles
   mcp/                MCP server config, lifecycle and JSON-RPC
   ml-demucs/          Stem separation (inference is a stub, #385)
-  ml-diarize/         Speaker diarization (pyannote-style pipeline on ONNX; the model is not offered in the app and no tool runs it yet, #168)
+  ml-diarize/         Speaker diarization (pyannote-style pipeline on ONNX; the `diarize` tool runs it on the speaker model the user downloads in Settings, #168)
   ml-whisper/         Transcription (run by the `transcribe` tool on the model the user downloaded, #384)
   ml-pipeline/        Shared ONNX runtime gate, verified model downloader + the user-started speech-model download (#383) + inference cache
 docs/                 Specs, handover, packaging notes
@@ -178,7 +179,7 @@ The Tauri bundle build is intentionally **not** in CI (too slow); release workfl
 
 - **Auto dev releases.** `auto-release.yml` listens to `ci.yml`'s `workflow_run` on `main`. On green, it tags `v<version>-dev.<run_number>` and dispatches `release-dev.yml`, which builds **unsigned** bundles — a universal macOS `.dmg`, Windows `.msi` + NSIS `.exe`, Linux `.deb` + AppImage — and attaches them to a GitHub Release. On a green matrix the `publish` job flips that release out of draft, so every green push to `main` publishes a dev prerelease; it is marked `prerelease` with `make_latest=false`, so it never takes the Latest badge from a real release. A draft is what a *failed* matrix leaves behind.
 - **The ONNX Runtime in every installer.** Each release leg fetches the pinned ONNX Runtime (`apps/desktop/src-tauri/ml-runtime.json`), builds with its platform's `tauri.ml-runtime.<os>.conf.json` overlay, and checks every installer before uploading it (`scripts/installer-ml-runtime.py`): the library and its notices are where the app looks, and the app binary from that installer reports it bundled (`--ml-runtime-status`). `release-dev.yml` dispatched with `dry_run: true` builds and checks without releasing anything.
-- **Versioned releases (unsigned for now).** `release-dev.yml` dispatched with `channel: release` publishes a real release — not a prerelease, marked Latest. v0.2.0 to v0.9.2 shipped this way.
+- **Versioned releases (unsigned for now).** `release-dev.yml` dispatched with `channel: release` publishes a real release — not a prerelease, marked Latest. v0.2.0 to v0.9.3 shipped this way.
 - **Signed releases.** `release-signed.yml` builds all three platforms in one matrix — Apple notarization on mac, Authenticode + DigiCert timestamp on Windows, unsigned `.deb`/AppImage on Linux. **Manual** `workflow_dispatch`, gated on signing secrets being provisioned. They are not provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). It builds first and uploads only after signing, so the published assets are always the signed bytes. See [`docs/packaging-windows.md`](docs/packaging-windows.md) for the Windows side, including the SmartScreen reputation note.
 - Bundle targets are pinned in `tauri.conf.json` to `["app", "dmg", "msi", "nsis", "deb", "appimage"]` — don't revert to `"all"`.
 
@@ -186,7 +187,7 @@ App version is canonical in `apps/desktop/src-tauri/tauri.conf.json`; the `packa
 
 ## Contributing
 
-Working-style rules, branch naming, conventional-commit prefixes, and acceptance gates are codified in [`CLAUDE.md`](CLAUDE.md). One concern per PR; open as draft, squash-merge once CI is green. No formal CONTRIBUTING wall — read `CLAUDE.md` and ship.
+Working-style rules, branch naming, conventional-commit prefixes, and acceptance gates are codified in [`CLAUDE.md`](CLAUDE.md). One concern per PR; open as draft, squash-merge once CI is green. The contributor guide is [`docs/contributing.md`](docs/contributing.md) (how to add a tool, provider or component, test requirements); there is no separate CONTRIBUTING file.
 
 ## Roadmap
 
@@ -207,4 +208,4 @@ Out-of-scope for v1, on the post-v1 roadmap:
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE). The libraries, fonts and code edytlab is built from have licences of their own; their texts and copyright notices are in [`THIRD_PARTY_NOTICES.txt`](apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt), which every installer carries and the app shows under Settings → Account → Open source licences.

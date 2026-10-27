@@ -1,6 +1,6 @@
 {
   "video": "reel-highlights.mp4",
-  "duration": 61.533,
+  "duration": 61.5,
   "fps": 30,
   "size": "1080x1920",
   "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). The narration lines for the earlier takes are in transcripts.md.",
@@ -42,125 +42,125 @@
         "demo": "dj-beatmatched-transition",
         "code": "BT",
         "caption": "BT07",
-        "start": 74.4,
-        "end": 79.2
+        "start": 64.0,
+        "end": 68.8
       }
     },
     {
       "id": "R04",
       "kind": "listen",
       "start": 12.1,
-      "end": 20.867,
+      "end": 20.8,
       "onscreen": "Listen: the transition, from 0:12",
       "source": {
         "demo": "dj-beatmatched-transition",
         "code": "BT",
         "caption": "BT08",
-        "start": 86.067,
-        "end": 94.833
+        "start": 74.667,
+        "end": 83.367
       },
       "sound": [
-        12.363,
-        20.867
+        12.303,
+        20.8
       ]
     },
     {
       "id": "R05",
       "kind": "step",
-      "start": 20.867,
-      "end": 25.667,
-      "onscreen": "2 · Extend the intro",
+      "start": 20.8,
+      "end": 25.6,
+      "onscreen": "2 · Extend the intro, then add a filter that opens into the drop",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
         "caption": "EI05",
-        "start": 43.6,
-        "end": 48.4
+        "start": 38.0,
+        "end": 42.8
       }
     },
     {
       "id": "R06",
       "kind": "step",
-      "start": 25.667,
-      "end": 30.467,
-      "onscreen": "3 · A filter that opens into the drop",
+      "start": 25.6,
+      "end": 30.4,
+      "onscreen": "2 · Extend the intro, then add a filter that opens into the drop",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
-        "caption": "EI06",
-        "start": 58.2,
-        "end": 63.0
+        "caption": "EI05",
+        "start": 47.8,
+        "end": 52.6
       }
     },
     {
       "id": "R07",
       "kind": "listen",
-      "start": 30.467,
-      "end": 39.667,
+      "start": 30.4,
+      "end": 39.633,
       "onscreen": "Listen: the low end arrives at the drop (0:31)",
       "source": {
         "demo": "dj-extended-club-intro",
         "code": "EI",
-        "caption": "EI09",
-        "start": 98.267,
-        "end": 107.467
+        "caption": "EI08",
+        "start": 82.467,
+        "end": 91.7
       },
       "sound": [
-        30.68,
-        39.667
+        30.643,
+        39.633
       ]
     },
     {
       "id": "R08",
       "kind": "step",
-      "start": 39.667,
-      "end": 44.467,
-      "onscreen": "1 · Match every track to 124 BPM",
+      "start": 39.633,
+      "end": 44.433,
+      "onscreen": "1 · Match every track to one tempo",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM03",
-        "start": 14.267,
-        "end": 19.067
+        "start": 12.533,
+        "end": 17.333
       }
     },
     {
       "id": "R09",
       "kind": "step",
-      "start": 44.467,
-      "end": 49.267,
+      "start": 44.433,
+      "end": 49.233,
       "onscreen": "2 · Sequence with 4-bar overlaps",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM04",
-        "start": 40.4,
-        "end": 45.2
+        "start": 24.0,
+        "end": 28.8
       }
     },
     {
       "id": "R10",
       "kind": "listen",
-      "start": 49.267,
-      "end": 58.533,
+      "start": 49.233,
+      "end": 58.5,
       "onscreen": "Listen: Midnight Drive into Solar Flare (0:23)",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM06",
-        "start": 70.0,
-        "end": 79.267
+        "start": 57.867,
+        "end": 67.133
       },
       "sound": [
-        49.517,
-        58.533
+        49.497,
+        58.5
       ]
     },
     {
       "id": "R11",
       "kind": "end",
-      "start": 58.533,
-      "end": 61.533,
+      "start": 58.5,
+      "end": 61.5,
       "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux"
     }
   ]

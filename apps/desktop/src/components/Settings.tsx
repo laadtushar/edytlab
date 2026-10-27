@@ -62,7 +62,9 @@ import { ChatGptLogo } from "./ChatGptLogo";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { MlRuntimeLine } from "./MlRuntimeLine";
+import { OpenSourceLicencesRow } from "./OpenSourceLicencesRow";
 import { RecordingLatencyRow } from "./RecordingLatencyRow";
+import { SpeakerModelRow } from "./SpeakerModelRow";
 import { SpeechModelRow } from "./SpeechModelRow";
 import { ProjectEditor } from "./ProjectEditor";
 import { SkillsEditor } from "./SkillsEditor";
@@ -1650,11 +1652,15 @@ export function Settings({
               window allows (settings-fits-window.spec.ts), and the line
               is no use to someone who has not set a key yet. The speech
               model's row follows it (#383): the one place a model is
-              downloaded, and only when Download is pressed. */}
+              downloaded, and only when Download is pressed. The speaker
+              model's row (#168) follows the speech model's, on the same
+              terms. */}
           {mode === "panel" ? (
             <>
               <MlRuntimeLine />
               <SpeechModelRow />
+              <SpeakerModelRow />
+              <OpenSourceLicencesRow />
             </>
           ) : null}
 

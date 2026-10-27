@@ -1,0 +1,134 @@
+name: Notices
+
+# Fails when the third-party notices file the installers carry
+# (apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt) no longer matches
+# the dependencies: it regenerates the file into a temporary path from
+# Cargo.lock (cargo-about) and pnpm-lock.yaml (the production bundle) and
+# compares it with the committed one. The licences of what edytlab ships ask
+# that their text and copyright lines travel with it, so a dependency bump
+# that is not followed by a regeneration would ship an old notice.
+#
+# To clear a red run:
+#
+#   cargo install --locked cargo-about@<CARGO_ABOUT_VERSION below> --features cli
+#   pnpm install --frozen-lockfile
+#   node scripts/third-party-notices/generate.mjs
+#
+# and commit the file. See "Third-party licences" in docs/development-guide.md.
+#
+# Why this is its own workflow and not a job in ci.yml: auto-release.yml tags
+# a dev release only when the run named "CI" succeeds on a push to main, and
+# this check needs a tool of its own and the crates.io registry. A dependency
+# bump that has not been regenerated yet must not be able to skip a release,
+# and a registry outage must not turn "CI" red. This workflow is named
+# "Notices", nothing waits on it, and (like audit.yml) it should not be made a
+# required status check: a PR the path filter skips would wait on it forever.
+#
+# It runs when something it reads can have changed: a lockfile or manifest,
+# the frontend source (a new import changes which packages are in the bundle),
+# the notices inputs or the file itself; on main as well as on PRs; and weekly.
+on:
+  pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - "**/Cargo.toml"
+      - pnpm-lock.yaml
+      - apps/desktop/package.json
+      - apps/desktop/vite.config.ts
+      - apps/desktop/src/**
+      - apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt
+      - scripts/third-party-notices/**
+      - .github/workflows/notices.yml
+  # The same filter on main, so a file that went stale some other way (a merge
+  # of two PRs that each changed a lockfile) shows up on the commit.
+  push:
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - "**/Cargo.toml"
+      - pnpm-lock.yaml
+      - apps/desktop/package.json
+      - apps/desktop/vite.config.ts
+      - apps/desktop/src/**
+      - apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt
+      - scripts/third-party-notices/**
+      - .github/workflows/notices.yml
+  # And weekly, off the hour (GitHub delays top-of-hour schedules), so a
+  # registry change nothing in the repository shows still surfaces.
+  schedule:
+    - cron: "47 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: notices-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # The exact cargo-about the notices were made with (generate.mjs refuses any
+  # other). It is also the cache key below. Bump it deliberately, in the same
+  # change as generate.mjs's CARGO_ABOUT_VERSION (a test holds them equal) and
+  # a regenerated file. 0.9.2 needs Rust 1.88 or newer.
+  CARGO_ABOUT_VERSION: 0.9.2
+  # cargo-about and `cargo fetch` only read Cargo.lock and never compile the
+  # workspace, so the 1.90 pin of rust-toolchain.toml (with rustfmt and
+  # clippy) is not worth installing here.
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  notices:
+    name: third-party notices are current
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      # Restore and save are separate steps so the binary is saved straight
+      # after it is built, even when the check that follows fails (a single
+      # `actions/cache` step saves only if the job succeeded, and a stale
+      # notices file is exactly the run that fails).
+      - name: Restore cargo-about
+        id: cargo-about-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cargo/bin/cargo-about
+          key: cargo-about-${{ runner.os }}-${{ env.CARGO_ABOUT_VERSION }}
+
+      - name: Install cargo-about
+        if: steps.cargo-about-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-about --version "$CARGO_ABOUT_VERSION" --locked --features cli
+
+      - name: Save cargo-about
+        if: steps.cargo-about-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cargo/bin/cargo-about
+          key: cargo-about-${{ runner.os }}-${{ env.CARGO_ABOUT_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # No lifecycle scripts: the generator only reads package metadata and
+      # runs vite, which needs none of them.
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Regenerates into a temporary path and compares byte for byte.
+      - name: Third-party notices are current
+        run: node scripts/third-party-notices/generate.mjs --check

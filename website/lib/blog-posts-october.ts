@@ -27,7 +27,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "beatmatch-and-blend-two-tracks",
     title: "Beatmatch and Blend Two Tracks by Asking",
     date: "2026-10-09",
-    dateModified: "2026-10-24",
+    dateModified: "2026-10-27",
     description:
       "Match tempos, overlap two tracks, fade and filter the outgoing one, then master and export a WAV: the DJ transition from the demo, as prompts you can type.",
     coverAlt:
@@ -39,7 +39,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (2:45, with sound, waits sped up) and gives you the sentence to type at every step.",
+        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (2:23, with sound) and gives you the sentence to type at every step.",
       },
       {
         type: "callout",
@@ -94,7 +94,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "The agent moves the whole track with `time_shift`, or a single clip with `move_clip`. Then listen. In the demo, Claude noticed that at the 16-second starting point the bars landed a beat apart, and said what it would change. Expect that kind of check from the assistant and make it yourself: whether the overlap works is a decision for your ears, and each move is one undoable step.",
+        text: "The agent moves the whole track with `time_shift`, or a single clip with `move_clip`. Then listen. In the demo, the assistant reports what it changed after each step. Expect that from the assistant, and make the check yourself: whether the overlap works is a decision for your ears, and each move is one undoable step.",
       },
       {
         type: "h2",
@@ -179,7 +179,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "make-a-mixable-extended-intro",
     title: "Make a Mixable Extended Intro",
     date: "2026-10-09",
-    dateModified: "2026-10-24",
+    dateModified: "2026-10-27",
     description:
       "Turn a track's drums-only opening into a longer, DJ-friendly intro: copy the bars, paste them back, high-pass, fade in and export. A prompt for every step.",
     coverAlt:
@@ -191,7 +191,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (1:55, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
+        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (1:39, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
       },
       {
         type: "callout",
@@ -290,18 +290,19 @@ export const octoberPosts: BlogPost[] = [
     slug: "which-llm-should-drive-your-audio-editor",
     title: "Which LLM Should Drive Your Audio Editor?",
     date: "2026-10-09",
+    dateModified: "2026-10-27",
     description:
-      "edytlab works with six LLM providers, one of them local. How to weigh Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama, and how to switch in Settings.",
+      "Six API providers, one local, plus your ChatGPT plan. How to weigh Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama, and how to switch in Settings.",
     coverAlt:
       "A central agent node with six spokes to six provider nodes, one drawn as a laptop to mark the local option",
     excerpt:
-      "edytlab does not ship a model. You pick one of six providers, and the choice shapes cost, speed, privacy and how well a long edit holds together. Here is how to think about it.",
+      "edytlab does not ship a model. You pick one of six API providers or your ChatGPT plan, and the choice shapes cost, speed, privacy and how well a long edit holds together. Here is how to think about it.",
     readTime: 5,
     tags: ["LLM providers", "Ollama", "bring your own key", "privacy"],
     body: [
       {
         type: "p",
-        text: "The editing in edytlab is done by its own audio engine. The language model only decides which tools to call, and with what settings. That makes the model a swappable part, and the choice is yours: six providers, each with its own key, one of them running on your own computer.",
+        text: "The editing in edytlab is done by its own audio engine. The language model only decides which tools to call, and with what settings. That makes the model a swappable part, and the choice is yours: six API providers, each with its own key except the one that runs on your own computer, or your ChatGPT plan.",
       },
       { type: "h2", text: "What the model does, and what it never sees" },
       {
@@ -312,7 +313,7 @@ export const octoberPosts: BlogPost[] = [
         type: "p",
         text: "So the model matters for how well your sentence turns into the right sequence of tools, not for how the result sounds. A given tool call produces the same audio whichever model made it.",
       },
-      { type: "h2", text: "The six providers" },
+      { type: "h2", text: "The six API providers" },
       {
         type: "ul",
         items: [
@@ -323,6 +324,10 @@ export const octoberPosts: BlogPost[] = [
           "**Google Gemini.** Gemini models with a long context window.",
           "**Ollama (local).** Models running on your own machine through Ollama. No account and no key, and nothing leaves the computer, not even the chat.",
         ],
+      },
+      {
+        type: "p",
+        text: "Besides those six, you can run the agent on your ChatGPT plan. It signs in with your ChatGPT account instead of a key, and it is a preview.",
       },
       { type: "h2", text: "Trade-offs, without the benchmarks" },
       {
@@ -381,7 +386,7 @@ export const octoberPosts: BlogPost[] = [
       {
         type: "p",
         text:
-          "A short, concrete request like that one is a good test: it has three tools in a fixed order, and any model that handles it has cleared the basic bar. The [Models section of the home page](/#providers) lists the six providers with links to their key pages, and [the latest release](" +
+          "A short, concrete request like that one is a good test: it has three tools in a fixed order, and any model that handles it has cleared the basic bar. The [Models section of the home page](/#providers) lists the six API providers with links to their key pages (the ChatGPT plan signs in instead of using a key), and [the latest release](" +
           RELEASES +
           ") has installers for macOS, Windows and Linux.",
       },

@@ -1,6 +1,6 @@
 # edytlab launch kit
 
-Copy-paste material for launching edytlab v0.9.2. Everything here is written
+Copy-paste material for launching edytlab v0.9.3. Everything here is written
 to be posted as-is, by the owner, from their own accounts. Nothing in this
 folder posts anywhere by itself, and nothing here opens a PR on another repo.
 
@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.9.2 today (published 2026-10-26). (The website's own buttons point at the
+non-prerelease, which is v0.9.3 today (published 2026-10-27). (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -25,13 +25,13 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/show-hn.md`](launch/show-hn.md) | Show HN title, body and the author's first comment, plus answers to the questions HN will ask |
 | [`launch/product-hunt.md`](launch/product-hunt.md) | Tagline, description, maker's first comment, 5 gallery captions, topics |
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
-| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.2 release and the DJ demo |
+| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.3 release and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
 | [`social-kit/linkedin/`](social-kit/linkedin/README.md) | The LinkedIn visuals in the website's design: five 1200x1200 images (one per post in `social-kit/linkedin-posts.md`), a seven-page carousel PDF for post 3, the HTML templates, staged screenshots of the real app and the script that renders them |
-| [`reels/`](reels/README.md) | Vertical reels (1080×1920) cut from the three DJ demos, plain (the narrated versions will be regenerated once narration credits are available), with cue files, the narration lines and clips of the earlier takes, and the scripts that build them. Read its licence note before using the narration clips |
-| [`demos/narration/`](demos/narration/README.md) | A voice-over for the three DJ demos on the website (`website/public/demos/dj-*.mp4`): the narrated mp4s with Daniel and River, Daniel's voice tracks, the script traced sentence by sentence to each demo's caption in `website/lib/demos.ts`, the lines as ElevenLabs returned them, the timing, loudness and true-peak checks, and the scripts that rebuild any mix. The voice never overlaps the app's own sound. The beatmatch demo's narrated mixes are in `archive/` until that demo is re-recorded (#710). Voice: synthetic, made with ElevenLabs (`eleven_multilingual_v2`), 2026-10-24; the owner confirmed with ElevenLabs that this open-source (MIT) project may use the output |
-| [`launch-video/`](launch-video/README.md) | The launch video, cut three ways from the re-filmed demo recordings (a development build in the app's violet look, the look the app has had since v0.6.0) in the website's look: LinkedIn 1:1, Reddit 16:9 and Instagram 9:16, plain (no narrated versions for now: the narration clips and lines were made for the earlier takes and stay as the source for re-narrating), with `.srt` captions, contact sheets, silent picture-only masters, the script, the research and the code that renders them. The end cards name no version, and the how-it-works card says "94 tools" (the LinkedIn and Reddit cuts were re-rendered for it on 2026-10-22; they said 93 when first cut, and those files are kept in `archive/launch-video/2026-10-16-violet/`). On 2026-10-24 the "Honest limits" slide was removed from the LinkedIn and Reddit cuts at the owner's request (they are 64.0 s and 58.4 s now; the earlier files are in `archive/launch-video/2026-10-24-limits-slide/`). Read its licence note before using the narration clips |
+| [`reels/`](reels/README.md) | Vertical reels (1080×1920) cut from the three DJ demos, plain (no narration), with cue files and the scripts that build them. Re-cut on 2026-10-26 from the new recordings; the earlier reels and the narration made for the old takes are in `archive/` |
+| [`demos/narration/`](demos/narration/README.md) | Nothing narrated is current: the voice-over for the old recordings of the DJ demos (narrated mp4s, voice tracks, script, timing and loudness checks) was moved to `archive/demos-narration/2026-10-26-old-recordings/` when the demos were re-recorded. The README there says how to start again |
+| [`launch-video/`](launch-video/README.md) | The launch video, cut three ways (LinkedIn 1:1, Reddit 16:9, Instagram 9:16) from the 2026-10-26 recordings, plain (no narration), with `.srt` captions, contact sheets, silent picture-only masters, the script and claim ledger, the research and the code that renders them. It names no version, tool count, model or provider (see "Evergreen media rules" below). The earlier cuts and the narration clips for the old takes are in `archive/` |
 | [`promo-v0.7.0/`](promo-v0.7.0/README.md) | The v0.7.0 promo: nine live screen recordings of the released v0.7.0 app at 3200x2000 and 15 fps (`footage/`, with the sound of the two clips that play), the script that cuts them from the native suite's recordings (`record/`; the stories that film them are `apps/desktop/e2e-native/stories/promo.mjs`), the claim ledger (`claims.md`), and the Remotion edit (`remotion/`, outside the pnpm workspace) that cuts them into five finished videos in `out/`: three 9:16 reels (What's new in v0.7.0, Describe the edit, 200 tracks? Ask.), the 16:9 launch video and its 1:1 cut, each with an `.srt` and a contact sheet, mastered to -14 LUFS. The assistant, where there is one, is real Claude (Sonnet 5.5) through the app's own provider and the audio is synthetic, and every app shot says so. The first, scripted version is in `archive/promo-v0.7.0/`. Read its licence note: Remotion's Free License covers an individual's project, not a company of more than three people |
 | [`promo-v0.7.0/narration/`](promo-v0.7.0/narration/README.md) | A voice-over for the five finished v0.7.0 promo videos (16:9, its 1:1 twin and the three 9:16 reels): the narrated mp4s with Daniel (all five) and River (the 16:9), the voice tracks, three voice samples, the script traced line by line to `promo-v0.7.0/claims.md`, the lines as ElevenLabs returned them, the timing, loudness and true-peak checks, and the scripts that rebuild any mix. Voice: synthetic, made with ElevenLabs (`eleven_multilingual_v2`), 2026-10-24; the owner confirmed with ElevenLabs that this open-source (MIT) project may use the output |
 | [`archive/`](archive/README.md) | Every earlier version of the launch video, the reels, the website demos and the LinkedIn renders, with their captions, contact sheets, cue and timing files, sorted by what it is, then by version, then by kind. Kept for reference, nothing is deleted. Read its licence note: the narrated files use ElevenLabs free-plan audio and are not for posting |
@@ -41,6 +41,25 @@ full releases list on purpose, so they can also reach dev builds.)
 Character limits (HN title 80, Product Hunt tagline 60 and description 260,
 X posts 280) were counted by script when the files were written. Re-count if
 you edit.
+
+## Evergreen media rules
+
+Every recording, reel, launch video, poster, caption, overlay, title card and narration script must stay true after the next release. A re-cut or re-recording is expensive (live model calls, hours of rendering), so make a piece once and keep it true. **Do not put any of these in media or in the words that go with it:**
+
+- **A version number.** Not on a card, not in a caption, not in a poster, and not in the footage: the demo recordings carry the status bar's version at its right end, so `apps/desktop/e2e-native/make-demo-videos.mjs` draws a box in the bar's own colour over it (`MASK`). A crop that shows the bar must go through that box. Check a frame of every new take.
+- **A count that grows**: tools, commands, crates, providers, models, languages. Say nothing, or "deterministic tools" and "any AI provider"; say "dozens" only where a line truly needs a number.
+- **A model name or id**, or a provider list. The demos are recorded with a chosen model (`DEMO_MODEL`), and nothing on screen or in a caption names it; where the assistant is in the shot, say "real Claude" at most, as the site's disclosure does.
+- **A price, a date, a release channel or signing status** ("unsigned installers", "v0.x is current").
+- **A claim about what an analysis found**: a musical key, a beat or downbeat time, a confidence, a loudness reading, a tempo the detector reported. A detector can improve (the DJ demos once said "F major" for every track, #710). Captions and callouts describe what the shot shows ("A real tool call", "Three edits, one request", "It reports what it exported"), never the number. The model's own reply on screen is the take; it is fine that it shows readings, but never repeat or highlight them in a caption, callout, card or script.
+- **A parameter the model chose** (a cutoff, a gain) as a fact about the product. It may be on screen in the reply; do not state it in a caption.
+
+**When you write the prompts for a recording**, phrase them so the reply does not recite what changes: ask for the tempo "in a sentence or two about tempo only", give the numbers that belong to the task (a start time, a target) yourself, and keep a step to one request, because a model that is unsure what a previous step did may repeat it (a three-step intro demo once pasted twice). Fixture facts (the tempo a generated track was made at, the file names) are stable and may appear.
+
+**Never use the scripted stand-in model (`fake-llm.mjs`) for a recording captioned as Claude.** Record with the real model through the metering proxy (`apps/desktop/e2e-native/claude-proxy.mjs`, with a `BUDGET_USD` cap), put the key only in the environment of the one command, and grep the repo and the output folder for the key itself and for Anthropic's key prefix before a commit (the pre-existing hits in tests and docs are placeholders).
+
+Where this is applied: `apps/desktop/e2e-native/stories/demos.mjs` (prompts and captions), `make-demo-videos.mjs` (the version box), `website/lib/demos.ts` and `website/lib/videos.ts` (captions and moments), `reels/tools/spec.py` (captions, cards, lines), `launch-video/tools/launch.py` (titles, callouts, tail card) and `social-kit/linkedin/templates`, `social-kit/images/themes.mjs` (no `{{version}}`, no `{{tools}}`). The renderers still know how to fill `{{version}}` and `{{tools}}`; do not use them in a template.
+
+**Known exceptions, not yet applied** (they are text for the owner or UI screenshots, and need a decision): the launch kit's posts and the `social-kit/artifact/launch-hub.mjs` page name the release they were written for, quote the tool count and say the installers are unsigned (true today, and a post is text for the owner, not footage); `social-kit/*.md`, `launch/*.md` and `social/*.md` no longer quote readings, cutoffs or export lengths from the old recordings (the owner's #710 text follow-up), only what the DJ types and the fixture tempos, and `social-kit/artifact/launch-hub.mjs` reads them; `social-kit/linkedin/shots/*.png` are screenshots of the app's Settings and chat and show the UI of the day (retake with `node render.mjs --shots` after a UI change); `docs/brand/` is a before/after record of the 2026 restyle and is kept as it was.
 
 ## The accuracy rules (read before you edit anything)
 
@@ -101,7 +120,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 - That the editor is for live DJ performance. It edits files. Live decks and
   controllers are on the post-v1 roadmap.
 
-**Safe, and verified against the repo and the GitHub release on 2026-10-22 (v0.7.0):**
+**Safe, and verified against the repo and the GitHub release on 2026-10-22 (v0.7.0; the `measure`, `diarize` and formats rows on 2026-10-27, v0.9.3):**
 
 | Claim | Where it was checked |
 |---|---|
@@ -117,7 +136,10 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.9.2 | GitHub release v0.9.2 (its page lists the six installers), `LICENSE` |
+| `measure` (v0.9.3): integrated, momentary and short-term loudness, loudness range, sample and true peak, RMS, noise floor, digital silence and clipping, with an ACX pass or fail (`check: "acx"`) | `measure` in `docs/tools-reference.md`, the v0.9.3 release notes |
+| `diarize` (v0.9.3): labels who speaks when on a track or file, on this computer, after the user downloads the speaker model (about 33 MB, two files, from Hugging Face) in Settings → Account; it returns turns and edits nothing, and the assistant can hand them to `split_by_speaker`. Say nothing about accuracy beyond "checked on one 40-second meeting excerpt". Same privacy facts as the speech model (GET requests on the click, no audio, no telemetry, using it makes no request). | `diarize` in `docs/tools-reference.md`, the v0.9.3 release notes, `website/app/privacy/page.tsx` |
+| AIFF and Opus (mono and stereo, decoded at 48 kHz) import; M4A/AAC does not, and the app says to convert | the v0.9.3 release notes, `crates/audio-decoder` |
+| macOS universal, Windows, Linux builds; MIT; v0.9.3 | GitHub release v0.9.3 (its page lists the six installers), `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -179,9 +201,10 @@ getting caught.
   restoring an older head, [#506](https://github.com/laadtushar/edytlab/issues/506)
   and [#507](https://github.com/laadtushar/edytlab/issues/507)) are fixed in
   v0.6.0.
-- Still unchecked on a Mac: the label name box and Delete's native confirm
-  ([#567](https://github.com/laadtushar/edytlab/issues/567), open). Do not
-  promise that adding a label works on macOS until someone has tried it.
+- The label name box and Delete's native confirm were checked on one real Mac
+  (v0.9.0 and v0.9.1, macOS 26.5.2, 2026-10-25;
+  [#567](https://github.com/laadtushar/edytlab/issues/567), closed, report in
+  #727) and passed. Say "checked on one Mac", not "works on every Mac".
 - The limiter is a zero-latency sample-peak limiter (instant attack, smooth
   release; it was a hard clip until
   [#441](https://github.com/laadtushar/edytlab/issues/441)), not a look-ahead
@@ -189,10 +212,10 @@ getting caught.
 
 ## Before the first post
 
-- [ ] Install the v0.9.2 build on at least one machine per OS you will claim
+- [ ] Install the v0.9.3 build on at least one machine per OS you will claim
       (not v0.9.0: its first message after Continue with ChatGPT failed with
       "Unsupported content type", which v0.9.2 and later fix).
-- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.2 and send a message.
+- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.3 and send a message.
       Until that has worked once, leave every line about the ChatGPT plan out
       of the posts: the fix was checked against a mock of OpenAI's API, not a
       real account.
@@ -210,7 +233,7 @@ getting caught.
       show fake data; the `after-*` set was retaken on 2026-10-26 for v0.9.2 (the status bar says V0.9.2), so it shows the ChatGPT logo on the provider button and the message box at the pane's full width); the `before-*` set is the look v0.5.0 and earlier
       shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
-      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.2 build.
+      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.3 build.
       The only UI screenshots in the repo are the `docs/brand/` pair above and the staged ones in `social-kit/linkedin/shots/` (fake data, retaken by `social-kit/linkedin/render.mjs --shots`).
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a

@@ -349,6 +349,7 @@ const earlierPosts: BlogPost[] = [
     slug: "conversational-daw-prompt-to-mix",
     title: "From Prompt to Mix: How Conversational Audio Editing Works",
     date: "2026-05-15",
+    dateModified: "2026-10-27",
     description:
       "What happens between a sentence you type and a changed waveform: tools, session context, the session graph, and how to write prompts that work.",
     coverAlt:
@@ -424,7 +425,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Not all LLMs perform equally well at multi-step audio planning. Models with strong function-calling support tend to decompose complex audio instructions into correct tool chains. Smaller models may execute the first tool correctly but lose track of the plan on longer chains. edytlab lets you swap providers without reinstalling, so you can test which model works best for your workflow. The post [Which LLM should drive your audio editor?](/blog/which-llm-should-drive-your-audio-editor) goes through the six providers.",
+        text: "Not all LLMs perform equally well at multi-step audio planning. Models with strong function-calling support tend to decompose complex audio instructions into correct tool chains. Smaller models may execute the first tool correctly but lose track of the plan on longer chains. edytlab lets you swap providers without reinstalling, so you can test which model works best for your workflow. The post [Which LLM should drive your audio editor?](/blog/which-llm-should-drive-your-audio-editor) goes through the six API providers and the ChatGPT plan.",
       },
       {
         type: "h2",
@@ -440,7 +441,7 @@ const earlierPosts: BlogPost[] = [
     slug: "open-source-audio-editor-byo-llm",
     title: "Open-source AI audio editor: bring your own LLM key",
     date: "2026-05-17",
-    dateModified: "2026-10-22",
+    dateModified: "2026-10-27",
     description:
       "An AI tool that hardcodes one model decides for you. What bring-your-own-key means in practice: where the key lives, what you can switch, and what it costs.",
     coverAlt:
@@ -489,7 +490,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Different providers have different strengths for audio agent tasks. Anthropic's Claude models are built for multi-step tool use, which suits complex arrangements. OpenAI's models are a drop-in if you already have access. OpenRouter puts many models, including open-weight ones, behind one key. Groq serves open models, Google Gemini offers long context, and Ollama runs models on your own machine with no key at all. The follow-up post [Which LLM should drive your audio editor?](/blog/which-llm-should-drive-your-audio-editor) compares all six.",
+        text: "Different providers have different strengths for audio agent tasks. Anthropic's Claude models are built for multi-step tool use, which suits complex arrangements. OpenAI's models are a drop-in if you already have access. OpenRouter puts many models, including open-weight ones, behind one key. Groq serves open models, Google Gemini offers long context, and Ollama runs models on your own machine with no key at all. The follow-up post [Which LLM should drive your audio editor?](/blog/which-llm-should-drive-your-audio-editor) compares all six API providers and the ChatGPT plan.",
       },
       {
         type: "h3",

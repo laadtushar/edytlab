@@ -28,6 +28,16 @@ interface Entry {
 // one-line bullets each. Older releases are on GitHub Releases, not here.
 const entries: Entry[] = [
   {
+    version: "v0.9.3",
+    date: "2026-10",
+    summary: "Measure loudness, find who speaks when, and import more formats.",
+    bullets: [
+      "New: measure reports loudness, peaks, noise floor and clipping, with an ACX check. diarize finds who speaks when, on this computer, after you download its 33 MB speaker model in Settings → Account.",
+      "New: generate_click_track, generate_chirp and generate_dtmf make click tracks, sweeps and keypad tones. AIFF and Opus (mono and stereo) files import.",
+      "Fixed: the loudness-master skill no longer raises gain after the limiter.",
+    ],
+  },
+  {
     version: "v0.9.2",
     date: "2026-10",
     summary: "One keychain entry for your keys, and transcription that no longer skips speech.",
@@ -44,16 +54,6 @@ const entries: Entry[] = [
     bullets: [
       "Fixed: the first message after Sign in with ChatGPT failed with “Unsupported content type”.",
       "Changed: a similar OpenAI refusal now shows a plan card with a copyable request ID.",
-    ],
-  },
-  {
-    version: "v0.9.0",
-    date: "2026-10",
-    summary: "Sign in with ChatGPT (preview), and better noise reduction, tempo and key.",
-    bullets: [
-      { text: "New: Sign in with ChatGPT (preview) uses your Plus or Pro plan instead of an API key.", href: "/docs/user-guide/chatgpt-plan" },
-      "Fixed: noise reduction no longer adds a loud click at the start and end of a track.",
-      "Fixed: tempo and key detection, now with confidence.",
     ],
   },
 ];

@@ -1687,6 +1687,66 @@ pub fn ml_runtime_status_now() -> MlRuntimeStatusDto {
 }
 
 // ---------------------------------------------------------------------------
+// third_party_notices
+// ---------------------------------------------------------------------------
+
+/// Where the installers put the third-party notices, relative to the
+/// resource directory (`bundle.resources` in `tauri.conf.json`).
+const THIRD_PARTY_NOTICES_RESOURCE: &str = "licenses/THIRD_PARTY_NOTICES.txt";
+
+/// The text of the third-party notices file the installer carries, for
+/// Settings -> Account -> Open source licences.
+///
+/// Read-only: it opens one fixed file inside the app's own resource
+/// directory (the window passes nothing, so it cannot name a path) and
+/// returns its text. The file is made from the lockfiles by
+/// `scripts/third-party-notices/generate.mjs`, and CI fails when it is stale.
+/// It takes none of the store, engine or dispatcher locks and is file work,
+/// so it runs on the blocking pool.
+#[tauri::command]
+pub async fn third_party_notices(app: tauri::AppHandle) -> CmdResult<String> {
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || read_third_party_notices(&resource_dir))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?
+}
+
+/// [`third_party_notices`]' file work: the notices under `resource_dir`.
+///
+/// A development build (`cargo run`, `tauri dev`) has the resource directory
+/// of the build, which Tauri fills from `bundle.resources`; one that does not
+/// falls back to the file in the source tree it was built from, so the entry
+/// works there too. The error names the file, not the machine's folders.
+fn read_third_party_notices(resource_dir: &std::path::Path) -> CmdResult<String> {
+    let mut candidates = vec![resource_dir.join(THIRD_PARTY_NOTICES_RESOURCE)];
+    if cfg!(debug_assertions) {
+        candidates.push(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(THIRD_PARTY_NOTICES_RESOURCE),
+        );
+    }
+    read_first_notices(&candidates)
+}
+
+/// The text of the first of `candidates` that exists. A file that is there
+/// and cannot be read is an error, not a reason to try the next one.
+fn read_first_notices(candidates: &[std::path::PathBuf]) -> CmdResult<String> {
+    for path in candidates {
+        match std::fs::read_to_string(path) {
+            Ok(text) => return Ok(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                tracing::warn!(error = ?e, "could not read the third-party notices");
+                return Err("The open source licences file could not be read.".to_string());
+            }
+        }
+    }
+    Err(format!(
+        "The open source licences file ({THIRD_PARTY_NOTICES_RESOURCE}) is not in this build. \
+         It is in the source repository and in every installer."
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // The speech model download (#383)
 // ---------------------------------------------------------------------------
 
@@ -1765,10 +1825,10 @@ pub struct MlModels {
 /// The models of `models.json` that Settings offers a Download button for,
 /// and so the only ones `download_ml_model` starts. A model can be pinned in
 /// the manifest before the app offers it, but its host must also be named
-/// on the privacy page first: `speaker-diarization` is pinned (#168) and is
-/// not here. **The Settings PR for diarization adds it**, together with the
-/// privacy copy for its Hugging Face repositories.
-pub const OFFERED_ML_MODELS: &[&str] = &["whisper-base"];
+/// on the privacy page first. `speaker-diarization` (#168, two files from two
+/// Hugging Face repositories, the host the speech model already uses) is
+/// offered by its own Settings row, and its privacy copy says so.
+pub const OFFERED_ML_MODELS: &[&str] = &["whisper-base", "speaker-diarization"];
 
 impl MlModels {
     /// The shipped catalog (`models.json`), kept under `models_dir`, of which
@@ -11279,6 +11339,46 @@ mod tests {
         );
     }
 
+    // -- third_party_notices ------------------------------------------------
+
+    #[test]
+    fn the_notices_are_read_from_the_first_file_that_exists() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let first = dir.path().join("missing.txt");
+        let second = dir.path().join("second.txt");
+        let third = dir.path().join("third.txt");
+        std::fs::write(&second, "from the resource directory").expect("write");
+        std::fs::write(&third, "from the source tree").expect("write");
+        assert_eq!(
+            read_first_notices(&[first, second, third]).as_deref(),
+            Ok("from the resource directory")
+        );
+    }
+
+    #[test]
+    fn missing_notices_name_the_file_and_not_the_machine() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = read_first_notices(&[dir.path().join("nope.txt")]).expect_err("nothing there");
+        assert!(err.contains("licenses/THIRD_PARTY_NOTICES.txt"), "{err}");
+        assert!(
+            !err.contains(dir.path().to_str().expect("utf-8")),
+            "a local path must not reach the window: {err}"
+        );
+    }
+
+    #[test]
+    fn notices_that_cannot_be_read_are_an_error_not_a_fallback() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // A folder where the file should be: it exists, and cannot be read.
+        let unreadable = dir.path().join("notices");
+        std::fs::create_dir(&unreadable).expect("mkdir");
+        let later = dir.path().join("later.txt");
+        std::fs::write(&later, "must not be used").expect("write");
+        let err = read_first_notices(&[unreadable, later]).expect_err("unreadable");
+        assert!(err.contains("could not be read"), "{err}");
+        assert!(!err.contains(dir.path().to_str().expect("utf-8")), "{err}");
+    }
+
     // -- ml_runtime_status (#383) ------------------------------------------
 
     fn runtime_json(
@@ -11461,23 +11561,28 @@ mod tests {
         assert!(err.to_string().contains("no data folder"), "{err}");
     }
 
-    /// `speaker-diarization` is pinned in `models.json` (#168) but nothing
-    /// offers it and the privacy page does not name its repositories yet, so
-    /// the shipped app downloads `whisper-base` and nothing else.
+    /// The shipped app downloads the two models Settings has a row for
+    /// (`whisper-base`, `speaker-diarization`, #168) and nothing else, even
+    /// a model that is pinned in `models.json`.
     #[test]
     fn the_shipped_app_downloads_only_the_models_settings_offers() {
         let dir = tempfile::tempdir().expect("tempdir");
         let models = MlModels::new(dir.path().join("models"), |_| {});
-        assert_eq!(OFFERED_ML_MODELS, ["whisper-base"]);
-        models.check_offered("whisper-base").expect("offered");
-        for id in ["speaker-diarization", "../whisper-base", ""] {
+        assert_eq!(OFFERED_ML_MODELS, ["whisper-base", "speaker-diarization"]);
+        for id in OFFERED_ML_MODELS {
+            models.check_offered(id).expect("offered");
+            // Offered means pinned: the allow-list names no id the catalog lacks.
+            assert!(ml_pipeline::Catalog::built_in().get(id).is_some(), "{id}");
+        }
+        for id in [
+            "../whisper-base",
+            "speaker-diarization/",
+            "whisper-tiny",
+            "",
+        ] {
             let err = models.check_offered(id).expect_err(id);
             assert!(err.to_string().contains("not offered"), "{id}: {err}");
         }
-        // The pin exists, so it is the allow-list that keeps it out.
-        assert!(ml_pipeline::Catalog::built_in()
-            .get("speaker-diarization")
-            .is_some());
         assert!(!dir.path().join("models").exists());
     }
 
