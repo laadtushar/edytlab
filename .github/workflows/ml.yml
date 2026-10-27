@@ -36,7 +36,12 @@ name: ML
 #     the same files (3.1's segmentation and clustering with 3.0's ONNX
 #     frame-selection embedding: the pinned ONNX embedding takes no weights
 #     input; the port also samples above 3,000 embeddings, which 3.1 never
-#     does), and the error against the corpus' human annotation.
+#     does), and the error against the corpus' human annotation;
+#   - tools `diarize_end_to_end` (#168): the `diarize` tool on the real speaker
+#     model, through a session and `load`, on the same AMI excerpt (the
+#     fixture is ml-diarize's, not a copy): `num_speakers = 2` gives turns for
+#     two speakers with a talk time near the annotation's, the session is
+#     untouched (no node), and the same request again is a cache hit.
 #
 # Both inputs are pinned in the repository, not here, and verified before use:
 #
@@ -203,6 +208,14 @@ jobs:
           ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
           DIARIZE_MODEL_PATH: ${{ github.workspace }}/ml-models/speaker-diarization
         run: cargo test -p ml-diarize --release --test real_model -- --ignored --nocapture --test-threads=1
+
+      # The tool around it (#168): the same excerpt through `load` and the real
+      # `diarize` tool. The model is fetched above, for the step before.
+      - name: The diarize tool end to end
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DIARIZE_MODEL_PATH: ${{ github.workspace }}/ml-models/speaker-diarization
+        run: cargo test -p tools --release --test diarize_end_to_end -- --ignored --nocapture --test-threads=1
 
       # Which caches were hit, on the run's summary page.
       - name: Summary
