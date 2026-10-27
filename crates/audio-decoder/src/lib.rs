@@ -132,12 +132,20 @@ fn codecs() -> &'static CodecRegistry {
 /// macOS and Windows; on other platforms it is refused as
 /// [`DecodeError::UnsupportedFormat`].
 pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
+    // Only the first bytes are read before the decoder is chosen. An M4A is
+    // handed to the system decoder by its path (the system decoders open
+    // files, so that branch opens the path again and a pipe cannot be an
+    // M4A); every other file keeps this handle and reads the rest from it, so
+    // a path that can be read only once (a pipe) still works.
     let mut file = File::open(path)?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    (&mut file)
+        .take(SNIFF_BYTES as u64)
+        .read_to_end(&mut bytes)?;
     if let Some(decoded) = os_aac::decode_file_if_m4a(path, &bytes) {
         return decoded;
     }
+    file.read_to_end(&mut bytes)?;
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
@@ -169,9 +177,11 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
 /// asked for the rate it decodes at, which is the file decoded. Clips never
 /// name an M4A source, because `load` makes a WAV of it.)
 pub fn probe_sample_rate(path: &Path) -> Result<u32> {
-    // The file is opened once: its first bytes decide the decoder and name
-    // the format on failure, then go back in front of the rest, so a path
-    // that can be read only once (a pipe) is read once.
+    // The file is opened once for symphonia: its first bytes decide the
+    // decoder and name the format on failure, then go back in front of the
+    // rest, so a path that can be read only once (a pipe) is read once. An
+    // M4A is the exception: the system decoder is given the path, so that
+    // branch opens it again.
     let mut file = File::open(path)?;
     let mut head = Vec::new();
     (&mut file)

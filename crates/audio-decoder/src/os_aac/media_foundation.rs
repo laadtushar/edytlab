@@ -41,10 +41,17 @@ use windows::Win32::System::LibraryLoader::{
 
 use crate::{DecodeError, DecodedAudio, Result};
 
-/// Said when Media Foundation, or a decoder behind it, is not on this Windows.
+/// Said when Media Foundation itself is not on this Windows (`mfplat.dll` or
+/// `mfreadwrite.dll` cannot be loaded, or `MFStartup` fails).
 const MEDIA_FEATURE_PACK: &str = "Windows' own audio decoder for M4A and AAC files is not available on this computer. \
 Windows N and KN editions leave it out until the Media Feature Pack is installed (Settings, System, Optional features). \
-Install it, or convert the file to WAV, FLAC, MP3, Ogg Vorbis or AIFF and load that";
+Install it, or convert the file to WAV, FLAC, MP3, Ogg Vorbis, Opus or AIFF and load that";
+
+/// Said when Media Foundation is there and has no decoder for the audio in this
+/// particular file (`MF_E_TOPO_CODEC_NOT_FOUND`): AAC above 48 kHz or with more
+/// than six channels, AC-3 or Opus in an MP4, ALAC, and the like.
+const NO_DECODER_FOR_FILE: &str = "Windows has no decoder for the audio in this file. \
+Convert the file to WAV, FLAC, MP3, Ogg Vorbis, Opus or AIFF and load that";
 
 /// The stream index the Source Reader uses for "the first audio stream".
 const AUDIO_STREAM: u32 = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
@@ -222,8 +229,9 @@ fn map_hresult(hr: HRESULT) -> DecodeError {
         DecodeError::Io(std::io::ErrorKind::PermissionDenied.into())
     } else if hr == MF_E_TOPO_CODEC_NOT_FOUND {
         // The file parsed and no decoder is registered for its audio. On a
-        // Windows N edition that is the missing Media Feature Pack.
-        DecodeError::OsDecoderUnavailable(MEDIA_FEATURE_PACK.to_string())
+        // normal Windows that is about this file's codec or layout, not a
+        // missing Media Feature Pack (that is `api()` / `MFStartup` failing).
+        DecodeError::OsDecoderUnavailable(NO_DECODER_FOR_FILE.to_string())
     } else if hr == MF_E_INVALIDSTREAMNUMBER {
         DecodeError::NoAudioTrack
     } else if hr == MF_E_INVALIDMEDIATYPE {
@@ -278,14 +286,24 @@ fn float_format(media_type: &IMFMediaType) -> Result<(u32, u32)> {
     if subtype != float || bits != 32 {
         return Err(DecodeError::UnsupportedCodec);
     }
-    if !(1..=768_000).contains(&rate) || channels == 0 || channels > MAX_CHANNELS {
+    if !(1..=768_000).contains(&rate) || channels == 0 {
         return Err(DecodeError::Corrupt);
+    }
+    if channels > MAX_CHANNELS {
+        // A real stream the app does not take, not a damaged one.
+        return Err(DecodeError::UnsupportedCodec);
     }
     Ok((rate, channels))
 }
 
-/// Append the float samples of one decoded `IMFSample` to `out`.
-fn append_sample(sample: &IMFSample, out: &mut Vec<f32>) -> Result<()> {
+/// Append the float samples of one decoded `IMFSample` to `out`, leaving out
+/// the first `skip` of them (the encoder's priming, before time zero). Returns
+/// how many samples the buffer held, skipped ones included.
+fn append_sample(
+    sample: &IMFSample,
+    out: &mut Vec<f32>,
+    skip: impl Fn(usize) -> usize,
+) -> Result<usize> {
     // SAFETY: `sample` is live. The buffer is locked for reading, held by a
     // guard that unlocks it, and read only while locked: `data` points at
     // `len` bytes valid until the unlock.
@@ -298,17 +316,20 @@ fn append_sample(sample: &IMFSample, out: &mut Vec<f32>) -> Result<()> {
             .map_err(from_windows)?;
         let _unlock = Locked(&buffer);
         if data.is_null() || len == 0 {
-            return Ok(());
+            return Ok(0);
         }
         let bytes = std::slice::from_raw_parts(data, len as usize);
+        let held = bytes.len() / 4;
+        let skip = skip(held).min(held);
         // Read as bytes, not as `f32`s: the buffer's alignment is not ours.
         out.extend(
             bytes
                 .chunks_exact(4)
+                .skip(skip)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
         );
+        Ok(held)
     }
-    Ok(())
 }
 
 /// Decode the M4A/MP4 file at `path` with Media Foundation.
@@ -383,8 +404,10 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
 
     let mut samples: Vec<f32> = Vec::new();
     let mut empty_reads = 0_u32;
+    let mut diag = String::new(); // DIAG (temporary)
     loop {
         let mut flags: u32 = 0;
+        let mut stamp: i64 = 0;
         let mut sample: Option<IMFSample> = None;
         // SAFETY: a synchronous read on a live reader; the out-places are
         // valid for the call.
@@ -395,7 +418,7 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
                     0,
                     None,
                     Some(&mut flags),
-                    None,
+                    Some(&mut stamp),
                     Some(&mut sample),
                 )
                 .map_err(from_windows)?;
@@ -423,7 +446,26 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
         match sample {
             Some(sample) => {
                 empty_reads = 0;
-                append_sample(&sample, &mut samples)?;
+                // The sample's time in 100 ns units, as a frame count at the
+                // output rate. Frames before time zero are the encoder's
+                // priming (an edit list or the decoder's delay reports them as
+                // negative time), and are dropped.
+                let start_frame = (i128::from(stamp) * i128::from(rate) + 5_000_000) / 10_000_000;
+                let before = samples.len();
+                let held = append_sample(&sample, &mut samples, |held| {
+                    if start_frame < 0 {
+                        let frames = usize::try_from(-start_frame).unwrap_or(usize::MAX);
+                        frames.saturating_mul(channels as usize).min(held)
+                    } else {
+                        0
+                    }
+                })?;
+                if diag.len() < 200 {
+                    diag.push_str(&format!(
+                        " [ts={stamp} start_frame={start_frame} held={held} kept={}]",
+                        samples.len() - before
+                    ));
+                }
             }
             None => {
                 empty_reads += 1;
@@ -441,6 +483,10 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
 
     // Whole frames only.
     samples.truncate(samples.len() - samples.len() % channels as usize);
+    eprintln!(
+        "MF_DIAG rate={rate} channels={channels} frames={} first:{diag}",
+        samples.len() / channels as usize
+    ); // DIAG (temporary)
 
     Ok(DecodedAudio {
         samples,

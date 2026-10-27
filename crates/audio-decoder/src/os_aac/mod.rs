@@ -84,9 +84,10 @@ pub(crate) fn decode_m4a_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
 /// `Some(result)` when `head`, the first bytes the caller read from `path`,
 /// is M4A/MP4 and this platform decodes it; `None` for any other file, and
 /// for any file on a platform with no system decoder, which the caller then
-/// handles as before. The caller reads `path` once and passes its first
-/// bytes, so a path that can be read only once (a pipe) is not consumed by
-/// the check.
+/// handles as before. The caller reads only the first bytes of `path` and
+/// passes them, so the check does not consume a path that can be read only
+/// once (a pipe); an M4A is then decoded by reopening `path`, which a pipe
+/// cannot be.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) fn decode_file_if_m4a(path: &Path, head: &[u8]) -> Option<Result<DecodedAudio>> {
     is_m4a(&head[..head.len().min(crate::SNIFF_BYTES)]).then(|| decode_m4a(path))

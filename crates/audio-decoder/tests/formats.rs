@@ -320,3 +320,130 @@ mod os_aac {
         );
     }
 }
+
+// --- HE-AAC on macOS ---------------------------------------------------------
+//
+// ffmpeg has no HE-AAC encoder, but macOS ships `afconvert`, so these files are
+// made when the test runs, from a generated WAV, and skipped (loudly) if
+// `afconvert` is not there. HE-AAC doubles the rate with spectral band
+// replication: the file may declare the core rate, and a client format that
+// took it would hand back a half-rate signal (the tone an octave low).
+
+#[cfg(target_os = "macos")]
+mod he_aac_macos {
+    use super::*;
+    use std::process::Command;
+
+    /// Write `secs` of a tone per channel (440 Hz, then 880 Hz) as a 16-bit WAV.
+    fn write_wav(path: &Path, rate: u32, channels: u16, secs: f32) {
+        let mut w = hound::WavWriter::create(
+            path,
+            hound::WavSpec {
+                channels,
+                sample_rate: rate,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for i in 0..(rate as f32 * secs) as usize {
+            for c in 0..channels {
+                let hz = 440.0 * (c as f32 + 1.0);
+                let x = 0.5 * (2.0 * std::f32::consts::PI * hz * i as f32 / rate as f32).sin();
+                w.write_sample((x * 32_767.0) as i16).unwrap();
+            }
+        }
+        w.finalize().unwrap();
+    }
+
+    /// Make an HE-AAC file with `afconvert`; `None` (skip) if it is not installed.
+    fn make(tag: &str, codec: &str, bps: u32, rate: u32, channels: u16) -> Option<PathBuf> {
+        let dir = std::env::temp_dir().join(format!("he-aac-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("in.wav");
+        let m4a = dir.join("out.m4a");
+        write_wav(&wav, rate, channels, 1.5);
+        let out = match Command::new("afconvert")
+            .args(["-f", "m4af", "-d", codec, "-b", &bps.to_string()])
+            .arg(&wav)
+            .arg(&m4a)
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("SKIPPED {tag}: afconvert cannot be run: {e}");
+                return None;
+            }
+        };
+        assert!(
+            out.status.success(),
+            "afconvert {codec} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        Some(m4a)
+    }
+
+    fn check(tag: &str, codec: &str, bps: u32, rate: u32, channels: u16) {
+        let Some(path) = make(tag, codec, bps, rate, channels) else {
+            return;
+        };
+        let d = decode_file(&path).expect("decode HE-AAC");
+        let frames = d.samples.len() / d.channels as usize;
+        eprintln!(
+            "HE_AAC {tag}: rate {} channels {} frames {frames}",
+            d.sample_rate, d.channels
+        );
+        assert_eq!(d.sample_rate, rate, "{tag}: full rate, not the core rate");
+        assert_eq!(d.channels, channels, "{tag}: channels");
+        let secs = frames as f32 / rate as f32;
+        assert!((secs - 1.5).abs() <= 0.15, "{tag}: length {secs:.3} s");
+        for c in 0..channels as usize {
+            let hz = 440.0 * (c as f32 + 1.0);
+            let got = peak_hz(&channel(&d, c), rate);
+            assert!(
+                (got - hz).abs() <= FREQ_TOLERANCE_HZ,
+                "{tag}: channel {c} found {got:.2} Hz, encoded {hz} Hz"
+            );
+            let p = peak(&channel(&d, c));
+            assert!(
+                (p - 0.5).abs() <= 0.15,
+                "{tag}: channel {c} peak {p:.3}, encoded 0.5"
+            );
+        }
+        assert_eq!(probe_sample_rate(&path).unwrap(), rate, "{tag}: probe");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn he_aac_v1_stereo_44100_decodes_at_full_rate() {
+        check("v1-stereo-44100", "aach", 64_000, 44_100, 2);
+    }
+
+    #[test]
+    fn he_aac_v1_mono_48000_decodes_at_full_rate() {
+        check("v1-mono-48000", "aach", 32_000, 48_000, 1);
+    }
+
+    #[test]
+    fn he_aac_v2_stereo_44100_decodes_at_full_rate() {
+        check("v2-stereo-44100", "aacp", 32_000, 44_100, 2);
+    }
+}
+
+// TEMPORARY: reports the frame counts of both fixtures on each OS (CI is the
+// measuring tool). Removed once the priming is settled.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[test]
+fn zz_diag_frame_counts() {
+    let mut report = String::new();
+    for name in ["tone_440_mono_44100.m4a", "tones_440_880_stereo_48000.m4a"] {
+        let d = decode_file(&fixture(name)).unwrap();
+        report.push_str(&format!(
+            "\nDIAG {name}: rate {} channels {} frames {}",
+            d.sample_rate,
+            d.channels,
+            d.samples.len() / d.channels as usize
+        ));
+    }
+    panic!("{report}");
+}

@@ -115,8 +115,12 @@ pub(crate) fn decode_path(path: &Path) -> Result<DecodedAudio> {
     if !rate.is_finite() || !(1.0..=768_000.0).contains(&rate) {
         return Err(DecodeError::Corrupt);
     }
-    if channels == 0 || channels > MAX_CHANNELS {
+    if channels == 0 {
         return Err(DecodeError::Corrupt);
+    }
+    if channels > MAX_CHANNELS {
+        // A real file the app does not take, not a damaged one.
+        return Err(DecodeError::UnsupportedCodec);
     }
 
     // Ask for interleaved 32-bit float at that rate and channel count.
@@ -146,8 +150,9 @@ pub(crate) fn decode_path(path: &Path) -> Result<DecodedAudio> {
         return Err(map_status(status));
     }
 
-    // The length is only a hint for the first allocation; a bad answer is
-    // ignored and the vector grows as it is read.
+    // The length is only a hint for the first allocation, and a header can
+    // claim any length, so it is capped at 16M samples (64 MB) and a failed
+    // reservation is ignored: the vector grows as it is read.
     let mut length_frames: i64 = 0;
     let mut size = std::mem::size_of::<i64>() as u32;
     // SAFETY: as for the file format above, with an `i64` as the value.
@@ -159,14 +164,14 @@ pub(crate) fn decode_path(path: &Path) -> Result<DecodedAudio> {
             NonNull::from(&mut length_frames).cast(),
         )
     };
-    let hint_frames = if status == 0 {
-        length_frames.clamp(0, 50_000_000) as usize
+    let channels_usize = channels as usize;
+    let hint_samples = if status == 0 {
+        (length_frames.clamp(0, 50_000_000) as usize).saturating_mul(channels_usize)
     } else {
         0
     };
-
-    let channels_usize = channels as usize;
-    let mut samples: Vec<f32> = Vec::with_capacity(hint_frames * channels_usize);
+    let mut samples: Vec<f32> = Vec::new();
+    let _ = samples.try_reserve(hint_samples.min(16 * 1024 * 1024));
     let mut chunk = vec![0.0_f32; CHUNK_FRAMES as usize * channels_usize];
     loop {
         let mut frames = CHUNK_FRAMES;
@@ -194,6 +199,16 @@ pub(crate) fn decode_path(path: &Path) -> Result<DecodedAudio> {
         samples.extend_from_slice(&chunk[..got]);
     }
 
+    eprintln!(
+        "MAC_DIAG file rate={} format={:#x} flags={:#x} framesPerPacket={} channels={} fileLengthFrames={} decoded_frames={}",
+        file_format.mSampleRate,
+        file_format.mFormatID,
+        file_format.mFormatFlags,
+        file_format.mFramesPerPacket,
+        channels,
+        length_frames,
+        samples.len() / channels_usize
+    ); // DIAG (temporary)
     Ok(DecodedAudio {
         samples,
         sample_rate: rate.round() as u32,
