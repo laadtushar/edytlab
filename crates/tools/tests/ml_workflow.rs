@@ -258,6 +258,8 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
     assert_eq!(
         checked,
         vec![
+            "crates/ml-demucs/tests/onnx_split.rs".to_string(),
+            "crates/ml-demucs/tests/real_model.rs".to_string(),
             "crates/ml-diarize/tests/real_model.rs".to_string(),
             "crates/ml-pipeline/tests/model_real_download.rs".to_string(),
             "crates/ml-pipeline/tests/onnx_session_builder.rs".to_string(),
@@ -336,6 +338,31 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
         );
     }
 
+    let stems = ml_pipeline::models::HTDEMUCS_ID;
+    assert!(
+        ml_pipeline::Catalog::built_in().get(stems).is_some(),
+        "models.json does not pin {stems}"
+    );
+    assert!(
+        yaml.contains(&format!("fetch-ml-model.sh {stems} ml-models/{stems}")),
+        "ml.yml does not fetch {stems} with fetch-ml-model.sh"
+    );
+    let test = read("crates/ml-demucs/tests/real_model.rs");
+    for var in ["ORT_DYLIB_PATH", "DEMUCS_MODEL_PATH"] {
+        assert!(
+            test.contains(var),
+            "the stem model's test does not read {var}"
+        );
+        assert!(
+            yaml.contains(&format!("{var}: ${{{{ github.workspace }}}}/")),
+            "ml.yml does not set {var}"
+        );
+    }
+    assert!(
+        read("crates/ml-demucs/tests/onnx_split.rs").contains("htdemucs_split"),
+        "the split-model test does not use the committed model"
+    );
+
     // The caches are keyed by the manifests, so a changed pin misses them.
     for manifest in [
         "apps/desktop/src-tauri/ml-runtime.json",
@@ -379,6 +406,8 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
         "Fetch ONNX Runtime",
         "Fetch the whisper-base model",
         "Fetch the speaker model",
+        "Fetch ONNX Runtime (stems)",
+        "Fetch the stem model",
     ] {
         for line in step_body(&yaml, name) {
             assert!(
@@ -412,6 +441,15 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
     assert!(
         speaker_test < speaker_tool_test,
         "the diarize tool's test runs after the model is fetched"
+    );
+    // The stem model is cached, then fetched, then tested, and the model test
+    // runs after the one that needs no model.
+    let fetch_stems = at("Fetch the stem model");
+    assert!(
+        at("The stem pipeline on the real runtime") < at("Cache the stem model")
+            && at("Cache the stem model") < fetch_stems
+            && fetch_stems < at("Stem separation on a mix of known stems"),
+        "the stem model is cached, then fetched, then tested"
     );
     // Not the version of the runtime, which belongs to the manifest.
     assert!(

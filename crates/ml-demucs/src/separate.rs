@@ -152,49 +152,118 @@ fn triangle_weights(segment: usize) -> Vec<f32> {
         .collect()
 }
 
-/// `TensorChunk(mix, offset, segment).padded(segment)`: the window of
-/// `segment` samples in which the chunk starting at `offset` is centred,
-/// with zeros where the window runs past either end of the audio.
-fn padded_chunk(mix: &Stereo, offset: usize, segment: usize) -> Stereo {
-    let total = mix[0].len();
-    let chunk = segment.min(total - offset);
-    let delta = segment - chunk;
-    let start = offset as i64 - (delta / 2) as i64;
-    let end = start + segment as i64;
-    let from = start.max(0) as usize;
-    let to = end.min(total as i64) as usize;
-    let pad_left = (from as i64 - start) as usize;
-    let pad_right = (end - to as i64) as usize;
-    let channel = |samples: &[f32]| {
-        let mut out = Vec::with_capacity(segment);
-        out.resize(pad_left, 0.0);
-        out.extend_from_slice(&samples[from..to]);
-        out.resize(segment, 0.0);
-        debug_assert_eq!(out.len(), pad_left + (to - from) + pad_right);
-        out
-    };
-    [channel(mix[0].as_slice()), channel(mix[1].as_slice())]
+/// A track the pipeline reads a window at a time.
+///
+/// The pipeline never needs the whole track at once, only the segment it is
+/// about to run, so a source can be a buffer, or a decoded file in some other
+/// layout or rate that it converts as it is read, without a copy of the track
+/// in the pipeline's own shape.
+pub trait MixSource {
+    /// Samples per channel.
+    fn len(&self) -> usize;
+
+    /// Whether there is no audio.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Fill `out` with `len` samples per channel starting at `start`
+    /// (negative: before the audio), zero wherever the window is outside
+    /// `0..self.len()`. Whatever `out` held is replaced.
+    fn window(&self, start: i64, len: usize, out: &mut Stereo);
 }
 
-/// `apply_model(model, mix, split=True, shifts=0, overlap=0.25)`: run
-/// `model` over `mix` in overlapping segments and blend.
-///
-/// `mix` is used as given (normalise first, see [`separate_stereo`]). The
-/// result has one [`Stereo`] per source in `model.sources()` order, each as
-/// long as `mix`. An empty `mix` gives empty sources without running the
-/// model.
-///
-/// The model is asked for a segment at a time and the first error stops
-/// the run; nothing is returned for the segments before it.
-pub fn apply_model<M: SegmentModel + ?Sized>(model: &mut M, mix: &Stereo) -> Result<Vec<Stereo>> {
-    let length = mix[0].len();
-    if mix[1].len() != length {
-        return Err(DemucsError::InvalidAudio(format!(
-            "channels differ in length: {} and {}",
-            length,
-            mix[1].len()
-        )));
+/// Replace `out` with `len` samples of `samples` from `start`, zero outside
+/// the slice. The one definition of "a window with zeros past the ends".
+pub(crate) fn fill_window(samples: &[f32], start: i64, len: usize, out: &mut Vec<f32>) {
+    let total = samples.len() as i64;
+    let lo = start.max(0).min(total);
+    let hi = (start + len as i64).clamp(lo, total);
+    out.clear();
+    if hi > lo {
+        out.resize(((lo - start) as usize).min(len), 0.0);
+        out.extend_from_slice(&samples[lo as usize..hi as usize]);
     }
+    out.resize(len, 0.0);
+}
+
+impl MixSource for Stereo {
+    fn len(&self) -> usize {
+        self[0].len().min(self[1].len())
+    }
+
+    fn window(&self, start: i64, len: usize, out: &mut Stereo) {
+        let total = MixSource::len(self);
+        for (src, dst) in self.iter().zip(out.iter_mut()) {
+            fill_window(&src[..total], start, len, dst);
+        }
+    }
+}
+
+/// What a caller can say to a run in progress: whether to stop, and a way
+/// to hear how far it has got.
+pub struct Control<'a> {
+    /// Asked before every segment. `true` ends the run with
+    /// [`DemucsError::Cancelled`].
+    pub cancel: &'a dyn Fn() -> bool,
+    /// Called with `(segments done, segments in all)`: once before the first
+    /// segment, so a strip can be drawn while the model loads its first run,
+    /// and after each one.
+    pub progress: &'a dyn Fn(usize, usize),
+}
+
+fn never() -> bool {
+    false
+}
+
+fn ignore(_: usize, _: usize) {}
+
+impl Control<'static> {
+    /// Never cancels, reports nothing.
+    pub fn none() -> Self {
+        Self {
+            cancel: &never,
+            progress: &ignore,
+        }
+    }
+}
+
+/// `TensorChunk(mix, offset, segment).padded(segment)`: the window of
+/// `segment` samples in which the chunk starting at `offset` is centred, with
+/// zeros where the window runs past either end of the audio. Returns how much
+/// of each side is the pad's, `(segment - chunk) / 2`, which the output is
+/// trimmed by (`center_trim`; the odd sample goes on the right).
+fn chunk_window(mix: &dyn MixSource, offset: usize, segment: usize, out: &mut Stereo) -> usize {
+    let chunk = segment.min(mix.len() - offset);
+    let trim = (segment - chunk) / 2;
+    mix.window(offset as i64 - trim as i64, segment, out);
+    trim
+}
+
+/// `apply_model(model, mix, split=True, shifts=0, overlap=0.25)`, streamed:
+/// run `model` over `mix` in overlapping segments, blend them, and hand the
+/// blended audio to `sink` as soon as no later segment can change it.
+///
+/// `mix` is used as given (normalise first, see [`separate_streaming`]). The
+/// sink is called in order with `(first sample, sources)`: one [`Stereo`] per
+/// source in `model.sources()` order, each piece the same length (at most one
+/// stride; the last is whatever is left), and the pieces together are exactly
+/// `mix.len()` samples with no gap or overlap. A sample is final once the
+/// last segment that reaches it has run, and segment `k + 1` starts one
+/// stride after segment `k`, so everything before that start leaves after
+/// segment `k`. What is held between segments is one segment of every source
+/// and the weights, whatever the length of the track.
+///
+/// An empty `mix` runs nothing and calls the sink never. The first error
+/// stops the run: a model's, the sink's, or [`DemucsError::Cancelled`]; what
+/// had already gone to the sink stays with it.
+pub fn apply_model_streaming<M: SegmentModel + ?Sized>(
+    model: &mut M,
+    mix: &dyn MixSource,
+    control: &Control<'_>,
+    sink: &mut dyn FnMut(usize, &mut [Stereo]) -> Result<()>,
+) -> Result<()> {
+    let length = mix.len();
     let segment = model.segment_samples();
     let source_count = model.sources().len();
     if segment == 0 || source_count == 0 {
@@ -204,15 +273,25 @@ pub fn apply_model<M: SegmentModel + ?Sized>(model: &mut M, mix: &Stereo) -> Res
     }
 
     let stride = segment_stride(segment);
+    let total = segment_count(length, segment);
     let weight = triangle_weights(segment);
-    let mut out: Vec<Stereo> = (0..source_count)
-        .map(|_| [vec![0.0f32; length], vec![0.0f32; length]])
+    // The blend in progress: the first `chunk` samples of each are the
+    // samples from the current segment's offset on.
+    let mut blend: Vec<Stereo> = (0..source_count)
+        .map(|_| [vec![0.0f32; segment], vec![0.0f32; segment]])
         .collect();
-    let mut sum_weight = vec![0.0f32; length];
+    let mut sum_weight = vec![0.0f32; segment];
+    let mut window: Stereo = [Vec::new(), Vec::new()];
+    let mut ready: Vec<Stereo> = (0..source_count).map(|_| Default::default()).collect();
 
-    for offset in (0..length).step_by(stride) {
+    (control.progress)(0, total);
+    for (done, offset) in (0..length).step_by(stride).enumerate() {
+        if (control.cancel)() {
+            return Err(DemucsError::Cancelled);
+        }
         let chunk = segment.min(length - offset);
-        let produced = model.separate_segment(&padded_chunk(mix, offset, segment))?;
+        let trim = chunk_window(mix, offset, segment, &mut window);
+        let produced = model.separate_segment(&window)?;
         if produced.len() != source_count
             || produced
                 .iter()
@@ -225,12 +304,10 @@ pub fn apply_model<M: SegmentModel + ?Sized>(model: &mut M, mix: &Stereo) -> Res
             )));
         }
 
-        // `center_trim`: drop the same amount either side of the chunk that
-        // `padded` added, the odd sample on the right.
-        let trim = (segment - chunk) / 2;
-        for (dst, src) in out.iter_mut().zip(&produced) {
+        // `center_trim`: drop what `chunk_window` added.
+        for (dst, src) in blend.iter_mut().zip(&produced) {
             for (dst, src) in dst.iter_mut().zip(src) {
-                for ((d, &s), &w) in dst[offset..offset + chunk]
+                for ((d, &s), &w) in dst[..chunk]
                     .iter_mut()
                     .zip(&src[trim..trim + chunk])
                     .zip(&weight)
@@ -239,34 +316,147 @@ pub fn apply_model<M: SegmentModel + ?Sized>(model: &mut M, mix: &Stereo) -> Res
                 }
             }
         }
-        for (t, &w) in sum_weight[offset..offset + chunk].iter_mut().zip(&weight) {
+        for (t, &w) in sum_weight[..chunk].iter_mut().zip(&weight) {
             *t += w;
         }
-    }
 
-    // Every sample is reached by at least one segment and the smallest
-    // weight is 1/h, so this never divides by zero.
-    for source in &mut out {
-        for channel in source {
-            for (v, &t) in channel.iter_mut().zip(&sum_weight) {
-                *v /= t;
+        // The next segment starts one stride on, so the first stride of this
+        // one is final; after the last segment, the rest of it is.
+        let last = offset + stride >= length;
+        let emit = if last { chunk } else { stride };
+        for (out, held) in ready.iter_mut().zip(&blend) {
+            for (out, held) in out.iter_mut().zip(held) {
+                out.clear();
+                // Every sample is reached by at least one segment and the
+                // smallest weight is 1/h, so this never divides by zero.
+                out.extend(held[..emit].iter().zip(&sum_weight).map(|(&v, &t)| v / t));
             }
         }
+        sink(offset, &mut ready)?;
+
+        if !last {
+            for held in blend.iter_mut().flatten() {
+                held.copy_within(stride.., 0);
+                held[segment - stride..].fill(0.0);
+            }
+            sum_weight.copy_within(stride.., 0);
+            sum_weight[segment - stride..].fill(0.0);
+        }
+        (control.progress)(done + 1, total);
     }
+    Ok(())
+}
+
+/// Both channels of `mix` must be the same length.
+fn check_equal_channels(mix: &Stereo) -> Result<()> {
+    if mix[0].len() != mix[1].len() {
+        return Err(DemucsError::InvalidAudio(format!(
+            "channels differ in length: {} and {}",
+            mix[0].len(),
+            mix[1].len()
+        )));
+    }
+    Ok(())
+}
+
+/// [`apply_model_streaming`] collected: every source for the whole of `mix`,
+/// in `model.sources()` order. Holds the track four times over; the streamed
+/// form is for anything long.
+pub fn apply_model<M: SegmentModel + ?Sized>(model: &mut M, mix: &Stereo) -> Result<Vec<Stereo>> {
+    check_equal_channels(mix)?;
+    let mut out: Vec<Stereo> = (0..model.sources().len())
+        .map(|_| {
+            [
+                Vec::with_capacity(mix[0].len()),
+                Vec::with_capacity(mix[0].len()),
+            ]
+        })
+        .collect();
+    apply_model_streaming(model, mix, &Control::none(), &mut |_, pieces| {
+        for (dst, src) in out.iter_mut().zip(pieces.iter()) {
+            dst[0].extend_from_slice(&src[0]);
+            dst[1].extend_from_slice(&src[1]);
+        }
+        Ok(())
+    })?;
     Ok(out)
 }
 
 /// The mean, and the standard deviation plus `1e-8`, of the mono mix
 /// (`ref = wav.mean(0)`). The deviation is torch's: it divides by `n - 1`.
-fn mono_mean_and_std(mix: &Stereo) -> (f32, f32) {
-    let n = mix[0].len();
+fn mono_mean_and_std(mix: &dyn MixSource) -> (f32, f32) {
+    const BLOCK: usize = 1 << 16;
+    let n = mix.len();
     if n == 0 {
         return (0.0, 1e-8);
     }
-    let mono = |i: usize| (f64::from(mix[0][i]) + f64::from(mix[1][i])) / 2.0;
-    let mean = (0..n).map(mono).sum::<f64>() / n as f64;
-    let variance = (0..n).map(|i| (mono(i) - mean).powi(2)).sum::<f64>() / (n.max(2) - 1) as f64;
+    let mut window: Stereo = Default::default();
+    let mut each_mono = |f: &mut dyn FnMut(f64)| {
+        for start in (0..n).step_by(BLOCK) {
+            mix.window(start as i64, BLOCK.min(n - start), &mut window);
+            for (l, r) in window[0].iter().zip(&window[1]) {
+                f((f64::from(*l) + f64::from(*r)) / 2.0);
+            }
+        }
+    };
+    let mut sum = 0.0;
+    each_mono(&mut |v| sum += v);
+    let mean = sum / n as f64;
+    let mut squares = 0.0;
+    each_mono(&mut |v| squares += (v - mean).powi(2));
+    let variance = squares / (n.max(2) - 1) as f64;
     (mean as f32, (variance.sqrt() + 1e-8) as f32)
+}
+
+/// A mix as the network is to see it: the mean taken off and the result
+/// divided by the standard deviation, for the samples that are audio. The
+/// zeros of a window past the ends stay zero, as upstream pads *after*
+/// normalising.
+struct Normalised<'a> {
+    inner: &'a dyn MixSource,
+    mean: f32,
+    std: f32,
+}
+
+impl MixSource for Normalised<'_> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn window(&self, start: i64, len: usize, out: &mut Stereo) {
+        self.inner.window(start, len, out);
+        let lo = start.max(0);
+        let hi = (start + len as i64).min(self.inner.len() as i64);
+        if hi > lo {
+            let (from, to) = ((lo - start) as usize, (hi - start) as usize);
+            for channel in out.iter_mut() {
+                for v in &mut channel[from..to] {
+                    *v = (*v - self.mean) / self.std;
+                }
+            }
+        }
+    }
+}
+
+/// Where each of [`STEM_NAMES`] is among the model's `sources`, matching by
+/// name. It is an error for them to be anything but the four stem names in
+/// some order.
+fn stem_indices(sources: &[&str]) -> Result<[usize; 4]> {
+    if sources.len() != STEM_NAMES.len() {
+        return Err(DemucsError::Pipeline(format!(
+            "expected the four sources {STEM_NAMES:?}, got {} names",
+            sources.len(),
+        )));
+    }
+    let mut indices = [0usize; 4];
+    for (slot, name) in indices.iter_mut().zip(STEM_NAMES) {
+        *slot = sources.iter().position(|s| *s == name).ok_or_else(|| {
+            DemucsError::Pipeline(format!(
+                "the model has no source named {name:?}: {sources:?}"
+            ))
+        })?;
+    }
+    Ok(indices)
 }
 
 /// Put the model's sources into [`STEM_NAMES`] order (`vocals, drums, bass,
@@ -276,49 +466,71 @@ fn mono_mean_and_std(mix: &Stereo) -> (f32, f32) {
 /// [`SegmentModel::sources`] and [`apply_model`] give them. It is an error
 /// for them to be anything but the four stem names in some order.
 pub fn stems_in_stem_order(sources: &[&str], mut produced: Vec<Stereo>) -> Result<[Stereo; 4]> {
-    if sources.len() != STEM_NAMES.len() || produced.len() != STEM_NAMES.len() {
+    if produced.len() != STEM_NAMES.len() {
         return Err(DemucsError::Pipeline(format!(
             "expected the four sources {STEM_NAMES:?}, got {} names and {} stems",
             sources.len(),
             produced.len()
         )));
     }
+    let indices = stem_indices(sources)?;
     let mut out: [Stereo; 4] = Default::default();
-    for (slot, name) in out.iter_mut().zip(STEM_NAMES) {
-        let index = sources.iter().position(|s| *s == name).ok_or_else(|| {
-            DemucsError::Pipeline(format!(
-                "the model has no source named {name:?}: {sources:?}"
-            ))
-        })?;
+    for (slot, index) in out.iter_mut().zip(indices) {
         *slot = std::mem::take(&mut produced[index]);
     }
     Ok(out)
 }
 
-/// Separate a track: normalise, [`apply_model`], undo the normalisation,
-/// and name the stems. The stems are in [`STEM_NAMES`] order (`vocals`,
-/// `drums`, `bass`, `other`), each as long as `mix`.
+/// Separate a track, streamed: normalise, run the segments
+/// ([`apply_model_streaming`]), undo the normalisation, and name the stems.
+/// The sink gets `(first sample, stems)` with the stems in [`STEM_NAMES`]
+/// order (`vocals`, `drums`, `bass`, `other`).
 ///
 /// `mix` is stereo at [`SAMPLE_RATE`]; getting it that way is the caller's
 /// job. It must be finite, which this does not check.
+pub fn separate_streaming<M: SegmentModel + ?Sized>(
+    model: &mut M,
+    mix: &dyn MixSource,
+    control: &Control<'_>,
+    sink: &mut dyn FnMut(usize, &[Stereo; 4]) -> Result<()>,
+) -> Result<()> {
+    let indices = stem_indices(model.sources())?;
+    let (mean, std) = mono_mean_and_std(mix);
+    let normalised = Normalised {
+        inner: mix,
+        mean,
+        std,
+    };
+    apply_model_streaming(model, &normalised, control, &mut |at, produced| {
+        let mut stems: [Stereo; 4] = Default::default();
+        for (slot, index) in stems.iter_mut().zip(indices) {
+            *slot = std::mem::take(&mut produced[index]);
+            for channel in slot.iter_mut() {
+                for v in channel {
+                    *v = *v * std + mean;
+                }
+            }
+        }
+        sink(at, &stems)
+    })
+}
+
+/// [`separate_streaming`] collected: the four stems for the whole of `mix`,
+/// in [`STEM_NAMES`] order, each as long as `mix`.
 pub fn separate_stereo<M: SegmentModel + ?Sized>(
     model: &mut M,
     mix: &Stereo,
 ) -> Result<[Stereo; 4]> {
-    let (mean, std) = mono_mean_and_std(mix);
-    let normalised: Stereo = [
-        mix[0].iter().map(|v| (v - mean) / std).collect(),
-        mix[1].iter().map(|v| (v - mean) / std).collect(),
-    ];
-    let mut sources = apply_model(model, &normalised)?;
-    for source in &mut sources {
-        for channel in source {
-            for v in channel {
-                *v = *v * std + mean;
-            }
+    check_equal_channels(mix)?;
+    let mut out: [Stereo; 4] = Default::default();
+    separate_streaming(model, mix, &Control::none(), &mut |_, stems| {
+        for (dst, src) in out.iter_mut().zip(stems) {
+            dst[0].extend_from_slice(&src[0]);
+            dst[1].extend_from_slice(&src[1]);
         }
-    }
-    stems_in_stem_order(model.sources(), sources)
+        Ok(())
+    })?;
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -363,6 +575,12 @@ mod tests {
             s[0].iter().map(|v| v * factor).collect(),
             s[1].iter().map(|v| v * factor).collect(),
         ]
+    }
+
+    fn padded_chunk_of(mix: &Stereo, offset: usize, segment: usize) -> Stereo {
+        let mut out: Stereo = Default::default();
+        chunk_window(mix, offset, segment, &mut out);
+        out
     }
 
     fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
@@ -474,12 +692,12 @@ mod tests {
         let ch0 = &mix[0];
 
         // A whole segment is taken as it is.
-        assert_eq!(padded_chunk(&mix, 0, SEG)[0], ch0[0..100]);
-        assert_eq!(padded_chunk(&mix, 75, SEG)[0], ch0[75..175]);
+        assert_eq!(padded_chunk_of(&mix, 0, SEG)[0], ch0[0..100]);
+        assert_eq!(padded_chunk_of(&mix, 75, SEG)[0], ch0[75..175]);
 
         // The last chunk (offset 150, 25 samples) takes 37 samples of
         // context before it and is padded with 38 zeros after.
-        let last = padded_chunk(&mix, 150, SEG);
+        let last = padded_chunk_of(&mix, 150, SEG);
         assert_eq!(last[0].len(), SEG);
         assert_eq!(last[0][..62], ch0[113..175]);
         assert!(last[0][62..].iter().all(|&v| v == 0.0));
@@ -489,14 +707,14 @@ mod tests {
     #[test]
     fn a_track_shorter_than_a_segment_is_centred_between_zeros() {
         let mix = stereo_noise(30, 2);
-        let w = padded_chunk(&mix, 0, SEG);
+        let w = padded_chunk_of(&mix, 0, SEG);
         assert!(w[0][..35].iter().all(|&v| v == 0.0));
         assert_eq!(w[0][35..65], mix[0][..]);
         assert!(w[0][65..].iter().all(|&v| v == 0.0));
 
         // An odd amount of padding puts the extra zero on the right.
         let mix = stereo_noise(25, 3);
-        let w = padded_chunk(&mix, 0, SEG);
+        let w = padded_chunk_of(&mix, 0, SEG);
         assert!(w[0][..37].iter().all(|&v| v == 0.0));
         assert_eq!(w[0][37..62], mix[0][..]);
         assert!(w[0][62..].iter().all(|&v| v == 0.0));
@@ -897,5 +1115,244 @@ mod tests {
         }
         let err = stems_in_stem_order(&MODEL_SOURCES, four()[..3].to_vec()).unwrap_err();
         assert!(matches!(err, DemucsError::Pipeline(_)), "{err:?}");
+    }
+
+    // -- streaming ----------------------------------------------------------
+
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    /// `Quarters` that writes "model" to a log each time it is run, so a
+    /// test can see how the model's runs and the sink's pieces interleave.
+    struct Logged {
+        inner: Quarters,
+        log: Rc<RefCell<Vec<&'static str>>>,
+    }
+
+    impl SegmentModel for Logged {
+        fn segment_samples(&self) -> usize {
+            self.inner.segment_samples()
+        }
+        fn sources(&self) -> &[&'static str] {
+            self.inner.sources()
+        }
+        fn separate_segment(&mut self, segment: &Stereo) -> Result<Vec<Stereo>> {
+            self.log.borrow_mut().push("model");
+            self.inner.separate_segment(segment)
+        }
+    }
+
+    /// The stems leave in pieces, in order, with nothing missing, and no
+    /// piece is longer than a stride. That bound is what keeps the memory of a
+    /// long track at a segment and not at the track: nothing is held back
+    /// longer than the next segment needs to finish it.
+    #[test]
+    fn the_stems_stream_out_in_order_in_pieces_of_at_most_a_stride() {
+        for length in [1usize, 74, 75, 76, 99, 100, 101, 150, 151, 999, 1000] {
+            let mix = stereo_noise(length, 5);
+            let mut pieces: Vec<(usize, usize)> = Vec::new();
+            separate_streaming(
+                &mut Quarters::new(SEG),
+                &mix,
+                &Control::none(),
+                &mut |at, stems| {
+                    for stem in stems {
+                        assert_eq!(stem[0].len(), stem[1].len());
+                        assert_eq!(stem[0].len(), stems[0][0].len());
+                    }
+                    pieces.push((at, stems[0][0].len()));
+                    Ok(())
+                },
+            )
+            .unwrap();
+            let mut next = 0;
+            for &(at, n) in &pieces {
+                assert_eq!(at, next, "length {length}: a gap or an overlap");
+                assert!((1..=STRIDE).contains(&n), "length {length}: a piece of {n}");
+                next = at + n;
+            }
+            assert_eq!(next, length, "length {length}: the whole track, no more");
+        }
+    }
+
+    /// The pieces are the same numbers the whole-track pass gives: streaming
+    /// is a different way to hold the work, not a different result.
+    #[test]
+    fn the_pieces_put_together_are_the_whole_track_pass() {
+        for length in [1usize, 60, 100, 175, 333, 1000] {
+            let mix = stereo_noise(length, 6);
+            let whole = separate_stereo(&mut Quarters::new(SEG), &mix).unwrap();
+            let mut joined: [Stereo; 4] = Default::default();
+            separate_streaming(
+                &mut Quarters::new(SEG),
+                &mix,
+                &Control::none(),
+                &mut |_, stems| {
+                    for (dst, src) in joined.iter_mut().zip(stems) {
+                        dst[0].extend_from_slice(&src[0]);
+                        dst[1].extend_from_slice(&src[1]);
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+            for (name, (a, b)) in STEM_NAMES.iter().zip(joined.iter().zip(&whole)) {
+                assert_eq!(a, b, "length {length}, {name}");
+            }
+        }
+    }
+
+    /// Output starts leaving before the model's last run: the pipeline does
+    /// not collect the track and hand it over at the end.
+    #[test]
+    fn output_leaves_while_the_model_is_still_running() {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let mut model = Logged {
+            inner: Quarters::new(SEG),
+            log: Rc::clone(&log),
+        };
+        let mix = stereo_noise(1000, 7);
+        separate_streaming(&mut model, &mix, &Control::none(), &mut |_, _| {
+            log.borrow_mut().push("piece");
+            Ok(())
+        })
+        .unwrap();
+        let log = log.borrow();
+        let runs = log.iter().filter(|e| **e == "model").count();
+        assert_eq!(runs, segment_count(1000, SEG));
+        // Every run but the last is followed by a piece before the next run.
+        let first_piece = log.iter().position(|e| *e == "piece").unwrap();
+        let last_run = log.iter().rposition(|e| *e == "model").unwrap();
+        assert!(first_piece < last_run, "{log:?}");
+        for pair in log.windows(2) {
+            assert!(
+                !(pair[0] == "model" && pair[1] == "model"),
+                "two runs with no piece between: {log:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn progress_counts_the_segments_from_none_to_all() {
+        let mix = stereo_noise(1000, 8);
+        let seen = RefCell::new(Vec::new());
+        let progress = |done: usize, total: usize| seen.borrow_mut().push((done, total));
+        let control = Control {
+            cancel: &|| false,
+            progress: &progress,
+        };
+        separate_streaming(&mut Quarters::new(SEG), &mix, &control, &mut |_, _| Ok(())).unwrap();
+        let total = segment_count(1000, SEG);
+        let want: Vec<(usize, usize)> = (0..=total).map(|d| (d, total)).collect();
+        assert_eq!(*seen.borrow(), want);
+    }
+
+    /// Cancel is read before every segment, so a press is honoured within one
+    /// run of the model, and what had left stays left (the caller discards
+    /// it: `cache.rs` removes a directory that was not finished).
+    #[test]
+    fn cancel_is_read_before_every_segment_and_stops_the_run() {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let mut model = Logged {
+            inner: Quarters::new(SEG),
+            log: Rc::clone(&log),
+        };
+        let mix = stereo_noise(1000, 9);
+        let asked = Cell::new(0usize);
+        let cancel = || {
+            asked.set(asked.get() + 1);
+            log.borrow().iter().filter(|e| **e == "model").count() >= 3
+        };
+        let control = Control {
+            cancel: &cancel,
+            progress: &|_, _| {},
+        };
+        let err = separate_streaming(&mut model, &mix, &control, &mut |_, _| Ok(())).unwrap_err();
+        assert!(matches!(err, DemucsError::Cancelled), "{err:?}");
+        let runs = log.borrow().iter().filter(|e| **e == "model").count();
+        assert_eq!(runs, 3, "three runs, then the fourth was never started");
+        assert_eq!(asked.get(), 4, "asked before each of four segments");
+    }
+
+    /// A cancel pressed before the first segment runs nothing at all.
+    #[test]
+    fn a_cancel_before_the_start_runs_nothing() {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let mut model = Logged {
+            inner: Quarters::new(SEG),
+            log: Rc::clone(&log),
+        };
+        let control = Control {
+            cancel: &|| true,
+            progress: &|_, _| {},
+        };
+        let mix = stereo_noise(1000, 10);
+        let err = separate_streaming(&mut model, &mix, &control, &mut |_, _| Ok(())).unwrap_err();
+        assert!(matches!(err, DemucsError::Cancelled), "{err:?}");
+        assert!(log.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_sink_that_fails_stops_the_run_with_its_error() {
+        let mix = stereo_noise(1000, 11);
+        let mut model = Quarters::new(SEG);
+        let err = separate_streaming(&mut model, &mix, &Control::none(), &mut |_, _| {
+            Err(DemucsError::Wav("disk full".into()))
+        })
+        .unwrap_err();
+        assert!(matches!(err, DemucsError::Wav(_)), "{err:?}");
+        assert_eq!(model.seen.len(), 1, "no segment after the failure");
+    }
+
+    /// A mix that is not a pair of `Vec`s: a source that reads windows of
+    /// something else (the audio-level pipeline reads a decoded buffer) gives
+    /// the same stems as the same samples held in a `Vec`.
+    #[test]
+    fn any_mix_source_gives_the_same_stems_as_a_vec() {
+        struct Interleaved(Vec<f32>);
+        impl MixSource for Interleaved {
+            fn len(&self) -> usize {
+                self.0.len() / 2
+            }
+            fn window(&self, start: i64, len: usize, out: &mut Stereo) {
+                for (c, channel) in out.iter_mut().enumerate() {
+                    channel.clear();
+                    channel.extend((0..len as i64).map(|i| {
+                        let at = start + i;
+                        if at < 0 || at as usize >= self.len() {
+                            0.0
+                        } else {
+                            self.0[at as usize * 2 + c]
+                        }
+                    }));
+                }
+            }
+        }
+        let mix = stereo_noise(333, 12);
+        let interleaved = Interleaved(
+            mix[0]
+                .iter()
+                .zip(&mix[1])
+                .flat_map(|(l, r)| [*l, *r])
+                .collect(),
+        );
+        let collect = |source: &dyn MixSource| {
+            let mut joined: [Stereo; 4] = Default::default();
+            separate_streaming(
+                &mut Quarters::new(SEG),
+                source,
+                &Control::none(),
+                &mut |_, stems| {
+                    for (dst, src) in joined.iter_mut().zip(stems) {
+                        dst[0].extend_from_slice(&src[0]);
+                        dst[1].extend_from_slice(&src[1]);
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+            joined
+        };
+        assert_eq!(collect(&mix), collect(&interleaved));
     }
 }

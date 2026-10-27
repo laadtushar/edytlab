@@ -13,18 +13,18 @@ workspace = true
 # The ONNX Runtime binding, declared once in the root `Cargo.toml` (the
 # exact version, the `api-23` level and why).
 ort.workspace = true
-ndarray = "0.17"
 ml-pipeline = { path = "../ml-pipeline" }
 audio-decoder = { path = "../audio-decoder" }
 hound = "3.5"
-blake3 = "1"
 # The STFT/iSTFT that htdemucs runs outside the network (`spec.rs`). The
 # workspace-blessed FFT path, as in audio-time and audio-analysis.
 realfft = "3"
+# Sample-rate conversion to and from the network's 44.1 kHz (`resample.rs`),
+# the converter ml-whisper and audio-engine use.
+rubato = "0.16"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tracing = "0.1"
 
 [dev-dependencies]
 serde_json = "1"

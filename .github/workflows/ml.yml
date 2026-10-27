@@ -43,6 +43,16 @@ name: ML
 #     two speakers with a talk time near the annotation's, the session is
 #     untouched (no node), and the same request again is a cache hit.
 #
+#   - ml-demucs `onnx_split` (#385): the stem pipeline on the real runtime, with a
+#     committed model that has the htdemucs graph's inputs and outputs and none
+#     of its network (every source is a quarter of the input): the tensors, the
+#     two-file folder, the port check and the session options, in seconds;
+#   - ml-demucs `real_model` (#385): the pinned htdemucs (171 MB) on a fixture
+#     mixed from known stems: the SDR of each separated stem against the stem
+#     that went in, the realtime factor, and five minutes of audio through it
+#     with the peak memory. A second job (`stems`), so that its minutes run
+#     beside the first job's, not after them.
+#
 # Both inputs are pinned in the repository, not here, and verified before use:
 #
 #   - ONNX Runtime: apps/desktop/src-tauri/ml-runtime.json (URL, size, SHA-256
@@ -227,4 +237,73 @@ jobs:
             echo "- ONNX Runtime cache hit: \`${{ steps.cache-runtime.outputs.cache-hit || 'false' }}\`"
             echo "- whisper-base model cache hit: \`${{ steps.cache-model.outputs.cache-hit || 'false' }}\`"
             echo "- speaker model cache hit: \`${{ steps.cache-speaker-model.outputs.cache-hit || 'false' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  stems:
+    name: htdemucs on ONNX Runtime (linux-x86_64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target (stems)
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ml-linux-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The same library and the same key as the first job's: one cache entry.
+      - name: Cache ONNX Runtime (stems)
+        id: cache-runtime
+        uses: actions/cache@v6
+        with:
+          path: ml-runtime/linux-x64
+          key: ml-runtime-linux-x64-${{ hashFiles('apps/desktop/src-tauri/ml-runtime.json') }}
+
+      - name: Fetch ONNX Runtime (stems)
+        run: bash scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64
+
+      # The committed model with the htdemucs graph's ports and no network: it
+      # needs the library and nothing else. Release, as the model test below,
+      # so the build is shared.
+      - name: The stem pipeline on the real runtime
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+        run: cargo test -p ml-demucs --release --test onnx_split -- --ignored --nocapture --test-threads=1
+
+      # The two files of the stem model, 171 MB. Keyed on the manifest, so a new
+      # pin misses.
+      - name: Cache the stem model
+        id: cache-stem-model
+        uses: actions/cache@v6
+        with:
+          path: ml-models/htdemucs
+          key: ml-model-htdemucs-${{ hashFiles('crates/ml-pipeline/models.json') }}
+
+      # Runs on a hit too: each file's size and SHA-256 is checked against
+      # models.json, and a file that fails is downloaded again.
+      - name: Fetch the stem model
+        run: bash scripts/fetch-ml-model.sh htdemucs ml-models/htdemucs
+
+      # `--release`: the realtime factor is the one worth reading. One thread
+      # of tests, so that the two never run on the cores at once and the
+      # timings are the model's.
+      - name: Stem separation on a mix of known stems
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+        run: cargo test -p ml-demucs --release --test real_model -- --ignored --nocapture --test-threads=1
+
+      - name: Summary (stems)
+        if: always()
+        run: |
+          {
+            echo "### ML workflow: stems"
+            echo ""
+            echo "- ONNX Runtime cache hit: \`${{ steps.cache-runtime.outputs.cache-hit || 'false' }}\`"
+            echo "- stem model cache hit: \`${{ steps.cache-stem-model.outputs.cache-hit || 'false' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
