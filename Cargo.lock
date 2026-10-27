@@ -3058,16 +3058,15 @@ name = "ml-demucs"
 version = "0.9.3"
 dependencies = [
  "audio-decoder",
- "blake3",
  "hound",
  "ml-pipeline",
  "ort",
  "realfft",
+ "rubato",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
- "tracing",
 ]
 
 [[package]]

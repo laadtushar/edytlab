@@ -28,7 +28,8 @@
 use std::path::{Path, PathBuf};
 
 use ml_pipeline::models::{
-    speaker_diarization, whisper_base, SPEAKER_DIARIZATION_ID, WHISPER_BASE_ID,
+    htdemucs, speaker_diarization, whisper_base, HTDEMUCS_ID, SPEAKER_DIARIZATION_ID,
+    WHISPER_BASE_ID,
 };
 use ml_pipeline::{Catalog, ModelStore};
 
@@ -80,7 +81,7 @@ fn the_manifest_parses_and_names_whisper_base() {
     ModelStore::new("unused-root")
         .artifact_dir(&model.artifact)
         .expect("a valid artifact");
-    assert_eq!(catalog.models().len(), 2, "two models are pinned");
+    assert_eq!(catalog.models().len(), 3, "three models are pinned");
 }
 
 #[test]
@@ -174,6 +175,71 @@ fn the_speaker_model_is_two_files_from_two_repositories_checked_on_2026_10_26() 
     // 33 MB, a quarter of the speech model.
     assert_eq!(model.size(), 32_517_217);
     assert_eq!(speaker_diarization(), &model.artifact);
+}
+
+/// What the stem model pins (#385), the table in the PR that pinned it: (path
+/// kept, path in the repo, bytes, sha256). Both files were read at the
+/// commit on 2026-10-27 and hashed (the weights streamed through `sha256sum`,
+/// the graph saved and parsed), and each digest compared with the Hub's own
+/// LFS digest for the file at that commit. The graph refers to the weights by
+/// the name `htdemucs_fwd.onnx.data`, so the two are kept under their own
+/// names, side by side, and `source_path` is where they are in the repository.
+const STEM_PINNED: [(&str, &str, u64, &str); 2] = [
+    (
+        "htdemucs_fwd.onnx",
+        "htdemucs_v4/htdemucs_fwd.onnx",
+        2_385_507,
+        "555f511fb653348a1c9495ab6b6091767d1920798f3fba68629a1fe5b135a45f",
+    ),
+    (
+        "htdemucs_fwd.onnx.data",
+        "htdemucs_v4/htdemucs_fwd.onnx.data",
+        168_361_984,
+        "23a7c68669c041363caaef94641e961dc8c4e16b9891cb87f58f0e199a5e8820",
+    ),
+];
+
+#[test]
+fn the_stem_model_is_intels_htdemucs_v4_export_checked_on_2026_10_27() {
+    let model = Catalog::built_in()
+        .get(HTDEMUCS_ID)
+        .expect("the stem model is pinned");
+    assert_eq!(HTDEMUCS_ID, "htdemucs");
+    assert_eq!(model.repo, "Intel/demucs-openvino");
+    assert_eq!(model.revision, "efb3d2bc54f93899b13b72b12c57001e19f09ae2");
+    assert_eq!(model.license, "MIT");
+    ModelStore::new("unused-root")
+        .artifact_dir(&model.artifact)
+        .expect("a valid artifact");
+    assert_eq!(model.artifact.files.len(), STEM_PINNED.len());
+    for (file, (path, source_path, bytes, sha256)) in model.artifact.files.iter().zip(STEM_PINNED) {
+        assert_eq!(file.path, path);
+        assert_eq!((file.size, file.sha256.as_str()), (bytes, sha256), "{path}");
+        let source = model.source_of(path).expect("every file has a source");
+        assert_eq!(source.repo, "Intel/demucs-openvino");
+        assert_eq!(source.revision, model.revision);
+        assert_eq!(source.source_path, source_path);
+        assert_eq!(source.license, "MIT");
+    }
+    // 171 MB, as the plan on #385 said.
+    assert_eq!(model.size(), 170_747_491);
+    assert_eq!(htdemucs(), &model.artifact);
+}
+
+/// The graph names its weights file, so the two files must be kept side by
+/// side under those names: an `.onnx` that finds no `.onnx.data` is a model
+/// that will not load.
+#[test]
+fn the_stem_graph_and_its_weights_are_kept_in_one_folder_under_their_own_names() {
+    let model = Catalog::built_in().get(HTDEMUCS_ID).unwrap();
+    let paths: Vec<&str> = model
+        .artifact
+        .files
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
+    assert_eq!(paths, ["htdemucs_fwd.onnx", "htdemucs_fwd.onnx.data"]);
+    assert!(paths.iter().all(|p| !p.contains('/')));
 }
 
 #[test]

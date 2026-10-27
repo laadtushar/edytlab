@@ -8,9 +8,9 @@
 
 //! The STFT and iSTFT that HT-Demucs runs *outside* the network.
 //!
-//! The ONNX export of htdemucs has its STFT and iSTFT stripped out (see
-//! the plan on #385): the graph takes the spectrogram `x` and the
-//! waveform `xt`, and returns `x_out` and `xt_out`. So the spectrogram
+//! The ONNX export of htdemucs has its STFT and iSTFT stripped out (and the
+//! per-segment standardisation, `htdemucs.rs`): the graph takes the
+//! spectrogram `x` and the waveform `xt`, and returns `x_out` and `xt_out`. So the spectrogram
 //! going in, and the conversion of `x_out` back to a waveform, are ours
 //! to do, and they have to match PyTorch's to the sample or the stems come
 //! out wrong without any error.

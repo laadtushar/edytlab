@@ -42,21 +42,23 @@ fn loading_a_model_without_the_runtime_is_an_error_not_a_hang() {
     }
     watchdog();
 
+    // A folder with both files in it, so the load gets as far as the runtime
+    // as a real one would.
     let dir = tempfile::tempdir().expect("tempdir");
-    let model = dir.path().join("htdemucs.onnx");
-    std::fs::write(&model, b"not an onnx model").expect("write");
+    std::fs::write(dir.path().join("htdemucs_fwd.onnx"), b"not an onnx model").expect("write");
+    std::fs::write(dir.path().join("htdemucs_fwd.onnx.data"), b"not weights").expect("write");
 
-    let err = DemucsModel::load("htdemucs", &model)
+    let err = DemucsModel::load("htdemucs", dir.path())
         .expect_err("there is no runtime to load a model with");
     let DemucsError::RuntimeUnavailable(reason) = &err else {
         panic!("expected RuntimeUnavailable, got {err:?}");
     };
     assert!(reason.contains("ONNX Runtime"), "{reason}");
 
-    // Installing the runtime would not make separation work, and the
-    // message must not let anyone think it would.
+    // It used to say that installing the runtime would not make separation
+    // work (#385); separation works now, and it must not say so.
     let msg = err.to_string();
-    assert!(msg.contains("not implemented in this build"), "{msg}");
+    assert!(!msg.contains("not implemented"), "{msg}");
 
     // A missing library is not an out-of-memory condition: the tool
     // must not answer it by retrying with the smaller model.
