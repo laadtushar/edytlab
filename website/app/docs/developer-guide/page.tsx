@@ -92,7 +92,7 @@ pnpm tauri:dev             # dev mode; incremental builds take under 30 s`}</cod
   cli/                Headless one-turn agent driver (E2E tests)
 crates/
   ai/                 LLM providers, agent loop, keychain
-  tools/              96 audio-editing tools
+  tools/              99 audio-editing tools
   session/            Session DAG data model and store
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by tools and render

@@ -251,18 +251,19 @@ impl ToolDispatcher {
             CutRangeTool, CutWordsTool, DeEsserTool, DiarizeTool, DistortionTool,
             DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
             ExportMultipleTool, ExportRecipeTool, FadeTool, ForkNodeTool, GainTool,
-            GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
-            InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, ListSessionTool,
-            LoadTool, LowPassFilterTool, MeasureTool, MixToNewTrackTool, MonoToStereoTool,
-            MoveClipTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
-            NormalizeLoudnessTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool,
-            PitchShiftTool, PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool,
-            RemoveFillersTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool,
-            RenderPreviewTool, ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool,
-            ReverbTool, ReverseTool, RevertToTool, SelectRegionTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
-            SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool,
-            SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            GenerateChirpTool, GenerateClickTrackTool, GenerateDtmfTool, GenerateNoiseTool,
+            GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
+            LabelTool, LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool,
+            MeasureTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
+            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
+            PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
+            RevertToTool, SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool,
+            SetEffectBypassedTool, SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool,
+            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
+            SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
             StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
             TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
@@ -380,6 +381,9 @@ impl ToolDispatcher {
         // Audio generators: synthesize tones and noise.
         d.register(Box::new(GenerateToneTool));
         d.register(Box::new(GenerateNoiseTool));
+        d.register(Box::new(GenerateClickTrackTool));
+        d.register(Box::new(GenerateChirpTool));
+        d.register(Box::new(GenerateDtmfTool));
         // vocal_reduction: L-R center cancellation for stereo.
         d.register(Box::new(VocalReductionTool));
         // mix_to_new_track: offline-render selected tracks into a new track.
