@@ -1,7 +1,7 @@
 # Sign in with ChatGPT: running edytlab's agent on a ChatGPT subscription
 
 - **Date:** 2026-10-10. Corrected, with the decision and the PR plan added, on 2026-10-11.
-- **Status:** Decided (below). Research and implementation plan. No code has changed; the code starts at PR 1 of §4.7.
+- **Status:** Decided (below), and implemented: PRs 1 to 7 of §4.7 landed and Sign in with ChatGPT shipped in v0.9.0 as a preview. What follows is the research and plan as written on 2026-10-11; the code (`crates/ai/src/chatgpt/`, `apps/desktop/src-tauri/src/chatgpt.rs`) and `docs/architecture.md` are the current description.
 - **Question:** Can a user sign in with their ChatGPT account (Plus, Pro, Team) and have edytlab's agent bill its LLM requests to that subscription instead of an API key? If so, exactly how?
 
 ## Decision (2026-10-11)
