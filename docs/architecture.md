@@ -96,7 +96,7 @@ edytlab/
     ├── mcp/                      # MCP server lifecycle + JSON-RPC dispatch
     ├── memory/                   # Global/project markdown memory fragments
     ├── ml-demucs/                # Stem separation via ONNX Demucs (inference is a stub, #385)
-    ├── ml-diarize/               # Speaker diarization via ONNX pyannote segmentation + WeSpeaker embeddings (run by the `diarize` tool, #831; the app does not offer the model for download yet, #168)
+    ├── ml-diarize/               # Speaker diarization via ONNX pyannote segmentation + WeSpeaker embeddings (run by the `diarize` tool, #831, on the speaker model the user downloads in Settings, #168)
     ├── ml-pipeline/              # Shared ONNX runtime gate, model downloader + the user-started speech-model download, and inference cache (the installers carry the runtime, #383)
     ├── ml-whisper/               # Transcription via ONNX Whisper-base (run by the `transcribe` tool on the model the user downloaded, #384)
     ├── recorder/                 # Microphone capture to WAV; recording-latency measurement (cpal)

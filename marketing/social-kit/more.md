@@ -8,7 +8,7 @@ appears, the demo tracks are synthetic loops, no invented numbers.
 **Links:**
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.2 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.2> ·
+v0.9.3 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.3> ·
 DJ recordings <https://edytlab.com/use-cases/dj>
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
@@ -278,7 +278,7 @@ The model never hears the audio. It chooses and orders calls to 99 deterministic
 Get it
 Free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch; the release notes have the steps.
 Website and docs: https://edytlab.com
-Download v0.9.2: https://github.com/laadtushar/edytlab/releases/tag/v0.9.2
+Download v0.9.3: https://github.com/laadtushar/edytlab/releases/tag/v0.9.3
 Source: https://github.com/laadtushar/edytlab
 The DJ walkthrough, with the limits: https://edytlab.com/use-cases/dj
 
@@ -293,7 +293,7 @@ edytlab, AI audio editor, beatmatching, DJ prep, extended intro, time stretch, o
 
 ---
 
-## 6. Show HN (refreshed for v0.9.2)
+## 6. Show HN (refreshed for v0.9.3)
 
 Submit <https://edytlab.com>. Post the first comment as soon as it is up and
 stay for several hours. Do not ask anyone to upvote.
@@ -320,7 +320,7 @@ Where things run. Decode, DSP, mixing and export run in-process in Rust. Audio f
 
 How it's built:
 
-- Tauri 2 shell, React front end, a Rust workspace of 16 crates.
+- Tauri 2 shell, React front end, a Rust workspace of 17 crates.
 - Effects live in an in-house audio-dsp crate with no dependencies. Decode is symphonia, resampling rubato, FFT realfft.
 - Time-stretch and pitch-shift are a phase vocoder written for this project. I wanted Rubber Band and dropped it: it needs a different native package on each of the three CI targets, and a native dependency like that breaks every build at once. The trade is documented at the top of crates/audio-time/src/vocoder.rs. It's cleaner on sustained material than on dense mixes, and the further the factor is from 1.0 the more it smears.
 - Session state is a content-addressed graph (node id is a blake3 of the state): fork, name, compare (A/B), revert. That was a trap for undo: a revisited state keeps its first parent, so undo went to the wrong place after mute then unmute. v0.4.0 keeps the path the user took in the frontend (#398).
@@ -345,7 +345,7 @@ Feedback I'd like:
 2. If you run local models: which ones can drive a tool list this size without losing the thread?
 3. If you do DSP: the vocoder and the limiter are where I expect the most justified criticism.
 
-Download v0.9.2 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.9.2
+Download v0.9.3 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.9.3
 Source: https://github.com/laadtushar/edytlab
 ```
 
@@ -369,19 +369,22 @@ Answers to have ready:
 
 Subject options:
 
-1. `edytlab v0.9.2: one macOS password prompt per launch, and transcription that no longer skips speech`
+1. `edytlab v0.9.3: measure loudness, find who speaks when, and import AIFF and Opus`
 2. `Three DJ jobs, done by chatting with an AI audio agent`
 
 Body:
 
 ```
-edytlab v0.9.2 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
+edytlab v0.9.3 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
 
-Two changes lead this release. macOS now asks for your login password at most once per launch, because your API keys and the ChatGPT sign-in are kept together in one keychain entry (the first launch after updating moves your existing keys over, and may ask once for each old entry). And transcription no longer skips stretches of speech, and its word times are closer.
+Two tools lead this release. The new measure tool reports integrated, momentary and short-term loudness, loudness range, sample and true peak, RMS, noise floor, digital silence and clipping, for the mix or one track, and check "acx" gives a pass or fail for each ACX rule. The new diarize tool labels who speaks when on a track or file, on your computer, and the assistant can hand the turns to split_by_speaker. It needs a speaker model (about 33 MB, two files from Hugging Face) that you download once with the Download button under the speech model in Settings → Account; nothing downloads at launch, when Settings opens or when the assistant asks, and no audio is sent.
 
 The preview: Sign in with ChatGPT (new in v0.9.0; in v0.9.0 its first message after signing in failed with "Unsupported content type"; v0.9.1 fixes that error, so use v0.9.1 or later). In Settings, choose ChatGPT plan and press Continue with ChatGPT, and the assistant uses your ChatGPT Plus or Pro plan's usage instead of an API key. Your browser opens OpenAI's sign-in page and edytlab never sees your password. If your plan's limit is reached, the chat says so and stops; it does not switch to another provider. It may not be available on workspace plans, which depends on OpenAI and your admin. Your audio stays on your computer; the chat goes to OpenAI, as it does with any provider.
 
 What else changed since v0.7.0:
+- Test signals (v0.9.3): generate_click_track, generate_chirp and generate_dtmf add a track, including in an empty project. AIFF and Opus (mono and stereo) files now import; surround Opus and M4A/AAC fail with a message that says to convert.
+- Settings has an Audio tab (v0.9.3) that measures how late your microphone hears what the computer plays, for the output and input pair you use. Nothing uses the number yet.
+- macOS asks for your login password at most once per launch, because your API keys and the ChatGPT sign-in share one keychain entry (v0.9.2; the first launch after updating moves your existing keys over, and may ask once for each old entry). Transcription no longer skips stretches of speech, and its word times are closer (v0.9.2).
 - Retry sends your message once, a template's empty tracks show as lanes, and tone and noise generation work in an empty project (v0.9.2).
 - Transcription (v0.8.0). Ask the assistant to transcribe a track, or cut words in the Transcript tab. It runs on your computer with the Whisper base speech model (about 139 MB), which you download once with the Download button in Settings → Account; nothing downloads by itself. I've checked it on one short synthetic English recording and about 16 minutes of English audiobook speech (4% to 7% of the words wrong), so read the words before you cut on them. The words it finds reach your AI provider as text, never the audio.
 - Edits to a track recorded at a different sample rate from the project land in the right place (v0.8.1).
@@ -403,7 +406,7 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.9.2 is out (macOS, Windows, Linux). macOS now asks for your password at most once per launch (keys and the ChatGPT sign-in share one keychain entry), and transcription no longer skips stretches of speech. Sign in with ChatGPT is a preview (v0.9.1 or later; the first message failed in v0.9.0): the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, on your computer, once you download the speech model in Settings (checked on English only: a short synthetic recording and about 16 minutes of audiobook speech), and edits to a track at a different sample rate land in the right place. Stem separation is still not available. On v0.7.0 or older, update: a batch run could render onto its own inputs. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
+edytlab v0.9.3 is out (macOS, Windows, Linux). New: a measure tool for loudness, peaks, noise floor and clipping with an ACX check, a diarize tool that labels who speaks when on your computer (it needs a 33 MB speaker model you download once in Settings), click-track, chirp and DTMF generators, and AIFF and Opus import. Since v0.9.2, macOS asks for your password at most once per launch (keys and the ChatGPT sign-in share one keychain entry), and transcription no longer skips stretches of speech. Sign in with ChatGPT is a preview (v0.9.1 or later; the first message failed in v0.9.0): the assistant can use your ChatGPT Plus or Pro plan instead of an API key. Since v0.8.0 it can also transcribe, on your computer, once you download the speech model in Settings (checked on English only: a short synthetic recording and about 16 minutes of audiobook speech), and edits to a track at a different sample rate land in the right place. Stem separation is still not available. On v0.7.0 or older, update: a batch run could render onto its own inputs. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
 Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 Tell me which edit you'd ask for first.
 ```
@@ -415,7 +418,7 @@ Tell me which edit you'd ask for first.
 - Release facts (Sign in with ChatGPT as a preview, transcription and its
   download, the sample-rate fix, the render-over-source fix, the noise
   reduction click, and "stem separation is still not available") are from the
-  v0.9.2, v0.9.1 and v0.9.0 entries in `website/app/changelog/page.tsx` and the
+  v0.9.3, v0.9.2, v0.9.1 and v0.9.0 entries in `website/app/changelog/page.tsx` and the
   v0.8.1 and v0.8.0 release notes on GitHub. The
   v0.7.0 version of this section (controls that stay put, the History graph,
   bundled skills, the ONNX Runtime in the installers with no model) and the
@@ -423,9 +426,9 @@ Tell me which edit you'd ask for first.
   data-loss fixes, are in git history (`git log -p -- marketing/social-kit/more.md`).
   The "update if you are on v0.6.0 or older" line is the data-loss advice
   that still applies (#589 compaction, fixed in v0.6.0; #612 Save As, fixed in
-  v0.6.1). The v0.6.0 notes' "adding a label works on macOS" is still left out
-  on purpose: the in-page name box that fixes it has not been checked on a Mac
-  yet (#567, open).
+  v0.6.1). The v0.6.0 notes' "adding a label works on macOS" is still left out:
+  it is old news now, though the in-page name box that fixes it did pass on one
+  real Mac (v0.9.0 and v0.9.1, 2026-10-25; #567, closed).
 - Show HN says "The desktop app has no telemetry" and does **not** repeat the
   older draft's "the website has no analytics". `website/app/privacy/page.tsx`
   says the website uses anonymous Vercel analytics, and

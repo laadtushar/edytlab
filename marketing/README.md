@@ -1,6 +1,6 @@
 # edytlab launch kit
 
-Copy-paste material for launching edytlab v0.9.2. Everything here is written
+Copy-paste material for launching edytlab v0.9.3. Everything here is written
 to be posted as-is, by the owner, from their own accounts. Nothing in this
 folder posts anywhere by itself, and nothing here opens a PR on another repo.
 
@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.9.2 today (published 2026-10-26). (The website's own buttons point at the
+non-prerelease, which is v0.9.3 today (published 2026-10-27). (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -25,7 +25,7 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/show-hn.md`](launch/show-hn.md) | Show HN title, body and the author's first comment, plus answers to the questions HN will ask |
 | [`launch/product-hunt.md`](launch/product-hunt.md) | Tagline, description, maker's first comment, 5 gallery captions, topics |
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
-| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.2 release and the DJ demo |
+| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.3 release and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
 | [`social-kit/linkedin/`](social-kit/linkedin/README.md) | The LinkedIn visuals in the website's design: five 1200x1200 images (one per post in `social-kit/linkedin-posts.md`), a seven-page carousel PDF for post 3, the HTML templates, staged screenshots of the real app and the script that renders them |
@@ -120,7 +120,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 - That the editor is for live DJ performance. It edits files. Live decks and
   controllers are on the post-v1 roadmap.
 
-**Safe, and verified against the repo and the GitHub release on 2026-10-22 (v0.7.0):**
+**Safe, and verified against the repo and the GitHub release on 2026-10-22 (v0.7.0; the `measure`, `diarize` and formats rows on 2026-10-27, v0.9.3):**
 
 | Claim | Where it was checked |
 |---|---|
@@ -136,7 +136,10 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.9.2 | GitHub release v0.9.2 (its page lists the six installers), `LICENSE` |
+| `measure` (v0.9.3): integrated, momentary and short-term loudness, loudness range, sample and true peak, RMS, noise floor, digital silence and clipping, with an ACX pass or fail (`check: "acx"`) | `measure` in `docs/tools-reference.md`, the v0.9.3 release notes |
+| `diarize` (v0.9.3): labels who speaks when on a track or file, on this computer, after the user downloads the speaker model (about 33 MB, two files, from Hugging Face) in Settings → Account; it returns turns and edits nothing, and the assistant can hand them to `split_by_speaker`. Say nothing about accuracy beyond "checked on one 40-second meeting excerpt". Same privacy facts as the speech model (GET requests on the click, no audio, no telemetry, using it makes no request). | `diarize` in `docs/tools-reference.md`, the v0.9.3 release notes, `website/app/privacy/page.tsx` |
+| AIFF and Opus (mono and stereo, decoded at 48 kHz) import; M4A/AAC does not, and the app says to convert | the v0.9.3 release notes, `crates/audio-decoder` |
+| macOS universal, Windows, Linux builds; MIT; v0.9.3 | GitHub release v0.9.3 (its page lists the six installers), `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -198,9 +201,10 @@ getting caught.
   restoring an older head, [#506](https://github.com/laadtushar/edytlab/issues/506)
   and [#507](https://github.com/laadtushar/edytlab/issues/507)) are fixed in
   v0.6.0.
-- Still unchecked on a Mac: the label name box and Delete's native confirm
-  ([#567](https://github.com/laadtushar/edytlab/issues/567), open). Do not
-  promise that adding a label works on macOS until someone has tried it.
+- The label name box and Delete's native confirm were checked on one real Mac
+  (v0.9.0 and v0.9.1, macOS 26.5.2, 2026-10-25;
+  [#567](https://github.com/laadtushar/edytlab/issues/567), closed, report in
+  #727) and passed. Say "checked on one Mac", not "works on every Mac".
 - The limiter is a zero-latency sample-peak limiter (instant attack, smooth
   release; it was a hard clip until
   [#441](https://github.com/laadtushar/edytlab/issues/441)), not a look-ahead
@@ -208,10 +212,10 @@ getting caught.
 
 ## Before the first post
 
-- [ ] Install the v0.9.2 build on at least one machine per OS you will claim
+- [ ] Install the v0.9.3 build on at least one machine per OS you will claim
       (not v0.9.0: its first message after Continue with ChatGPT failed with
       "Unsupported content type", which v0.9.2 and later fix).
-- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.2 and send a message.
+- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.3 and send a message.
       Until that has worked once, leave every line about the ChatGPT plan out
       of the posts: the fix was checked against a mock of OpenAI's API, not a
       real account.
@@ -229,7 +233,7 @@ getting caught.
       show fake data; the `after-*` set was retaken on 2026-10-26 for v0.9.2 (the status bar says V0.9.2), so it shows the ChatGPT logo on the provider button and the message box at the pane's full width); the `before-*` set is the look v0.5.0 and earlier
       shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
-      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.2 build.
+      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.3 build.
       The only UI screenshots in the repo are the `docs/brand/` pair above and the staged ones in `social-kit/linkedin/shots/` (fake data, retaken by `social-kit/linkedin/render.mjs --shots`).
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a

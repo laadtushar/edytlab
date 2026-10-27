@@ -17,7 +17,7 @@ come once narration credits are available).
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
 download <https://github.com/laadtushar/edytlab/releases/latest> (the newest
-release, v0.9.2 on 2026-10-26; check before each post that the version a post
+release, v0.9.3 on 2026-10-27; check before each post that the version a post
 names is still the newest)
 
 **Conventions used in every post:** no emoji; 3 to 5 hashtags at the end;
@@ -44,7 +44,7 @@ How it works: the model never hears the audio. It gets text about the session (t
 
 Honest limits: the demo tracks are short synthetic loops I generated, and the agent in the recordings is Claude. It preps files; it isn't a live DJ tool. No stem separation yet. The installers are unsigned, so macOS and Windows warn on first launch.
 
-Free, open source (MIT), v0.9.2 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
+Free, open source (MIT), v0.9.3 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
 
 Demos and downloads: https://edytlab.com
 
@@ -199,7 +199,7 @@ Angle: specific, honest invitations, including the big unshipped piece. About
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 99 audio tools. v0.9.2 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 99 audio tools. v0.9.3 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 
@@ -209,7 +209,7 @@ Places a contributor could make a real difference:
 - New audio tools and new LLM providers. Each is one registered implementation, and docs/contributing.md walks through both.
 - The big one: stem separation is not shipped. The Demucs tool is wired in and the installers carry the ONNX Runtime, but nothing runs a stem model (issue 385). Transcription does run, from v0.8.0, on a Whisper model you download once; I've checked it on one short synthetic English recording and about 16 minutes of English audiobook speech (4% to 7% of the words wrong). If you've shipped model inference inside a Tauri app, I'd like to talk.
 
-The repo has a "good first issue" label, but nothing open carries it yet. If you want a starter task, reply here and I'll write one up.
+Five open issues carry the "good first issue" label (#846 to #850: a wah-wah effect, a curve option for fade, a mute-all-tracks tool, and tool-level tests for mute, solo and pan). Each says where in the code to start and how it is checked; docs/contributing.md walks through a change.
 
 Bug reports with your OS, version and provider are welcome too.
 
@@ -256,10 +256,9 @@ Decisions for you:
 - Post 3 says "I build it with Claude Code". It is true (commit trailers,
   `CLAUDE.md`) and `marketing/README.md` recommends disclosing once. Delete
   the line if you prefer, but decide before someone asks.
-- Post 5 promises to write up a starter task on request, and says no open
-  issue carries the `good first issue` label (true when checked on 2026-10-22:
-  15 open issues, none labelled). If you label two issues first, replace that paragraph with
-  their numbers.
+- Post 5 names #846 to #850 as the open `good first issue` issues (true when
+  checked on 2026-10-27). Re-check that they are still open before posting;
+  edit that paragraph if one has been taken.
 - Post 1 says the agent in the recordings is Claude. That is what the demo
   captions say. No model version is named anywhere.
 - A test script types the requests into the real app when the demos are
