@@ -40,6 +40,7 @@ const PROGRESS_KINDS = new Set([
   "timer_record",
   "transcribe",
   "diarize",
+  "separate_stems",
 ]);
 
 export function ToolProgressBar() {

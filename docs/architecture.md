@@ -1147,8 +1147,9 @@ the per-segment standardisation cut out; `crates/ml-demucs/src/htdemucs.rs`
 does all three, from `htdemucs.py` and the reference pipeline for the export.
 It is not a port of everything upstream does: `shifts` is 0, so the same audio
 always gives the same stems and the cache cannot lie. Measured on a 4 vCPU
-runner, release build: about 2x realtime, 3.3 GB at the peak with the CPU
-memory arena and memory pattern off (5.0 GB with ONNX Runtime's defaults),
+runner, release build: 1.6 to 1.7x realtime, 3.0 GB at the peak for a 5-minute
+track with the CPU memory arena and memory pattern off (5.0 GB with ONNX
+Runtime's defaults, which are 2.2x),
 and on a mix of four known stems 16.1, 19.7, 13.7 and 10.4 dB SDR for vocals,
 drums, bass and other. The app does not offer the model for download yet, so
 a release build says "not on this computer" until it does.

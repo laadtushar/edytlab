@@ -179,6 +179,20 @@ describe("the tool progress strip", () => {
     });
   });
 
+  it("shows a stem separation by segment and clears when it ends or is cancelled", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    for (const cancelled of [false, true]) {
+      emit({ kind: "separate_stems", index: 2, total: 53, file: "track 1" });
+      await waitFor(() => expect(screen.getByText("3 of 53")).toBeTruthy());
+      expect(screen.getByTestId("tool-progress-file").textContent).toBe("track 1");
+      emit({ kind: "separate_stems", done: true, cancelled, total: 53, file: "track 1" });
+      await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull(), {
+        timeout: LEAVE_MS * 6,
+      });
+    }
+  });
+
   it("names a file by its file name, not its path", async () => {
     render(<ToolProgressBar />);
     await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
