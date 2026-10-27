@@ -27,7 +27,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "beatmatch-and-blend-two-tracks",
     title: "Beatmatch and Blend Two Tracks by Asking",
     date: "2026-10-09",
-    dateModified: "2026-10-24",
+    dateModified: "2026-10-27",
     description:
       "Match tempos, overlap two tracks, fade and filter the outgoing one, then master and export a WAV: the DJ transition from the demo, as prompts you can type.",
     coverAlt:
@@ -39,7 +39,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (2:45, with sound, waits sped up) and gives you the sentence to type at every step.",
+        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (2:23, with sound) and gives you the sentence to type at every step.",
       },
       {
         type: "callout",
@@ -94,7 +94,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "The agent moves the whole track with `time_shift`, or a single clip with `move_clip`. Then listen. In the demo, Claude noticed that at the 16-second starting point the bars landed a beat apart, and said what it would change. Expect that kind of check from the assistant and make it yourself: whether the overlap works is a decision for your ears, and each move is one undoable step.",
+        text: "The agent moves the whole track with `time_shift`, or a single clip with `move_clip`. Then listen. In the demo, the assistant reports what it changed after each step. Expect that from the assistant, and make the check yourself: whether the overlap works is a decision for your ears, and each move is one undoable step.",
       },
       {
         type: "h2",
@@ -179,7 +179,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "make-a-mixable-extended-intro",
     title: "Make a Mixable Extended Intro",
     date: "2026-10-09",
-    dateModified: "2026-10-24",
+    dateModified: "2026-10-27",
     description:
       "Turn a track's drums-only opening into a longer, DJ-friendly intro: copy the bars, paste them back, high-pass, fade in and export. A prompt for every step.",
     coverAlt:
@@ -191,7 +191,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (1:55, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
+        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (1:39, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
       },
       {
         type: "callout",

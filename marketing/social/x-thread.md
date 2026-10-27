@@ -4,7 +4,7 @@
 <https://github.com/laadtushar/edytlab/releases/latest>
 
 Attach the demo to post 1. Upload
-`website/public/demos/dj-beatmatched-transition.mp4` (2.6 MB, 2:45) directly
+`website/public/demos/dj-beatmatched-transition.mp4` directly
 as native video, rather than linking to it. Put links in post 8, not post 1.
 
 Each post is 280 characters or fewer (counted by script).
@@ -18,7 +18,7 @@ I built a desktop audio editor you drive by chatting.
 
 Here a DJ asks for two tracks' tempos, the incoming one is time-stretched to match, crossfaded in 8 bars before the first ends, and the mix is exported as a WAV at -14 LUFS.
 
-(2:45, with sound. Free, open source.)
+(With sound. Free, open source.)
 ```
 
 **2/8**
@@ -48,7 +48,7 @@ There's also an optional "plan first" mode: the agent shows its steps and you ap
 ```
 For the DJ job: it analyses BPM, key, beat grid and loudness, then time-stretches or pitch-shifts with a phase vocoder written for the project, in pure Rust.
 
-It's for prep, not live use. And in the demo, the agent itself flags a spot where the bars land a beat apart.
+It's for prep, not live use. Every edit in the demo shows as a tool call, with a reply saying what changed.
 ```
 
 **6/8**

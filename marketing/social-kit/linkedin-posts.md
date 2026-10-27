@@ -36,9 +36,9 @@ limits. About 250 words.
 ```
 I built an audio editor you talk to. The video is three DJ jobs, each described in plain English and ending in an exported WAV.
 
-A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 bars of the first, crossfaded with a low-pass on the outgoing track, mastered to about -14 LUFS. An extended club intro, made by copying a track's drums-only first 8 bars. A three-track mini-mix at 124 BPM with overlaps of about 4 bars.
+A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 bars of the first, crossfaded with a low-pass on the outgoing track, mastered for streaming. An extended club intro, made by copying a track's drums-only first 8 bars. A three-track mini-mix at 124 BPM with overlaps of about 4 bars.
 
-What I like best: the agent flags its own edge cases. Bars that run a beat behind, with the fix. An export peaking right at full scale. A loudness reading that counted the fades.
+What I like best: it shows its work. Every edit is a tool call you can read in the chat, followed by a plain-words reply saying what changed, so you can check it instead of taking its word.
 
 How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 99 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini, or your ChatGPT plan, a preview), or stays local with Ollama.
 
@@ -65,7 +65,7 @@ numbers are fixture values, not a model's output), and the image says so.
 **Shorter version (under 90 words), same video:**
 
 ```
-I built an audio editor you talk to. The video: three DJ jobs, each described in plain English and ending in an exported WAV. A beatmatched blend, an extended club intro, a three-track mini-mix. The agent even flags its own edge cases, like bars that run a beat behind.
+I built an audio editor you talk to. The video: three DJ jobs, each described in plain English and ending in an exported WAV. A beatmatched blend, an extended club intro, a three-track mini-mix. Every edit shows as a tool call, with a reply saying what changed.
 
 Free and open source (MIT) for macOS, Windows and Linux. Audio is processed on your machine. It preps files, it doesn't play live, and the installers are unsigned, so expect a first-launch warning.
 
@@ -88,12 +88,12 @@ Before: that list, by hand, in an editor, every time.
 
 After, in the video: a DJ describes the blend and an AI agent works through the list on the files.
 
-- It reports what it's working with: the 128 BPM track is about 6.7% faster than the 120 BPM one.
+- It starts by telling the DJ each track's tempo, 120 BPM and 128 BPM, without changing anything.
 - It time-stretches the 128 BPM track to 120, keeping its pitch, and starts it at 16 seconds, under the last 8 bars of the other.
-- The outgoing track fades under a 1 kHz low-pass while the incoming one fades in.
-- The mix is mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.
+- The outgoing track fades under a low-pass filter while the incoming one fades in.
+- The mix is mastered for streaming (gentle compression, a limiter at -1 dB, normalised to -14 LUFS, all as the DJ asked) and exported as a WAV.
 
-The moment I trust it most: it tells the DJ that at 16 seconds the incoming track's bars run a beat behind, and offers to start it at 15.5 instead, rather than quietly leaving the blend a little off.
+The moment I trust it most is after each edit: it says in words what it changed, next to the tool calls it ran, rather than leaving you to hunt for what moved. The DJ can listen to the transition in the app before anything is exported.
 
 Limits, so nobody has to find them: the tracks are short synthetic loops I generated, so this shows the workflow, not how it copes with a real record. Beat detection is an estimate and can be wrong on a drifting tempo. This is prep for files, not a live tool.
 
@@ -230,8 +230,10 @@ Contributing guide: https://github.com/laadtushar/edytlab/blob/main/docs/contrib
 
 Sources for the claims:
 
-- Demo numbers and the flagged edge cases: captions in
-  `website/lib/demos.ts`.
+- Demo wording: the captions in `website/lib/demos.ts`. The posts quote the
+  prompts the DJ types (the fixture tempos, 8 and 16 bars, 16 seconds, -14 LUFS,
+  -1 dB), never what a take's reply reports (cutoffs, readings, lengths): those
+  differ from take to take, see `marketing/README.md`, "Evergreen media rules".
 - "Synthetic loops I generated": `apps/desktop/e2e-native/fixtures.mjs` writes
   the three tracks (32 seconds each) from code. The DJ page and README say
   "tracks", so this is a disclosure the site does not currently make.

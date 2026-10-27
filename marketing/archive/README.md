@@ -11,6 +11,7 @@ Nothing made for edytlab's marketing is thrown away. When a video, its captions,
 ```
 archive/
 ├── launch-video/
+│   ├── 2026-10-26-evergreen/         the cuts that said 94 tools and named a development build, with their captions, contact sheets, picture-only masters, the old script and README and the narration clips for the old takes
 │   ├── 2026-10-10-v0.4.0-amber/      first launch video (#493), replaced by #598
 │   │   ├── plain/                    launch-{linkedin,reddit,instagram}.mp4 and their .srt
 │   │   ├── narrated/                 the same three cuts with the ElevenLabs voice, and their .srt
@@ -28,6 +29,7 @@ archive/
 │   │   └── contact-sheets/           one frame grid per cut
 │   └── 2026-10-16-instagram-draft/   a draft of today's Instagram cut, with and without sound
 ├── reels/
+│   ├── 2026-10-26-evergreen/         the reels, contact sheets and cue files cut from the replaced recordings, and the narration transcripts and clips written for the old takes
 │   └── 2026-10-10-v0.4.0-amber/      first reels (#485), replaced by #590
 │       ├── plain/                    reel-{highlights,teaser,beatmatched-transition,extended-club-intro,mini-mix}.mp4
 │       ├── narrated/                 the same reels narrated, a Spanish highlights reel, and their .srt
@@ -37,15 +39,20 @@ archive/
 │       ├── narration-timing/         when each narration line plays, per narrated video
 │       └── tools/                    the caption-mapping script and its mapping, removed in #590
 ├── demos/
+│   ├── 2026-10-26-recordings/        the three DJ demos recorded 2026-10-13 (video and poster), replaced by the evergreen re-recording
 │   ├── 2026-10-09-first-takes/       the first two website demos, video and poster (#417, #432)
 │   └── 2026-10-09-v0.4.0/            the three DJ demos recorded on v0.4.0, video and poster (#459), replaced by #581
 ├── demos-narration/
+│   ├── 2026-10-26-old-recordings/    the narrated demos, voice tracks, script, lines and checks made for the replaced recordings
 │   └── 2026-10-24-f-major-line/      the beatmatch demo's narrated mixes and the BT04 line that said both tracks were in F major (#686)
 │       ├── narrated/                 daniel/ and river/: dj-beatmatched-transition-narrated-*.mp4
 │       ├── voice-tracks/             narration-dj-beatmatched-transition-daniel.wav
 │       ├── lines/                    daniel/ and river/: bt04.mp3
 │       └── checks/                   metrics-dj-beatmatched-transition-{daniel,river}.json
+├── social-kit-images/
+│   └── 2026-10-26-evergreen/         the 42 social images that said 96 tools and the unsigned note, and the three app frames from the replaced demos
 ├── linkedin/
+│   ├── 2026-10-26-evergreen/         the squares and carousel that named a version, a tool count and a provider count
 │   ├── 2026-10-11-v0.5.0/            the LinkedIn renders that carried "v0.5.0" and "93 tools" (#578), replaced for v0.7.0
 │   │   └── out/                      post-1-launch.png, post-3-model-never-touches-a-sample.png, post-3-carousel.pdf
 │   ├── 2026-10-22-v0.7.0-six-providers/   the renders and the Settings screenshot that said "6 providers" or listed six, replaced for v0.9.0
@@ -100,6 +107,10 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 | `docs-brand/2026-10-11-violet-six-providers/` | #515 (2026-10-11) | the v0.9.0 staleness sweep (2026-10-25), retaken from the production frontend with the IPC faked (1440x900 window, scaled to 1080x675 as the others are) | 1080x675. The Settings dialog of the "after" set, with six provider buttons and no ONNX Runtime line; the new file has the seventh button (ChatGPT plan) and the Account tab's ONNX Runtime line (answered "bundled" by the fake backend). The other six `after-*` files and the `before-*` set were not touched |
 
 Earlier versions of the documents and scripts in `marketing/` (the READMEs, `script.md`, the Python tools) were edited in place rather than replaced, so they are not copied here; `git log -p -- marketing/` shows every version.
+
+## Code analysis
+
+The archive is excluded from code analysis (SonarCloud's `sonar.exclusions` and `sonar.cpd.exclusions` in the root `.sonarcloud.properties`) because it is a record, not code that runs.
 
 ## Adding to the archive
 

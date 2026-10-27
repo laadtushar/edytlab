@@ -1,6 +1,6 @@
 {
   "video": "reel-mini-mix.mp4",
-  "duration": 42.133,
+  "duration": 42.2,
   "fps": 30,
   "size": "1080x1920",
   "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). The narration lines for the earlier takes are in transcripts.md.",
@@ -16,20 +16,20 @@
         "mini-mix.",
         "Just ask."
       ],
-      "sub": "Three tracks, matched to 124 BPM"
+      "sub": "Three tracks, matched to one tempo"
     },
     {
       "id": "M02",
       "kind": "step",
       "start": 2.5,
       "end": 7.3,
-      "onscreen": "1 · Match every track to 124 BPM",
+      "onscreen": "1 · Match every track to one tempo",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM03",
-        "start": 14.267,
-        "end": 19.067
+        "start": 12.533,
+        "end": 17.333
       }
     },
     {
@@ -42,8 +42,8 @@
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM04",
-        "start": 40.4,
-        "end": 45.2
+        "start": 24.0,
+        "end": 28.8
       }
     },
     {
@@ -56,79 +56,79 @@
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM05",
-        "start": 54.6,
-        "end": 59.4
+        "start": 43.0,
+        "end": 47.8
       }
     },
     {
       "id": "M05",
       "kind": "listen",
       "start": 16.9,
-      "end": 23.633,
+      "end": 23.667,
       "onscreen": "Listen: Midnight Drive into Solar Flare (0:23)",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM06",
-        "start": 70.0,
-        "end": 76.733
+        "start": 57.867,
+        "end": 64.633
       },
       "sound": [
-        17.15,
-        23.633
+        17.163,
+        23.667
       ]
     },
     {
       "id": "M06",
       "kind": "listen",
-      "start": 23.633,
-      "end": 30.333,
-      "onscreen": "Listen: Solar Flare into Neon Rush (0:46)",
+      "start": 23.667,
+      "end": 30.4,
+      "onscreen": "Listen: Solar Flare into Neon Rush (0:47)",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM07",
-        "start": 87.467,
-        "end": 94.167
+        "start": 74.733,
+        "end": 81.467
       },
       "sound": [
-        23.847,
-        30.333
+        23.883,
+        30.4
       ]
     },
     {
       "id": "M07",
       "kind": "step",
-      "start": 30.333,
-      "end": 35.133,
+      "start": 30.4,
+      "end": 35.2,
       "onscreen": "4 · Export the mix",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM08",
-        "start": 106.2,
-        "end": 111.0
+        "start": 90.0,
+        "end": 94.8
       }
     },
     {
       "id": "M08",
       "kind": "step",
-      "start": 35.133,
-      "end": 39.133,
-      "onscreen": "Done: mini-mix-124bpm.wav, 1:19",
+      "start": 35.2,
+      "end": 39.2,
+      "onscreen": "Done: mini-mix-124bpm.wav, 1:21",
       "source": {
         "demo": "dj-mini-mix",
         "code": "MM",
         "caption": "MM09",
-        "start": 114.0,
-        "end": 118.0
+        "start": 98.4,
+        "end": 102.4
       }
     },
     {
       "id": "M09",
       "kind": "end",
-      "start": 39.133,
-      "end": 42.133,
+      "start": 39.2,
+      "end": 42.2,
       "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux"
     }
   ]

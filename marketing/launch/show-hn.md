@@ -34,9 +34,9 @@ export a WAV". An LLM agent turns that into calls to 99 audio tools. The tools
 do the signal processing; the model only chooses and sequences them. It never
 sees samples.
 
-There is a screen recording of that exact request on the site (2:45, with
-sound): https://edytlab.com/#demos. In it the agent also points out a
-spot where the bars land a beat apart, which I left in on purpose.
+There is a screen recording of that exact request on the site (with
+sound): https://edytlab.com/#demos. The agent's replies in it are the
+model's own words, not a script.
 
 **Why local-first.** Decode, DSP, mixing and export all run in-process in Rust.
 Your audio is never uploaded. The only things that leave the machine are the

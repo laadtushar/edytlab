@@ -55,7 +55,7 @@ front; if the rules do not allow it, ask a moderator or skip.
 **Title:**
 
 ```
-I built a free tool that preps a blend from a plain-English description. Three recordings, including where it flags its own problems
+I built a free tool that preps a blend from a plain-English description. Three recordings, with the agent's replies left as they came
 ```
 
 **Body:**
@@ -67,16 +67,16 @@ The itch: prepping a blend is a pile of small file chores. Find the tempos, stre
 
 The recordings show three jobs:
 
-1. Two tracks, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a 1 kHz low-pass while the incoming one fades in. Mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.
-2. An extended intro: the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, with a 200 Hz high-pass holding the low end back until the drop.
-3. A three-track mix at 124 BPM with overlaps of about 4 bars and crossfades, about -14 LUFS each, limited at -1 dBFS, exported as a 79-second WAV.
+1. Two tracks, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a low-pass filter while the incoming one fades in. Mastered for streaming and exported as a WAV.
+2. An extended intro: the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, with a high-pass filter holding the low end back until the drop.
+3. A three-track mix at 124 BPM with overlaps of about 4 bars and crossfades, about -14 LUFS each, limited at -1 dBFS, exported as a WAV.
 
 What to know before deciding whether it's worth your time:
 
 - The tracks are short synthetic loops (about 32 seconds each) that I generated. The recordings show the workflow, not how it copes with a messy real library.
 - Beat and key detection are software estimates. A drifting tempo or a long ambient intro can fool them.
-- The agent flags things instead of hiding them: bars that run a beat behind where it was told to start a track (with the fix), an export peaking right at full scale, a loudness reading that counted the fades.
-- The recordings were made on a development build just before v0.6.0, and v0.6.0 and later do what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; for the compressor in the first demo the agent still mixes the two tracks to a new one.
+- The agent's replies are on screen as they came, including the readings it reports and the filter settings it chose. None of that is a spec of the product, and a take will differ.
+- The recordings were made on a released build, and v0.6.0 and later do what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; a compressor is not one of those, so a request for one is baked into a track's audio instead.
 - No decks, controllers or live mode. It exports WAV, FLAC or MP3 files and has nothing for rekordbox or Serato. No stem separation or acapellas; that isn't built.
 - A test script types the requests into the real app when I record, and I only publish runs that passed my checks. The agent isn't deterministic, so your results can differ.
 - It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, a ChatGPT Plus or Pro plan signed in instead of a key (a preview), or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
@@ -112,7 +112,7 @@ Disclosure: I made this. It's free and MIT-licensed, and I'm mostly here to ask 
 
 It doesn't generate music and it isn't a DAW: no MIDI, no plugin hosting. It edits audio files. You describe a job in a chat box (for example "time-stretch this to 124 BPM keeping the pitch", or "bring it to -14 LUFS") and an AI agent runs ordinary tools on the file: time-stretch, pitch-shift, fades, EQ, filters, reverb, echo, compression and limiting, loudness, export as WAV, FLAC or MP3. Every edit is a step in a history you can fork, A/B against the previous version, and go back through.
 
-An example from the recordings on the site: a track's drums-only first 8 bars are copied and spliced in to make a 16-bar intro, a 200 Hz high-pass holds the low end back until the drop, and the first 4 bars fade in. The agent also warned that the export peaked right at full scale, which I'd rather it said than not. The track there is a short synthetic loop I generated, so it shows the workflow, not real-world quality.
+An example from the recordings on the site: a track's drums-only first 8 bars are copied and spliced in to make a 16-bar intro, a high-pass filter holds the low end back until the drop, and the first 4 bars fade in. The track there is a short synthetic loop I generated, so it shows the workflow, not real-world quality.
 
 Honest limits: time-stretch and pitch-shift use a phase vocoder I wrote, so big changes on dense material sound smeared. No stems or vocal isolation (not built). Your audio isn't uploaded; the chat text goes to an AI provider you choose, or stays local with Ollama. The installers are unsigned, so macOS and Windows warn on first launch.
 
@@ -150,7 +150,7 @@ Disclosure: I build this tool (free, MIT). The question is the point, so I'll st
 
 When you finish a track and want a version DJs can mix, you probably extend the intro and outro with drums only, so there's something to beat-match over. How do you do it: copy and paste in the DAW, a separate audio-editor pass, a dedicated extended-mix bounce?
 
-Here is how it went in a recording of my tool. The track is at 124 BPM with 1.935-second bars and the first downbeat at 0.476 s (the agent works that out and says so). The drums-only first 8 bars are copied from that downbeat and spliced in after themselves, so the intro runs 16 bars. A 200 Hz high-pass holds the low end back until the drop on bar 17, the first 4 bars fade in, and the result is exported as a WAV. The agent flagged that the export peaks right at full scale.
+Here is how it went in a recording of my tool. The track is at 124 BPM, which is 1.935-second bars, and I asked for that first, changing nothing. The drums-only first 8 bars are copied and spliced in after themselves, so the intro runs 16 bars. A high-pass filter holds the low end back until the drop on bar 17, the first 4 bars fade in, and the result is exported as a WAV.
 
 What it is and isn't: a desktop editor for audio files where an AI agent calls tools (there are 99). It is not a DAW. No MIDI, no plugin hosting, and no stem separation (not built). The demo track is a short synthetic loop I generated with a drums-only intro written in, so this is a best case. A real arrangement with a pad or a vocal in bar 1 would be messier, and the recording doesn't show that. Beat detection is an estimate.
 
