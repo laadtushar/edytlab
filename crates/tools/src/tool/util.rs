@@ -1871,6 +1871,26 @@ pub(crate) fn track_clip_rate(track: &Track, fallback: u32) -> Result<f64, Strin
     Ok(rate.unwrap_or(fallback).max(1) as f64)
 }
 
+/// What a take for `track` has to be to go in by `punch_in`: the rate its
+/// clips are counted in and its channel count (#203).
+///
+/// `punch_in` refuses a take of any other rate or interleaving, so a caller
+/// that makes the take (the punch-in recording, which has a microphone's
+/// format to convert) asks first. The channel count is read from the
+/// track's first clip, the same place `punch_in` reads it.
+pub fn track_take_format(state: &SessionState, track: usize) -> Result<(u32, u16), String> {
+    check_track_index(&state.tracks, track)?;
+    let t = &state.tracks[track];
+    let clip = t
+        .clips
+        .first()
+        .ok_or_else(|| format!("track {track} has no clips"))?;
+    let rate = track_clip_rate(t, state.sample_rate)? as u32;
+    let decoded = audio_decoder::decode_file(&clip.source_path)
+        .map_err(|e| format!("failed to decode {}: {e}", clip.source_path.display()))?;
+    Ok((rate, decoded.channels.max(1)))
+}
+
 /// Seconds → this clip's own frame domain.
 pub fn seconds_to_clip_frames(clip: &Clip, seconds: f64) -> Result<u64, String> {
     let rate = clip_source_rate(clip)? as f64;

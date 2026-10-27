@@ -5,6 +5,7 @@ pub mod duplex;
 pub mod gate;
 pub mod identify;
 pub mod latency;
+pub mod punch;
 pub mod store;
 
 use std::path::PathBuf;

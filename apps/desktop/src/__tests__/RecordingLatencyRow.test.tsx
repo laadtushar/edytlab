@@ -20,12 +20,14 @@ const getMock = vi.fn();
 const calibrateMock = vi.fn();
 const cancelMock = vi.fn();
 const longCancelMock = vi.fn();
+const setMock = vi.fn();
 const onProgressMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   getRecordingLatency: () => getMock(),
   calibrateRecordingLatency: () => calibrateMock(),
   cancelRecordingLatency: () => cancelMock(),
+  setRecordingLatency: (ms: number) => setMock(ms),
   cancelLongRunningTool: () => longCancelMock(),
   onToolProgress: (cb: (p: ToolProgress) => void) => onProgressMock(cb),
 }));
@@ -253,5 +255,91 @@ describe("RecordingLatencyRow", () => {
     await waitFor(() => expect(screen.getByTestId("recording-latency-measure")).toBeEnabled());
     view.unmount();
     expect(cancelMock).not.toHaveBeenCalled();
+  });
+
+  describe("a delay typed by hand (#203)", () => {
+    it("is offered beside the measurement, with the reason to use it", async () => {
+      await renderRow();
+      expect(screen.getByTestId("recording-latency-manual-input")).toBeTruthy();
+      expect(screen.getByTestId("recording-latency-manual-purpose").textContent).toMatch(
+        /counts exactly as a measured one/,
+      );
+      // Nothing to save until something is typed, and nothing is sent.
+      expect(screen.getByTestId("recording-latency-manual-save")).toBeDisabled();
+      expect(setMock).not.toHaveBeenCalled();
+    });
+
+    it("is kept, shown as entered by hand, and the field is emptied", async () => {
+      const user = userEvent.setup();
+      await renderRow();
+      setMock.mockResolvedValue({
+        devices: DEVICES,
+        latency: { latency_ms: 62.5, measured_at: Math.floor(Date.now() / 1000), source: "manual" },
+      });
+      await user.type(screen.getByTestId("recording-latency-manual-input"), "62.5");
+      await user.click(screen.getByTestId("recording-latency-manual-save"));
+
+      expect(setMock).toHaveBeenCalledWith(62.5);
+      await waitFor(() =>
+        expect(screen.getByTestId("recording-latency-value").textContent).toContain(
+          "62.5 ms (entered by hand)",
+        ),
+      );
+      expect(
+        (screen.getByTestId("recording-latency-manual-input") as HTMLInputElement).value,
+      ).toBe("");
+      expect(screen.getByTestId("recording-latency-measure").textContent).toBe("Measure again");
+    });
+
+    it("is checked before it is sent, and says why in place", async () => {
+      const user = userEvent.setup();
+      await renderRow();
+      await user.type(screen.getByTestId("recording-latency-manual-input"), "5000");
+      await user.click(screen.getByTestId("recording-latency-manual-save"));
+      expect(setMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId("recording-latency-manual-error").textContent).toContain(
+        "0 to 2000",
+      );
+      // Typing again takes the message away.
+      await user.type(screen.getByTestId("recording-latency-manual-input"), "1");
+      expect(screen.queryByTestId("recording-latency-manual-error")).toBeNull();
+    });
+
+    it("shows the backend's refusal in place and leaves the kept value alone", async () => {
+      const user = userEvent.setup();
+      await renderRow(MEASURED);
+      setMock.mockRejectedValue("cannot tell which output \"default\" stands for");
+      await user.type(screen.getByTestId("recording-latency-manual-input"), "40");
+      await user.click(screen.getByTestId("recording-latency-manual-save"));
+      await waitFor(() =>
+        expect(screen.getByTestId("recording-latency-manual-error").textContent).toContain(
+          "cannot tell which output",
+        ),
+      );
+      expect(screen.getByTestId("recording-latency-value").textContent).toContain("42.5 ms");
+    });
+
+    it("saves on Enter, and is off while a measurement runs", async () => {
+      const user = userEvent.setup();
+      await renderRow();
+      setMock.mockResolvedValue({
+        devices: DEVICES,
+        latency: { latency_ms: 10, measured_at: 1, source: "manual" },
+      });
+      await user.type(screen.getByTestId("recording-latency-manual-input"), "10{Enter}");
+      expect(setMock).toHaveBeenCalledWith(10);
+
+      const answer = held<{ cancelled: true }>();
+      calibrateMock.mockReturnValue(answer.promise);
+      await user.click(screen.getByTestId("recording-latency-measure"));
+      expect(screen.getByTestId("recording-latency-manual-input")).toBeDisabled();
+      expect(screen.getByTestId("recording-latency-manual-save")).toBeDisabled();
+      await answer.resolve({ cancelled: true });
+    });
+
+    it("is not offered where the devices cannot be named", async () => {
+      await renderRow({ devices: null, problem: "no input device available", latency: null });
+      expect(screen.queryByTestId("recording-latency-manual-input")).toBeNull();
+    });
   });
 });

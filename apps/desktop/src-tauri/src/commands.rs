@@ -4754,7 +4754,11 @@ const GAIN_FLOOR_DB: f32 = -60.0;
 /// dropped together, matching `open_multiple`: a tool needs all three
 /// for the duration of one call, and the head has to be read while the
 /// store lock is still held or another caller could append in between.
-fn run_track_tool(state: &AppState, tool: &str, args: serde_json::Value) -> CmdResult<String> {
+pub(crate) fn run_track_tool(
+    state: &AppState,
+    tool: &str,
+    args: serde_json::Value,
+) -> CmdResult<String> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let head_hex = {
         let mut store = lock_std(&store_arc, "store")?;
@@ -6828,8 +6832,9 @@ fn begin_calibration_with<'g>(
     Ok(run)
 }
 
-/// Run a measurement's `work` on a blocking thread (the audio streams are
-/// not `Send`), with the run's right to the gate moved onto that thread.
+/// Run a measurement's (or a punch-in's) `work` on a blocking thread (the
+/// audio streams are not `Send`), with the run's right to the gate (any
+/// guard) moved onto that thread.
 ///
 /// The gate has to stay closed exactly as long as the sweeps can be playing.
 /// A command's future is dropped when its caller goes away, but a blocking
@@ -6837,8 +6842,8 @@ fn begin_calibration_with<'g>(
 /// so a guard held by the future would free the gate under it and let a take
 /// start that hears the test tones. Held by the closure, the guard is freed
 /// when the work returns (or panics), whatever became of the future.
-async fn measure_exclusively<T: Send + 'static>(
-    run: recorder::gate::CalibrationRun<'static>,
+async fn measure_exclusively<G: Send + 'static, T: Send + 'static>(
+    run: G,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -6921,6 +6926,135 @@ pub async fn calibrate_recording_latency(
 #[tauri::command]
 pub fn cancel_recording_latency() -> CmdResult<()> {
     recorder::gate::GATE.cancel_calibration();
+    Ok(())
+}
+
+/// Keep a delay the person typed for the current default speakers and
+/// microphone (#203). It is as good as a measured one: `punch_record` goes
+/// ahead with either, and the newest write wins, because it is the person's
+/// last word on it.
+///
+/// Refuses a value outside 0 to 2000 ms (and anything that is not a number),
+/// and refuses when the default devices cannot be named, as a measurement
+/// does: a number kept for the wrong pair is applied silently to another.
+/// Answers `{ devices, latency }`, the same shapes `get_recording_latency`
+/// and `calibrate_recording_latency` use.
+#[tauri::command]
+pub async fn set_recording_latency(latency_ms: f64) -> CmdResult<serde_json::Value> {
+    let store = audio_latency_store();
+    tauri::async_runtime::spawn_blocking(move || {
+        set_recording_latency_with(&store, recorder::duplex::default_pair(), latency_ms)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn set_recording_latency_with(
+    store: &recorder::store::LatencyStore,
+    pair: Result<recorder::duplex::DevicePair, recorder::RecorderError>,
+    latency_ms: f64,
+) -> CmdResult<serde_json::Value> {
+    // The value first: a typo is the same answer on a machine with no
+    // microphone.
+    if !latency_ms.is_finite() || !recorder::store::MANUAL_RANGE_MS.contains(&latency_ms) {
+        return Err(recorder::store::StoreError::ManualOutOfRange(latency_ms).to_string());
+    }
+    let pair = pair.map_err(|e| e.to_string())?;
+    let latency = store
+        .put_manual(&pair, latency_ms)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "devices": devices_json(&pair), "latency": latency }))
+}
+
+/// Closes the punch-in's progress strip however the run ended.
+struct PunchStrip;
+
+impl Drop for PunchStrip {
+    fn drop(&mut self) {
+        tools::progress::report(serde_json::json!({ "kind": crate::punch::KIND, "done": true }));
+    }
+}
+
+/// The right to punch in, or the reason there is none: the same conditions
+/// as a measurement (both play to the speakers and listen to the
+/// microphone), and none while a take is running.
+fn begin_punch_with<'g>(
+    gate: &'g recorder::gate::Gate,
+    recording: &std::sync::Mutex<Option<recorder::Recorder>>,
+) -> Result<recorder::gate::PunchRun<'g>, String> {
+    let run = gate.begin_punch().map_err(|e| e.to_string())?;
+    // Taken after the gate, as the measurement does: a take that starts
+    // meanwhile is refused by `start_recording`, one that already started
+    // is seen here.
+    if lock_recorder_slot(recording).is_some() {
+        return Err("Stop the recording before punching in.".into());
+    }
+    Ok(run)
+}
+
+/// Replace a region of a track with a take recorded while the rest of the
+/// mix plays (#203).
+///
+/// The performer hears the mix through the speakers from `preroll_sec`
+/// (default 2) before the region to `postroll_sec` (default 1) after it,
+/// with the target track muted inside the region and heard before and
+/// after; the microphone is recorded on the same clock
+/// (`recorder::duplex`), the take is placed with the latency kept for the
+/// current devices, converted to the track's rate and channels and applied
+/// with `punch_in`. Refuses, with where to get one, when no latency is kept
+/// for the devices (measured or typed, either counts): a take placed with a
+/// guess lands late, and that is the failure this exists to prevent.
+///
+/// Answers `{ cancelled: true }` when `cancel_punch_record` stopped it (no
+/// node), else `{ cancelled: false, head, latency_ms, latency_source, .. }`.
+/// A take that was recorded and could not be applied is kept in a folder
+/// the error names. Progress is `{ kind: "punch_record", phase,
+/// remaining_sec }` on the tool-progress channel.
+///
+/// Its Cancel is `cancel_punch_record`, a flag of its own
+/// (`recorder::gate`): it is a take with a performer in the room, so the
+/// agent's batch and the timer keep `tools::progress`'s, and neither is
+/// begun or cancelled from here. It excludes a measurement, `start_recording`
+/// and `timer_record` through the same gate.
+///
+/// The store and engine locks are taken apart, and for the two renders and
+/// the final `punch_in` only (`punch::run`): the take itself is recorded
+/// with none held.
+#[tauri::command]
+pub async fn punch_record(
+    state: State<'_, AppState>,
+    recording: State<'_, RecorderState>,
+    track: usize,
+    start_sec: f64,
+    end_sec: f64,
+    preroll_sec: Option<f64>,
+    postroll_sec: Option<f64>,
+) -> CmdResult<serde_json::Value> {
+    let request = crate::punch::Request::new(track, start_sec, end_sec, preroll_sec, postroll_sec)?;
+    let run = begin_punch_with(&recorder::gate::GATE, &recording.0)?;
+    let strip = PunchStrip;
+    blocking(&state, move |state| {
+        // Closed when the work ends, with the gate freed just after.
+        let _strip = strip;
+        let _run = run;
+        crate::punch::run(
+            state,
+            &crate::punch::Devices,
+            &audio_latency_store(),
+            &request,
+            &|| recorder::gate::GATE.punch_cancelled(),
+            &tools::progress::report,
+        )
+    })
+    .await
+}
+
+/// Stop the running punch-in at its next checkpoint; its take is thrown
+/// away and no node is made. Its own command and flag, like
+/// `cancel_recording_latency`; harmless when none is running.
+#[tauri::command]
+pub fn cancel_punch_record() -> CmdResult<()> {
+    recorder::gate::GATE.cancel_punch();
     Ok(())
 }
 
@@ -11977,6 +12111,160 @@ mod recording_latency_tests {
             // What the test above sees on a Windows checkout: CRLF made CRLF again.
             let doubled = crlf.replace('\n', "\r\n");
             assert_eq!(command_body(&doubled, name), body, "{name} under \\r\\r\\n");
+        }
+    }
+}
+
+#[cfg(test)]
+mod punch_command_tests {
+    use super::*;
+    use recorder::duplex::DevicePair;
+    use recorder::gate::Gate;
+    use recorder::store::{LatencyStore, Source};
+
+    fn pair() -> DevicePair {
+        DevicePair {
+            host: "ALSA".into(),
+            output: "Speakers".into(),
+            input: "Mic".into(),
+            out_sr: 48_000,
+            out_ch: 2,
+            in_sr: 44_100,
+            in_ch: 1,
+        }
+    }
+
+    fn store() -> (tempfile::TempDir, LatencyStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = LatencyStore::at(dir.path().join("audio-latency.json"));
+        (dir, s)
+    }
+
+    #[test]
+    fn a_typed_latency_is_kept_as_manual_and_reported_like_a_measured_one() {
+        let (_d, s) = store();
+        let v = set_recording_latency_with(&s, Ok(pair()), 62.5).unwrap();
+        assert_eq!(v["latency"]["latency_ms"], 62.5);
+        assert_eq!(v["latency"]["source"], "manual");
+        assert!(v["latency"].get("spread_ms").is_none());
+        assert_eq!(v["devices"]["output"], "Speakers");
+        // `get_recording_latency` now answers with it, for punch_record.
+        let status = recording_latency_status(&s, Ok(pair())).unwrap();
+        assert_eq!(status["latency"]["latency_ms"], 62.5);
+        assert_eq!(status["latency"]["source"], "manual");
+        assert_eq!(
+            s.get(&pair()).unwrap().map(|e| e.source),
+            Some(Source::Manual)
+        );
+    }
+
+    #[test]
+    fn a_typed_latency_outside_zero_to_two_thousand_is_refused_and_keeps_the_old_one() {
+        let (_d, s) = store();
+        set_recording_latency_with(&s, Ok(pair()), 40.0).unwrap();
+        for bad in [-1.0, 2_000.5, f64::NAN, f64::INFINITY] {
+            let e = set_recording_latency_with(&s, Ok(pair()), bad).unwrap_err();
+            assert!(e.contains("0 to 2000"), "{bad}: {e}");
+        }
+        assert_eq!(s.get(&pair()).unwrap().unwrap().latency_ms, 40.0);
+        set_recording_latency_with(&s, Ok(pair()), 0.0).unwrap();
+        set_recording_latency_with(&s, Ok(pair()), 2_000.0).unwrap();
+    }
+
+    #[test]
+    fn a_typed_latency_is_not_kept_for_devices_that_cannot_be_named() {
+        let (d, s) = store();
+        let e = set_recording_latency_with(&s, Err(recorder::RecorderError::NoDevice), 40.0)
+            .unwrap_err();
+        assert!(e.contains("no input device"), "{e}");
+        assert!(!d.path().join("audio-latency.json").exists());
+        let e = set_recording_latency_with(
+            &s,
+            Err(recorder::RecorderError::DeviceUnidentified {
+                role: "output",
+                name: "default".into(),
+                why: "pactl is not installed".into(),
+            }),
+            40.0,
+        )
+        .unwrap_err();
+        assert!(e.contains("pactl is not installed"), "{e}");
+    }
+
+    #[test]
+    fn a_punch_is_refused_over_a_measurement_a_timer_and_another_punch() {
+        let gate = Gate::new();
+        let slot = std::sync::Mutex::new(None);
+
+        let punch = begin_punch_with(&gate, &slot).expect("free at first");
+        assert!(begin_punch_with(&gate, &slot)
+            .err()
+            .unwrap()
+            .contains("already recording"));
+        assert!(
+            gate.begin_calibration().is_err(),
+            "a measurement over a punch"
+        );
+        assert!(gate.arm_timer().is_err(), "a timer over a punch");
+        assert!(gate.check_can_record().is_err(), "a take over a punch");
+        drop(punch);
+
+        let cal = gate.begin_calibration().unwrap();
+        assert!(begin_punch_with(&gate, &slot)
+            .err()
+            .unwrap()
+            .contains("latency measurement"));
+        drop(cal);
+        let timer = gate.arm_timer().unwrap();
+        assert!(begin_punch_with(&gate, &slot)
+            .err()
+            .unwrap()
+            .contains("timed recording"));
+        drop(timer);
+        assert!(begin_punch_with(&gate, &slot).is_ok(), "free once they end");
+    }
+
+    #[test]
+    fn the_gate_is_freed_when_the_punch_ends_however_it_ends() {
+        let gate: &'static Gate = Box::leak(Box::new(Gate::new()));
+        let slot = std::sync::Mutex::new(None);
+        let run = begin_punch_with(gate, &slot).unwrap();
+        let ended = std::thread::spawn(move || {
+            let _run = run;
+            // A panic in the work must free it too.
+            let _ = std::panic::catch_unwind(|| panic!("the device went away"));
+        })
+        .join();
+        assert!(ended.is_ok());
+        assert!(!gate.punching());
+        assert!(begin_punch_with(gate, &slot).is_ok());
+    }
+
+    #[test]
+    fn the_punch_commands_never_touch_the_shared_progress_flag() {
+        // The batch's and the timer's Cancel is `tools::progress`'s; a
+        // punch-in has its own, so neither can stop the other.
+        let src = include_str!("commands.rs").replace('\r', "");
+        for name in ["punch_record", "cancel_punch_record"] {
+            let at = src.find(&format!("fn {name}(")).unwrap();
+            let body = &src[at..];
+            let body = &body[..body.find("\n}\n").unwrap()];
+            for banned in [
+                "progress::begin",
+                "progress::cancelled",
+                "progress::request_cancel",
+            ] {
+                assert!(!body.contains(banned), "{name} calls {banned}");
+            }
+        }
+        let punch = include_str!("punch.rs");
+        let code = &punch[..punch.find("#[cfg(test)]").unwrap()];
+        for banned in [
+            "progress::begin",
+            "progress::cancelled",
+            "progress::request_cancel",
+        ] {
+            assert!(!code.contains(banned), "punch.rs calls {banned}");
         }
     }
 }

@@ -17,6 +17,9 @@ thiserror = "2"
 # The workspace-blessed FFT path (see audio-analysis); the sweep locator
 # is a cross-correlation done in the frequency domain.
 realfft = "3"
+# The same FFT resampler the mixer uses (audio-engine), for the take and
+# for the speakers' format.
+rubato = "0.16"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

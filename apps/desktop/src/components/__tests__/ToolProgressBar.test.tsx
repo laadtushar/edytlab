@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const handlers: Array<(p: unknown) => void> = [];
 const cancel = vi.fn(() => Promise.resolve());
+const cancelPunch = vi.fn(() => Promise.resolve());
 
 vi.mock("../../lib/tauri-bridge", () => ({
   onToolProgress: (cb: (p: unknown) => void) => {
@@ -18,6 +19,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
     return Promise.resolve(() => undefined);
   },
   cancelLongRunningTool: () => cancel(),
+  cancelPunchRecord: () => cancelPunch(),
 }));
 
 import { LEAVE_MS } from "../../hooks/usePresence";
@@ -40,6 +42,7 @@ describe("the tool progress strip", () => {
   beforeEach(() => {
     handlers.length = 0;
     cancel.mockClear();
+    cancelPunch.mockClear();
   });
 
   /** Nothing running, nothing shown — it must not be permanent chrome. */
@@ -341,5 +344,76 @@ describe("a scheduled take on the same channel", () => {
 
     const count = await screen.findByTestId("tool-progress-count");
     expect(count.textContent).toBe("2 of 3");
+  });
+});
+
+/**
+ * A punch-in on the same channel (#203).
+ *
+ * It counts down like the timer, by phase, and sends no file count; and its
+ * Cancel is its own command, not the batch's: the take has a performer in
+ * the room, and a Cancel meant for the agent's batch must not throw it away
+ * (nor the other way round).
+ */
+describe("a punch-in on the same channel", () => {
+  beforeEach(() => {
+    handlers.length = 0;
+    cancel.mockClear();
+    cancelPunch.mockClear();
+  });
+
+  it("shows the phase and the seconds left, not a file count", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "punch_record", phase: "preroll", remaining_sec: 1.4 });
+
+    const count = await screen.findByTestId("tool-progress-count");
+    expect(count.textContent).toBe("Lead-in — recording starts in 2s");
+    expect(count.textContent).not.toMatch(/undefined|\bof\b/);
+    expect(screen.getByTestId("tool-progress-file").textContent).toBe("");
+
+    emit({ kind: "punch_record", phase: "recording", remaining_sec: 3 });
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-progress-count").textContent).toBe(
+        "Recording — 3s left",
+      ),
+    );
+  });
+
+  it("shows the monitor being prepared before the first phase", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "punch_record", phase: "preparing" });
+    const count = await screen.findByTestId("tool-progress-count");
+    expect(count.textContent).toBe("Preparing the monitor…");
+  });
+
+  it("cancels with its own command and leaves the batch's alone", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "punch_record", phase: "recording", remaining_sec: 3 });
+    fireEvent.click(await screen.findByTestId("tool-progress-cancel"));
+
+    await waitFor(() => expect(cancelPunch).toHaveBeenCalledTimes(1));
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("still cancels a batch with the batch's command", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+    fireEvent.click(await screen.findByTestId("tool-progress-cancel"));
+
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+    expect(cancelPunch).not.toHaveBeenCalled();
+  });
+
+  it("clears when the punch-in is done", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "punch_record", phase: "recording", remaining_sec: 3 });
+    await screen.findByTestId("tool-progress");
+    emit({ kind: "punch_record", done: true });
+    await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull());
   });
 });

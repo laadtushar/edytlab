@@ -19,14 +19,23 @@ import type { ReactNode } from "react";
 /** Whole class strings, so Tailwind can see them. */
 const TONES = {
   error: {
+    glyph: "!",
     role: "alert",
     row: "bg-[var(--danger-soft)]",
     badge: "border-[var(--danger-border)] bg-[var(--danger)]/15 text-[var(--danger)]",
   },
   warning: {
+    glyph: "!",
     role: "status",
     row: "bg-[var(--warning-soft)]",
     badge: "border-[var(--warning-border)] bg-[var(--warning)]/15 text-[var(--warning)]",
+  },
+  // Something that went as asked, said once (a punch-in's placement, #203).
+  info: {
+    glyph: "i",
+    role: "status",
+    row: "bg-[var(--surface-elev-2)]",
+    badge: "border-[var(--border-strong)] bg-transparent text-[var(--text-dim)]",
   },
 } as const;
 
@@ -73,7 +82,7 @@ export function ErrorBanner({
           font-mono text-[11px] font-semibold
         `}
       >
-        !
+        {t.glyph}
       </span>
       <div className="min-w-0 flex-1 text-[var(--text)]">{message}</div>
       {action ? (

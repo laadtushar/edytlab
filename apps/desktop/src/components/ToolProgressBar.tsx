@@ -17,9 +17,11 @@ import { usePresence } from "../hooks/usePresence";
 
 import {
   cancelLongRunningTool,
+  cancelPunchRecord,
   onToolProgress,
   type ToolProgress,
 } from "../lib/tauri-bridge";
+import { punchProgressText } from "../lib/punch";
 import { timerLabel } from "../lib/recording";
 
 /**
@@ -38,6 +40,8 @@ import { timerLabel } from "../lib/recording";
 const PROGRESS_KINDS = new Set([
   "batch_apply",
   "timer_record",
+  // A punch-in (#203): a countdown like the timer's, with its own Cancel.
+  "punch_record",
   "transcribe",
   "diarize",
 ]);
@@ -95,7 +99,10 @@ export function ToolProgressBar() {
   // "1 of undefined" over a blank name and an empty bar, which is the
   // #252 failure in a kind that had been allow-listed for it in
   // advance and never taught to the strip.
-  const isTimer = shown.kind === "timer_record";
+  // `punch_record` (#203) counts down like the timer: a phase and the
+  // seconds left in it, and no file count.
+  const isPunch = shown.kind === "punch_record";
+  const isTimer = shown.kind === "timer_record" || isPunch;
   const done = shown.index ?? 0;
   const total = shown.total ?? 0;
   const pct = isTimer ? 0 : total > 0 ? (done / total) * 100 : 0;
@@ -131,7 +138,11 @@ export function ToolProgressBar() {
           style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
         >
           {/* One-based for reading: "1 of 3" while the first is running. */}
-          {isTimer ? timerLabel(shown) : `${done + 1} of ${total}`}
+          {isPunch
+            ? punchProgressText(shown)
+            : isTimer
+              ? timerLabel(shown)
+              : `${done + 1} of ${total}`}
         </span>
         <span
           data-testid="tool-progress-file"
@@ -190,7 +201,13 @@ export function ToolProgressBar() {
             // unconditionally, so the old `.catch` never fired — and if
             // no `done` followed, the button stayed on "Stopping…"
             // forever with no way back.
-            void cancelLongRunningTool().finally(() => setCancelling(false));
+            //
+            // A punch-in has a Cancel of its own (`cancel_punch_record`), as a
+            // latency measurement does: it is a take with a performer in the
+            // room, and the batch's Cancel must neither throw it away nor be
+            // swallowed by it (#203).
+            const cancel = isPunch ? cancelPunchRecord : cancelLongRunningTool;
+            void cancel().finally(() => setCancelling(false));
           }}
           style={{
             fontSize: 11,

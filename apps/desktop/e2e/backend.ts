@@ -345,6 +345,7 @@ export function recordingLatencyCommands(
   outcome: "measured" | "not_heard" = "measured",
 ): Backend {
   return {
+    ...manualLatencyCommands(),
     // `cancel_recording_latency` is `Ok(())`: it sets the measurement's own
     // flag, answers at once, and does the same when nothing is running.
     cancel_recording_latency: ok(null),
@@ -366,6 +367,66 @@ export function recordingLatencyCommands(
             "heard 2 of 5 test sweeps. Turn the speakers up, or hold the headphones against the microphone, and try again in a quiet room",
           ),
   };
+}
+
+/**
+ * `set_recording_latency` (`set_recording_latency_with`, `commands.rs`) for
+ * the spec that types a delay: the pair it was kept for and the entry it
+ * stored, `Stored { latency_ms, measured_at, source: "manual" }` with no
+ * `spread_ms` (it is skipped when absent), whatever number was typed. The
+ * backend refuses a value outside 0 to 2000 ms with
+ * `StoreError::ManualOutOfRange`'s text; the window checks first, so a spec
+ * that reaches the backend with one overrides this with `reject(..)`.
+ */
+export function manualLatencyCommands(latencyMs = 62.5): Backend {
+  return {
+    set_recording_latency: ok({
+      devices: RECORDING_DEVICES,
+      latency: { latency_ms: latencyMs, measured_at: 1_800_000_100, source: "manual" },
+    }),
+  };
+}
+
+/**
+ * The text `PunchError::NotCalibrated` gives (`recorder/src/punch.rs`):
+ * what `punch_record` rejects with when no latency is kept for the devices.
+ */
+export const NOT_CALIBRATED_TEXT =
+  "No recording latency is kept for these speakers and this microphone, so a take would land late by the delay between them. Open Settings, then Audio, and either press Measure or type the delay in milliseconds, then punch in again.";
+
+/**
+ * `punch_record` and its Cancel (`commands.rs`, `punch::run`).
+ *
+ * A punch that went in answers `{ cancelled: false, head, latency_ms,
+ * latency_source, start_sec, end_sec, track }`, `head` being the new node
+ * (`run_track_tool`'s answer). One that was cancelled answers
+ * `{ cancelled: true }` and makes no node. `cancel_punch_record` is
+ * `CmdResult<()>`, so `null`, whether or not a punch is running.
+ *
+ * `held` makes the punch wait until the spec releases it (`app.release`
+ * with `"punch"`), for a spec that looks at the strip while the take is
+ * running.
+ */
+export function punchCommands(
+  outcome: { head: string; latencyMs?: number } | "refused" | "held" = {
+    head: nodeId(2),
+  },
+): Backend {
+  const punch =
+    outcome === "refused"
+      ? reject(NOT_CALIBRATED_TEXT)
+      : outcome === "held"
+        ? deferred("punch")
+        : ok({
+            cancelled: false,
+            head: outcome.head,
+            latency_ms: outcome.latencyMs ?? 75.3,
+            latency_source: "measured",
+            start_sec: 0.3,
+            end_sec: 0.6,
+            track: 0,
+          });
+  return { punch_record: punch, cancel_punch_record: ok(null) };
 }
 
 /**
