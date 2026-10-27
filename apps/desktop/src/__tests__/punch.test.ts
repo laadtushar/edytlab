@@ -67,6 +67,16 @@ describe("when the Punch control is on", () => {
     expect(punchDisabledReason({ ...READY, isRecording: true })).toMatch(/stop the recording/i);
   });
 
+  it("is off while a scheduled recording is armed, and says so", () => {
+    expect(punchDisabledReason({ ...READY, timerArmed: true })).toMatch(/scheduled recording/i);
+    // Armed or recording, the timer holds `isRecording` too; the sentence
+    // is the specific one.
+    expect(punchDisabledReason({ ...READY, timerArmed: true, isRecording: true })).toMatch(
+      /scheduled recording/i,
+    );
+    expect(punchDisabledReason({ ...READY, timerArmed: false })).toBeNull();
+  });
+
   it("is off while a punch-in is running, whatever else is true", () => {
     expect(punchDisabledReason({ ...READY, punching: true })).toMatch(/punch-in is running/i);
     expect(
@@ -204,6 +214,10 @@ describe("the progress strip's words", () => {
   it("says Tail, then Finishing, after the region", () => {
     expect(punchProgressText({ phase: "postroll", remaining_sec: 0.6 })).toBe("Tail — 1s");
     expect(punchProgressText({ phase: "postroll", remaining_sec: 0 })).toBe("Finishing…");
+  });
+
+  it("says the take is being placed once the recording is over", () => {
+    expect(punchProgressText({ phase: "applying" })).toBe("Placing the take…");
   });
 
   it("says the monitor is being prepared before the first phase", () => {

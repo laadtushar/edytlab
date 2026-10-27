@@ -1126,7 +1126,7 @@ export interface ToolProgress {
    * `recording` (inside the region) and `postroll`, with `remaining_sec` to
    * the end of that part. Not on `total`/`index`, like `timer_record`.
    */
-  phase?: "preparing" | "preroll" | "recording" | "postroll";
+  phase?: "preparing" | "preroll" | "recording" | "postroll" | "applying";
   /**
    * `calibrate_latency` (#203): run `run` of `runs` is about to play its
    * test sweeps. Not on the progress strip's allow-list; the Audio tab's

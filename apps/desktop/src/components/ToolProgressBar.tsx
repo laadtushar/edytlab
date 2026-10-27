@@ -11,7 +11,7 @@
  * started — never one whose history ends halfway through.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { usePresence } from "../hooks/usePresence";
 
@@ -46,9 +46,20 @@ const PROGRESS_KINDS = new Set([
   "diarize",
 ]);
 
+/**
+ * One strip for each kind of job that is running, in the order they began.
+ *
+ * Jobs share the one channel but not a strip (#203): the agent's batch, a
+ * transcription and a punch-in can run at once, and a single slot made the
+ * strip show whichever reported last, so its Cancel could stop a job other
+ * than the one on screen, and one job's `done` took down the strip of
+ * another. Keyed by kind, each job's reports update its own strip, its
+ * Cancel is its own, and its `done` closes only it. A `done` for a job with
+ * no strip (a refusal that never reported) is nothing.
+ */
 export function ToolProgressBar() {
-  const [progress, setProgress] = useState<ToolProgress | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  // `null`: finished, and animating out.
+  const [jobs, setJobs] = useState<Record<string, ToolProgress | null>>({});
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -60,11 +71,10 @@ export function ToolProgressBar() {
         // Clear on completion rather than leaving a finished bar up.
         // The result lands in the chat; this strip is only about the
         // wait.
-        setProgress(null);
-        setCancelling(false);
+        setJobs((j) => (j[p.kind] ? { ...j, [p.kind]: null } : j));
         return;
       }
-      setProgress(p);
+      setJobs((j) => ({ ...j, [p.kind]: p }));
     }).then((fn) => {
       if (cancelled) fn();
       else unlisten = fn;
@@ -76,6 +86,34 @@ export function ToolProgressBar() {
     };
   }, []);
 
+  const forget = useCallback((kind: string) => {
+    setJobs((j) => {
+      if (j[kind] !== null) return j;
+      const { [kind]: _gone, ...rest } = j;
+      return rest;
+    });
+  }, []);
+
+  return (
+    <>
+      {Object.entries(jobs).map(([kind, progress]) => (
+        <ProgressStrip key={kind} kind={kind} progress={progress} onGone={forget} />
+      ))}
+    </>
+  );
+}
+
+function ProgressStrip({
+  kind,
+  progress,
+  onGone,
+}: {
+  kind: string;
+  progress: ToolProgress | null;
+  onGone: (kind: string) => void;
+}) {
+  const [cancelling, setCancelling] = useState(false);
+
   // The strip has to survive its own `progress` going null, or there
   // is nothing left to animate out (#236). `last` keeps the final
   // frame's contents on screen for the one --dur-2 the collapse takes;
@@ -84,6 +122,16 @@ export function ToolProgressBar() {
   const { mounted, leaving, onAnimationEnd } = usePresence(progress !== null);
   const last = useRef<ToolProgress | null>(null);
   if (progress) last.current = progress;
+
+  useEffect(() => {
+    if (progress !== null) return;
+    setCancelling(false);
+  }, [progress]);
+  // Gone once the collapse is over, so the next job of this kind starts
+  // from nothing.
+  useEffect(() => {
+    if (progress === null && !mounted) onGone(kind);
+  }, [progress, mounted, kind, onGone]);
 
   const shown = progress ?? last.current;
   if (!mounted || !shown) return null;
@@ -108,6 +156,10 @@ export function ToolProgressBar() {
   const pct = isTimer ? 0 : total > 0 ? (done / total) * 100 : 0;
   const name = shown.file?.split(/[/\\]/).pop() ?? "";
   const refused = shown.refused ?? 0;
+  // Once the take has ended the punch is being placed, and a Cancel then
+  // would be a promise nothing keeps (the backend checks once more before
+  // it applies, but the strip does not offer it).
+  const canCancel = !(isPunch && shown.phase === "applying");
 
   return (
     // The strip inserts itself above the timeline, so everything below
@@ -190,6 +242,7 @@ export function ToolProgressBar() {
             }}
           />
         </div>
+        {canCancel ? (
         <button
           type="button"
           data-testid="tool-progress-cancel"
@@ -224,6 +277,7 @@ export function ToolProgressBar() {
               its next step. */}
           {cancelling ? "Stopping…" : "Cancel"}
         </button>
+        ) : null}
       </div>
     </div>
   );

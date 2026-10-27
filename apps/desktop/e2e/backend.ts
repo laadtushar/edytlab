@@ -408,19 +408,18 @@ export const NOT_CALIBRATED_TEXT =
  * running.
  */
 export function punchCommands(
-  outcome: { head: string; latencyMs?: number } | "refused" | "held" = {
-    head: nodeId(2),
-  },
+  outcome?: { head: string; latencyMs?: number } | "refused" | "held",
 ): Backend {
+  const went = outcome ?? { head: nodeId(2) };
   const punch =
-    outcome === "refused"
+    went === "refused"
       ? reject(NOT_CALIBRATED_TEXT)
-      : outcome === "held"
+      : went === "held"
         ? deferred("punch")
         : ok({
             cancelled: false,
-            head: outcome.head,
-            latency_ms: outcome.latencyMs ?? 75.3,
+            head: went.head,
+            latency_ms: went.latencyMs ?? 75.3,
             latency_source: "measured",
             start_sec: 0.3,
             end_sec: 0.6,

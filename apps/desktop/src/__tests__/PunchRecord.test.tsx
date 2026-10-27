@@ -44,6 +44,7 @@ function header(
     tracks?: { name: string }[];
     isRecording?: boolean;
     punching?: boolean;
+    timerArmed?: boolean;
     hasProject?: boolean;
   } = {},
 ) {
@@ -54,6 +55,7 @@ function header(
     tracks = [{ name: "Vocal" }, { name: "Guitar" }],
     isRecording = false,
     punching = false,
+    timerArmed = false,
     hasProject = true,
   } = props;
   const view = render(
@@ -66,7 +68,7 @@ function header(
       onRecord={vi.fn()}
       onTimerRecord={vi.fn()}
       hasProject={hasProject}
-      punch={{ tracks, selection, punching, onPunch, onOpenAudioSettings }}
+      punch={{ tracks, selection, punching, timerArmed, onPunch, onOpenAudioSettings }}
     />,
   );
   return { onPunch, onOpenAudioSettings, ...view };
@@ -108,6 +110,13 @@ describe("the Punch button", () => {
     expect(screen.getByTestId("punch-btn")).toBeDisabled();
     expect(screen.getByTestId("record-btn")).toBeEnabled();
     expect(screen.getByTestId("timer-record-btn")).toBeDisabled();
+  });
+
+  it("is off while a scheduled recording is armed, with its own reason", () => {
+    header({ isRecording: true, timerArmed: true });
+    const b = screen.getByTestId("punch-btn");
+    expect(b).toBeDisabled();
+    expect(b.getAttribute("title")).toMatch(/scheduled recording/i);
   });
 
   it("is off while a punch-in runs, and takes Record and the timer with it", () => {

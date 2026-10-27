@@ -417,3 +417,104 @@ describe("a punch-in on the same channel", () => {
     await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull());
   });
 });
+
+/**
+ * Jobs that run at once each keep a strip of their own (#203).
+ *
+ * The strip used to hold one slot: the agent's batch, a transcription and a
+ * punch-in alternated in it, so the Cancel on screen could be for a job
+ * other than the one it was drawn beside, and a `done` from one job took
+ * down the strip of another.
+ */
+describe("jobs running at once", () => {
+  beforeEach(() => {
+    handlers.length = 0;
+    cancel.mockClear();
+    cancelPunch.mockClear();
+  });
+
+  const PUNCH = { kind: "punch_record", phase: "recording", remaining_sec: 4 };
+
+  it("shows a strip for each, whichever reported last", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+    emit(PUNCH);
+    emit({ ...RUNNING, index: 2 });
+    emit({ ...PUNCH, remaining_sec: 3 });
+
+    await waitFor(() => expect(screen.getAllByTestId("tool-progress")).toHaveLength(2));
+    const counts = screen.getAllByTestId("tool-progress-count").map((c) => c.textContent);
+    expect(counts).toEqual(["3 of 3", "Recording — 3s left"]);
+  });
+
+  it("gives each strip its own Cancel", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+    emit(PUNCH);
+    await waitFor(() => expect(screen.getAllByTestId("tool-progress-cancel")).toHaveLength(2));
+    const [batchCancel, punchCancel] = screen.getAllByTestId("tool-progress-cancel");
+
+    fireEvent.click(punchCancel);
+    await waitFor(() => expect(cancelPunch).toHaveBeenCalledTimes(1));
+    expect(cancel).not.toHaveBeenCalled();
+
+    fireEvent.click(batchCancel);
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+    expect(cancelPunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes only the strip whose job finished", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+    emit(PUNCH);
+    await waitFor(() => expect(screen.getAllByTestId("tool-progress")).toHaveLength(2));
+
+    emit({ kind: "batch_apply", done: true });
+    await waitFor(() => expect(screen.getAllByTestId("tool-progress")).toHaveLength(1));
+    expect(screen.getByTestId("tool-progress-count").textContent).toBe("Recording — 4s left");
+
+    emit({ kind: "punch_record", done: true });
+    await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull());
+  });
+
+  it("ignores a done for a job that never reported", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+    await screen.findByTestId("tool-progress");
+    // A punch-in refused before it began sends nothing, but a done that did
+    // arrive must not close the batch's strip.
+    emit({ kind: "punch_record", done: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getAllByTestId("tool-progress")).toHaveLength(1);
+    expect(screen.getByTestId("tool-progress-count").textContent).toBe("2 of 3");
+  });
+
+  it("starts a job's next run on a fresh strip", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(PUNCH);
+    await screen.findByTestId("tool-progress");
+    emit({ kind: "punch_record", done: true });
+    await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull());
+    emit({ ...PUNCH, remaining_sec: 9 });
+    expect((await screen.findByTestId("tool-progress-count")).textContent).toBe(
+      "Recording — 9s left",
+    );
+  });
+
+  it("offers no Cancel once the take is being placed", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(PUNCH);
+    await screen.findByTestId("tool-progress-cancel");
+    emit({ kind: "punch_record", phase: "applying" });
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-progress-count").textContent).toBe("Placing the take…"),
+    );
+    expect(screen.queryByTestId("tool-progress-cancel")).toBeNull();
+  });
+});

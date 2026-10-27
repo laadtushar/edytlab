@@ -50,6 +50,8 @@ export interface PunchGate {
   selection: { start: number; end: number } | null;
   /** A take (Record, or a scheduled one) is running. */
   isRecording: boolean;
+  /** A scheduled recording is armed: waiting to start, or recording. */
+  timerArmed?: boolean;
   /** A punch-in is running. */
   punching: boolean;
 }
@@ -60,6 +62,7 @@ export interface PunchGate {
  */
 export function punchDisabledReason(g: PunchGate): string | null {
   if (g.punching) return "A punch-in is running";
+  if (g.timerArmed) return "A scheduled recording is armed: cancel it first";
   if (g.isRecording) return "Stop the recording first";
   if (!g.hasProject || g.trackCount < 1) return "Load a track to punch into";
   if (!g.selection || !(g.selection.end > g.selection.start)) {
@@ -110,6 +113,8 @@ export function punchProgressText(p: Pick<ToolProgress, "phase" | "remaining_sec
       return left === undefined ? "Recording…" : `Recording — ${formatSeconds(left)} left`;
     case "postroll":
       return left === undefined || left <= 0 ? "Finishing…" : `Tail — ${formatSeconds(left)}`;
+    case "applying":
+      return "Placing the take…";
     default:
       return "Preparing the monitor…";
   }

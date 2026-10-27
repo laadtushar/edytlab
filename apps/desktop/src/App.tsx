@@ -377,6 +377,9 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   // A punch-in is running (#203): the microphone and the speakers are its.
   const [punching, setPunching] = useState(false);
+  // A scheduled recording is armed (waiting or recording), which `isRecording`
+  // also covers; named apart so the Punch control can say which it is.
+  const [timerArmed, setTimerArmed] = useState(false);
   // What the last punch-in was placed with, said once.
   const [punchNotice, setPunchNotice] = useState<string | null>(null);
   // Projects this machine has opened. Empty on a first launch, and the
@@ -1528,11 +1531,13 @@ function App() {
     (schedule: { startAfterSec?: number; durationSec?: number }) => {
       setRenderError(null);
       setIsRecording(true);
+      setTimerArmed(true);
       void scheduledTake(
         () => timerRecord(`recording_${Date.now()}.wav`, schedule),
         loadInOrder,
       ).then((outcome) => {
         setIsRecording(false);
+        setTimerArmed(false);
         // Its head is adopted by `loadInOrder`, in its turn.
         if (outcome.kind === "loaded") {
           void refreshTracks().catch((err) => setRenderError(String(err)));
@@ -1800,6 +1805,7 @@ function App() {
           tracks,
           selection,
           punching,
+          timerArmed,
           onPunch: handlePunch,
           onOpenAudioSettings: () => {
             setSettingsReveal("recording-latency");

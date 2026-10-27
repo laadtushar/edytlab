@@ -42,6 +42,8 @@ export interface AppHeaderProps {
     selection: { start: number; end: number } | null;
     /** A punch-in is running: Record and the timer are off, and so is this. */
     punching: boolean;
+    /** A scheduled recording is armed: this is off until it ends. */
+    timerArmed?: boolean;
     onPunch: (request: { track: number; prerollSec: number }) => void;
     onOpenAudioSettings?: () => void;
   };
@@ -226,6 +228,7 @@ export function AppHeader({
             selection={punch.selection}
             isRecording={isRecording}
             punching={punch.punching}
+            timerArmed={punch.timerArmed}
             onPunch={punch.onPunch}
             onOpenAudioSettings={punch.onOpenAudioSettings}
           />
