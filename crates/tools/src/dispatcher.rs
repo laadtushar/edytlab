@@ -270,7 +270,7 @@ impl ToolDispatcher {
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
         d.register(Box::new(TranscribeTool::new()));
-        d.register(Box::new(SeparateStemsTool));
+        d.register(Box::new(SeparateStemsTool::new()));
         d.register(Box::new(SplitBySpeakerTool));
         d.register(Box::new(DiarizeTool::new()));
         d.register(Box::new(AnalyzeTrackTool));

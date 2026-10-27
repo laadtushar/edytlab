@@ -96,7 +96,7 @@ Ollama is sent a smaller set of tools than the hosted providers: the common edit
 │   crates/tools       — 99 deterministic tools + dispatcher       │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, DSP, engine, time-domain ops      │
-│   crates/ml-*        — Whisper, diarize (run); Demucs (stub)     │
+│   crates/ml-*        — Whisper, diarize, Demucs (run on ONNX)    │
 └──────────────────────────────────────────────────────────────────┘
                        │
 ┌──────────────────────────────────────────────────────────────────┐
@@ -115,7 +115,7 @@ For the long version, read [`docs/specs/2026-05-05-conversational-audio-editor-d
 - **Shell:** Tauri 2, Rust workspace (edition 2021, toolchain 1.90), `cargo` profile-release with `lto = true`
 - **Frontend:** React 19, Vite 7, Tailwind 4, `@xyflow/react` for the graph view, `wavesurfer.js` for waveforms
 - **Audio:** `cpal` (microphone capture), `symphonia` (decode), `rubato` (resampling), `realfft` (spectral), `hound` (WAV), `flac-codec` and `rusty_mp3` (export), plus in-house effects in `crates/audio-dsp`
-- **ML:** `ort` (ONNX Runtime, `load-dynamic`) for Demucs / Whisper — the installers carry the runtime library (1.23.2, since v0.7.0), and `ml-whisper` runs Whisper on a model the user downloads (`transcribe`), but no model is bundled and stem separation does not run in the app yet ([#383](https://github.com/laadtushar/edytlab/issues/383))
+- **ML:** `ort` (ONNX Runtime, `load-dynamic`) for Demucs / Whisper — the installers carry the runtime library (1.23.2, since v0.7.0), and `ml-whisper` runs Whisper on a model the user downloads (`transcribe`), but no model is bundled and the app does not offer the stem model (`ml-demucs`, run by `separate_stems`) for download yet, so stem separation does not run in the app ([#383](https://github.com/laadtushar/edytlab/issues/383))
 - **LLM:** `reqwest` + `eventsource-stream` for SSE; `keyring` for OS-keychain credential storage
 - **Test:** `cargo test` (unit + integration), `vitest` (frontend), Playwright (`apps/desktop/e2e/`, the frontend in Chromium with the IPC boundary faked), `wiremock` for HTTP fakes
 - **Tooling:** pnpm 9 workspace, conventional commits
@@ -140,7 +140,7 @@ crates/
   skills/             User skill library, appended to the prompt when a skill matches
   agent_profiles/     Saved model + tool-whitelist + prompt profiles
   mcp/                MCP server config, lifecycle and JSON-RPC
-  ml-demucs/          Stem separation (inference is a stub, #385)
+  ml-demucs/          Stem separation: HT-Demucs v4 on ONNX Runtime (#385)
   ml-diarize/         Speaker diarization (pyannote-style pipeline on ONNX; the `diarize` tool runs it; the app does not offer the model for download yet, #168)
   ml-whisper/         Transcription (run by the `transcribe` tool on the model the user downloaded, #384)
   ml-pipeline/        Shared ONNX runtime gate, verified model downloader + the user-started speech-model download (#383) + inference cache

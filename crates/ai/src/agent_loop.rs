@@ -2826,25 +2826,34 @@ mod tests {
         assert_eq!(tools, ["github__create_issue"]);
     }
 
-    /// `separate_stems` is registered, and its inference is not shipped
-    /// (#385). A step naming it is kept, so the user sees what was proposed,
-    /// and marked, so the card can say it will fail and not offer it as
-    /// something that will work. `transcribe` runs (#384), so a step naming
-    /// it is an ordinary one.
+    /// A tool whose description says it does nothing in this build (none
+    /// registered does now: `separate_stems` said so until #385, and an MCP
+    /// server's tool may). A step naming it is kept, so the user sees what was
+    /// proposed, and marked, so the card can say it will fail and not offer it
+    /// as something that will work. `transcribe` (#384) and `separate_stems`
+    /// run, so a step naming either is an ordinary one.
     #[tokio::test]
     async fn a_step_naming_a_not_implemented_tool_is_kept_and_marked() {
         let reply = r#"<plan>[
-            {"step":1,"tool":"separate_stems","description":"Split track 0"},
+            {"step":1,"tool":"stub_tool","description":"Split track 0"},
             {"step":2,"tool":"analyze_track","description":"Check the result"},
-            {"step":3,"tool":"transcribe","description":"Transcribe track 1"}
+            {"step":3,"tool":"transcribe","description":"Transcribe track 1"},
+            {"step":4,"tool":"separate_stems","description":"Split track 2"}
         ]</plan>"#;
-        let (result, _) = plan_from(reply, the_real_registry()).await;
+        let mut registry = the_real_registry();
+        registry.as_array_mut().unwrap().push(json!({
+            "name": "stub_tool",
+            "description": "NOT IMPLEMENTED IN THIS BUILD. Would split a track.",
+            "input_schema": { "type": "object" },
+        }));
+        let (result, _) = plan_from(reply, registry).await;
         assert_eq!(
-            result.expect("all three name registered tools"),
+            result.expect("all four name registered tools"),
             vec![
-                json!({"step":1,"tool":"separate_stems","description":"Split track 0","unavailable":true}),
+                json!({"step":1,"tool":"stub_tool","description":"Split track 0","unavailable":true}),
                 json!({"step":2,"tool":"analyze_track","description":"Check the result"}),
                 json!({"step":3,"tool":"transcribe","description":"Transcribe track 1"}),
+                json!({"step":4,"tool":"separate_stems","description":"Split track 2"}),
             ]
         );
     }
@@ -2892,7 +2901,7 @@ mod tests {
     async fn the_plan_request_lists_the_tools_the_turn_may_call() {
         let mut schemas = registry(&["set_track_gain", "reverse"]);
         schemas.as_array_mut().unwrap().push(json!({
-            "name": "separate_stems",
+            "name": "stub_tool",
             "description": "NOT IMPLEMENTED IN THIS BUILD. Would split a track.",
             "input_schema": { "type": "object" },
         }));
@@ -2901,7 +2910,7 @@ mod tests {
         assert!(text.contains("set_track_gain"), "{text}");
         assert!(text.contains("reverse"), "{text}");
         assert!(
-            !text.contains("separate_stems"),
+            !text.contains("stub_tool"),
             "a tool that does nothing here was offered: {text}"
         );
         assert!(!text.contains("echo"), "a tool outside the turn: {text}");

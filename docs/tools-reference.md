@@ -96,7 +96,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`reverse`](#reverse) — Reverse the sample order of a track, optionally within a sub-range.
 - [`revert_to`](#revert_to) — Move the head back to an earlier node, such as a checkpoint before an edit the user wants to undo.
 - [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map.
-- [`separate_stems`](#separate_stems) — NOT IMPLEMENTED IN THIS BUILD.
+- [`separate_stems`](#separate_stems) — Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer.
 - [`set_clip_envelope`](#set_clip_envelope) — Replace the per-clip volume automation curve.
 - [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect on a track, on the master bus (scope "master") or on a bus (scope "bus") without removing it, so its settings survive an A/B.
 - [`set_effect_params`](#set_effect_params) — Change an effect's parameters in place, on a track, on the master bus (scope "master") or on a bus (scope "bus").
@@ -1015,12 +1015,13 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `separate_stems`
 
-NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached by content hash. Inference is a stub, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build instead.
+Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. Writes four WAVs and returns their paths; the session is not changed, so `load` a stem to put it on a track. Stems are estimates. Needs the stem model, which only the user can download (once, in Settings → Account); if the call says it or the runtime is missing, tell the user and stop, and do not try to download, install or configure anything. CPU, about half the audio's length; cancellable.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `model` | one of `htdemucs` | no |  |
-| `path` | string | yes |  |
+| `path` | string | no |  |
+| `track` | integer | no |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
