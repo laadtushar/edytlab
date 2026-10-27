@@ -162,7 +162,9 @@ impl DemucsModel {
     /// Open the model in `dir`, the folder `models.json`'s `htdemucs` was
     /// downloaded to (or a developer's copy of it): `htdemucs_fwd.onnx` and
     /// `htdemucs_fwd.onnx.data` side by side. ONNX Runtime picks the number of
-    /// threads and runs on the CPU; use [`DemucsModel::load_with`] to choose.
+    /// threads and runs on the CPU, with the memory options of
+    /// [`DemucsModel::session_options`]; use [`DemucsModel::load_with`] to
+    /// choose.
     ///
     /// Returns [`DemucsError::UnsupportedModelId`] for an id that is not in
     /// [`SUPPORTED_MODEL_IDS`], [`DemucsError::RuntimeUnavailable`] if there
@@ -171,7 +173,31 @@ impl DemucsModel {
     /// [`DemucsError::UnexpectedExport`] if the graph is another export, and
     /// any other ORT failure as [`DemucsError::Ort`]. Nothing is downloaded.
     pub fn load(model_id: &str, dir: &Path) -> Result<Self> {
-        Self::load_with(model_id, dir, SessionOptions::default())
+        Self::load_with(model_id, dir, Self::session_options())
+    }
+
+    /// The options [`DemucsModel::load`] builds the session with: ONNX
+    /// Runtime's defaults except for its memory. Measured on the pinned
+    /// model on the 4 vCPU runner (`ml.yml`, 102 s of audio, release build):
+    ///
+    /// | arena | memory pattern | peak | after the run | realtime |
+    /// |---|---|---|---|---|
+    /// | on | on (ORT's default) | 4,968 MB | 4,926 MB | 2.26x |
+    /// | on | off | 3,266 MB | 3,225 MB | 2.30x |
+    /// | off | on | 3,711 MB | 444 MB | 1.89x |
+    /// | **off** | **off** (this) | 3,282 MB | 913 MB | 1.96x |
+    ///
+    /// The memory pattern (a plan for reusing one run's layout in the next)
+    /// costs 1.7 GB and buys nothing here. The arena keeps the peak of a run
+    /// for the life of the session, which would leave a desktop app holding
+    /// 3 to 5 GB after a separation; turning it off returns it, for about 15 %
+    /// of the speed.
+    pub fn session_options() -> SessionOptions {
+        SessionOptions {
+            cpu_memory_arena: Some(false),
+            memory_pattern: Some(false),
+            ..SessionOptions::default()
+        }
     }
 
     /// [`DemucsModel::load`] with the session's threads, optimisation level
@@ -309,6 +335,19 @@ mod tests {
             let text = e.to_string().to_lowercase();
             assert!(!text.contains("not implemented"), "{text}");
         }
+    }
+
+    /// The model's gigabytes are not kept for the life of the process
+    /// (measured in `session_options`' table), and the provider and threads
+    /// are left to the caller.
+    #[test]
+    fn the_default_session_hands_its_memory_back_and_leaves_the_rest_alone() {
+        let options = DemucsModel::session_options();
+        assert_eq!(options.cpu_memory_arena, Some(false));
+        assert_eq!(options.memory_pattern, Some(false));
+        let plain = SessionOptions::default();
+        assert_eq!(options.intra_op_threads, plain.intra_op_threads);
+        assert_eq!(options.execution_provider, plain.execution_provider);
     }
 
     #[test]

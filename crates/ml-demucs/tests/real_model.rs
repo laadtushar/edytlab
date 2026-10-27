@@ -46,10 +46,13 @@ use ml_demucs::{Control, DemucsModel, STEM_NAMES};
 /// Length of the fixture's clips, seconds.
 const FIXTURE_SECONDS: f64 = 8.5;
 
-/// What each stem must reach, dB. Set from the first measured run in `ml.yml`
-/// (the numbers are in the PR) less a margin for the runner's floating point
-/// and for ONNX Runtime's own version-to-version differences.
-const MIN_SDR_DB: [f64; 4] = [3.0, 3.0, 1.0, 0.0];
+/// What each stem must reach, dB: vocals, drums, bass, other. The first
+/// measured run in `ml.yml` (4 vCPU runner, release build, 2026-10-27) scored
+/// 16.13, 19.67, 13.69 and 10.38 dB; these are those less 3 to 4 dB, for the
+/// runner's floating point and ONNX Runtime's own version-to-version
+/// differences, which are small next to what a wrong plane order, a missing
+/// normalisation or a bad blend costs (tens of dB).
+const MIN_SDR_DB: [f64; 4] = [12.0, 16.0, 10.0, 7.0];
 
 /// How much better than the unseparated mix an estimate must be. The mix
 /// handed back as every stem scores the stem's share of it; a separator that
@@ -243,64 +246,85 @@ fn a_mix_of_known_stems_is_separated_to_a_stated_sdr() {
     }
 }
 
-/// Five minutes of audio through the real model: how long, how much memory.
-///
-/// The fixture's mix repeated 36 times is 306 s, 53 segments, as long as a
-/// long song. The memory bound that matters is on the *growth* from the loaded
-/// model to the end of the run: the model's own working set is ONNX
-/// Runtime's, and what this crate adds must not scale with the track. It
-/// prints both, and the realtime factor.
-#[test]
-#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library) and DEMUCS_MODEL_PATH (the model folder); run by ml.yml"]
-fn five_minutes_of_audio_takes_bounded_memory() {
+/// `repeats` copies of the fixture's mix, as the interleaved stereo a decoder
+/// gives.
+fn tiled(repeats: usize) -> DecodedAudio {
     let (_, mix) = fixture();
-    let repeats = 36;
     let mut samples = Vec::with_capacity(mix.len() * repeats);
     for _ in 0..repeats {
         samples.extend_from_slice(&mix);
     }
-    let samples_len = samples.len();
-    let seconds_of_audio = samples_len as f64 / 2.0 / 44_100.0;
-    let (model, load_seconds) = load_model();
-    let after_load = memory_mb();
+    DecodedAudio {
+        samples,
+        sample_rate: 44_100,
+        channels: 2,
+    }
+}
 
+/// One run for `memory_does_not_grow_with_the_track`: the time it took, and the
+/// process's resident and peak memory afterwards.
+fn timed_run(model: &DemucsModel, repeats: usize) -> (f64, f64, Option<(f64, f64)>) {
+    let audio = tiled(repeats);
+    let seconds_of_audio = audio.samples.len() as f64 / 2.0 / 44_100.0;
+    let frames = audio.samples.len() / 2;
     let out = tempfile::tempdir().unwrap();
     let started = Instant::now();
     let done = model
-        .separate_to_dir(
-            DecodedAudio {
-                samples,
-                sample_rate: 44_100,
-                channels: 2,
-            },
-            &out.path().join("entry"),
-            &Control::none(),
-        )
+        .separate_to_dir(audio, &out.path().join("entry"), &Control::none())
         .expect("separate");
     let seconds = started.elapsed().as_secs_f64();
-    eprintln!(
-        "{seconds_of_audio:.1} s of audio in {seconds:.1} s: {:.2}x realtime, {} segments; \
-         model load {load_seconds:.1} s",
-        seconds_of_audio / seconds,
-        done.segments
-    );
     assert_eq!(
         done.segments,
-        ml_demucs::separate::segment_count(samples_len / 2, ml_demucs::separate::SEGMENT_SAMPLES)
+        ml_demucs::separate::segment_count(frames, ml_demucs::separate::SEGMENT_SAMPLES)
     );
-    if let (Some((rss_load, _)), Some((rss_end, peak))) = (after_load, memory_mb()) {
-        let input_mb = seconds_of_audio * 44_100.0 * 2.0 * 4.0 / 1e6;
+    (seconds_of_audio, seconds, memory_mb())
+}
+
+/// Five minutes of audio through the real model: how long, how much memory.
+///
+/// The model's own working set is ONNX Runtime's (about 3 GB with the options
+/// `DemucsModel::session_options` sets), and it is the same for any length.
+/// What this crate adds must not scale with the track, and the way to see
+/// that is to run the same model on a track three times as long and compare
+/// the peaks: the difference is the two copies of the longer input (the
+/// test's and the separator's planar one) and nothing for the stems. Four
+/// whole-track `f32` stems alone would add a further four times the difference.
+/// The second run is 306 s, 53 segments, as long as a long song. It prints
+/// both runs and the realtime factors.
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library) and DEMUCS_MODEL_PATH (the model folder); run by ml.yml"]
+fn memory_does_not_grow_with_the_track() {
+    let (model, load_seconds) = load_model();
+    let after_load = memory_mb();
+
+    let (short_audio, short_seconds, after_short) = timed_run(&model, 12);
+    eprintln!(
+        "{short_audio:.0} s of audio in {short_seconds:.1} s: {:.2}x realtime; model load \
+         {load_seconds:.1} s",
+        short_audio / short_seconds
+    );
+    let (long_audio, long_seconds, after_long) = timed_run(&model, 36);
+    eprintln!(
+        "{long_audio:.0} s of audio in {long_seconds:.1} s: {:.2}x realtime",
+        long_audio / long_seconds
+    );
+
+    if let (Some((rss_load, _)), Some((_, peak_short)), Some((rss_end, peak_long))) =
+        (after_load, after_short, after_long)
+    {
+        // f32 stereo at 44.1 kHz, MB.
+        let mb = |seconds: f64| seconds * 44_100.0 * 2.0 * 4.0 / 1e6;
+        let extra_input = mb(long_audio) - mb(short_audio);
         eprintln!(
-            "memory: {rss_load:.0} MB after the model loaded, {rss_end:.0} MB at the end, peak \
-             {peak:.0} MB; the track is {input_mb:.0} MB of f32 (and the test holds it too)"
+            "memory: {rss_load:.0} MB after the model loaded, peak {peak_short:.0} MB after \
+             {short_audio:.0} s and {peak_long:.0} MB after {long_audio:.0} s, {rss_end:.0} MB \
+             at the end; the longer track is {extra_input:.0} MB more of f32, held twice"
         );
-        // The track's mix is held by this test (106 MB) and by the separator
-        // (106 MB), and the four stems (53 MB each as 16-bit) must not be
-        // held at all. Four whole-track f32 stems alone would be 424 MB.
         assert!(
-            peak - rss_load < 3.0 * input_mb + 4_000.0,
-            "the peak grew by {:.0} MB over a {input_mb:.0} MB track",
-            peak - rss_load
+            peak_long - peak_short < 3.5 * extra_input + 150.0,
+            "the peak grew by {:.0} MB for {extra_input:.0} MB more audio: the stems are being \
+             held, or something else scales with the track",
+            peak_long - peak_short
         );
     }
 }
