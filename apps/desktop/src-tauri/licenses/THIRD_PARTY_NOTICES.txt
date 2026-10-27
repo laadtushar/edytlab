@@ -2019,7 +2019,7 @@ the copyright.
 
 Licences in use
 ---------------
-426 x MIT License (MIT)
+428 x MIT License (MIT)
 19 x ISC License (ISC)
 19 x Unicode License v3 (Unicode-3.0)
 17 x Mozilla Public License 2.0 (MPL-2.0)
@@ -10173,6 +10173,10 @@ Used by:
   * linux-keyutils 0.2.5 - declared: Apache-2.0 OR MIT - https://github.com/landhb/linux-keyutils
       (no licence file in the crate; copyright: landhb)
   * objc2-app-kit 0.3.2 - declared: Zlib OR Apache-2.0 OR MIT - https://github.com/madsmtm/objc2
+      (no licence file in the crate; copyright: see the repository above)
+  * objc2-audio-toolbox 0.3.2 - declared: Zlib OR Apache-2.0 OR MIT - https://github.com/madsmtm/objc2
+      (no licence file in the crate; copyright: see the repository above)
+  * objc2-core-audio-types 0.3.2 - declared: Zlib OR Apache-2.0 OR MIT - https://github.com/madsmtm/objc2
       (no licence file in the crate; copyright: see the repository above)
   * objc2-core-foundation 0.3.2 - declared: Zlib OR Apache-2.0 OR MIT - https://github.com/madsmtm/objc2
       (no licence file in the crate; copyright: see the repository above)
