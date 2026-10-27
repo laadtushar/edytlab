@@ -162,9 +162,21 @@ fn the_notices_workflow_does_not_gate_the_ci_run() {
         workflow.contains("generate.mjs --check"),
         "it runs the staleness check"
     );
-    for path in ["Cargo.lock", "pnpm-lock.yaml", "THIRD_PARTY_NOTICES.txt"] {
+    for path in [
+        "Cargo.lock",
+        "pnpm-lock.yaml",
+        "THIRD_PARTY_NOTICES.txt",
+        "apps/desktop/src/**",
+    ] {
         assert!(workflow.contains(path), "it runs when {path} changes");
     }
+    // A file that went stale without a PR touching the filter is found on
+    // main, or by the weekly run.
+    assert!(
+        workflow.contains("push:\n    branches: [main]"),
+        "it runs on pushes to main"
+    );
+    assert!(workflow.contains("schedule:"), "it runs weekly");
 }
 
 #[test]

@@ -28,7 +28,8 @@ const appVersion: string = JSON.parse(
  * variable names a file, the production build also writes the packages that
  * ended up in the JavaScript bundle there, with their licence and NOTICE
  * texts, as JSON. Unset (every normal build, `tauri build` included) the
- * plugin is not even loaded, so the build is exactly what it was.
+ * plugin is imported but never instantiated, so the build is exactly what
+ * it was.
  */
 const noticesJson = process.env.EDYTLAB_NOTICES_JSON;
 

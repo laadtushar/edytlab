@@ -24,7 +24,9 @@ name: Notices
 # "Notices", nothing waits on it, and (like audit.yml) it should not be made a
 # required status check: a PR the path filter skips would wait on it forever.
 #
-# It runs only when something it reads can have changed.
+# It runs when something it reads can have changed: a lockfile or manifest,
+# the frontend source (a new import changes which packages are in the bundle),
+# the notices inputs or the file itself; on main as well as on PRs; and weekly.
 on:
   pull_request:
     paths:
@@ -34,9 +36,29 @@ on:
       - pnpm-lock.yaml
       - apps/desktop/package.json
       - apps/desktop/vite.config.ts
+      - apps/desktop/src/**
       - apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt
       - scripts/third-party-notices/**
       - .github/workflows/notices.yml
+  # The same filter on main, so a file that went stale some other way (a merge
+  # of two PRs that each changed a lockfile) shows up on the commit.
+  push:
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - "**/Cargo.toml"
+      - pnpm-lock.yaml
+      - apps/desktop/package.json
+      - apps/desktop/vite.config.ts
+      - apps/desktop/src/**
+      - apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt
+      - scripts/third-party-notices/**
+      - .github/workflows/notices.yml
+  # And weekly, off the hour (GitHub delays top-of-hour schedules), so a
+  # registry change nothing in the repository shows still surfaces.
+  schedule:
+    - cron: "47 6 * * 1"
   workflow_dispatch:
 
 concurrency:

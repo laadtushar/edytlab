@@ -23,6 +23,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -65,6 +66,9 @@ const CSS_AND_FONT_PACKAGES = [
 const RULE = "=".repeat(80);
 const THIN = "-".repeat(80);
 
+/** Code-unit order, so the output does not depend on the machine's locale. */
+const by = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 function run(cmd, args, opts = {}) {
   return execFileSync(cmd, args, {
     cwd: repo,
@@ -83,13 +87,53 @@ function tidy(text) {
     .map((l) => l.replace(/[ \t]+$/, ""))
     .join("\n")
     .replace(/\n{4,}/g, "\n\n\n")
-    .trim();
+    // Leading blank lines go, a first line's own indentation (a licence title
+    // centred over its text) stays.
+    .replace(/^\n+/, "")
+    .replace(/\s+$/, "");
 }
 
 /** Package metadata can carry a person's e-mail address; the notices name
  *  the holder, not the inbox. */
 function withoutEmails(text) {
   return text.replace(/\s*<[^<>\s]+@[^<>\s]+>/g, "");
+}
+
+/** The `targets` of about.toml: every platform an installer is built for. */
+function readTargets() {
+  const toml = readFileSync(join(here, "about.toml"), "utf8");
+  const block = /^targets\s*=\s*\[([^\]]*)\]/m.exec(toml);
+  if (!block) throw new Error("about.toml has no targets");
+  return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+/** "name version" of every registry crate linked into the desktop app on any
+ *  of `targets`: normal dependencies only, no proc-macro crates (which run at
+ *  build time and are not in the binary), as `cargo tree` resolves them. */
+function shippedCrates(targets) {
+  const ids = new Set();
+  for (const target of targets) {
+    const out = run("cargo", [
+      "tree",
+      "--locked",
+      "--manifest-path",
+      DESKTOP_MANIFEST,
+      "--edges",
+      "normal,no-proc-macro",
+      "--target",
+      target,
+      "--prefix",
+      "none",
+    ]);
+    for (const line of out.split("\n")) {
+      const m = /^(\S+) v(\S+)(?: \((.*?)\))?(?: \(\*\))?$/.exec(line.trim());
+      if (!m) continue;
+      // A crate of this workspace is shown with its folder: not a third party.
+      if (m[3] && (m[3].startsWith("/") || /^[A-Za-z]:[\\/]/.test(m[3]))) continue;
+      ids.add(`${m[1]} ${m[2]}`);
+    }
+  }
+  return ids;
 }
 
 function cargoAbout(tmp) {
@@ -104,7 +148,7 @@ function cargoAbout(tmp) {
   }
   // The crates must be on disk: cargo-about reads their licence files, and
   // `--offline` keeps it from asking the network for anything else.
-  run("cargo", ["fetch", "--manifest-path", DESKTOP_MANIFEST], { stdio: ["ignore", "ignore", "inherit"] });
+  run("cargo", ["fetch", "--locked", "--manifest-path", DESKTOP_MANIFEST], { stdio: ["ignore", "ignore", "inherit"] });
   const config = ["--config", "scripts/third-party-notices/about.toml"];
   const out = join(tmp, "rust.txt");
   run(bin, [
@@ -132,16 +176,66 @@ function cargoAbout(tmp) {
   const jsonOut = join(tmp, "rust.json");
   run(bin, ["generate", "--offline", "--manifest-path", DESKTOP_MANIFEST, ...config, "--format", "json", "--output-file", jsonOut]);
   const graph = JSON.parse(readFileSync(jsonOut, "utf8"));
-  const notices = [];
-  for (const { package: pkg } of graph.crates) {
+  const listed = new Set(graph.crates.map(({ package: p }) => `${p.name} ${p.version}`));
+
+  // Cross-check against what cargo says is linked: `cargo tree` over normal
+  // dependencies (no dev, build or proc-macro edges) for every target.
+  // cargo-about reads the same metadata but has been seen to drop a crate
+  // (keyring has two optional dependencies of the same name, security-framework
+  // 2 for iOS and 3 for macOS, and only the first survives). A crate that
+  // ships and is not listed gets its licence files read here, from the crate
+  // itself, and printed in its own section.
+  const shipped = shippedCrates(readTargets());
+  const missing = [...shipped].filter((c) => !listed.has(c)).sort(by);
+  const metadata = missing.length
+    ? JSON.parse(run("cargo", ["metadata", "--locked", "--offline", "--format-version", "1", "--manifest-path", DESKTOP_MANIFEST]))
+    : { packages: [] };
+  const extra = missing.map((id) => {
+    const pkg = metadata.packages.find((p) => `${p.name} ${p.version}` === id);
+    if (!pkg) throw new Error(`${id} ships but cargo metadata does not know it`);
     const dir = dirname(pkg.manifest_path);
-    for (const name of readdirSync(dir).sort()) {
+    const files = readdirSync(dir)
+      .filter((n) => /^(LICENSE|LICENCE|COPYING|UNLICENSE)/i.test(n) && statSync(join(dir, n)).isFile())
+      .sort(by);
+    if (!files.length) throw new Error(`${id} ships, is not listed by cargo-about and has no licence file to read`);
+    return { pkg, dir, files: files.map((n) => ({ name: n, text: tidy(readFileSync(join(dir, n), "utf8")) })) };
+  });
+  const extraSection = extra.length
+    ? [
+        "RUST CRATES READ DIRECTLY",
+        "=========================",
+        "",
+        "cargo-about did not list these crates, which are linked on at least one platform, so",
+        "their licence files are reproduced as they are in the published crate. Where a",
+        "crate offers a choice of licences, every licence file it ships is given.",
+        "",
+        ...extra.flatMap(({ pkg, files }) => [
+          THIN,
+          `${pkg.name} ${pkg.version} - declared: ${pkg.license}${pkg.repository ? ` - ${pkg.repository}` : ""}`,
+          ...(pkg.authors?.length ? [`copyright: ${withoutEmails(pkg.authors.join(", "))}`] : []),
+          THIN,
+          "",
+          ...files.flatMap((f) => [`[${f.name}]`, "", f.text, ""]),
+        ]),
+      ]
+    : [];
+
+  // Apache-2.0 section 4(d): a NOTICE file a dependency ships has to travel
+  // with the program. cargo-about does not collect them, so look in every
+  // crate it resolved and in the ones read directly.
+  const dirs = [
+    ...graph.crates.map(({ package: p }) => ({ id: `${p.name} ${p.version}`, dir: dirname(p.manifest_path) })),
+    ...extra.map(({ pkg, dir }) => ({ id: `${pkg.name} ${pkg.version}`, dir })),
+  ];
+  const notices = [];
+  for (const { id, dir } of dirs) {
+    for (const name of readdirSync(dir).sort(by)) {
       if (/^NOTICE/i.test(name) && statSync(join(dir, name)).isFile()) {
-        notices.push({ crate: `${pkg.name} ${pkg.version}`, name, text: tidy(readFileSync(join(dir, name), "utf8")) });
+        notices.push({ crate: id, name, text: tidy(readFileSync(join(dir, name), "utf8")) });
       }
     }
   }
-  notices.sort((a, b) => a.crate.localeCompare(b.crate) || a.name.localeCompare(b.name));
+  notices.sort((a, b) => by(a.crate, b.crate) || by(a.name, b.name));
   const section = [
     "NOTICE FILES OF RUST CRATES",
     "===========================",
@@ -155,7 +249,7 @@ function cargoAbout(tmp) {
   const marker = "\nSOURCE AVAILABILITY (MPL-2.0)\n";
   const at = text.indexOf(marker);
   if (at < 0) throw new Error("about.hbs lost its SOURCE AVAILABILITY (MPL-2.0) section");
-  return tidy(`${text.slice(0, at)}\n\n${section.join("\n")}\n${text.slice(at)}`);
+  return tidy(`${text.slice(0, at)}\n\n${[...extraSection, ...(extraSection.length ? [""] : []), ...section].join("\n")}\n${text.slice(at)}`);
 }
 
 /** Does an SPDX expression ("MIT OR Apache-2.0") fit the allow-list? */
@@ -188,11 +282,15 @@ function readPackage(name) {
 
 function frontend(tmp) {
   const json = join(tmp, "frontend.json");
-  run(
-    "pnpm",
-    ["--filter", "@edytlab/desktop", "exec", "vite", "build", "--outDir", join(tmp, "dist"), "--emptyOutDir", "--logLevel", "error"],
-    { env: { ...process.env, EDYTLAB_NOTICES_JSON: json } },
-  );
+  // Vite's own entry run by this node: no `pnpm` to spawn (on Windows that is
+  // pnpm.cmd, which Node will not start without a shell).
+  const desktop = join(repo, "apps/desktop");
+  const vitePkg = createRequire(join(desktop, "package.json")).resolve("vite/package.json");
+  const viteBin = join(dirname(vitePkg), JSON.parse(readFileSync(vitePkg, "utf8")).bin.vite);
+  run(process.execPath, [viteBin, "build", "--outDir", join(tmp, "dist"), "--emptyOutDir", "--logLevel", "error"], {
+    cwd: desktop,
+    env: { ...process.env, EDYTLAB_NOTICES_JSON: json },
+  });
   const bundled = JSON.parse(readFileSync(json, "utf8"));
 
   // Every font package the app depends on must be in the list above.
@@ -226,7 +324,7 @@ function frontend(tmp) {
     if (!groups.has(text)) groups.set(text, []);
     groups.get(text).push(p);
   }
-  const cmp = (a, b) => (a.name === b.name ? a.version.localeCompare(b.version) : a.name.localeCompare(b.name));
+  const cmp = (a, b) => by(a.name, b.name) || by(a.version, b.version);
   const blocks = [...groups.entries()]
     .map(([text, pkgs]) => ({ text, pkgs: pkgs.sort(cmp) }))
     .sort((a, b) => cmp(a.pkgs[0], b.pkgs[0]));
