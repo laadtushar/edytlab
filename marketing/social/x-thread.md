@@ -48,7 +48,7 @@ There's also an optional "plan first" mode: the agent shows its steps and you ap
 ```
 For the DJ job: it analyses BPM, key, beat grid and loudness, then time-stretches or pitch-shifts with a phase vocoder written for the project, in pure Rust.
 
-It's for prep, not live use. And in the demo, the agent itself flags a spot where the bars land a beat apart.
+It's for prep, not live use. Every edit in the demo shows as a tool call, with a reply saying what changed.
 ```
 
 **6/8**

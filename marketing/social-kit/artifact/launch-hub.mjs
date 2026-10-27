@@ -349,7 +349,7 @@ function hnHtml() {
   const hnaTitles = bullets(section("launch/show-hn.md", /^Title/).filter((l) => /^\d\. `/.test(l)));
   const raw = [...hnaTitles, ...moreTitles].map((l) => /^`(.+)` \((\d+)\)$/.exec(l)).filter(Boolean).map((m) => m[1]);
   const titles = [...new Set(raw)];
-  const REC = "Show HN: edytlab – desktop audio editor where an LLM calls 96 DSP tools";
+  const REC = "Show HN: edytlab – desktop audio editor where an LLM calls 99 DSP tools";
   if (!titles.includes(REC)) throw new Error("recommended HN title not found");
   const first = pick(MORE, { h2: /^6\. Show HN/, label: /^First comment/ });
   const qa = tableRows(section("social-kit/more.md", /^6\. Show HN/));
@@ -441,7 +441,7 @@ function xHtml() {
   let out = labels.map((re, i) => card(`x-${i + 1}`, `Post ${i + 1} of 7`, pick(MORE, { h2, label: re }), { limit: 280, mode: "x", badge: i === 0 ? "attach reel-highlights.mp4" : "" })).join("");
   out += card("x-single", "Single post (attach reel-teaser.mp4 or reel-highlights.mp4)", pick(MORE, { h2, label: /^Single post/ }), { limit: 280, mode: "x" });
   let alt = "";
-  for (let i = 1; i <= 8; i++) alt += card(`xa-${i}`, `Alternate thread: post ${i} of 8`, pick(XT, { label: new RegExp("^" + i + "/8") }), { limit: 280, mode: "x", badge: i === 1 ? "attach the 2:45 DJ demo" : "" });
+  for (let i = 1; i <= 8; i++) alt += card(`xa-${i}`, `Alternate thread: post ${i} of 8`, pick(XT, { label: new RegExp("^" + i + "/8") }), { limit: 280, mode: "x", badge: i === 1 ? "attach the 2:23 DJ demo" : "" });
   return `<div class="dest" id="dest-x">${h3("X thread")}${sourceNote("social-kit/more.md", "(section 1). Each post is counted against 280, and a link counts as 23. The theme captions for X are under Images.")}${out}
 <details class="alt"><summary>Alternate: the 8-post thread built around the v0.9.2 release (social/x-thread.md)</summary>${alt}<p class="sub">Use one thread or the other, not both. Check its post 6 against the latest release notes before posting.</p></details></div>`;
 }
@@ -470,7 +470,7 @@ function ytLong() {
   const h2 = /^5\. YouTube long-form/;
   const titles = bullets(section("social-kit/more.md", h2).filter((l) => /^\d\. `/.test(l))).map((s) => s.replace(/^`|`$/g, ""));
   const body = MORE.filter((b) => h2.test(b.h2));
-  return `<div id="yt-long">${h3("YouTube long form: the three full recordings")}${titles.map((t, i) => card("yt-title-" + i, "Title option " + (i + 1), t, { limit: 100 })).join("")}${card("yt-desc", "Description (with chapters)", body[0].text, { limit: 5000 })}${card("yt-tags", "Tags (comma separated)", body[1].text, { nolimit: true })}<p class="sub">The chapter times (0:00, 2:45, 4:40) are arithmetic on the durations; check them against the real upload.</p></div>`;
+  return `<div id="yt-long">${h3("YouTube long form: the three full recordings")}${titles.map((t, i) => card("yt-title-" + i, "Title option " + (i + 1), t, { limit: 100 })).join("")}${card("yt-desc", "Description (with chapters)", body[0].text, { limit: 5000 })}${card("yt-tags", "Tags (comma separated)", body[1].text, { nolimit: true })}<p class="sub">The chapter times (0:00, 2:23, 4:02) are arithmetic on the durations; check them against the real upload.</p></div>`;
 }
 
 // --- Bluesky, Mastodon, Threads

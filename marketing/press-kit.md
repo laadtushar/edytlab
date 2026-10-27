@@ -107,12 +107,11 @@ background, and write the name in lowercase: edytlab.
 Quote only these. They are the captions the website shows next to the
 recording.
 
-> A DJ asks what they are working with. Neon Rush is time-stretched to Midnight
-> Drive's tempo, keeping its pitch, and started under Midnight Drive's last 8
-> bars. Midnight Drive fades out under a low-pass filter while Neon Rush fades in.
-> For the master, Claude mixes the two to a new track, compresses it, limits at
-> -1 dB and raises it to about -14 LUFS, then exports a WAV. Waits for Claude are
-> sped up; every playback is in real time, with sound.
+> A DJ asks for the two tracks' tempos, then Claude time-stretches Neon Rush to
+> Midnight Drive's tempo, keeping its pitch, starts it under Midnight Drive's
+> last 8 bars, and blends the two with a crossfade and a low-pass filter on the
+> outgoing track. The mix is mastered for streaming and exported as a WAV.
+> Playbacks are in real time.
 
 ## Short bios by length
 

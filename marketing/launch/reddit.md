@@ -96,9 +96,9 @@ nobody thinks this runs live.
 > Things it will not do for you: it doesn't split tracks into stems or
 > acapellas (not built), it doesn't talk to rekordbox or Serato, and there's no
 > live mode. Beat detection is software, so on a track with a drifting tempo or
-> a long ambient intro it can be off. The recording shows exactly that: the
-> assistant itself points out that at the 16 s start the bars land a beat
-> apart, and I left it in.
+> a long ambient intro it can be off, so check a blend by ear. The assistant's
+> replies in the recording are its own words as they came, readings included,
+> and a take will differ.
 >
 > Demo: https://edytlab.com/#demos
 > Download (unsigned, so there's a first-launch warning on Mac and Windows):
