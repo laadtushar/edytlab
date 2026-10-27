@@ -668,26 +668,29 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 
 **Trigger:** Push to `main` + all PRs.
 
+**`changes` job:** decides whether the macOS and Windows `build` legs have work. On a PR whose changed files are all under `website/`, `marketing/` or `docs/`, or are root-level `*.md`, `docs.json` or `.mintignore`, those two legs skip their steps (the check still reports Success). The Linux leg and the other jobs always run in full, because several Rust tests read the site and the docs.
+
 **`build` job — matrix:** macOS 14 (arm64) · Windows latest (x86_64) · Ubuntu 22.04 (x86_64).
 
 1. Install platform build deps (Linux only: GTK, WebKit, AppIndicator, libssl, libasound2)
-2. Install Rust toolchain (from `rust-toolchain.toml`)
-3. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform; saved from `main` only, so a PR restores `main`'s cache and never uploads its own, #610)
-4. Install pnpm + Node 24
-5. `pnpm install --frozen-lockfile`
-6. `cargo fmt --all --check`
-7. `cargo clippy --workspace --all-targets -- -D warnings`
-8. `cargo test --workspace --no-fail-fast -- --test-threads=1`
+2. Windows only: set up a Dev Drive (ReFS) mounted at `<workspace>/target` (`samypr100/setup-dev-drive`)
+3. Install Rust toolchain (from `rust-toolchain.toml`)
+4. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform; saved from `main` only, so a PR restores `main`'s cache and never uploads its own, #610)
+5. `cargo fmt --all --check` (Linux leg only)
+6. `cargo clippy --workspace --all-targets -- -D warnings` (every leg: the `cfg(target_os)` code differs per platform)
+7. Install `cargo-nextest` (`taiki-e/install-action`, pinned) and run `cargo nextest run --workspace --profile ci` (settings in `.config/nextest.toml`: a process per test, all failures reported, a 20-minute kill for a hung test, no retries)
+8. `cargo test --workspace --doc --no-fail-fast` (nextest does not run doctests)
 9. Linux leg only: fetch the pinned ONNX Runtime (`scripts/fetch-ml-runtime.sh linux-x64`, cached by the hash of `apps/desktop/src-tauri/ml-runtime.json`) and run `ml-pipeline`'s ignored `cache_smoke` tests against it with `ORT_DYLIB_PATH` set (see [Environment Variables](#9-environment-variables))
-10. `pnpm --filter @edytlab/desktop test`
-11. `pnpm --filter @edytlab/desktop test:slow-scheduler` (Linux leg only)
-12. `pnpm --filter @edytlab/desktop build` (`tsc -b` + `vite build`)
+
+The job sets `CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_PROFILE_TEST_DEBUG=0` (no debug info; fewer bytes to link and to cache). To run the suite as CI does on your machine: `cargo install cargo-nextest --locked`, then `cargo nextest run --workspace --profile ci` and `cargo test --workspace --doc`.
+
+**`frontend (test)` job** (Ubuntu only): `pnpm install --frozen-lockfile`, `pnpm --filter @edytlab/desktop test`, `test:slow-scheduler`, then `pnpm --filter @edytlab/desktop build` (`tsc -b` + `vite build`).
 
 **`e2e (chromium)` job** (Ubuntu only): installs Chromium for Playwright, then `typecheck:e2e` and `test:e2e` against a production build of the frontend.
 
 **`website (test)` job:** in `website/`, `pnpm install --frozen-lockfile --ignore-workspace`, `pnpm test`, `pnpm typecheck`. It does not run `pnpm build`; run that locally for a change to `website/`.
 
-**Important:** CI concurrency is set to cancel in-flight PR runs but **never cancel main runs** — `auto-release.yml` waits on the `workflow_run` completion event.
+**Important:** CI concurrency is set to cancel in-flight PR runs but **never cancel main runs** — `auto-release.yml` waits on the `workflow_run` completion event. A main run is in a concurrency group of its own (the run id): with a shared group GitHub cancels a *pending* run when a newer one queues, even with `cancel-in-progress: false`.
 
 ### Workflow: `audit.yml` (Audit)
 
