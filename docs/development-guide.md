@@ -174,6 +174,9 @@ cargo test -p ml-pipeline --release --test model_real_download -- --ignored --no
 export DIARIZE_MODEL_PATH="$(scripts/fetch-ml-model.sh speaker-diarization /tmp/ml/speaker-diarization)"
 # both networks on 40 s of the AMI corpus, against pyannote.audio's algorithm run on the same files
 cargo test -p ml-diarize --release --test real_model -- --ignored --nocapture --test-threads=1
+# the `diarize` tool end to end on the same excerpt: two speakers through a
+# session, no node written, and the second request answered from the cache
+cargo test -p tools --release --test diarize_end_to_end -- --ignored --nocapture
 ```
 
 `scripts/fetch-ml-model.sh` is for this and for CI: the app never runs it,
@@ -712,6 +715,7 @@ Linux, with `--ignored`, against the pins in
   through a session, #668) and `transcribe_load_errors` (needs only the runtime);
 - `ml-pipeline`: `model_real_download` (the downloader against huggingface.co);
 - `ml-diarize`: `real_model` (the speaker model, 32.5 MB, on a 40 s excerpt of the AMI corpus, #168).
+- `tools`: `diarize_end_to_end` (the `diarize` tool on that excerpt, through a session, #168).
 
 **Trigger:** `workflow_dispatch` only. It does not run on push, on a pull
 request or on a schedule, so a run is always someone's choice. Dispatch it
