@@ -16,6 +16,7 @@ When the user wants to export or save audio:
 
 Before export, recommend:
 - `normalize` target_dbfs=-1.0 for consistent peak level
-- `limiter` ceiling_db=-0.3 for true peak compliance
+- `limiter` ceiling_db=-0.3 as the last level change, after `normalize` (gain first, limiter last; never add gain after the limiter). The limiter's ceiling is a sample-peak ceiling, so inter-sample (true) peaks can still go over it.
+- `measure` (omit `track` to measure the mix) and read `peak.true_dbtp`. If the user has a true-peak target (for example -1 dBTP) and `peak.true_dbtp` is above it, lower `ceiling_db` on the limiter by the overshoot and measure again.
 
 Ask the user for their target platform to give specific loudness recommendations.
