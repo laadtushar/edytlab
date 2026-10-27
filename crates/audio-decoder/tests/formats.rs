@@ -224,24 +224,24 @@ fn flac_decodes_to_the_encoded_tone() {
 // --- M4A/AAC-LC through the operating system's decoder ----------------------
 //
 // AudioToolbox on macOS and Media Foundation on Windows (#764). Linux has no
-// system decoder and refuses the files (`tests/unsupported.rs`). The tolerances
-// are the lossy ones plus a wider length slack: the two decoders differ in
-// whether they trim the encoder's priming samples (about 1,024 to 2,112
-// frames, up to 48 ms), so the length is checked to 120 ms.
+// system decoder and refuses the files (`tests/unsupported.rs`). The level and
+// frequency tolerances are the lossy ones; the length is exact (see
+// `assert_aac_length_and_level`).
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod os_aac {
     use super::*;
     use audio_decoder::decode_bytes;
 
-    const AAC_LENGTH_SLACK_SECS: f32 = 0.12;
-
-    fn assert_aac_length_and_level(d: &DecodedAudio) {
-        let secs = (d.samples.len() / d.channels as usize) as f32 / d.sample_rate as f32;
-        assert!(
-            (secs - DURATION_SECS).abs() <= AAC_LENGTH_SLACK_SECS,
-            "length {secs:.4} s, encoded {DURATION_SECS} s (slack {AAC_LENGTH_SLACK_SECS} s)"
-        );
+    /// The edit list of both fixtures (`ffprobe`: media time 1,024 = the
+    /// encoder's priming, duration = the encoded length) makes the audio
+    /// exactly `rate * 0.5` frames, and both system decoders are held to it:
+    /// the priming at the start and the last packet's padding at the end are
+    /// trimmed. (Measured in CI before this was asserted: macOS gave exactly
+    /// these; Windows gave the whole 23 or 25 packets, 23,552 and 25,600.)
+    fn assert_aac_length_and_level(d: &DecodedAudio, expected_frames: usize) {
+        let frames = d.samples.len() / d.channels as usize;
+        assert_eq!(frames, expected_frames, "frame count");
         for c in 0..d.channels as usize {
             let p = peak(&channel(d, c));
             assert!(
@@ -266,7 +266,7 @@ mod os_aac {
                 tones_hz: &[440.0],
             },
         );
-        assert_aac_length_and_level(&d);
+        assert_aac_length_and_level(&d, 22_050);
         assert_eq!(probe_sample_rate(&path).unwrap(), 44_100);
     }
 
@@ -281,7 +281,7 @@ mod os_aac {
                 tones_hz: &[440.0, 880.0],
             },
         );
-        assert_aac_length_and_level(&d);
+        assert_aac_length_and_level(&d, 24_000);
         assert_eq!(probe_sample_rate(&path).unwrap(), 48_000);
     }
 
@@ -292,7 +292,7 @@ mod os_aac {
         let bytes = std::fs::read(fixture("tone_440_mono_44100.m4a")).unwrap();
         let d = decode_bytes(&bytes).expect("decode m4a bytes");
         assert_eq!((d.sample_rate, d.channels), (44_100, 1));
-        assert_aac_length_and_level(&d);
+        assert_aac_length_and_level(&d, 22_050);
 
         let renamed = std::env::temp_dir().join(format!("renamed-m4a-{}.wav", std::process::id()));
         std::fs::write(&renamed, &bytes).unwrap();
@@ -371,6 +371,12 @@ mod he_aac_macos {
         {
             Ok(o) => o,
             Err(e) => {
+                // A developer's Mac always has it; on CI a missing tool would
+                // make these tests pass without testing anything.
+                assert!(
+                    std::env::var_os("CI").is_none(),
+                    "{tag}: afconvert cannot be run on CI: {e}"
+                );
                 eprintln!("SKIPPED {tag}: afconvert cannot be run: {e}");
                 return None;
             }
@@ -428,22 +434,4 @@ mod he_aac_macos {
     fn he_aac_v2_stereo_44100_decodes_at_full_rate() {
         check("v2-stereo-44100", "aacp", 32_000, 44_100, 2);
     }
-}
-
-// TEMPORARY: reports the frame counts of both fixtures on each OS (CI is the
-// measuring tool). Removed once the priming is settled.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-#[test]
-fn zz_diag_frame_counts() {
-    let mut report = String::new();
-    for name in ["tone_440_mono_44100.m4a", "tones_440_880_stereo_48000.m4a"] {
-        let d = decode_file(&fixture(name)).unwrap();
-        report.push_str(&format!(
-            "\nDIAG {name}: rate {} channels {} frames {}",
-            d.sample_rate,
-            d.channels,
-            d.samples.len() / d.channels as usize
-        ));
-    }
-    panic!("{report}");
 }

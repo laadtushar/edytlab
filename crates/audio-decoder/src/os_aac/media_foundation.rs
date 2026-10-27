@@ -30,14 +30,15 @@ use windows::Win32::Media::MediaFoundation::{
     IMFMediaBuffer, IMFMediaType, IMFSample, IMFSourceReader, MFAudioFormat_Float,
     MFMediaType_Audio, MFSTARTUP_NOSOCKET, MF_E_INVALIDMEDIATYPE, MF_E_TOPO_CODEC_NOT_FOUND,
     MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
-    MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED,
+    MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_PD_DURATION, MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED,
     MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READERF_ERROR, MF_SOURCE_READER_ALL_STREAMS,
-    MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_VERSION,
+    MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_MEDIASOURCE, MF_VERSION,
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 use windows::Win32::System::LibraryLoader::{
     GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32,
 };
+use windows::Win32::System::Variant::VT_UI8;
 
 use crate::{DecodeError, DecodedAudio, Result};
 
@@ -296,14 +297,9 @@ fn float_format(media_type: &IMFMediaType) -> Result<(u32, u32)> {
     Ok((rate, channels))
 }
 
-/// Append the float samples of one decoded `IMFSample` to `out`, leaving out
-/// the first `skip` of them (the encoder's priming, before time zero). Returns
-/// how many samples the buffer held, skipped ones included.
-fn append_sample(
-    sample: &IMFSample,
-    out: &mut Vec<f32>,
-    skip: impl Fn(usize) -> usize,
-) -> Result<usize> {
+/// Append the float samples of one decoded `IMFSample` to `out`. Returns how
+/// many samples the buffer held.
+fn append_sample(sample: &IMFSample, out: &mut Vec<f32>) -> Result<usize> {
     // SAFETY: `sample` is live. The buffer is locked for reading, held by a
     // guard that unlocks it, and read only while locked: `data` points at
     // `len` bytes valid until the unlock.
@@ -319,18 +315,43 @@ fn append_sample(
             return Ok(0);
         }
         let bytes = std::slice::from_raw_parts(data, len as usize);
-        let held = bytes.len() / 4;
-        let skip = skip(held).min(held);
+        let before = out.len();
         // Read as bytes, not as `f32`s: the buffer's alignment is not ours.
         out.extend(
             bytes
                 .chunks_exact(4)
-                .skip(skip)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
         );
-        Ok(held)
+        Ok(out.len() - before)
     }
 }
+
+/// The presentation duration in 100 ns units (`MF_PD_DURATION` of the media
+/// source), if the source reports one.
+fn presentation_duration(reader: &IMFSourceReader) -> Option<u64> {
+    // SAFETY: a call on a live reader with a `'static` key. The value is read
+    // as a `u64` only when its type tag says it is one, and the `PROPVARIANT`
+    // clears itself when dropped.
+    unsafe {
+        let value = reader
+            .GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)
+            .ok()?;
+        let inner = &*value.Anonymous.Anonymous;
+        (inner.vt == VT_UI8).then_some(inner.Anonymous.uhVal)
+    }
+}
+
+/// The sample's duration in 100 ns units, 0 when it has none.
+fn sample_duration(sample: &IMFSample) -> i64 {
+    // SAFETY: a call on a live sample.
+    unsafe { sample.GetSampleDuration() }.unwrap_or(0)
+}
+
+/// Most frames of priming (before time zero) or of padding after the end that
+/// are taken off. An AAC frame is 1,024 samples (2,048 for HE-AAC), so more than
+/// a few frames means the timestamps are not what this assumes, and nothing
+/// is cut.
+const MAX_TRIM_FRAMES: usize = 8_192;
 
 /// Decode the M4A/MP4 file at `path` with Media Foundation.
 pub(crate) fn decode_path(path: &Path) -> Result<DecodedAudio> {
@@ -405,6 +426,9 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
     let mut samples: Vec<f32> = Vec::new();
     let mut empty_reads = 0_u32;
     let mut diag = String::new(); // DIAG (temporary)
+    let mut sample_index = 0_u32;
+    let mut lead_frames: Option<usize> = None;
+    let mut last_sample = (0_i64, 0_i64, 0_usize); // DIAG (temporary): ts, duration, frames
     loop {
         let mut flags: u32 = 0;
         let mut stamp: i64 = 0;
@@ -447,24 +471,31 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
             Some(sample) => {
                 empty_reads = 0;
                 // The sample's time in 100 ns units, as a frame count at the
-                // output rate. Frames before time zero are the encoder's
-                // priming (an edit list or the decoder's delay reports them as
-                // negative time), and are dropped.
+                // output rate.
                 let start_frame = (i128::from(stamp) * i128::from(rate) + 5_000_000) / 10_000_000;
-                let before = samples.len();
-                let held = append_sample(&sample, &mut samples, |held| {
-                    if start_frame < 0 {
-                        let frames = usize::try_from(-start_frame).unwrap_or(usize::MAX);
-                        frames.saturating_mul(channels as usize).min(held)
-                    } else {
-                        0
-                    }
-                })?;
-                if diag.len() < 200 {
+                let before_frames = samples.len() / channels as usize;
+                let held = append_sample(&sample, &mut samples)?;
+                sample_index += 1;
+                // The encoder's priming is the first packet(s): the MP4's edit
+                // list starts the timeline after them, so their time is at or
+                // before zero while the frames decoded so far are not. The gap
+                // between the frames already decoded and the time this sample
+                // starts at is the priming, and it is the same for every later
+                // sample, so it is read once, at the second (the first one's
+                // time is clamped to zero). Frames before time zero are
+                // dropped at the end.
+                if sample_index == 2 && lead_frames.is_none() {
+                    lead_frames = Some(before_frames.saturating_sub(start_frame.max(0) as usize));
+                } else if sample_index == 1 && start_frame < 0 {
+                    // A source that reports the priming as negative time.
+                    lead_frames = Some(usize::try_from(-start_frame).unwrap_or(usize::MAX));
+                }
+                last_sample = (stamp, sample_duration(&sample), held / channels as usize);
+                if diag.len() < 320 {
                     diag.push_str(&format!(
-                        " [ts={stamp} start_frame={start_frame} held={held} kept={}]",
-                        samples.len() - before
-                    ));
+                        " [ts={stamp} dur={} start_frame={start_frame} held={held}]",
+                        sample_duration(&sample)
+                    )); // DIAG (temporary)
                 }
             }
             None => {
@@ -483,9 +514,27 @@ fn decode_with(api: &MfApi, wide_path: &[u16]) -> Result<DecodedAudio> {
 
     // Whole frames only.
     samples.truncate(samples.len() - samples.len() % channels as usize);
+    let ch = channels as usize;
+    let decoded_frames = samples.len() / ch;
+
+    // Drop the priming, then the padding after the end (the MP4's duration
+    // is the edit list's, so frames past it are the last packet's remainder).
+    let lead = lead_frames
+        .filter(|&lead| lead <= MAX_TRIM_FRAMES && lead < decoded_frames)
+        .unwrap_or(0);
+    samples.drain(..lead * ch);
+    let duration = presentation_duration(&reader);
+    let frames_after_lead = samples.len() / ch;
+    if let Some(hns) = duration {
+        let wanted = ((u128::from(hns) * u128::from(rate) + 5_000_000) / 10_000_000) as usize;
+        if wanted > 0 && wanted < frames_after_lead && frames_after_lead - wanted <= MAX_TRIM_FRAMES
+        {
+            samples.truncate(wanted * ch);
+        }
+    }
     eprintln!(
-        "MF_DIAG rate={rate} channels={channels} frames={} first:{diag}",
-        samples.len() / channels as usize
+        "MF_DIAG rate={rate} channels={channels} decoded={decoded_frames} lead={lead} duration_hns={duration:?} final={} last(ts,dur,frames)={last_sample:?} first:{diag}",
+        samples.len() / ch
     ); // DIAG (temporary)
 
     Ok(DecodedAudio {
