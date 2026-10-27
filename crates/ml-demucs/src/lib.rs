@@ -191,7 +191,8 @@ impl DemucsModel {
     /// costs 1.7 GB and buys nothing here. The arena keeps the peak of a run
     /// for the life of the session, which would leave a desktop app holding
     /// 3 to 5 GB after a separation; turning it off returns it, for about 15 %
-    /// of the speed.
+    /// of the speed. (The full runs with these options: 1.56x realtime and a
+    /// 2,701 MB peak for 102 s of audio; 1.72x and 2,970 MB for 306 s.)
     pub fn session_options() -> SessionOptions {
         SessionOptions {
             cpu_memory_arena: Some(false),
