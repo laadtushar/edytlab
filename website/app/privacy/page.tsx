@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy" path="/privacy" updated="2026-10-26">
+    <LegalShell title="Privacy" path="/privacy" updated="2026-10-27">
       <p>
         edytlab is a local-first desktop application. It has no server of ours
         behind it, it sends no telemetry, and we do not handle your audio. The
@@ -83,8 +83,8 @@ export default function PrivacyPage() {
         contact <code>auth.openai.com</code> (see &ldquo;Signing in with
         ChatGPT&rdquo; below). Beyond that, the app connects only where you tell
         it to: a plugin you install from a URL is downloaded from that URL, an
-        MCP server you add is contacted at the address you gave it, and the speech model is downloaded from Hugging Face when you click
-        Download (below). Your OS network tools show every request.
+        MCP server you add is contacted at the address you gave it, and the speech model and the speaker model are each downloaded from
+        Hugging Face when you click their Download (below). Your OS network tools show every request.
       </p>
       <p>
         <strong>The speech model download.</strong> Settings &rarr; Account has a Download button for the
@@ -114,6 +114,29 @@ export default function PrivacyPage() {
         <a href="https://huggingface.co/privacy">its own privacy policy</a>.
         Transcribing makes no network request of its own; the model is only
         read from your computer.
+      </p>
+      <p>
+        <strong>The speaker model download.</strong> Settings &rarr; Account
+        has a second Download button, for the speaker model that finds who
+        speaks when (about 33 MB). It works the same way as the speech
+        model&apos;s: the app contacts Hugging Face only when you click it, and
+        not at launch, when Settings opens, or when the assistant asks. The
+        click sends GET requests to <code>huggingface.co</code>, one for each
+        of two files (a retry or a resume makes more), each fixed to one
+        commit: the segmentation network from{" "}
+        <a href="https://huggingface.co/onnx-community/pyannote-segmentation-3.0">
+          onnx-community/pyannote-segmentation-3.0
+        </a>{" "}
+        (an export of pyannote&apos;s segmentation-3.0, MIT licence) and the
+        voiceprint network from{" "}
+        <a href="https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM">
+          Wespeaker/wespeaker-voxceleb-resnet34-LM
+        </a>{" "}
+        (CC BY 4.0). What Hugging Face sees, the checks against SHA-256 hashes,
+        Remove, and the absence of any telemetry are the same as for the
+        speech model above, and it sees nothing about your audio. Using the
+        model makes no network request of its own; it is only read from your
+        computer.
       </p>
       <p>
         <strong>Transcripts.</strong> Transcription runs on your computer with
@@ -343,8 +366,8 @@ export default function PrivacyPage() {
         whether a new release exists. New versions are published on the
         GitHub releases page and announced on this website; you download and
         install them yourself. It does not check for newer models either: the
-        speech model&apos;s files are pinned to one fixed version, and only
-        your click on Download fetches them.
+        speech and speaker models&apos; files are pinned to one fixed version,
+        and only your click on Download fetches them.
       </p>
 
       <h2>Contact</h2>

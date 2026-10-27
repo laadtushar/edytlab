@@ -783,7 +783,7 @@ export const apiAreas: ApiArea[] = [
   {
     slug: "speech-model",
     title: "Speech Model and Runtime",
-    summary: "Check the ONNX Runtime, download, cancel or remove the speech model, and read the open source licences.",
+    summary: "Check the ONNX Runtime, download, cancel or remove the speech and speaker models, and read the open source licences.",
     sections: [
       {
         kind: "commands",
@@ -803,12 +803,12 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlModelStatus(model)",
             returns: "MlModelStatus",
-            desc: "Where a downloadable model is, for the Speech model row in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
+            desc: "Where a downloadable model is, for the Speech model and Speaker model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, and speaker-diarization, about 33 MB in two files, both from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
           },
           {
             name: "downloadMlModel(model)",
             returns: "MlModelStatus",
-            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there.",
+            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base and speaker-diarization); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there.",
           },
           {
             name: "cancelMlModelDownload(model)",

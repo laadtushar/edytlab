@@ -256,7 +256,8 @@ fn an_id_that_is_not_in_the_catalog_is_an_error_for_every_command() {
 
 #[test]
 fn a_pinned_model_that_is_not_offered_is_not_downloaded_by_the_command() {
-    // `speaker-diarization` is in `models.json` and not offered (#168).
+    // A pinned id the allow-list leaves out is not started (the shipped list is
+    // pinned in `commands.rs`; this rig offers only `speech-test`).
     let rig = rig_offering(Some(&["speech-test"]));
     let err = rig
         .call("download_ml_model", "pinned-test")
