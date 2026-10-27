@@ -11,6 +11,7 @@
 
 import type { LeftView } from "../lib/views";
 import { LogoMark } from "./LogoMark";
+import { PunchRecord } from "./PunchRecord";
 import { TimerRecord } from "./TimerRecord";
 
 export interface AppHeaderProps {
@@ -28,6 +29,24 @@ export interface AppHeaderProps {
     startAfterSec?: number;
     durationSec?: number;
   }) => void;
+  /**
+   * Punch in (#203): replace the selected region of a track with a take
+   * recorded while the rest of the mix plays. Omitting it hides the
+   * control, which is what every existing caller and test gets. The header
+   * decides only whether it is on (`punchDisabledReason`); the recording is
+   * the application's.
+   */
+  punch?: {
+    /** The tracks to choose from, in session order. */
+    tracks: { name: string }[];
+    selection: { start: number; end: number } | null;
+    /** A punch-in is running: Record and the timer are off, and so is this. */
+    punching: boolean;
+    /** A scheduled recording is armed: this is off until it ends. */
+    timerArmed?: boolean;
+    onPunch: (request: { track: number; prerollSec: number }) => void;
+    onOpenAudioSettings?: () => void;
+  };
   /**
    * Copy the project elsewhere and carry on there. Omitted — or with no
    * project open — the button is not drawn: there is nothing to copy.
@@ -54,11 +73,13 @@ export function AppHeader({
   isRecording,
   onRecord,
   onTimerRecord,
+  punch,
   onSaveAs,
   hasProject,
   onNewProject,
   onOpenProject,
 }: AppHeaderProps) {
+  const punching = punch?.punching ?? false;
   return (
     <header
       data-testid="left-pane-tabs"
@@ -178,9 +199,13 @@ export function AppHeader({
           type="button"
           data-testid="record-btn"
           onClick={onRecord}
+          // The microphone and the speakers are the punch-in's until it ends
+          // (the backend refuses too; this is the button saying so).
+          disabled={punching && !isRecording}
+          title={punching && !isRecording ? "A punch-in is running" : undefined}
           // 11px / 3px, not 12 / 4: the 1px border is new, and the
           // button keeps the box it had.
-          className={`rounded-md px-[11px] py-[3px] text-sm font-medium ${
+          className={`rounded-md px-[11px] py-[3px] text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
             isRecording
               ? "border border-[var(--danger)] bg-[var(--danger)] text-[var(--accent-fg)] animate-pulse"
               : "btn-secondary"
@@ -195,8 +220,22 @@ export function AppHeader({
           )}
         </button>
 
+        {punch ? (
+          <PunchRecord
+            hasProject={Boolean(hasProject)}
+            trackCount={punch.tracks.length}
+            tracks={punch.tracks}
+            selection={punch.selection}
+            isRecording={isRecording}
+            punching={punch.punching}
+            timerArmed={punch.timerArmed}
+            onPunch={punch.onPunch}
+            onOpenAudioSettings={punch.onOpenAudioSettings}
+          />
+        ) : null}
+
         {onTimerRecord ? (
-          <TimerRecord busy={isRecording} onArm={onTimerRecord} />
+          <TimerRecord busy={isRecording || punching} onArm={onTimerRecord} />
         ) : null}
 
         <button

@@ -255,8 +255,12 @@ export interface SettingsProps {
    * model's row is the last thing on a tall tab, so opening at the top left
    * it below the fold, and the speech-setup card says "press Download beside
    * it". Nothing is scrolled when this is absent, as for the gear.
+   *
+   * `"recording-latency"` opens the Audio tab instead (#203): the punch-in
+   * sends the person there to measure the delay or type it, and the row is
+   * the whole tab.
    */
-  reveal?: "speech-model" | null;
+  reveal?: "speech-model" | "recording-latency" | null;
 }
 
 export function Settings({
@@ -434,6 +438,11 @@ export function Settings({
     const body = bodyRef.current;
     if (body) body.scrollTop = 0;
   }, [tab]);
+
+  // The Audio tab, for a caller that sends the person to the latency row.
+  useEffect(() => {
+    if (reveal === "recording-latency" && mode === "panel") setTab("audio");
+  }, [reveal, mode]);
 
   // Bring the row a caller asked for to near the top of the body (`reveal`).
   //

@@ -99,7 +99,7 @@ edytlab/
     ├── ml-diarize/               # Speaker diarization via ONNX pyannote segmentation + WeSpeaker embeddings (run by the `diarize` tool, #831, on the speaker model the user downloads in Settings, #168)
     ├── ml-pipeline/              # Shared ONNX runtime gate, model downloader + the user-started speech-model download, and inference cache (the installers carry the runtime, #383)
     ├── ml-whisper/               # Transcription via ONNX Whisper-base (run by the `transcribe` tool on the model the user downloaded, #384)
-    ├── recorder/                 # Microphone capture to WAV; recording-latency measurement (cpal)
+    ├── recorder/                 # Microphone capture to WAV; recording-latency measurement; the punch-in's monitor and take (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
     └── tools/                    # 99 deterministic audio-editing tools
@@ -1013,7 +1013,7 @@ pub struct RenderReport {
 }
 ```
 
-There is no native playback path. All playback happens in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol, including the A/B crossfade — so the engine never opens an output device. The only native audio I/O in the workspace is `crates/recorder` (cpal): microphone capture, and, since [#203](https://github.com/laadtushar/edytlab/issues/203), one output stream that plays a single in-memory buffer while the microphone is recorded on the same process clock, which is how the recording latency is measured (test sweeps) and what a punch-in's monitor will use. It is not a player. A cpal output crate (`audio-io`) and a `play_state` entry point existed until [#388](https://github.com/laadtushar/edytlab/issues/388) removed them: nothing called them, and `play_state` pushed a whole mix into a ~250 ms ring buffer that dropped whatever did not fit.
+There is no native playback path. All playback happens in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol, including the A/B crossfade — so the engine never opens an output device. The only native audio I/O in the workspace is `crates/recorder` (cpal): microphone capture, and, since [#203](https://github.com/laadtushar/edytlab/issues/203), one output stream that plays a single in-memory buffer while the microphone is recorded on the same process clock, which is how the recording latency is measured (test sweeps) and what a punch-in's monitor uses (`punch_record`: the mix as it is outside the region, the mix with the target track muted inside it, the take cut out at the measured or typed latency). It is not a player. A cpal output crate (`audio-io`) and a `play_state` entry point existed until [#388](https://github.com/laadtushar/edytlab/issues/388) removed them: nothing called them, and `play_state` pushed a whole mix into a ~250 ms ring buffer that dropped whatever did not fit.
 
 ### What the Render Processes
 
