@@ -69,10 +69,11 @@ export const guidePages: GuidePage[] = [
   {
     slug: "speech",
     title: "Stem Separation and Transcription",
-    summary: "What stem separation does today, and transcribing speech with the Whisper model you download.",
+    summary: "Transcribing speech with the Whisper model you download, exporting captions or text, and adding transcript markers.",
     headings: [
       { id: "stem-separation", title: "Stem Separation" },
       { id: "transcription", title: "Transcription" },
+      { id: "transcript-export-and-markers", title: "Transcript Export and Markers" },
     ],
   },
   {

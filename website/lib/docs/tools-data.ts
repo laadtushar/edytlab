@@ -651,6 +651,32 @@ export const toolAreas: ToolArea[] = [
     ],
   },
   {
+    slug: "transcript-export",
+    title: "Transcript Export and Markers",
+    summary: "Export stored words as captions or text, or add point markers at transcript starts.",
+    sections: [
+      {
+        title: "Transcript Export and Markers",
+        tools: [
+          {
+            name: "export_transcript",
+            prompt: "export the transcript to captions.srt",
+            what: "Write the stored transcript to required out_path, relative to the project or absolute. format is srt (default), vtt or txt. Sentence-ending punctuation starts a new segment. pause_sec also splits at a pause (finite and at least 0, default 0.75); max_cue_sec limits segment duration (finite and greater than 0, default 6); max_chars_per_line is an integer from 1 to 200 (default 42). SRT and WebVTT captions normally have at most two lines, with a hard width measured in Unicode scalar values (not display columns). A single stored word can need more lines or exceed the duration limit: its recorded times are kept. TXT writes one unwrapped segment per line. All formats are UTF-8 with LF line endings.",
+            output: "out_path, format, word_count, cue_count, byte_count, time_basis, source, summary",
+            note: "Run transcribe first. Export preserves stored word times, including after later audio edits: a track transcript uses recorded session seconds, a file transcript uses file seconds, and a legacy source can be unknown. source reports kind, time_basis, stable_track_id, current_track_index and track_present; the current index is metadata, not a replacement for the stable track ID. SRT keeps raw text, so a reader may interpret markup; WebVTT escapes &, < and >. The destination is written atomically and cannot overwrite project audio. Export changes neither the transcript, audio nor session history.",
+          },
+          {
+            name: "transcript_to_markers",
+            prompt: "add a marker at each transcript sentence",
+            what: "Add point markers at stored transcript starts. mode is segment (default, using the export's default grouping) or sentence (split on sentence-ending punctuation). Optional offset_sec is a finite, signed alignment offset; file transcripts and unknown sources require it explicitly, even when it is 0. A transcript whose source track has been removed is refused even with an offset. Every resulting marker time must be finite and nonnegative. Each label takes the first six words, capped at 80 Unicode characters.",
+            output: "node_id, marker_count, time_basis, source, applied_offset_sec, summary",
+            note: "Run transcribe first. Uses recorded source times, including after later audio edits; track transcripts use session seconds and file transcripts use file seconds. source reports kind, time_basis, stable_track_id, current_track_index and track_present. Appends one undoable history node, preserves existing annotations and changes no audio.",
+          },
+        ],
+      },
+    ],
+  },
+  {
     slug: "rendering",
     title: "Rendering, Recipes and Batch",
     summary: "Export the session to WAV, FLAC or MP3, render previews, and replay an edit chain on one file or a folder.",

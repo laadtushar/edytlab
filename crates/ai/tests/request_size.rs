@@ -20,8 +20,8 @@
 //!
 //! The split is what showed where the size is. The system prompt is
 //! small (about 1.2 KB, session block included); the tool schemas are
-//! nearly all of it (about 64.5 KB of 66 KB for Anthropic, 67 KB of 68 KB
-//! as chat-completions JSON, with 96 tools, before #770's three generators; it was 54 KB of 55 KB and
+//! nearly all of it (about 71.4 KB of 72.8 KB for Anthropic, 74.3 KB of 75.7 KB
+//! as chat-completions JSON, with 101 tools; it was 54 KB of 55 KB and
 //! 57 KB of 58 KB when #395 was fixed). So the fix is not a shorter prompt but
 //! fewer, terser tools, and only for a provider that needs it:
 //!
@@ -39,7 +39,7 @@
 //! Where three bytes per token comes from: the issue's llama.cpp run
 //! counted 15,157 tokens for a request of the whole-list kind, and
 //! `openai_first_request_reports_the_full_chat_completions_size` builds
-//! that kind of request today. Divided by 15,157 it is 4.43 bytes per
+//! that kind of request today. Divided by 15,157 it is 4.99 bytes per
 //! token (3.84 when this was written, and it rises as tools are added). The
 //! registry has grown since the issue, so today's request has more tokens
 //! than were counted, and that figure is an upper bound on the true ratio,
@@ -168,8 +168,12 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // descriptor is 1,304 B (65,482 B to 66,786 B). It went up by that and no more.
 // #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`:
 // 2,875 B (66,786 B to 69,661 B), with the 14 B of headroom kept.
+// #842's Opus wording then added 13 B to `load` (69,674 B).
+// #767 then added `export_transcript` and `transcript_to_markers`: 1,752 B
+// (69,674 B to 71,426 B). The ratchet rises by exactly that, keeping the
+// remaining headroom of the main branch rather than loosening the guard.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 69_675; // measured 69,661 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B)
+const FULL_TOOLS_MAX_BYTES: usize = 71_427; // measured 71,426; prior ratchet 69,675 + the 1,752 B of #767
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -732,8 +736,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // what chat completions send), so the numbers are its own. The plan is
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
+// #767's `export_transcript` and `transcript_to_markers` add 1,814 B
+// (72,804 B to 74,618 B, including #842's 13 B change to `load`);
+// the ratchet rises by that, keeping the main branch's remaining headroom.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_809; // measured 72,791 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B)
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_623; // measured 74,618; prior ratchet 72,809 + the 1,814 B of #767
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
@@ -1911,6 +1918,16 @@ async fn ollama_loose_phrasings_are_shown_the_tool_they_ask_for() {
         ("remove the reverb from track 1", "remove_effect"),
         ("make the vocals less harsh", "de_esser"),
         ("export each track separately", "export_multiple"),
+        ("save captions as SRT", "export_transcript"),
+        ("save subtitles as VTT", "export_transcript"),
+        ("save it as TXT", "export_transcript"),
+        ("save it as plaintext", "export_transcript"),
+        (
+            "turn spoken chapters into timeline cues",
+            "transcript_to_markers",
+        ),
+        ("put each sentence on the timeline", "transcript_to_markers"),
+        ("save it as plain text", "export_transcript"),
         // Keys on a voice track's audio when there is no transcript, so it
         // is not one of the tools left out for needing one.
         ("duck the music under the speech", "duck_under_speech"),

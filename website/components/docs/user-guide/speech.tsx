@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-/** The "speech" page of the user guide: moved from the one long page, unchanged. */
+/** The "speech" page of the user guide. */
 export function Speech() {
   return (
     <>
@@ -76,6 +76,47 @@ export function Speech() {
         </li>
       </ul>
       <p>The rest of the editor works without a transcript or the model.</p>
+
+      <h2 id="transcript-export-and-markers">Transcript Export and Markers</h2>
+      <p>
+        After transcribing, ask <code>export the transcript to captions.srt</code>{" "}
+        to write an SRT file, or name <code>vtt</code> for WebVTT or{" "}
+        <code>txt</code> for plain text. The <code>export_transcript</code> tool
+        needs <code>out_path</code>, relative to the project folder or absolute.
+        It writes the file atomically, protects project audio from being
+        overwritten, and changes no audio or session history.
+      </p>
+      <p>
+        Captions split at sentence-ending punctuation and at a pause of 0.75
+        seconds by default, and normally stay within six seconds and two lines
+        of 42 Unicode scalar values each (not display columns). Ask for different <code>pause_sec</code> (0 or more),{" "}
+        <code>max_cue_sec</code> (greater than 0) or{" "}
+        <code>max_chars_per_line</code> (an integer from 1 to 200). A single
+        stored word may need more lines or exceed the duration limit, because
+        the export keeps its recorded times. TXT keeps each segment on one
+        unwrapped line. All three formats use UTF-8 and LF line endings.
+        WebVTT escapes markup characters; SRT keeps raw text, which readers
+        may interpret as markup.
+      </p>
+      <p>
+        Ask <code>add a marker at each transcript sentence</code> to use{" "}
+        <code>transcript_to_markers</code>. It adds point markers in one
+        undoable step, keeps existing annotations, and changes no audio.
+        Choose <code>mode: segment</code> (the default caption grouping) or{" "}
+        <code>mode: sentence</code> (sentence-ending punctuation). Labels use the first six words, capped at
+        80 Unicode characters.
+      </p>
+      <p>
+        Both tools use stored word times, including after later audio edits.
+        A track transcript keeps recorded session seconds; a file transcript
+        keeps file seconds; an older transcript may have an unknown source.
+        Results report that time basis and source, with a stable track ID
+        and its current index when available. For markers from a file or an
+        unknown source, explicitly supply a signed <code>offset_sec</code> to
+        align those times to the timeline, even if the offset is 0. Every
+        resulting time must be finite and at least 0. A removed source track
+        is refused even with an offset; transcribe an existing track again.
+      </p>
     </>
   );
 }
