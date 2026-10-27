@@ -62,6 +62,7 @@ import { ChatGptLogo } from "./ChatGptLogo";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { MlRuntimeLine } from "./MlRuntimeLine";
+import { OpenSourceLicencesRow } from "./OpenSourceLicencesRow";
 import { RecordingLatencyRow } from "./RecordingLatencyRow";
 import { SpeechModelRow } from "./SpeechModelRow";
 import { ProjectEditor } from "./ProjectEditor";
@@ -1655,6 +1656,7 @@ export function Settings({
             <>
               <MlRuntimeLine />
               <SpeechModelRow />
+              <OpenSourceLicencesRow />
             </>
           ) : null}
 

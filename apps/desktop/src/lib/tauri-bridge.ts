@@ -378,6 +378,16 @@ export const mlRuntimeStatus = (): Promise<MlRuntimeStatus> =>
   invoke<MlRuntimeStatus>("ml_runtime_status");
 
 /**
+ * The text of the third-party notices file the installer carries (licence
+ * texts and copyright lines of the libraries, fonts and code edytlab is built
+ * from). Read-only: the command opens one fixed file in the app's own
+ * resource directory and takes no argument. Rejects with a sentence (never a
+ * path) when the file is not in the build.
+ */
+export const thirdPartyNotices = (): Promise<string> =>
+  invoke<string>("third_party_notices");
+
+/**
  * Where a downloadable model is, tagged by `state` (#383). The same object
  * is the answer of every model command and the payload of the
  * `ml-model-progress` event.

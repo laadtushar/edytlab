@@ -54,6 +54,7 @@ unlisten();
 - [Capabilities](#capabilities)
 - [ONNX Runtime](#onnx-runtime)
 - [Speech Model](#speech-model)
+- [Open Source Licences](#open-source-licences)
 - [ChatGPT Plan](#chatgpt-plan)
 - [Skills (CRUD)](#skills-crud)
 - [Agent Profiles (CRUD)](#agent-profiles-crud)
@@ -1491,6 +1492,34 @@ Emitted as `ml-model-progress` on every change of a model's state: the start,
 progress (at most one every 100 ms), the end (`ready`, `failed`, or
 `not_downloaded` after a cancel) and a removal. The payload is the same object
 the commands answer with.
+
+---
+
+## Open Source Licences
+
+### `thirdPartyNotices() → Promise<string>`
+
+The text of the third-party notices file the installer carries: the licence
+texts and copyright lines of the Rust crates, JavaScript packages and fonts
+edytlab is built from, the code its Rust files were derived from (Whisper,
+Demucs, pyannote.audio, SciPy, torchaudio, Kaldi), the models the app can
+download and who made them, and where to get the source of the MPL-2.0
+libraries (MPL-2.0 section 3.2). Settings shows it under Account → Open source
+licences, only when Show is pressed; opening Settings reads nothing.
+
+Read-only. It opens one fixed file, `licenses/THIRD_PARTY_NOTICES.txt` in the
+app's resource directory (`bundle.resources` in `tauri.conf.json`), and takes
+no argument, so the window cannot name a path. The file is generated from
+`Cargo.lock` and `pnpm-lock.yaml` by `scripts/third-party-notices/generate.mjs`
+and the `Notices` workflow fails when it is stale. It is file work, so it runs
+on the blocking pool and takes none of the store, engine or dispatcher locks.
+
+**Rejects with** a sentence, never a path: the file is not in this build (a
+build that was not made from the repository), or it could not be read.
+
+```typescript
+const text = await bridge.thirdPartyNotices(); // plain text, LF line endings
+```
 
 ---
 

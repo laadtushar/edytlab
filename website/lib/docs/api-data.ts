@@ -783,7 +783,7 @@ export const apiAreas: ApiArea[] = [
   {
     slug: "speech-model",
     title: "Speech Model and Runtime",
-    summary: "Check the ONNX Runtime, and download, cancel or remove the speech model.",
+    summary: "Check the ONNX Runtime, download, cancel or remove the speech model, and read the open source licences.",
     sections: [
       {
         kind: "commands",
@@ -819,6 +819,17 @@ export const apiAreas: ApiArea[] = [
             name: "removeMlModel(model)",
             returns: "MlModelStatus",
             desc: "Delete the model's own files (and its partial files) from the models folder, and nothing else in it. Refused while the model is downloading: cancel it first.",
+          },
+        ],
+      },
+      {
+        kind: "commands",
+        title: "Open Source Licences",
+        items: [
+          {
+            name: "thirdPartyNotices()",
+            returns: "string",
+            desc: "The text of the third-party notices file the installer carries (licenses/THIRD_PARTY_NOTICES.txt in the app's resource directory): the licence texts and copyright lines of the Rust crates, JavaScript packages and fonts edytlab is built from, the code its Rust files were derived from, and where to get the source of the MPL-2.0 libraries. Settings shows it under Account → Open source licences when Show is pressed; opening Settings reads nothing. Read-only: it opens that one fixed file and takes no argument, so the window cannot name a path. Rejects with a sentence, never a path, when the file is not in the build.",
           },
         ],
       },
