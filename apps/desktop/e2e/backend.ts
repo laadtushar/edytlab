@@ -407,6 +407,26 @@ function providerCommands(): Backend {
       state: "missing",
       searched: ["/usr/lib/edytlab/libonnxruntime.so", "/usr/bin/libonnxruntime.so"],
     }),
+    // `third_party_notices` (`commands.rs`): the text of
+    // `licenses/THIRD_PARTY_NOTICES.txt` from the resource directory, asked
+    // for only when Show is pressed in the "Open source licences" row. The
+    // stand-in is long enough to scroll in the panel and carries the same
+    // headings the generated file does.
+    third_party_notices: ok(
+      [
+        "THIRD-PARTY NOTICES",
+        "===================",
+        "",
+        "CREDITS",
+        "=======",
+        ...Array.from({ length: 120 }, (_, i) => `Licence text line ${i + 1}.`),
+        "",
+        "SOURCE AVAILABILITY (MPL-2.0)",
+        "=============================",
+        "",
+        "  * symphonia 0.5.5",
+      ].join("\n"),
+    ),
     // `recording_latency_status` for a machine with devices and nothing
     // measured, which the Audio tab asks for when it opens.
     get_recording_latency: ok(recordingLatencyStatus()),

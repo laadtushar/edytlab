@@ -666,6 +666,39 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 4. Add the entry to `website/app/changelog/page.tsx`
 5. Commit as `chore(release): X.Y.Z`
 
+### Third-party licences
+
+Every installer carries `licenses/THIRD_PARTY_NOTICES.txt` (in the resource directory, from `bundle.resources` in `tauri.conf.json`), and Settings → Account → Open source licences shows it (the `third_party_notices` command reads that one file). It is a generated, committed file: `apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt`. Do not edit it by hand.
+
+It is made by `scripts/third-party-notices/generate.mjs` from:
+
+- `preface.txt` and `credits.txt` (hand-written, in the same folder): what the file is, the code the Rust crates were derived from (Whisper, Demucs, pyannote.audio, SciPy, torchaudio, Kaldi) with their licence texts, the models the app can download and who made them, and the test data;
+- the JavaScript packages that are in the production bundle, from `vite build` with `rollup-plugin-license` (switched on only by `EDYTLAB_NOTICES_JSON`, so a normal build is unchanged), plus the font and CSS packages the bundle pulls in without a JavaScript import (`CSS_AND_FONT_PACKAGES` in the script; it fails if an `@fontsource` dependency is missing from it). A package whose licence is outside the script's allow-list, or that ships no licence text, stops the script;
+- the Rust crates of `edytlab-desktop` for every installer target, from `cargo-about` (`about.toml`, `about.hbs`): no dev- or build-dependencies, cross-checked against `cargo tree` for every target (a crate that is linked and that `cargo-about` dropped, as it does the macOS-only `security-framework` of `keyring`, gets its licence files read directly and printed in its own section), one block per distinct licence text so a crate's own copyright line is kept, an MPL-2.0 source availability section, and the NOTICE file of any crate that ships one. `about.toml` lists the only licences allowed (`accepted`); a dependency under any other (a GPL, an LGPL, an EPL, an unknown one) makes the generator fail instead of being added, and that is a decision for the project owner. Its `clarify` entries name a crate's licence file by SHA-256 where `cargo-about` does not find it by itself; a crate release that changes the file stops matching and falls back to the standard text (the file then says "no licence file in the crate" and names the Cargo.toml authors).
+
+To regenerate after a dependency change:
+
+```bash
+cargo install --locked cargo-about@0.9.2 --features cli   # the version in generate.mjs and notices.yml
+pnpm install --frozen-lockfile
+node scripts/third-party-notices/generate.mjs             # --check only compares
+```
+
+It takes about a minute (it builds the frontend into a temporary folder and reads every crate's licence files with `--offline`). The `Notices` workflow (`notices.yml`) runs `generate.mjs --check` on PRs that change `Cargo.lock`, a `Cargo.toml`, `pnpm-lock.yaml`, `apps/desktop/package.json`, `vite.config.ts`, the notices inputs or the file itself, and fails when the committed file is not what a fresh run writes. Because a version number is in the file, **every dependency bump (a Dependabot PR too) needs the file regenerated and committed.** `scripts/installer-ml-runtime.py check` then fails a release build whose installer lacks the file or carries a different one, and `apps/desktop/src-tauri/tests/third_party_notices.rs` pins the rest (the resource entry, the sections, the `cargo-about` version).
+
+How each obligation FOSSA lists for the licences in the dependency graph is met:
+
+| Obligation | Licences that ask for it | What edytlab does | Where to see it |
+|---|---|---|---|
+| Include License | MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, CDLA-Permissive-2.0, OFL-1.1, MPL-2.0 | The full text of every licence file, for the Rust crates, the JavaScript packages, the fonts and the code the Rust crates were derived from, in the file every installer carries and Settings shows | `THIRD_PARTY_NOTICES.txt`; `installer-ml-runtime.py check` |
+| Include Copyright | the same | One block per distinct licence file, not per licence name, so each file's copyright line is kept; `clarify` entries for files `cargo-about` misses; for the few crates that ship no licence file, the Cargo.toml authors; the ported upstreams with their copyright lines | `about.toml`, `about.hbs`; `generate.mjs`; CREDITS in the file |
+| Rename | OFL-1.1 with a Reserved Font Name; licences that forbid the original name on a modified version | Nothing shipped is modified, so nothing is renamed. The Geist fonts are shipped as `@fontsource-variable` publishes them and declare no Reserved Font Name; the crates and packages are used as published; no `[patch]`, vendored crate, `patchedDependencies` or copied third-party source file is in a shipped build. The only verbatim copies of upstream code are Python test-fixture scripts (not shipped), and they carry their licence and state their changes | `git grep '\[patch'`; the licence texts; the headers of the `make_*_fixture.py` and `reference.py` files |
+| Include Notice | Apache-2.0 section 4(d) | A NOTICE file in a dependency is reproduced: the generator reads `NOTICE*` from every crate in the graph and every bundled JavaScript package. None ships one today (the file says so); ONNX Runtime and the Visual C++ runtime keep their own notices beside it | "NOTICE FILES OF RUST CRATES" in the file; `licenses/onnxruntime/`, `licenses/vc-runtime/` |
+| State Changes | Apache-2.0 section 4(b), MPL-2.0, and the MIT and BSD code edytlab translated | No third-party file is modified: crates and packages are used as published. The Rust modules derived from Whisper, Demucs, pyannote.audio, SciPy and torchaudio are new files that start with a comment naming the upstream, its licence and copyright, and the change (translated to Rust); the three Python fixture scripts that copy upstream functions say what they changed and carry the licence | the first lines of `crates/ml-whisper/src/{mel,decode,segments,timing}.rs`, `crates/ml-demucs/src/{separate,spec}.rs`, `crates/ml-diarize/src/{cluster,frames,pipeline,fbank}.rs`; CREDITS section B |
+| Give Credit | CC-BY-4.0 (the WeSpeaker model, the AMI recording), OFL-1.1, and every upstream above | A CREDITS section: the code, the models the app downloads on request and their licences, the test data; the fonts and the libraries by name and version | CREDITS in the file; `crates/ml-diarize/tests/fixtures/AMI-LICENSE.md`; the Terms page |
+| Include Original | BSD-3-Clause, ISC, Zlib, Unicode-3.0, CDLA-Permissive-2.0 (original notice and licence text kept unmodified). Python-2.0, W3C, NCSA, Mulan PSL, MIT-0, Unlicense are not in the graph | Texts are copied as the crate or package ships them (only line endings and trailing blanks are normalised); a licence outside `about.toml`'s `accepted` list fails the build of the file | `about.toml`; `generate.mjs` |
+| Disclose Source | MPL-2.0 section 3.2 (cssparser, dtoa-short, option-ext, selectors, symphonia) | A "Source availability (MPL-2.0)" section with each crate's name, version, crates.io page, download address and repository; none is modified; edytlab's own source is public on GitHub. No GPL, LGPL or EPL crate is in the graph (`accepted` would stop it) | the last section of the file |
+
 ---
 
 ## 8. CI Pipeline
@@ -703,6 +736,10 @@ The job sets `CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_PROFILE_TEST_DEBUG=0` (no de
 `cargo audit` scans `Cargo.lock` against the RustSec advisory database: weekly (Monday 06:23 UTC), on `workflow_dispatch`, and on PRs that change `Cargo.lock` or a `Cargo.toml`. A vulnerability fails it; an unmaintained, unsound or yanked crate only warns. There is no `ignore` list: clear a red run by bumping the crate (`cargo update -p <crate> --precise <version>`). The `cargo-audit` version is pinned in the workflow's `CARGO_AUDIT_VERSION`.
 
 It is a workflow of its own, not a `ci.yml` job, and it does not run on push: `auto-release.yml` waits only on the run named "CI", so an advisory published on a quiet day can never turn that run red and skip a dev release. Do not make it a required check, since a PR its path filter skips would wait on it forever.
+
+### Workflow: `notices.yml` (Notices)
+
+`generate.mjs --check`: regenerates the third-party notices (see "Third-party licences" above) into a temporary file and fails when the committed `THIRD_PARTY_NOTICES.txt` differs. It runs on PRs and on pushes to `main` that change a lockfile, a `Cargo.toml`, `apps/desktop/package.json`, `vite.config.ts`, anything under `apps/desktop/src/` (a new import changes which packages are in the bundle), the notices inputs or the file, weekly (Monday 06:47 UTC), and on `workflow_dispatch`. The `cargo-about` version is pinned in `CARGO_ABOUT_VERSION` (and in `generate.mjs`; a test holds them equal) and the binary is cached by it. Like `audit.yml` it is a workflow of its own, not a `ci.yml` job, and nothing waits on it, so a dependency bump that has not been regenerated yet, or a registry outage, can never turn the run `auto-release.yml` waits on red. Do not make it a required check.
 
 ### Workflow: `ml.yml` (ML)
 

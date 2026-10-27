@@ -1687,6 +1687,66 @@ pub fn ml_runtime_status_now() -> MlRuntimeStatusDto {
 }
 
 // ---------------------------------------------------------------------------
+// third_party_notices
+// ---------------------------------------------------------------------------
+
+/// Where the installers put the third-party notices, relative to the
+/// resource directory (`bundle.resources` in `tauri.conf.json`).
+const THIRD_PARTY_NOTICES_RESOURCE: &str = "licenses/THIRD_PARTY_NOTICES.txt";
+
+/// The text of the third-party notices file the installer carries, for
+/// Settings -> Account -> Open source licences.
+///
+/// Read-only: it opens one fixed file inside the app's own resource
+/// directory (the window passes nothing, so it cannot name a path) and
+/// returns its text. The file is made from the lockfiles by
+/// `scripts/third-party-notices/generate.mjs`, and CI fails when it is stale.
+/// It takes none of the store, engine or dispatcher locks and is file work,
+/// so it runs on the blocking pool.
+#[tauri::command]
+pub async fn third_party_notices(app: tauri::AppHandle) -> CmdResult<String> {
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || read_third_party_notices(&resource_dir))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?
+}
+
+/// [`third_party_notices`]' file work: the notices under `resource_dir`.
+///
+/// A development build (`cargo run`, `tauri dev`) has the resource directory
+/// of the build, which Tauri fills from `bundle.resources`; one that does not
+/// falls back to the file in the source tree it was built from, so the entry
+/// works there too. The error names the file, not the machine's folders.
+fn read_third_party_notices(resource_dir: &std::path::Path) -> CmdResult<String> {
+    let mut candidates = vec![resource_dir.join(THIRD_PARTY_NOTICES_RESOURCE)];
+    if cfg!(debug_assertions) {
+        candidates.push(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(THIRD_PARTY_NOTICES_RESOURCE),
+        );
+    }
+    read_first_notices(&candidates)
+}
+
+/// The text of the first of `candidates` that exists. A file that is there
+/// and cannot be read is an error, not a reason to try the next one.
+fn read_first_notices(candidates: &[std::path::PathBuf]) -> CmdResult<String> {
+    for path in candidates {
+        match std::fs::read_to_string(path) {
+            Ok(text) => return Ok(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                tracing::warn!(error = ?e, "could not read the third-party notices");
+                return Err("The open source licences file could not be read.".to_string());
+            }
+        }
+    }
+    Err(format!(
+        "The open source licences file ({THIRD_PARTY_NOTICES_RESOURCE}) is not in this build. \
+         It is in the source repository and in every installer."
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // The speech model download (#383)
 // ---------------------------------------------------------------------------
 
@@ -11277,6 +11337,46 @@ mod tests {
             err.starts_with("model selected for this session, but could not be saved"),
             "{err}"
         );
+    }
+
+    // -- third_party_notices ------------------------------------------------
+
+    #[test]
+    fn the_notices_are_read_from_the_first_file_that_exists() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let first = dir.path().join("missing.txt");
+        let second = dir.path().join("second.txt");
+        let third = dir.path().join("third.txt");
+        std::fs::write(&second, "from the resource directory").expect("write");
+        std::fs::write(&third, "from the source tree").expect("write");
+        assert_eq!(
+            read_first_notices(&[first, second, third]).as_deref(),
+            Ok("from the resource directory")
+        );
+    }
+
+    #[test]
+    fn missing_notices_name_the_file_and_not_the_machine() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = read_first_notices(&[dir.path().join("nope.txt")]).expect_err("nothing there");
+        assert!(err.contains("licenses/THIRD_PARTY_NOTICES.txt"), "{err}");
+        assert!(
+            !err.contains(dir.path().to_str().expect("utf-8")),
+            "a local path must not reach the window: {err}"
+        );
+    }
+
+    #[test]
+    fn notices_that_cannot_be_read_are_an_error_not_a_fallback() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // A folder where the file should be: it exists, and cannot be read.
+        let unreadable = dir.path().join("notices");
+        std::fs::create_dir(&unreadable).expect("mkdir");
+        let later = dir.path().join("later.txt");
+        std::fs::write(&later, "must not be used").expect("write");
+        let err = read_first_notices(&[unreadable, later]).expect_err("unreadable");
+        assert!(err.contains("could not be read"), "{err}");
+        assert!(!err.contains(dir.path().to_str().expect("utf-8")), "{err}");
     }
 
     // -- ml_runtime_status (#383) ------------------------------------------

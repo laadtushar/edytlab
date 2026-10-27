@@ -1,0 +1,67 @@
+{{!--
+  The Rust part of THIRD_PARTY_NOTICES.txt, rendered by cargo-about
+  (scripts/third-party-notices/generate.mjs runs it and joins the parts).
+  Plain text on purpose: the app shows the file in a <pre>.
+  Every value is written with triple braces so nothing is HTML-escaped.
+--}}
+RUST CRATES
+===========
+
+The edytlab desktop app (crate edytlab-desktop) is linked against the crates
+below, for the Linux, Windows and macOS builds it ships (x86_64 and aarch64).
+Development- and build-time-only crates are not listed: they are not part of
+the program that is shipped.
+
+Where a crate offers a choice of licences ("MIT OR Apache-2.0"), edytlab uses
+it under the first of its licences in this order: MIT, Apache-2.0,
+BSD-3-Clause, ISC, Zlib, Unicode-3.0, MPL-2.0, CDLA-Permissive-2.0. A line
+"declared:" below shows the crate's own SPDX expression.
+
+The text below each heading is the licence file the crate ships, one block per
+distinct text, so that a copyright line a crate's file carries is kept. Where
+a crate ships no licence file ("no licence file in the crate"), the standard
+SPDX text of its licence is given and the crate's Cargo.toml says who holds
+the copyright.
+
+Licences in use
+---------------
+{{#each overview}}
+{{count}} x {{{name}}} ({{{id}}})
+{{/each}}
+
+{{#each licenses}}
+--------------------------------------------------------------------------------
+{{{name}}} ({{{id}}})
+--------------------------------------------------------------------------------
+
+Used by:
+{{#each used_by}}
+  * {{{crate.name}}} {{{crate.version}}} - declared: {{{crate.license}}}{{#if crate.repository}} - {{{crate.repository}}}{{/if}}
+{{#unless ../source_path}}
+      (no licence file in the crate; copyright: {{#if crate.authors}}{{#each crate.authors}}{{#unless @first}}, {{/unless}}{{{this}}}{{/each}}{{else}}see the repository above{{/if}})
+{{/unless}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}
+SOURCE AVAILABILITY (MPL-2.0)
+=============================
+
+Mozilla Public License 2.0, section 3.2, asks that the source code of files
+under it be available to the people who receive the program, and that they are
+told how to get it. edytlab does not modify any of the crates below: the
+unmodified source of each is the published crate at the address given, and the
+repository named is where its maintainers keep it. edytlab's own source is at
+https://github.com/laadtushar/edytlab.
+
+{{#each licenses}}
+{{#if (eq id "MPL-2.0")}}
+{{#each used_by}}
+  * {{{crate.name}}} {{{crate.version}}}
+      Source code:  https://crates.io/crates/{{{crate.name}}}/{{{crate.version}}}
+      Download:     https://static.crates.io/crates/{{{crate.name}}}/{{{crate.name}}}-{{{crate.version}}}.crate
+      Repository:   {{{crate.repository}}}
+{{/each}}
+{{/if}}
+{{/each}}

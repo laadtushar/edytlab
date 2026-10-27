@@ -44,7 +44,8 @@
     "targets": ["app", "dmg", "msi", "nsis", "deb", "appimage"],
     "resources": {
       "resources/templates/*": "templates/",
-      "resources/skills/*": "bundled-skills/"
+      "resources/skills/*": "bundled-skills/",
+      "licenses/THIRD_PARTY_NOTICES.txt": "licenses/THIRD_PARTY_NOTICES.txt"
     },
     "icon": [
       "icons/32x32.png",

@@ -1,3 +1,11 @@
+// Derived from Demucs, https://github.com/facebookresearch/demucs (demucs/apply.py, utils.py, api.py, pretrained.py),
+// commit e976d93ecc3865e5757426930257e200846a520a. MIT License,
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! The segment pipeline around the htdemucs network: cut a track into
 //! overlapping segments, run the network on each, and blend the results
 //! back into one track per stem.

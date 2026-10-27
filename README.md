@@ -208,4 +208,4 @@ Out-of-scope for v1, on the post-v1 roadmap:
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE). The libraries, fonts and code edytlab is built from have licences of their own; their texts and copyright notices are in [`THIRD_PARTY_NOTICES.txt`](apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt), which every installer carries and the app shows under Settings → Account → Open source licences.
