@@ -175,7 +175,20 @@ fn every_action_is_pinned_to_a_released_version() {
             continue;
         };
         seen += 1;
-        let reference = rest.trim().split('@').nth(1).unwrap_or("");
+        // `owner/action@<ref> # <what the ref is>`: the comment is not the ref.
+        let (spec, comment) = rest
+            .split_once('#')
+            .map_or((rest, ""), |(s, c)| (s, c.trim()));
+        let reference = spec.trim().split('@').nth(1).unwrap_or("");
+        // A full commit, as SonarCloud's githubactions:S7637 wants, with the
+        // version (or `stable`) it was resolved from named after it.
+        if reference.len() == 40 && reference.bytes().all(|b| b.is_ascii_hexdigit()) {
+            assert!(
+                comment.starts_with('v') || comment == "stable",
+                "{line:?} is pinned to a commit and does not say which release it is (`# v1.2.3`)"
+            );
+            continue;
+        }
         let major = reference
             .strip_prefix('v')
             .is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'));
