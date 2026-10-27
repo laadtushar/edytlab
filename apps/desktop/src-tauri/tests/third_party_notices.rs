@@ -152,8 +152,8 @@ fn the_script_and_the_workflow_pin_one_cargo_about() {
 fn the_notices_workflow_does_not_gate_the_ci_run() {
     // `auto-release.yml` tags a release when the run named "CI" succeeds, so
     // a check that needs the network and a tool of its own is a workflow of
-    // its own, as `audit.yml` is.
-    let workflow = read(&repo().join(".github/workflows/notices.yml"));
+    // its own, as `audit.yml` is. A Windows checkout may give the file CRLF.
+    let workflow = read(&repo().join(".github/workflows/notices.yml")).replace("\r\n", "\n");
     assert!(
         workflow.lines().any(|l| l.trim() == "name: Notices"),
         "the workflow is named Notices"
