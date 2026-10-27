@@ -1,8 +1,8 @@
 ---
 name: silence-cleaner
 description: Find and remove silent regions
-trigger: keywords
-keywords: [silence, silent, gaps, quiet, pause, pauses, dead air, remove silence]
+trigger: regex
+pattern: \b(silence|silences|silent|dead air|pauses?|gaps?)\b
 enabled: true
 ---
 
@@ -20,3 +20,5 @@ Adjust threshold_db based on the recording's noise floor:
 - Noisy environment: -40 dBFS
 
 For podcasts, prefer -50 dBFS with 300–500 ms minimum to preserve natural pauses.
+
+Stop: run `silence_finder` again with the same threshold_db and min_silence_ms. Done when it lists no region; if one is left, run `truncate_silence` once more, then report it. For an ACX audiobook keep the room tone in its pauses: use `silence_finder` to look, and do not truncate.
