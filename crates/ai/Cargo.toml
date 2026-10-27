@@ -69,7 +69,7 @@ hound = "3.5"
 audio-decoder = { path = "../audio-decoder" }
 # OAuth tests: an RSA key generated at test time to sign ID tokens, and a
 # second socket that tries to take over the loopback listener's port.
-num-bigint = "0.4"
+num-bigint = "0.5"
 socket2 = "0.6"
 # The ChatGPT refresh-lock test's second process takes the lock with it.
 fs4 = "1.1"
