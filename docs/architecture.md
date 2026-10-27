@@ -89,7 +89,7 @@ edytlab/
     ├── ai/                       # LLM abstraction, agent loop, keychain
     ├── agent_profiles/           # Per-session model + tool-whitelist profiles
     ├── audio-analysis/           # BPM, key, beat-grid, transient detection
-    ├── audio-decoder/            # symphonia-based file decode (WAV, MP3, FLAC, Ogg Vorbis, Opus, AIFF)
+    ├── audio-decoder/            # file decode: symphonia (WAV, MP3, FLAC, Ogg Vorbis, AIFF) plus a pure-Rust Opus codec; M4A/AAC by the OS on macOS and Windows
     ├── audio-dsp/                # Sample-level DSP shared by tools and renderer (no deps)
     ├── audio-engine/             # DSP graph + offline render
     ├── audio-time/               # Pitch-shift / time-stretch primitives (Phase 2)
