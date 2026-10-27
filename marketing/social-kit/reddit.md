@@ -6,7 +6,7 @@ with a question. Do not cross-post one text, and do not post two of these on
 the same day (`calendar.md` spaces them out).
 
 This supersedes the v0.3.0-era text in `marketing/launch/reddit.md` for these
-six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's), for v0.9.1 (2026-10-25; the version and download lines) and for v0.9.2 (2026-10-26; the version and download lines, and what transcription was checked on), includes the other two DJ demos, and
+six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's), for v0.9.1 (2026-10-25; the version and download lines) for v0.9.2 (2026-10-26; the version and download lines, and what transcription was checked on) and for v0.9.3 (2026-10-27; the version and download lines, the crate count and the issue states), includes the other two DJ demos, and
 discloses that the demo tracks are synthetic. (That file still has posts for
 r/audioengineering, r/podcasting and r/tauri if you want them later.)
 
@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.2 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.2>
+v0.9.3 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.3>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -189,17 +189,17 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (99 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.2 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (99 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.3 is the current release.
 
 Where I'd like help:
 
 - Effects on a chain (issue 520, closed, has the background). Since v0.6.0 the agent can put an effect on the master bus and on a bus, but only five kinds run in a chain: gain, the limiter and three filters. Still missing: streaming versions of the other eleven (reverb, echo, EQ, compressor and others), which today can only be baked into a track. Rust, in the audio-engine and tools crates.
 - macOS microphone (issue 464). Since v0.5.0 the build has the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
 - A real pass on Linux with a locked Secret Service (issue 497). The code is tested against fakes only.
-- Shipping the ML pieces (issues 383 to 385). Transcription (Whisper base) runs from v0.8.0 on a model the user downloads. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording and about 16 minutes of English audiobook speech.
+- Stem separation (issue 385). Transcription (Whisper base, issues 383 and 384, both closed) runs from v0.8.0 on a model the user downloads, and from v0.9.3 so does speaker diarization (who speaks when) on a second downloaded model. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording and about 16 minutes of English audiobook speech.
 - New audio tools and new LLM providers. docs/contributing.md walks through both. Six API providers today: Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama for local models, plus a preview that uses a ChatGPT Plus or Pro plan instead of a key.
 
-No open issue carries the "good first issue" label right now. If you want a starter task, say so and I'll write one up.
+Five open issues carry the "good first issue" label (#846 to #850: a wah-wah effect, a curve option for fade, a mute-all-tracks tool, and tool-level tests for mute, solo and pan). Each says where in the code to start and how it is checked; docs/contributing.md walks through a change.
 
 Things an open-source crowd will ask about:
 
@@ -293,7 +293,7 @@ edytlab: a Tauri 2 audio editor with a zero-dependency DSP crate and a hand-writ
 ```
 Disclosure: my project (MIT), developed with Claude Code; the commit trailers and CLAUDE.md say so. I'm posting engineering notes, and I'd like specific review.
 
-It's a desktop audio editor where an LLM agent calls 99 deterministic tools: a Rust workspace of 16 crates behind a Tauri 2 + React shell. The parts that might interest this sub:
+It's a desktop audio editor where an LLM agent calls 99 deterministic tools: a Rust workspace of 17 crates behind a Tauri 2 + React shell. The parts that might interest this sub:
 
 - audio-dsp has no dependencies, on purpose: functions over &mut [f32] plus a sample rate and channel count, no session types, no IO. It sits below both the tools crate and the renderer, so a dependency there is a dependency everywhere. It exists because the effect algorithms used to be pub(crate) inside tools and the renderer needed them too, which meant a dependency cycle or a second copy.
 - Time-stretch and pitch-shift are a phase vocoder on realfft, with onset-triggered phase resets (spectral-flux onset detection, causal thresholding) to protect transients. I planned on Rubber Band and dropped it: it needs librubberband-dev on Linux, vcpkg on Windows and Homebrew on macOS, and a native dependency like that breaks every CI target at once. The limits are written at the top of crates/audio-time/src/vocoder.rs: dense mixes smear, and the further the factor is from 1.0 the worse.
@@ -323,11 +323,12 @@ Facts to re-check on the day:
   the installers carry the runtime from v0.7.0, #615, and the model download
   and transcription come with v0.8.0); open are 464, 497, 389, 386 and 385
   (stem separation), and 474 (Sign in with ChatGPT, whose preview shipped in
-  v0.9.0). The r/opensource post still says "383 to 385" for the ML pieces as
-  a group. They were all open when this was written (2026-10-10).
-- "No open issue carries the good first issue label": true when checked on
-  2026-10-22 (15 open issues, none labelled). Label two issues before posting r/opensource
-  and replace that sentence with their numbers.
+  v0.9.0). The r/opensource post now names only 385 for the ML pieces that are
+  still missing. Re-checked on 2026-10-27: 464, 497, 389, 386, 385 and 474 are
+  still open; 567 (the Mac checks, passed on v0.9.0 and v0.9.1) is closed.
+- The good first issue sentence names #846 to #850, which carried the label and
+  were open when checked on 2026-10-27. Re-check that they are still open (and
+  still labelled) before posting r/opensource; edit the sentence if one has been taken.
 - r/LocalLLaMA numbers: 15,157 tokens and the 8,192 context are v0.4.0's, from
   issue 395. The 8.7 KB / 67 KB figures and the 2.3 KB / 6.3 KB split are from
   `crates/ai/tests/request_size.rs` (`cargo test -p ai --test request_size --

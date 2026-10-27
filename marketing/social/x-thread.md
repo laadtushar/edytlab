@@ -1,4 +1,4 @@
-# X thread: v0.9.2 and the DJ demo
+# X thread: v0.9.3 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -54,7 +54,7 @@ It's for prep, not live use. Every edit in the demo shows as a tool call, with a
 **6/8**
 
 ```
-v0.9.2 is out. macOS asks for your password at most once per launch: keys and the ChatGPT sign-in share one keychain entry. Transcription (one-time model download, since v0.8.0) no longer skips stretches of speech. Sign in with ChatGPT is a preview; use v0.9.1 or later.
+v0.9.3 is out. New: a measure tool (loudness, peaks, noise floor, clipping, ACX check) and a diarize tool that labels who speaks when, on your computer, after a one-time 33 MB speaker-model download you start in Settings. AIFF and Opus files now import.
 ```
 
 **7/8**
@@ -81,6 +81,6 @@ Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.9.2 release notes. Check them against
+- Post 6 repeats the v0.9.3 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.
