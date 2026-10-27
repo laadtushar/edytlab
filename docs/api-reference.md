@@ -1147,8 +1147,8 @@ neighbour does not need the caller to reorder first.
 Open the default input device and start capturing. Resolves to a status string.
 
 **Errors:** no input device; permission denied; the device is in use; a latency
-measurement is running (`calibrateRecordingLatency`), because it plays test
-tones the take would hear. The first three are not distinguishable from each
+measurement or a punch-in is running (`calibrateRecordingLatency`,
+`punchRecord`), because they play to the speakers and the take would hear it. The first three are not distinguishable from each
 other by the caller, so surface the message rather than a generic failure.
 
 ---
@@ -1181,8 +1181,9 @@ Both fields are optional — omitting `startAfterSec` starts now, omitting
 `durationSec` records until stopped. `cancelled` is true when
 `cancelLongRunningTool()` ended it early, in which case `path` may be absent.
 
-**Errors:** a latency measurement is running. While a timer is armed (waiting
-or recording), `calibrateRecordingLatency` is refused for the same reason.
+**Errors:** a latency measurement or a punch-in is running. While a timer is
+armed (waiting or recording), `calibrateRecordingLatency` and `punchRecord` are
+refused for the same reason.
 
 Emits `tool-progress` events throughout; see `onToolProgress`.
 
@@ -1262,7 +1263,8 @@ steady enough to compensate (nothing is kept); the device dropped out, which
 includes audio lost without any error (read from the timing of the audio
 callbacks, so a loss shorter than about one buffer plus 20 ms is not seen); the
 speakers never started playing; the default devices cannot be named; another
-measurement, a timed recording that is armed, or a recording is running.
+measurement, a punch-in, a timed recording that is armed, or a recording is
+running.
 
 Emits `tool-progress` events with `kind: "calibrate_latency"`, `run` and
 `runs`, then a final `done`.
@@ -1277,6 +1279,80 @@ flag: `cancelLongRunningTool()` is the Cancel of `batch_apply` and
 `timerRecord`, and neither stops the other. Resolves at once, and does nothing
 when no measurement is running. The Audio tab's row calls it from Cancel and
 when it unmounts mid-measurement.
+
+---
+
+### `setRecordingLatency(latencyMs: number) → { devices: RecordingDevices; latency: StoredLatency }`
+
+Keep a delay the person typed, in milliseconds, for the current default speakers
+and microphone. It counts exactly as a measured one: `punchRecord` goes ahead
+with either, and whichever was written last is the one kept. Use it where the
+room cannot be made noisy for a measurement, or the delay was found another way
+(a loopback cable, say). Plays and records nothing.
+
+**Returns:** the pair it was kept for and the entry, which has
+`source: "manual"` and no `spread_ms`.
+
+**Errors:** a value that is not a number or is outside 0 to 2000 ms (nothing is
+changed); the default devices cannot be named (a delay kept for the wrong pair
+would be applied silently to another); the file was written by a newer version
+of the app.
+
+---
+
+### `punchRecord(track: number, startSec: number, endSec: number, prerollSec?: number, postrollSec?: number) → PunchResult`
+
+Replace `[startSec, endSec)` of `track` with a new take, recorded while the rest
+of the mix plays through the speakers (#203). The performer hears the mix from
+`prerollSec` before the region (default 2) to `postrollSec` after it (default
+1, each at most 30 s) with the track muted inside the region and heard before and
+after it; the take is cut out of the microphone's recording at the latency kept
+for the current devices, converted to the track's sample rate and channels, and
+applied with the `punch_in` tool. A region is at most 300 s. Pause the transport
+first: the backend plays the mix itself, on a clock it shares with the
+microphone.
+
+**Returns:** `{ cancelled: true }` when `cancelPunchRecord()` ended it (nothing
+was applied, no node was made), or
+
+```typescript
+{
+  cancelled: false;
+  head: string;                       // the new session head, the punch's node
+  latency_ms: number;                 // the delay the take was placed with
+  latency_source: "measured" | "manual";
+  track: number;
+  start_sec: number;
+  end_sec: number;
+}
+```
+
+It changes the session, so adopt `head` as for any edit.
+
+**Errors**, each with a reason the person can act on: no latency is kept for
+these speakers and this microphone, measured or typed (the text names both ways
+out in Settings → Audio; a guess would put every take late by its error); a
+measurement, a recording, an armed timer or another punch-in is running; the
+region is not a region, or ends after the session does; the default devices
+cannot be named or changed during the setup; the take lost audio (it is
+refused whole, never spliced around the gap); the speakers never started; the
+project changed while the take was being recorded, in which case the take is
+kept and the message says where; the take could not be applied.
+
+Emits `tool-progress` events with `kind: "punch_record"`, `phase`
+(`preparing`, `preroll`, `recording`, `postroll`) and `remaining_sec`, then a
+final `done`.
+
+---
+
+### `cancelPunchRecord() → void`
+
+Ask the running punch-in to stop at its next checkpoint; its take is thrown away
+and `punchRecord()` resolves `{ cancelled: true }`. Its own command and its own
+flag, like `cancelRecordingLatency()`: `cancelLongRunningTool()` is the Cancel of
+`batch_apply` and `timerRecord`, and a Cancel meant for one of those must not
+throw away a take, nor the reverse. Resolves at once, and does nothing when no
+punch-in is running. The progress strip's Cancel calls it for `punch_record`.
 
 ---
 
@@ -1927,7 +2003,7 @@ Progress from a long-running tool.
 
 ```typescript
 interface ToolProgress {
-  kind: string;        // "batch_apply", "timer_record", "calibrate_latency", "selection", …
+  kind: string;        // "batch_apply", "timer_record", "calibrate_latency", "punch_record", "selection", …
   index?: number;      // Absent on the final event
   total: number;
   file?: string;

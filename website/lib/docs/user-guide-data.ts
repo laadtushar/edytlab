@@ -35,10 +35,11 @@ export const guidePages: GuidePage[] = [
     slug: "sessions-and-tracks",
     title: "Sessions and Tracks",
     summary:
-      "The session graph, undo and redo, and how audio is loaded onto tracks and mixed with lane controls.",
+      "The session graph, undo and redo, how audio is loaded onto tracks and mixed with lane controls, and recording and punching in.",
     headings: [
       { id: "sessions-and-the-session-graph", title: "Sessions and the Session Graph" },
       { id: "tracks", title: "Tracks" },
+      { id: "recording-and-punching-in", title: "Recording and Punching In" },
     ],
   },
   {

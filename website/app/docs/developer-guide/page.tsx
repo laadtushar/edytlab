@@ -99,7 +99,7 @@ crates/
   audio-engine/       DSP graph and render
   audio-time/         Time-stretch and pitch-shift
   audio-analysis/     BPM, key, beat grid
-  recorder/           Microphone capture to WAV; recording-latency measurement
+  recorder/           Microphone capture to WAV; recording-latency measurement; the punch-in's monitor and take
   ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
   ml-diarize/         Speaker diarization (pyannote's pipeline on ONNX; the diarize tool runs it)
   ml-whisper/         Transcription (ONNX Whisper; run by transcribe)
