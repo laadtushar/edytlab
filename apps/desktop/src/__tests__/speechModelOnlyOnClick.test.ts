@@ -10,6 +10,10 @@
  *   but `lib/tauri-bridge.ts`, so no other file can `invoke` it;
  * - `downloadMlModel` is used in any file but the bridge (which defines it)
  *   and the row;
+ * - the speech and speaker rows (`SpeechModelRow`, `SpeakerModelRow`) only
+ *   hand `ModelRow` their words, and the speaker row is mounted by Settings
+ *   beside the speech row, nowhere else (so no launch path renders it into a
+ *   download: a row asks for a status, never a download);
  * - in the row, `downloadMlModel` is used anywhere but its import and one
  *   call inside the `download` handler; or
  * - in the row, the `download` handler is used for anything but a button's
@@ -32,7 +36,9 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const SRC = join(process.cwd(), "src");
-const ROW = join(SRC, "components/SpeechModelRow.tsx");
+// The one component that calls the download: the speech model's row and the
+// speaker model's (#168) are both `ModelRow` with their own words.
+const ROW = join(SRC, "components/ModelRow.tsx");
 const BRIDGE = "lib/tauri-bridge.ts";
 
 function sources(dir: string = SRC): string[] {
@@ -92,7 +98,30 @@ function isInsideDownloadHandler(id: ts.Identifier): boolean {
   return false;
 }
 
+/** Every file of `src/` that renders `<tag …>`. */
+function mounting(tag: string): string[] {
+  return sources()
+    .filter((p) => identifiersIn(p, tag).some((id) => ts.isJsxSelfClosingElement(id.parent)))
+    .map(rel)
+    .sort();
+}
+
 describe("downloading a model", () => {
+  it("has the speech and speaker rows mounted by Settings alone", () => {
+    expect(mounting("SpeechModelRow")).toEqual(["components/Settings.tsx"]);
+    expect(mounting("SpeakerModelRow")).toEqual(["components/Settings.tsx"]);
+  });
+
+  it("gives the two rows their own model ids and no download call of their own", () => {
+    for (const file of ["SpeechModelRow", "SpeakerModelRow"]) {
+      const path = join(SRC, `components/${file}.tsx`);
+      expect(identifiersIn(path, "downloadMlModel"), file).toEqual([]);
+      expect(identifiersIn(path, "invoke"), file).toEqual([]);
+    }
+    const speaker = readFileSync(join(SRC, "lib/speakerModel.ts"), "utf8");
+    expect(speaker).toContain('SPEAKER_MODEL_ID = "speaker-diarization"');
+  });
+
   it("names the command in the bridge and nowhere else in src/", () => {
     const files = sources()
       .filter((p) => readFileSync(p, "utf8").includes("download_ml_model"))
@@ -100,12 +129,12 @@ describe("downloading a model", () => {
     expect(files).toEqual([BRIDGE]);
   });
 
-  it("uses downloadMlModel only in the bridge and the Settings row", () => {
+  it("uses downloadMlModel only in the bridge and the shared model row", () => {
     const callers = sources()
       .filter((p) => identifiersIn(p, "downloadMlModel").length > 0)
       .map(rel)
       .sort();
-    expect(callers).toEqual(["components/SpeechModelRow.tsx", BRIDGE]);
+    expect(callers).toEqual(["components/ModelRow.tsx", BRIDGE]);
   });
 
   it("calls downloadMlModel once in the row, inside the download handler", () => {

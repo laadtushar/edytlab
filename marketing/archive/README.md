@@ -11,6 +11,7 @@ Nothing made for edytlab's marketing is thrown away. When a video, its captions,
 ```
 archive/
 ├── launch-video/
+│   ├── 2026-10-26-evergreen/         the cuts that said 94 tools and named a development build, with their captions, contact sheets, picture-only masters, the old script and README and the narration clips for the old takes
 │   ├── 2026-10-10-v0.4.0-amber/      first launch video (#493), replaced by #598
 │   │   ├── plain/                    launch-{linkedin,reddit,instagram}.mp4 and their .srt
 │   │   ├── narrated/                 the same three cuts with the ElevenLabs voice, and their .srt
@@ -28,6 +29,7 @@ archive/
 │   │   └── contact-sheets/           one frame grid per cut
 │   └── 2026-10-16-instagram-draft/   a draft of today's Instagram cut, with and without sound
 ├── reels/
+│   ├── 2026-10-26-evergreen/         the reels, contact sheets and cue files cut from the replaced recordings, and the narration transcripts and clips written for the old takes
 │   └── 2026-10-10-v0.4.0-amber/      first reels (#485), replaced by #590
 │       ├── plain/                    reel-{highlights,teaser,beatmatched-transition,extended-club-intro,mini-mix}.mp4
 │       ├── narrated/                 the same reels narrated, a Spanish highlights reel, and their .srt
@@ -37,15 +39,21 @@ archive/
 │       ├── narration-timing/         when each narration line plays, per narrated video
 │       └── tools/                    the caption-mapping script and its mapping, removed in #590
 ├── demos/
+│   ├── 2026-10-26-recordings/        the three DJ demos recorded 2026-10-13 (video and poster), replaced by the evergreen re-recording
 │   ├── 2026-10-09-first-takes/       the first two website demos, video and poster (#417, #432)
 │   └── 2026-10-09-v0.4.0/            the three DJ demos recorded on v0.4.0, video and poster (#459), replaced by #581
 ├── demos-narration/
+│   ├── 2026-10-26-old-recordings/    the narrated demos, voice tracks, script, lines and checks made for the replaced recordings
 │   └── 2026-10-24-f-major-line/      the beatmatch demo's narrated mixes and the BT04 line that said both tracks were in F major (#686)
 │       ├── narrated/                 daniel/ and river/: dj-beatmatched-transition-narrated-*.mp4
 │       ├── voice-tracks/             narration-dj-beatmatched-transition-daniel.wav
 │       ├── lines/                    daniel/ and river/: bt04.mp3
 │       └── checks/                   metrics-dj-beatmatched-transition-{daniel,river}.json
+├── social-kit-images/
+│   └── 2026-10-26-evergreen/         the 42 social images that said 96 tools and the unsigned note, and the three app frames from the replaced demos
 ├── linkedin/
+│   ├── 2026-10-26-evergreen/         the squares and carousel that named a version, a tool count and a provider count
+│   ├── 2026-10-27-v0.9.3/            the post 5 square whose machine-learning card said transcription was not shipped
 │   ├── 2026-10-11-v0.5.0/            the LinkedIn renders that carried "v0.5.0" and "93 tools" (#578), replaced for v0.7.0
 │   │   └── out/                      post-1-launch.png, post-3-model-never-touches-a-sample.png, post-3-carousel.pdf
 │   ├── 2026-10-22-v0.7.0-six-providers/   the renders and the Settings screenshot that said "6 providers" or listed six, replaced for v0.9.0
@@ -97,9 +105,14 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 | `linkedin/2026-10-25-v0.9.0/` | `out/post-1-launch.png`: the v0.9.0 staleness sweep (#709, 2026-10-25). `out/post-3-carousel.pdf`: #725 (2026-10-25), the image-page build that replaced `linkedin/2026-10-25-v0.9.0-vector-carousel/` | the v0.9.1 staleness sweep (2026-10-25), re-rendered by `social-kit/linkedin/render.mjs` (no `--shots`: the app's UI did not change) | 1200x1200 PNG (post 1, 576 KB) and the seven-page 1080x1350 carousel PDF (2691 KB). Post 1's pill said "v0.9.0 · open source" and the carousel's last page "v0.9.0 for macOS, Windows and Linux"; the new files say v0.9.1 and are the same pictures otherwise, with the same file sizes to the kilobyte. The other four renders were not replaced: posts 3 (the square) and 4 render byte for byte the same, and posts 2 and 5 differ only in a few pixels of text rasterisation (the committed files came from a Windows render), so they stayed as committed |
 | `linkedin/2026-10-26-v0.9.1-chatgpt-logo/` | `out/post-4-privacy.png` and `shots/ollama.png`: the v0.9.0 staleness sweep (#709, 2026-10-25), which had added the ChatGPT plan button | the UI-screenshot sweep of 2026-10-26 (the ChatGPT logo that #749 put on the button), re-rendered by `social-kit/linkedin/render.mjs` after retaking `shots/ollama.png` with `--shots` | 1200x1200 PNG (post 4) and the 1440x795 Settings crop. The crop and the square drew the ChatGPT plan button without OpenAI's logo; the new files draw it with the logo and are the same picture otherwise (the crop differs from the old one only inside that button, checked pixel by pixel). The other four `shots/` files retook as the same picture (anti-aliasing only; none of them shows the message box) and the other four renders and the carousel were not replaced |
 | `linkedin/2026-10-26-v0.9.1/` | `out/post-1-launch.png` and `out/post-3-carousel.pdf`: the v0.9.1 staleness sweep (2026-10-25), which replaced the files in `linkedin/2026-10-25-v0.9.0/` | the v0.9.2 release sweep (2026-10-26), re-rendered by `social-kit/linkedin/render.mjs` with the version at 0.9.2 in the working tree only (the release bump was still in flight) | 1200x1200 PNG (post 1, 576 KB) and the seven-page 1080x1350 carousel PDF (2691 KB). Post 1's pill said "v0.9.1 · open source" and the carousel's last page "v0.9.1 for macOS, Windows and Linux"; the new files say v0.9.2 and are the same pictures otherwise, with the same file sizes to the kilobyte |
+| `linkedin/2026-10-27-v0.9.3/` | `out/post-5-help-wanted.png`: the evergreen re-render (#843, 2026-10-26) | the v0.9.3 copy sweep (2026-10-27), re-rendered by `social-kit/linkedin/render.mjs --only post-5-help-wanted` | 1200x1200 PNG. Its machine-learning card said "Stems and transcripts: Not shipped yet: ONNX Runtime inference inside a Tauri app", #383 to #385; transcription has worked since v0.8.0 and #383 and #384 are closed, so the new card names stem separation alone (#385). The other cards are unchanged |
 | `docs-brand/2026-10-11-violet-six-providers/` | #515 (2026-10-11) | the v0.9.0 staleness sweep (2026-10-25), retaken from the production frontend with the IPC faked (1440x900 window, scaled to 1080x675 as the others are) | 1080x675. The Settings dialog of the "after" set, with six provider buttons and no ONNX Runtime line; the new file has the seventh button (ChatGPT plan) and the Account tab's ONNX Runtime line (answered "bundled" by the fake backend). The other six `after-*` files and the `before-*` set were not touched |
 
 Earlier versions of the documents and scripts in `marketing/` (the READMEs, `script.md`, the Python tools) were edited in place rather than replaced, so they are not copied here; `git log -p -- marketing/` shows every version.
+
+## Code analysis
+
+The archive is excluded from code analysis (SonarCloud's `sonar.exclusions` and `sonar.cpd.exclusions` in the root `.sonarcloud.properties`) because it is a record, not code that runs.
 
 ## Adding to the archive
 

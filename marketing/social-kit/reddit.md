@@ -6,7 +6,7 @@ with a question. Do not cross-post one text, and do not post two of these on
 the same day (`calendar.md` spaces them out).
 
 This supersedes the v0.3.0-era text in `marketing/launch/reddit.md` for these
-six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's), for v0.9.1 (2026-10-25; the version and download lines) and for v0.9.2 (2026-10-26; the version and download lines, and what transcription was checked on), includes the other two DJ demos, and
+six subreddits: it is updated for v0.9.0 (2026-10-25; the request-size figures are still v0.7.0's), for v0.9.1 (2026-10-25; the version and download lines) for v0.9.2 (2026-10-26; the version and download lines, and what transcription was checked on) and for v0.9.3 (2026-10-27; the version and download lines, the crate count and the issue states), includes the other two DJ demos, and
 discloses that the demo tracks are synthetic. (That file still has posts for
 r/audioengineering, r/podcasting and r/tauri if you want them later.)
 
@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.2 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.2>
+v0.9.3 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.3>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -55,7 +55,7 @@ front; if the rules do not allow it, ask a moderator or skip.
 **Title:**
 
 ```
-I built a free tool that preps a blend from a plain-English description. Three recordings, including where it flags its own problems
+I built a free tool that preps a blend from a plain-English description. Three recordings, with the agent's replies left as they came
 ```
 
 **Body:**
@@ -67,16 +67,16 @@ The itch: prepping a blend is a pile of small file chores. Find the tempos, stre
 
 The recordings show three jobs:
 
-1. Two tracks, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a 1 kHz low-pass while the incoming one fades in. Mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.
-2. An extended intro: the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, with a 200 Hz high-pass holding the low end back until the drop.
-3. A three-track mix at 124 BPM with overlaps of about 4 bars and crossfades, about -14 LUFS each, limited at -1 dBFS, exported as a 79-second WAV.
+1. Two tracks, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a low-pass filter while the incoming one fades in. Mastered for streaming and exported as a WAV.
+2. An extended intro: the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, with a high-pass filter holding the low end back until the drop.
+3. A three-track mix at 124 BPM with overlaps of about 4 bars and crossfades, about -14 LUFS each, limited at -1 dBFS, exported as a WAV.
 
 What to know before deciding whether it's worth your time:
 
 - The tracks are short synthetic loops (about 32 seconds each) that I generated. The recordings show the workflow, not how it copes with a messy real library.
 - Beat and key detection are software estimates. A drifting tempo or a long ambient intro can fool them.
-- The agent flags things instead of hiding them: bars that run a beat behind where it was told to start a track (with the fix), an export peaking right at full scale, a loudness reading that counted the fades.
-- The recordings were made on a development build just before v0.6.0, and v0.6.0 and later do what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; for the compressor in the first demo the agent still mixes the two tracks to a new one.
+- The agent's replies are on screen as they came, including the readings it reports and the filter settings it chose. None of that is a spec of the product, and a take will differ.
+- The recordings were made on a released build, and v0.6.0 and later do what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; a compressor is not one of those, so a request for one is baked into a track's audio instead.
 - No decks, controllers or live mode. It exports WAV, FLAC or MP3 files and has nothing for rekordbox or Serato. No stem separation or acapellas; that isn't built.
 - A test script types the requests into the real app when I record, and I only publish runs that passed my checks. The agent isn't deterministic, so your results can differ.
 - It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, a ChatGPT Plus or Pro plan signed in instead of a key (a preview), or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
@@ -112,7 +112,7 @@ Disclosure: I made this. It's free and MIT-licensed, and I'm mostly here to ask 
 
 It doesn't generate music and it isn't a DAW: no MIDI, no plugin hosting. It edits audio files. You describe a job in a chat box (for example "time-stretch this to 124 BPM keeping the pitch", or "bring it to -14 LUFS") and an AI agent runs ordinary tools on the file: time-stretch, pitch-shift, fades, EQ, filters, reverb, echo, compression and limiting, loudness, export as WAV, FLAC or MP3. Every edit is a step in a history you can fork, A/B against the previous version, and go back through.
 
-An example from the recordings on the site: a track's drums-only first 8 bars are copied and spliced in to make a 16-bar intro, a 200 Hz high-pass holds the low end back until the drop, and the first 4 bars fade in. The agent also warned that the export peaked right at full scale, which I'd rather it said than not. The track there is a short synthetic loop I generated, so it shows the workflow, not real-world quality.
+An example from the recordings on the site: a track's drums-only first 8 bars are copied and spliced in to make a 16-bar intro, a high-pass filter holds the low end back until the drop, and the first 4 bars fade in. The track there is a short synthetic loop I generated, so it shows the workflow, not real-world quality.
 
 Honest limits: time-stretch and pitch-shift use a phase vocoder I wrote, so big changes on dense material sound smeared. No stems or vocal isolation (not built). Your audio isn't uploaded; the chat text goes to an AI provider you choose, or stays local with Ollama. The installers are unsigned, so macOS and Windows warn on first launch.
 
@@ -150,7 +150,7 @@ Disclosure: I build this tool (free, MIT). The question is the point, so I'll st
 
 When you finish a track and want a version DJs can mix, you probably extend the intro and outro with drums only, so there's something to beat-match over. How do you do it: copy and paste in the DAW, a separate audio-editor pass, a dedicated extended-mix bounce?
 
-Here is how it went in a recording of my tool. The track is at 124 BPM with 1.935-second bars and the first downbeat at 0.476 s (the agent works that out and says so). The drums-only first 8 bars are copied from that downbeat and spliced in after themselves, so the intro runs 16 bars. A 200 Hz high-pass holds the low end back until the drop on bar 17, the first 4 bars fade in, and the result is exported as a WAV. The agent flagged that the export peaks right at full scale.
+Here is how it went in a recording of my tool. The track is at 124 BPM, which is 1.935-second bars, and I asked for that first, changing nothing. The drums-only first 8 bars are copied and spliced in after themselves, so the intro runs 16 bars. A high-pass filter holds the low end back until the drop on bar 17, the first 4 bars fade in, and the result is exported as a WAV.
 
 What it is and isn't: a desktop editor for audio files where an AI agent calls tools (there are 101). It is not a DAW. No MIDI, no plugin hosting, and no stem separation (not built). The demo track is a short synthetic loop I generated with a drums-only intro written in, so this is a best case. A real arrangement with a pad or a vocal in bar 1 would be messier, and the recording doesn't show that. Beat detection is an estimate.
 
@@ -189,17 +189,17 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (101 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.2 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (101 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.9.3 is the current release.
 
 Where I'd like help:
 
 - Effects on a chain (issue 520, closed, has the background). Since v0.6.0 the agent can put an effect on the master bus and on a bus, but only five kinds run in a chain: gain, the limiter and three filters. Still missing: streaming versions of the other eleven (reverb, echo, EQ, compressor and others), which today can only be baked into a track. Rust, in the audio-engine and tools crates.
 - macOS microphone (issue 464). Since v0.5.0 the build has the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
 - A real pass on Linux with a locked Secret Service (issue 497). The code is tested against fakes only.
-- Shipping the ML pieces (issues 383 to 385). Transcription (Whisper base) runs from v0.8.0 on a model the user downloads. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording and about 16 minutes of English audiobook speech.
+- Stem separation (issue 385). Transcription (Whisper base, issues 383 and 384, both closed) runs from v0.8.0 on a model the user downloads, and from v0.9.3 so does speaker diarization (who speaks when) on a second downloaded model. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording and about 16 minutes of English audiobook speech.
 - New audio tools and new LLM providers. docs/contributing.md walks through both. Six API providers today: Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama for local models, plus a preview that uses a ChatGPT Plus or Pro plan instead of a key.
 
-No open issue carries the "good first issue" label right now. If you want a starter task, say so and I'll write one up.
+Five open issues carry the "good first issue" label (#846 to #850: a wah-wah effect, a curve option for fade, a mute-all-tracks tool, and tool-level tests for mute, solo and pan). Each says where in the code to start and how it is checked; docs/contributing.md walks through a change.
 
 Things an open-source crowd will ask about:
 
@@ -293,7 +293,7 @@ edytlab: a Tauri 2 audio editor with a zero-dependency DSP crate and a hand-writ
 ```
 Disclosure: my project (MIT), developed with Claude Code; the commit trailers and CLAUDE.md say so. I'm posting engineering notes, and I'd like specific review.
 
-It's a desktop audio editor where an LLM agent calls 101 deterministic tools: a Rust workspace of 16 crates behind a Tauri 2 + React shell. The parts that might interest this sub:
+It's a desktop audio editor where an LLM agent calls 101 deterministic tools: a Rust workspace of 17 crates behind a Tauri 2 + React shell. The parts that might interest this sub:
 
 - audio-dsp has no dependencies, on purpose: functions over &mut [f32] plus a sample rate and channel count, no session types, no IO. It sits below both the tools crate and the renderer, so a dependency there is a dependency everywhere. It exists because the effect algorithms used to be pub(crate) inside tools and the renderer needed them too, which meant a dependency cycle or a second copy.
 - Time-stretch and pitch-shift are a phase vocoder on realfft, with onset-triggered phase resets (spectral-flux onset detection, causal thresholding) to protect transients. I planned on Rubber Band and dropped it: it needs librubberband-dev on Linux, vcpkg on Windows and Homebrew on macOS, and a native dependency like that breaks every CI target at once. The limits are written at the top of crates/audio-time/src/vocoder.rs: dense mixes smear, and the further the factor is from 1.0 the worse.
@@ -323,11 +323,12 @@ Facts to re-check on the day:
   the installers carry the runtime from v0.7.0, #615, and the model download
   and transcription come with v0.8.0); open are 464, 497, 389, 386 and 385
   (stem separation), and 474 (Sign in with ChatGPT, whose preview shipped in
-  v0.9.0). The r/opensource post still says "383 to 385" for the ML pieces as
-  a group. They were all open when this was written (2026-10-10).
-- "No open issue carries the good first issue label": true when checked on
-  2026-10-22 (15 open issues, none labelled). Label two issues before posting r/opensource
-  and replace that sentence with their numbers.
+  v0.9.0). The r/opensource post now names only 385 for the ML pieces that are
+  still missing. Re-checked on 2026-10-27: 464, 497, 389, 386, 385 and 474 are
+  still open; 567 (the Mac checks, passed on v0.9.0 and v0.9.1) is closed.
+- The good first issue sentence names #846 to #850, which carried the label and
+  were open when checked on 2026-10-27. Re-check that they are still open (and
+  still labelled) before posting r/opensource; edit the sentence if one has been taken.
 - r/LocalLLaMA numbers: 15,157 tokens and the 8,192 context are v0.4.0's, from
   issue 395. The 8.7 KB / 67 KB figures and the 2.3 KB / 6.3 KB split are from
   `crates/ai/tests/request_size.rs` (`cargo test -p ai --test request_size --

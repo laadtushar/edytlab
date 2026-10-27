@@ -38,8 +38,9 @@ use crate::commands::{
     set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope, set_effort_for, set_head_to,
     set_plan_first, set_project_meta, set_selection_context, set_sync_lock, set_track_gain,
     set_track_muted, set_track_pan, set_track_soloed, start_recording, stop_recording,
-    test_api_key, test_api_key_for, timer_record, try_load_api_key_at_startup, update_marker,
-    upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
+    test_api_key, test_api_key_for, third_party_notices, timer_record, try_load_api_key_at_startup,
+    update_marker, upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory,
+    RecorderState,
 };
 use crate::state::AppState;
 use tauri::{
@@ -387,6 +388,7 @@ pub fn run() {
             has_api_key_for,
             get_keychain_persistence,
             ml_runtime_status,
+            third_party_notices,
             ml_model_status,
             download_ml_model,
             cancel_ml_model_download,

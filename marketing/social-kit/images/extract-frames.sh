@@ -40,9 +40,9 @@ grab t1-pin  $V/edytlab-v0.7.0-16x9.mp4 11 900 165 910 760
 grab t2-chat $D/dj-beatmatched-transition.mp4 84 575 94 705 467
 grab t2-pin  $D/dj-beatmatched-transition.mp4 84 800 94 480 467
 
-# 3 Extend a club intro: dj-extended-club-intro at 52 s.
+# 3 Extend a club intro: dj-extended-club-intro at 50.5 s. The crop stops at y 398 so the mouse pointer, which rests over the reply below that, is not in it.
 # After the turn: Claude's summary of the 16-bar intro (new length, where the music comes in).
-grab t3-chat $D/dj-extended-club-intro.mp4 52 575 112 705 449
+grab t3-chat $D/dj-extended-club-intro.mp4 50.5 575 100 705 298
 grab t3-pin  $D/dj-extended-club-intro.mp4 52 800 112 480 449
 
 # 4 Your audio stays on your computer: dj-mini-mix at 72 s.

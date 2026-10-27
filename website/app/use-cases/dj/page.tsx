@@ -129,7 +129,7 @@ export default function DjUseCasePage() {
           </li>
           <li>
             Beat and key detection are software estimates. A track with a drifting tempo or a long ambient intro can be off,
-            and in the recording above the agent itself points out a start where the bars land a beat apart.
+            so check a start point by ear before you commit to it.
           </li>
           <li>
             Time-stretch and pitch-shift are clean on sustained material, but dense mixes can sound smeared, and the further

@@ -1,3 +1,10 @@
+// Derived from pyannote.audio 3.3.2, https://github.com/pyannote/pyannote-audio
+// (pipelines/speaker_diarization.py). MIT License, Copyright (c) 2020 CNRS.
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! The whole pipeline, from audio to speaker turns, behind two small traits
 //! so that everything but the two neural networks runs in CI.
 //!

@@ -783,7 +783,7 @@ export const apiAreas: ApiArea[] = [
   {
     slug: "speech-model",
     title: "Speech Model and Runtime",
-    summary: "Check the ONNX Runtime, and download, cancel or remove the speech model.",
+    summary: "Check the ONNX Runtime, download, cancel or remove the speech and speaker models, and read the open source licences.",
     sections: [
       {
         kind: "commands",
@@ -803,12 +803,12 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlModelStatus(model)",
             returns: "MlModelStatus",
-            desc: "Where a downloadable model is, for the Speech model row in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
+            desc: "Where a downloadable model is, for the Speech model and Speaker model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, and speaker-diarization, about 33 MB in two files, both from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
           },
           {
             name: "downloadMlModel(model)",
             returns: "MlModelStatus",
-            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there.",
+            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base and speaker-diarization); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there.",
           },
           {
             name: "cancelMlModelDownload(model)",
@@ -819,6 +819,17 @@ export const apiAreas: ApiArea[] = [
             name: "removeMlModel(model)",
             returns: "MlModelStatus",
             desc: "Delete the model's own files (and its partial files) from the models folder, and nothing else in it. Refused while the model is downloading: cancel it first.",
+          },
+        ],
+      },
+      {
+        kind: "commands",
+        title: "Open Source Licences",
+        items: [
+          {
+            name: "thirdPartyNotices()",
+            returns: "string",
+            desc: "The text of the third-party notices file the installer carries (licenses/THIRD_PARTY_NOTICES.txt in the app's resource directory): the licence texts and copyright lines of the Rust crates, JavaScript packages and fonts edytlab is built from, the code its Rust files were derived from, and where to get the source of the MPL-2.0 libraries. Settings shows it under Account → Open source licences when Show is pressed; opening Settings reads nothing. Read-only: it opens that one fixed file and takes no argument, so the window cannot name a path. Rejects with a sentence, never a path, when the file is not in the build.",
           },
         ],
       },

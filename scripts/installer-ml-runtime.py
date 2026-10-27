@@ -24,6 +24,8 @@ installing anything, and fails unless:
     file the build was given: the library (also against the manifest's
     `library_sha256`), the ONNX Runtime LICENSE and ThirdPartyNotices.txt and,
     on Windows, the Visual C++ runtime DLLs and their notice;
+  - licenses/THIRD_PARTY_NOTICES.txt is in the resource directory, byte for
+    byte the repository's file (bundle.resources in tauri.conf.json);
   - on Windows, every Visual C++ runtime DLL the installed onnxruntime.dll
     imports sits beside it, at `vc_runtime.min_version` or newer;
   - the app binary from that installer, run with --ml-runtime-status, finds
@@ -381,6 +383,18 @@ def check_installed(installed, expected, signed):
         else:
             ok(shown(installed_file))
 
+    # The third-party notices (bundle.resources in tauri.conf.json, made by
+    # scripts/third-party-notices/generate.mjs): in every installer, and the
+    # file the repository has, so an installer cannot carry an older one.
+    notices_src = SRC_TAURI / "licenses" / "THIRD_PARTY_NOTICES.txt"
+    notices = installed.resource_dir / "licenses" / "THIRD_PARTY_NOTICES.txt"
+    if not notices.is_file():
+        fail("%s is missing (bundle.resources puts the third-party notices there)" % shown(notices))
+    elif sha256(notices) != sha256(notices_src):
+        fail("%s is not the repository's THIRD_PARTY_NOTICES.txt" % shown(notices))
+    else:
+        ok(shown(notices))
+
     for src in expected.frameworks:
         if installed.frameworks_dir is None:
             fail("%s has no Frameworks directory" % installed.artifact.name)
@@ -568,6 +582,27 @@ def describe_dll(path):
         print("imports: %s" % name)
 
 
+def with_packed_apps(paths):
+    """`paths` plus the .app.tar.gz tauri-action packs beside each .app.
+
+    A missing tarball is a warning, not a failure: release-signed.yml never
+    uploads it, so only a rename on tauri-action's side should be noticed, and
+    the .app itself and every other path are still checked.
+    """
+    out = []
+    for path in paths:
+        out.append(path)
+        if not path.endswith(".app"):
+            continue
+        packed = path + ".tar.gz"
+        if Path(packed).is_file():
+            out.append(packed)
+        else:
+            print("::warning::no %s beside the .app; tauri-action's tarball naming may have changed" % packed,
+                  flush=True)
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -586,11 +621,7 @@ def main():
     elif args.command == "check":
         artifacts = list(args.artifacts)
         if args.paths_json:
-            for path in json.loads(args.paths_json):
-                artifacts.append(path)
-                packed = path + ".tar.gz"
-                if path.endswith(".app") and Path(packed).is_file():
-                    artifacts.append(packed)
+            artifacts.extend(with_packed_apps(json.loads(args.paths_json)))
         if not artifacts:
             die("no installers to check")
         check(args.platform, artifacts, args.signed)

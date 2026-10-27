@@ -46,3 +46,45 @@ under sync-lock, labels, words (ADR 0004).
 
 **Derived file.** Audio the project wrote under a name made from its samples, in
 `.audiograph/derived/` (#620; ADR 0008).
+
+**Turn.** One user message taken through the agent's loop: the model is called, its tool calls run,
+and it loops until the model stops asking for tools or the tool budget is spent (`Agent::turn`,
+`run_turn`; ADR 0007).
+
+**Plan first.** The setting that makes a turn show its plan and wait at the plan gate before the
+first step that would change the session.
+
+**Session block.** The part of a turn's system prompt that describes the session (head, tracks,
+buses, master chain, selection, markers), written within a byte budget; a list that does not fit is
+cut and ends with a line naming `list_session` (`session_context.rs`, #573, #618).
+
+**Slim tool set.** `ToolSet::Slim`: a core list of tools plus the ones the conversation names,
+chosen once per turn, for a provider whose context is small (Ollama). Every other provider is sent
+the full set (`tool_selection.rs`, #395).
+
+**Tool rung.** One of the layouts the ChatGPT plan's route is offered the tools in (`ToolRung`:
+namespace, slim namespace, `additional_tools`, flat), stepped down only when the route refuses the
+layout and kept once one works.
+
+**Setup marker.** The bracketed first words of a tool's error (`MARKERS` in `transcribe.rs`) that
+tell the window to draw a speech-setup card instead of showing text; the window is never sent the
+error itself.
+
+**Inference cache.** The project's content-hashed store of what a model produced
+(`.audiograph/inference-cache/`, `ml_pipeline::InferenceCache`), keyed by the input's hash, the
+model's fingerprint and the options.
+
+**Provider slot.** One saved value of the provider settings (`ai::keychain::Field`): a key or the
+ChatGPT refresh token, which live in the one keychain item, or a model, base URL, effort or the
+active provider, which live in `provider-settings.json` (ADR 0009).
+
+**Account generation.** A counter that moves when the ChatGPT account changes (sign-out, start
+over, another account), so that work begun for the old account teaches the new one nothing and
+leaves it no pending message (`ChatGptHandle::account_generation`).
+
+**Off the lock.** A tool that runs on a staged copy of the store (`Store::stage`) without holding
+the store's lock, and commits only if the head has not moved, or runs again on the new head
+(`Tool::runs_off_the_lock`, #421).
+
+**Source frames.** The unit of a clip's `start_in_track`, `source_offset`, `length` and volume
+envelope: frames of the clip's own source file, not of the session's rate (#234, #677).

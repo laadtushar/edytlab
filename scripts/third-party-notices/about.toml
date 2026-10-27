@@ -1,0 +1,262 @@
+# cargo-about configuration for THIRD_PARTY_NOTICES.txt.
+# Run through scripts/third-party-notices/generate.mjs; see docs/development-guide.md.
+#
+# `accepted` is also the order of preference for a crate that offers a choice
+# of licences ("MIT OR Apache-2.0" is satisfied by the first one listed). It is
+# the complete list of licences the shipped program may contain. A dependency
+# under anything else (a GPL, LGPL, EPL or an unknown licence) makes
+# cargo-about fail rather than be added silently: that is a decision for the
+# project owner, not for a lockfile bump.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+    "CC0-1.0",
+]
+
+# Every platform an installer is built for (release-dev.yml, release-signed.yml).
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
+ignore-dev-dependencies = true
+ignore-build-dependencies = true
+# edytlab's own crates are MIT (workspace.package.license); they are not third parties.
+private = { ignore = true }
+
+# ---------------------------------------------------------------------------
+# Clarifications: crates whose licence file cargo-about does not pick up by
+# itself (an unusual file name such as `license-mit` or `LICENSE_MIT`, or two
+# licences in one file). Each names the file and its SHA-256, so a release of
+# the crate that changes the file stops matching and falls back to the
+# standard text (the template then says so) instead of silently shipping
+# something else. Crates that ship no licence file at all need no entry.
+# ---------------------------------------------------------------------------
+
+[brotli-decompressor.clarify]
+license = "BSD-3-Clause"
+[[brotli-decompressor.clarify.files]]
+path = "LICENSE"
+license = "BSD-3-Clause"
+checksum = "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+
+[chrono.clarify]
+license = "MIT"
+[[chrono.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "7e4d00dc6c65ae3611917922343e49459ebffe1da646b0c1018f2ba16dfb67b1"
+start = "The MIT License (MIT)"
+end = "THE SOFTWARE.\n~~~~"
+
+[dpi.clarify]
+license = "Apache-2.0 AND MIT"
+[[dpi.clarify.files]]
+path = "LICENSE"
+license = "Apache-2.0"
+checksum = "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a"
+[[dpi.clarify.files]]
+path = "LICENSE-LIBM-MIT"
+license = "MIT"
+checksum = "9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997"
+
+[md5.clarify]
+license = "MIT"
+[[md5.clarify.files]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "f39d2fe56c7e87b6c20f48cb5b48e6e54e1e0e3f07f58b45e62b0ca44d0469cd"
+start = "## The MIT License"
+
+[num-cmp.clarify]
+license = "MIT"
+[[num-cmp.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "910d10f80f7d60b32de624188ee33d13ac7648414669f9512f3d56ff690eb37e"
+start = "The MIT License (MIT)"
+end = "THE SOFTWARE.\n~~~~"
+
+[tauri-plugin-dialog.clarify]
+license = "MIT"
+[[tauri-plugin-dialog.clarify.files]]
+path = "LICENSE_MIT"
+license = "MIT"
+checksum = "89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607"
+
+[tauri-plugin-fs.clarify]
+license = "MIT"
+[[tauri-plugin-fs.clarify.files]]
+path = "LICENSE_MIT"
+license = "MIT"
+checksum = "89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607"
+
+[tauri-plugin-opener.clarify]
+license = "MIT"
+[[tauri-plugin-opener.clarify.files]]
+path = "LICENSE_MIT"
+license = "MIT"
+checksum = "89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607"
+
+[windows.clarify]
+license = "MIT"
+[[windows.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-collections.clarify]
+license = "MIT"
+[[windows-collections.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-core.clarify]
+license = "MIT"
+[[windows-core.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-future.clarify]
+license = "MIT"
+[[windows-future.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-implement.clarify]
+license = "MIT"
+[[windows-implement.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-interface.clarify]
+license = "MIT"
+[[windows-interface.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-link.clarify]
+license = "MIT"
+[[windows-link.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-numerics.clarify]
+license = "MIT"
+[[windows-numerics.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-result.clarify]
+license = "MIT"
+[[windows-result.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-strings.clarify]
+license = "MIT"
+[[windows-strings.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-sys.clarify]
+license = "MIT"
+[[windows-sys.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-targets.clarify]
+license = "MIT"
+[[windows-targets.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-threading.clarify]
+license = "MIT"
+[[windows-threading.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-version.clarify]
+license = "MIT"
+[[windows-version.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows_aarch64_msvc.clarify]
+license = "MIT"
+[[windows_aarch64_msvc.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows_x86_64_gnu.clarify]
+license = "MIT"
+[[windows_x86_64_gnu.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows_x86_64_msvc.clarify]
+license = "MIT"
+[[windows_x86_64_msvc.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[blake3.clarify]
+license = "Apache-2.0"
+[[blake3.clarify.files]]
+path = "LICENSE_A2"
+license = "Apache-2.0"
+checksum = "00fcc7a934ddbc9ece2a7cc063ac788e284b703b1d705ccbba72d462aa97921e"
+
+[constant_time_eq.clarify]
+license = "Apache-2.0"
+[[constant_time_eq.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+
+[ryu.clarify]
+license = "Apache-2.0"
+[[ryu.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+
+[sync_wrapper.clarify]
+license = "Apache-2.0"
+[[sync_wrapper.clarify.files]]
+path = "LICENSE"
+license = "Apache-2.0"
+checksum = "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+
+[dunce.clarify]
+license = "CC0-1.0"
+[[dunce.clarify.files]]
+path = "LICENSE"
+license = "CC0-1.0"
+checksum = "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"

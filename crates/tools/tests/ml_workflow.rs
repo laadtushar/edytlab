@@ -264,6 +264,7 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
             "crates/ml-whisper/src (--lib)".to_string(),
             "crates/ml-whisper/tests/transcribe_known_words.rs".to_string(),
             "crates/ml-whisper/tests/transcribe_smoke.rs".to_string(),
+            "crates/tools/tests/diarize_end_to_end.rs".to_string(),
             "crates/tools/tests/transcribe_end_to_end.rs".to_string(),
             "crates/tools/tests/transcribe_load_errors.rs".to_string(),
         ],
@@ -319,12 +320,16 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
         )),
         "ml.yml does not fetch {speakers} with fetch-ml-model.sh"
     );
-    let test = read("crates/ml-diarize/tests/real_model.rs");
+    for file in [
+        "crates/ml-diarize/tests/real_model.rs",
+        "crates/tools/tests/diarize_end_to_end.rs",
+    ] {
+        let test = read(file);
+        for var in ["ORT_DYLIB_PATH", "DIARIZE_MODEL_PATH"] {
+            assert!(test.contains(var), "{file} does not read {var}");
+        }
+    }
     for var in ["ORT_DYLIB_PATH", "DIARIZE_MODEL_PATH"] {
-        assert!(
-            test.contains(var),
-            "the speaker model's test does not read {var}"
-        );
         assert!(
             yaml.contains(&format!("{var}: ${{{{ github.workspace }}}}/")),
             "ml.yml does not set {var}"
@@ -390,6 +395,7 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
     };
     let fetch_speaker = at("Fetch the speaker model");
     let speaker_test = at("Speaker diarization on the AMI excerpt");
+    let speaker_tool_test = at("The diarize tool end to end");
     for before in [
         "The transcribe tool end to end",
         "The pinned model downloads, resumes and verifies",
@@ -402,6 +408,10 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
     assert!(
         at("Cache the speaker model") < fetch_speaker && fetch_speaker < speaker_test,
         "the speaker model is cached, then fetched, then tested"
+    );
+    assert!(
+        speaker_test < speaker_tool_test,
+        "the diarize tool's test runs after the model is fetched"
     );
     // Not the version of the runtime, which belongs to the manifest.
     assert!(

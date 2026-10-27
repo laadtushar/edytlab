@@ -7,38 +7,38 @@ edytlab: an open-source audio editor you drive in plain English
 1 · Describe it in plain English
 
 3
-00:00:09,050 --> 00:00:12,880
+00:00:09,050 --> 00:00:11,980
 2 · The agent calls a tool
 
 4
-00:00:13,150 --> 00:00:16,480
-3 · It flags what it noticed
+00:00:12,250 --> 00:00:15,580
+3 · It reports what changed
 
 5
-00:00:16,750 --> 00:00:24,180
+00:00:15,850 --> 00:00:23,280
 4 · Describe the blend
 
 6
-00:00:24,450 --> 00:00:33,080
+00:00:23,550 --> 00:00:32,180
 5 · Hear it
 
 7
-00:00:33,350 --> 00:00:38,780
+00:00:32,450 --> 00:00:37,880
 6 · Master and export
 
 8
-00:00:39,050 --> 00:00:42,480
+00:00:38,150 --> 00:00:41,580
 Also: hold the low end until the drop
 
 9
-00:00:42,750 --> 00:00:46,180
+00:00:41,850 --> 00:00:45,280
 And a three-track mini-mix
 
 10
-00:00:46,500 --> 00:00:52,900
-94 deterministic tools run on your machine. Only the chat goes to the provider you choose.
+00:00:45,600 --> 00:00:52,000
+Deterministic tools run on your machine. Only the chat goes to the provider you choose.
 
 11
-00:00:53,700 --> 00:00:58,200
-edytlab. Free, open source (MIT). github.com/laadtushar/edytlab. edytlab.com. Installers are unsigned.
+00:00:52,800 --> 00:00:57,300
+edytlab. Free, open source (MIT). github.com/laadtushar/edytlab. edytlab.com.
 

@@ -337,7 +337,7 @@ const STALE_CLAIMS: [&str; 7] = [
 /// `website/components`) and the docs a person reads as current
 /// (`README.md` and `docs/*.md`). Left out on purpose, because they say
 /// what was true when they were written: the changelog (`website/app/
-/// changelog`), the blog posts, `docs/HANDOVER.md`, `docs/specs`,
+/// changelog`), the blog posts, `docs/archive`, `docs/specs`,
 /// `docs/superpowers`, and `marketing/`, whose drafts describe the released
 /// v0.7.0 (which has no Download button) and are brought up to date when
 /// the release that carries it ships.

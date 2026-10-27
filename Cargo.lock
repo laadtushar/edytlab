@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "agent_profiles"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "ai"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "agent_profiles",
  "ai",
@@ -60,7 +60,6 @@ dependencies = [
  "audio-engine",
  "base64 0.23.1",
  "eventsource-stream",
- "fs4",
  "futures-util",
  "hound",
  "http",
@@ -380,7 +379,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio-analysis"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "ebur128",
@@ -393,24 +392,28 @@ dependencies = [
 
 [[package]]
 name = "audio-decoder"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "hound",
+ "objc2-audio-toolbox",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
  "opus-decoder",
  "proptest",
  "rustfft",
  "shine-rs",
  "symphonia",
  "thiserror 2.0.21",
+ "windows 0.62.2",
 ]
 
 [[package]]
 name = "audio-dsp"
-version = "0.9.2"
+version = "0.9.3"
 
 [[package]]
 name = "audio-engine"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "audio-dsp",
@@ -429,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "audio-time"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "realfft",
  "thiserror 2.0.21",
@@ -1467,7 +1470,7 @@ dependencies = [
 
 [[package]]
 name = "edytlab-cli"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "ai",
  "anyhow",
@@ -1486,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "edytlab-desktop"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "agent_profiles",
  "ai",
@@ -2977,7 +2980,7 @@ dependencies = [
 
 [[package]]
 name = "mcp"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "blake3",
  "reqwest 0.12.28",
@@ -3011,7 +3014,7 @@ dependencies = [
 
 [[package]]
 name = "memory"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
@@ -3052,13 +3055,12 @@ dependencies = [
 
 [[package]]
 name = "ml-demucs"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "blake3",
  "hound",
  "ml-pipeline",
- "ndarray",
  "ort",
  "realfft",
  "serde",
@@ -3070,7 +3072,7 @@ dependencies = [
 
 [[package]]
 name = "ml-diarize"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "hound",
  "ml-pipeline",
@@ -3085,10 +3087,9 @@ dependencies = [
 
 [[package]]
 name = "ml-pipeline"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "blake3",
- "fs4",
  "libc",
  "libloading 0.9.0",
  "ort",
@@ -3104,12 +3105,11 @@ dependencies = [
 
 [[package]]
 name = "ml-whisper"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "hound",
  "ml-pipeline",
- "ndarray",
  "ort",
  "realfft",
  "rubato",
@@ -3430,6 +3430,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-audio-toolbox"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6948501a91121d6399b79abaa33a8aa4ea7857fe019f341b8c23ad6e81b79b08"
+dependencies = [
+ "bitflags 2.11.1",
+ "objc2",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "objc2-cloud-kit"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3438,6 +3451,16 @@ dependencies = [
  "bitflags 2.11.1",
  "objc2",
  "objc2-foundation",
+]
+
+[[package]]
+name = "objc2-core-audio-types"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a89f2ec274a0cf4a32642b2991e8b351a404d290da87bb6a9a9d8632490bd1c"
+dependencies = [
+ "bitflags 2.11.1",
+ "objc2",
 ]
 
 [[package]]
@@ -4241,7 +4264,7 @@ dependencies = [
 
 [[package]]
 name = "recorder"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "cpal",
  "hound",
@@ -4877,7 +4900,7 @@ dependencies = [
 
 [[package]]
 name = "session"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -4967,7 +4990,7 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skills"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "regex",
  "serde",
@@ -5953,7 +5976,7 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "tools"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-analysis",
  "audio-decoder",

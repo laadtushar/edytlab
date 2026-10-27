@@ -1,11 +1,14 @@
-//! Ogg Vorbis, Opus and AIFF import through the tools (#764).
+//! Ogg Vorbis, Opus, AIFF and (where the operating system decodes it) M4A import
+//! through the tools (#764).
 //!
 //! `audio-decoder` has the per-format decode tests. These check the path the
 //! rest of the app takes: `load` decodes the file and, since the renderer
 //! reads WAV only, writes the audio under a name made by
 //! `provenance::audio_hash` into `derived/`, exactly as it does for an MP3
 //! or a FLAC; `batch_apply` takes the new extensions; a format that is not
-//! supported is refused by name and writes no node.
+//! supported is refused by name and writes no node. M4A/AAC is decoded by the
+//! system on macOS and Windows and refused on Linux, so those tests ask
+//! `audio_decoder::OS_DECODER_AVAILABLE` what to expect.
 
 use std::path::{Path, PathBuf};
 
@@ -74,19 +77,26 @@ fn err(r: ToolResult) -> String {
     }
 }
 
-/// (fixture, rate, channels)
-const IMPORTS: &[(&str, u32, u16)] = &[
-    ("tone_440_mono_44100.ogg", 44_100, 1),
-    ("tones_440_880_stereo_48000.ogg", 48_000, 2),
-    ("tone_440_mono_48000.opus", 48_000, 1),
-    ("tones_440_880_stereo_48000.opus", 48_000, 2),
-    ("tone_440_mono_44100_s16.aiff", 44_100, 1),
-    ("tones_440_880_stereo_48000_s24.aiff", 48_000, 2),
-];
+/// (fixture, rate, channels): every format this platform opens beyond WAV/MP3/FLAC.
+fn imports() -> Vec<(&'static str, u32, u16)> {
+    let mut all = vec![
+        ("tone_440_mono_44100.ogg", 44_100, 1),
+        ("tones_440_880_stereo_48000.ogg", 48_000, 2),
+        ("tone_440_mono_48000.opus", 48_000, 1),
+        ("tones_440_880_stereo_48000.opus", 48_000, 2),
+        ("tone_440_mono_44100_s16.aiff", 44_100, 1),
+        ("tones_440_880_stereo_48000_s24.aiff", 48_000, 2),
+    ];
+    if audio_decoder::OS_DECODER_AVAILABLE {
+        all.push(("tone_440_mono_44100.m4a", 44_100, 1));
+        all.push(("tones_440_880_stereo_48000.m4a", 48_000, 2));
+    }
+    all
+}
 
 #[test]
 fn load_takes_each_new_format_the_way_it_takes_an_mp3() {
-    for &(name, rate, channels) in IMPORTS {
+    for (name, rate, channels) in imports() {
         let mut s = Session::new();
         let src = s.dir.path().join(name);
         std::fs::copy(fixture(name), &src).unwrap();
@@ -176,7 +186,7 @@ fn an_aiff_is_transcoded_once_and_a_wav_of_the_same_audio_is_not_copied() {
 }
 
 #[test]
-fn batch_apply_picks_up_ogg_and_aiff_and_still_skips_m4a() {
+fn batch_apply_picks_up_ogg_and_aiff_and_skips_m4a_where_the_system_cannot_decode_it() {
     let mut s = Session::new();
     let template = s.dir.path().join("template.aiff");
     std::fs::copy(fixture("tone_440_mono_44100_s16.aiff"), &template).unwrap();
@@ -197,7 +207,8 @@ fn batch_apply_picks_up_ogg_and_aiff_and_still_skips_m4a() {
     )
     .unwrap();
     std::fs::copy(fixture("tone_440_mono_44100_s16.aiff"), takes.join("c.aif")).unwrap();
-    // Not importable: skipped with the other non-audio files, not a failure.
+    // Not importable here: skipped with the other non-audio files, not a
+    // failure (on macOS and Windows the system decodes M4A, so it is taken).
     std::fs::copy(fixture("tone_440_mono_44100.m4a"), takes.join("d.m4a")).unwrap();
     // Opus is importable (#764).
     std::fs::copy(fixture("tone_440_mono_48000.opus"), takes.join("e.opus")).unwrap();
@@ -210,30 +221,42 @@ fn batch_apply_picks_up_ogg_and_aiff_and_still_skips_m4a() {
             "output_dir": s.dir.path().join("out").to_string_lossy(),
         }),
     ));
-    assert_eq!(v["files"], json!(4), "{v}");
-    assert_eq!(v["succeeded"], json!(4), "{v}");
+    let expected = 4 + usize::from(audio_decoder::OS_DECODER_AVAILABLE);
+    assert_eq!(v["files"], json!(expected), "{v}");
+    assert_eq!(v["succeeded"], json!(expected), "{v}");
 }
 
 #[test]
-fn load_refuses_m4a_and_surround_opus_by_name_and_writes_nothing() {
-    for (name, word) in [
-        ("tone_440_mono_44100.m4a", "M4A"),
-        ("tones_surround_6ch_48000.opus", "6 channels"),
-    ] {
-        let mut s = Session::new();
-        let src = s.dir.path().join(name);
-        std::fs::copy(fixture(name), &src).unwrap();
-        let msg = err(s.call("load", json!({ "path": src.to_string_lossy() })));
-        assert!(msg.contains(word), "{name}: {msg}");
-        assert!(
-            msg.contains("not supported") || msg.contains("only mono and stereo"),
-            "{name}: {msg}"
-        );
-        assert!(
-            s.store.head().is_none(),
-            "{name}: a refused load wrote a node"
-        );
-    }
+fn load_refuses_surround_opus_by_name_and_writes_nothing() {
+    let mut s = Session::new();
+    let name = "tones_surround_6ch_48000.opus";
+    let src = s.dir.path().join(name);
+    std::fs::copy(fixture(name), &src).unwrap();
+    let msg = err(s.call("load", json!({ "path": src.to_string_lossy() })));
+    assert!(msg.contains("6 channels"), "{name}: {msg}");
+    assert!(msg.contains("only mono and stereo"), "{name}: {msg}");
+    assert!(
+        s.store.head().is_none(),
+        "{name}: a refused load wrote a node"
+    );
+}
+
+/// Linux has no system AAC decoder, so `load` names the format and writes no
+/// node. (macOS and Windows decode the same file: `imports()`.)
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[test]
+fn load_refuses_m4a_by_name_and_writes_nothing_where_the_system_has_no_decoder() {
+    let mut s = Session::new();
+    let name = "tone_440_mono_44100.m4a";
+    let src = s.dir.path().join(name);
+    std::fs::copy(fixture(name), &src).unwrap();
+    let msg = err(s.call("load", json!({ "path": src.to_string_lossy() })));
+    assert!(msg.contains("M4A"), "{name}: {msg}");
+    assert!(msg.contains("not supported"), "{name}: {msg}");
+    assert!(
+        s.store.head().is_none(),
+        "{name}: a refused load wrote a node"
+    );
 }
 
 #[test]
@@ -252,9 +275,15 @@ fn the_load_description_names_what_it_opens() {
             "load's description does not name {word}: {d}"
         );
     }
-    // Said as not supported, so the model does not offer a format that fails.
+    // M4A is named with where it works, and what does not is said as not
+    // supported, so the model does not offer a format that fails. The text is
+    // the same on every platform: the tool list is one document.
     assert!(
-        d.contains("M4A/AAC is not supported"),
-        "load's description should say M4A/AAC is not supported: {d}"
+        d.contains("M4A/AAC on macOS and Windows"),
+        "load's description should say where M4A/AAC opens: {d}"
+    );
+    assert!(
+        d.contains("M4A/AAC on Linux and multichannel Opus are not supported"),
+        "load's description should say what is not supported: {d}"
     );
 }

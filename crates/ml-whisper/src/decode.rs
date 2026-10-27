@@ -1,3 +1,10 @@
+// Derived from OpenAI Whisper, https://github.com/openai/whisper (whisper/decoding.py),
+// release 20250625. MIT License, Copyright (c) 2022 OpenAI.
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! The greedy decoding loop, behind a trait so it can be tested without a model.
 //!
 //! This is plan step 3 on #384. The loop is a port of the relevant parts of

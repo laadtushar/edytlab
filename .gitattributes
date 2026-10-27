@@ -20,6 +20,14 @@ crates/ai/prompts/*.md                text eol=lf
 apps/desktop/src/assets/chatgpt/*.svg -text
 website/public/brand/openai/*.svg     -text
 
+# The third-party notices are generated and compared byte for byte
+# (scripts/third-party-notices/generate.mjs --check), and the installer check
+# compares the bundled copy's SHA-256 with this file's: LF on every checkout.
+apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt text eol=lf
+scripts/third-party-notices/*.txt                       text eol=lf
+scripts/third-party-notices/*.hbs                       text eol=lf
+scripts/third-party-notices/*.toml                      text eol=lf
+
 # --- Windows-specific scripts: keep CRLF. ---
 *.bat text eol=crlf
 *.cmd text eol=crlf
