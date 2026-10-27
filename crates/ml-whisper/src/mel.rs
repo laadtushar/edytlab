@@ -1,3 +1,10 @@
+// Derived from OpenAI Whisper, https://github.com/openai/whisper (whisper/audio.py),
+// release 20250625. MIT License, Copyright (c) 2022 OpenAI.
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! The log-mel spectrogram Whisper's encoder takes as input.
 //!
 //! This is a port of `log_mel_spectrogram` from `whisper/audio.py` in

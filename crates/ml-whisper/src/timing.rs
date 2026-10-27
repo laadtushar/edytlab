@@ -1,3 +1,10 @@
+// Derived from OpenAI Whisper, https://github.com/openai/whisper (whisper/timing.py),
+// release 20250625. MIT License, Copyright (c) 2022 OpenAI.
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! Word timing from the decoder's cross-attention.
 //!
 //! Plan step 4 on #384. The model does not say when a word was spoken, but

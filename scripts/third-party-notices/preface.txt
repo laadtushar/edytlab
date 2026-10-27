@@ -1,0 +1,34 @@
+THIRD-PARTY NOTICES
+===================
+
+edytlab (https://github.com/laadtushar/edytlab) is free software under the MIT
+License (the LICENSE file in its source repository). It is built from software
+written by other people, who released it under licences that ask to be
+credited and to have their licence text and copyright notice passed on. This
+file is that notice. It is part of every installer and is shown in the app,
+under Settings, as "Open source licences".
+
+What is in it, in order:
+
+  1. CREDITS: the code edytlab's Rust files were derived from (OpenAI Whisper,
+     Demucs, pyannote.audio, SciPy, torchaudio, Kaldi) with their licences,
+     the changes edytlab made, the models the app can download on request
+     (and who made them), and the test data in the source repository.
+  2. JAVASCRIPT PACKAGES AND FONTS: what the window of the app is built from,
+     including the Geist fonts (SIL Open Font License 1.1).
+  3. RUST CRATES: the libraries the program is linked against, for Linux,
+     Windows and macOS, with each crate's licence text and copyright holder.
+  4. SOURCE AVAILABILITY (MPL-2.0): where to get the source code of the
+     libraries under the Mozilla Public License 2.0 (the symphonia audio
+     decoders, among others).
+
+Notices that ship in their own files next to this one: ONNX Runtime
+(licenses/onnxruntime/LICENSE and ThirdPartyNotices.txt) and, in the Windows
+installers, the Microsoft Visual C++ runtime (licenses/vc-runtime/NOTICE.txt).
+
+edytlab's own source code is public, at https://github.com/laadtushar/edytlab,
+and is the corresponding source of the program.
+
+This file is generated (scripts/third-party-notices/generate.mjs) from the
+dependency lockfiles; do not edit it by hand. It is provided for information
+and is not legal advice.

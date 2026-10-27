@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import license from "rollup-plugin-license";
 
 // No `@ts-expect-error` here any more. It claimed `process` was
 // untyped, but `@types/node` is installed and picked up implicitly, so
@@ -22,9 +23,51 @@ const appVersion: string = JSON.parse(
   readFileSync(new URL("./src-tauri/tauri.conf.json", import.meta.url), "utf8"),
 ).version;
 
+/**
+ * Third-party notices (scripts/third-party-notices/generate.mjs). When this
+ * variable names a file, the production build also writes the packages that
+ * ended up in the JavaScript bundle there, with their licence and NOTICE
+ * texts, as JSON. Unset (every normal build, `tauri build` included) the
+ * plugin is not even loaded, so the build is exactly what it was.
+ */
+const noticesJson = process.env.EDYTLAB_NOTICES_JSON;
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    ...(noticesJson
+      ? [
+          license({
+            thirdParty: {
+              includePrivate: false,
+              output: {
+                file: noticesJson,
+                template: (dependencies) =>
+                  JSON.stringify(
+                    dependencies.map((d) => ({
+                      name: d.name,
+                      version: d.version,
+                      license: d.license,
+                      licenseText: d.licenseText,
+                      noticeText: d.noticeText,
+                      repository:
+                        typeof d.repository === "string"
+                          ? d.repository
+                          : d.repository?.url,
+                      homepage: d.homepage,
+                      author: d.author?.text(),
+                    })),
+                    null,
+                    2,
+                  ),
+              },
+            },
+          }),
+        ]
+      : []),
+  ],
 
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),

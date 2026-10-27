@@ -1,3 +1,13 @@
+// Follows torchaudio.compliance.kaldi.fbank, https://github.com/pytorch/audio
+// (BSD 2-Clause License, Copyright (c) 2017 Facebook Inc. (Soumith Chintala)),
+// which is Kaldi's filterbank feature, https://github.com/kaldi-asr/kaldi
+// (Apache License 2.0), with the settings of the WeSpeaker recipe,
+// https://github.com/wenet-e2e/wespeaker (Apache License 2.0).
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! The 80-band Kaldi filterbank the speaker embedding network takes as input.
 //!
 //! WeSpeaker's ResNet34 does not take audio: it takes the log filterbank that

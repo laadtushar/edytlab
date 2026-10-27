@@ -1,3 +1,13 @@
+// Derived from pyannote.audio 3.3.2, https://github.com/pyannote/pyannote-audio
+// (pipelines/clustering.py). MIT License, Copyright (c) 2020 CNRS.
+// Also derived from SciPy, https://github.com/scipy/scipy (scipy.cluster.hierarchy,
+// _hierarchy.pyx). BSD 3-Clause License, Copyright (c) 2001-2002 Enthought, Inc.
+// 2003-2024, SciPy Developers.
+// Changed by edytlab: re-implemented in Rust, without PyTorch, NumPy, SciPy
+// or numba; this module's documentation says what differs.
+// The upstream licence text is in
+// apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt (CREDITS, section F).
+
 //! Which of the speaker embeddings are the same person.
 //!
 //! A port of `AgglomerativeClustering` and `BaseClustering` from pyannote.audio
