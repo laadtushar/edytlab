@@ -1336,8 +1336,9 @@ measurement, a recording, an armed timer or another punch-in is running; the
 region is not a region, or ends after the session does; the default devices
 cannot be named or changed during the setup; the take lost audio (it is
 refused whole, never spliced around the gap); the speakers never started; the
-project changed while the take was being recorded, in which case the take is
-kept and the message says where; the take could not be applied.
+project changed while the take was being recorded (the head is checked in the
+same hold of the store's lock the edit is made in), in which case the take is
+kept in the project and the message says where; the take could not be applied.
 
 Emits `tool-progress` events with `kind: "punch_record"`, `phase`
 (`preparing`, `preroll`, `recording`, `postroll`) and `remaining_sec`, then a

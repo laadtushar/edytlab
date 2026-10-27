@@ -79,64 +79,6 @@ export function SessionsAndTracks() {
           session confirms it.
         </li>
       </ul>
-
-      <h2 id="recording-and-punching-in">Recording and Punching In</h2>
-      <p>
-        <strong>Record</strong> in the header captures the default microphone
-        to a new track; <strong>Stop</strong> adds it to the session. The
-        clock button next to it records on a timer, unattended.
-      </p>
-      <p>
-        <strong>Punch</strong> replaces one region of a track with a new
-        take, so a misread line is fixed without re-recording the rest.
-        Select the region on the timeline, press Punch, choose the track and
-        the lead-in (two seconds by default), and press Start. You hear the
-        whole mix through the speakers from the lead-in on, with the track
-        you are replacing silent inside the region and heard again after it;
-        the lead-in and the tail are what you play along with. The new take
-        lands in the session as one history step, the length of the region,
-        and everything after it stays where it was. Cancel on the strip above
-        the timeline throws the take away and leaves no step.
-      </p>
-      <p>
-        A take comes back to the microphone later than the sound that cued it
-        left the program: output and input buffers, the converters, the
-        speaker and the air. Cut at the region&apos;s own time it would land
-        late by that much, every time, so a punch needs the delay for your
-        speakers and microphone, and it will not guess one. In{" "}
-        <strong>Settings &rarr; Audio</strong> either press{" "}
-        <strong>Measure</strong>, which plays test tones through the speakers
-        and listens for them (put the speaker close to the microphone, or
-        hold the headphones against it, in a quiet room), or{" "}
-        <strong>type the delay in milliseconds</strong> if you can&apos;t make
-        noise in the room or found it another way. Either counts, the newest
-        one is kept, and it is kept for that pair of speakers and microphone:
-        a headset or a different sample rate is another pair. Until one is
-        kept the Punch popover says &ldquo;Not calibrated&rdquo; and Start
-        stays off.
-      </p>
-      <ul>
-        <li>
-          Headphones keep the mix out of the microphone. The delay measured
-          with the speaker next to the microphone is right for headphones on
-          the same device; a Bluetooth headset is a different device and has
-          to be measured or typed on its own.
-        </li>
-        <li>
-          While a punch-in runs, Record, the timer and a measurement are off,
-          and the other way round: they share the microphone and the speakers.
-        </li>
-        <li>
-          If audio was lost during the take, or the project changed while you
-          played, the take is not applied (in the second case it is kept, and
-          the message says where).
-        </li>
-        <li>
-          The speakers and the microphone are clocked separately, so a long
-          take drifts by a few milliseconds over a minute. That is nothing for
-          a line; for a verse, punch in sections.
-        </li>
-      </ul>
     </>
   );
 }
