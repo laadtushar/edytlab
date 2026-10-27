@@ -1496,6 +1496,7 @@ dependencies = [
  "ai",
  "audio-engine",
  "chrono",
+ "hex",
  "keyring",
  "mcp",
  "memory",

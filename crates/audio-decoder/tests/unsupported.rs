@@ -8,56 +8,58 @@
 //! and says what to do. (Opus is decoded since it got a codec of its own; the
 //! layouts it refuses are in `opus.rs`.)
 
-use std::path::{Path, PathBuf};
-
-use audio_decoder::{decode_bytes, decode_file, supported_extensions, DecodeError};
-
-fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(name)
-}
-
-fn message(e: DecodeError) -> String {
-    assert!(
-        matches!(e, DecodeError::UnsupportedFormat(_)),
-        "expected UnsupportedFormat, got {e:?}"
-    );
-    e.to_string()
-}
+use audio_decoder::{decode_bytes, supported_extensions, DecodeError};
 
 // Linux has no system AAC decoder, so these three refuse M4A. On macOS and
 // Windows the same files decode (tests/formats.rs).
-
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-#[test]
-fn an_m4a_file_is_named_not_called_corrupt() {
-    let m = message(decode_file(&fixture("tone_440_mono_44100.m4a")).unwrap_err());
-    assert!(m.contains("M4A"), "{m}");
-    assert!(m.contains("not supported"), "{m}");
-    assert!(m.contains("WAV"), "it should say what to convert to: {m}");
-}
+mod without_an_os_decoder {
+    use std::path::{Path, PathBuf};
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-#[test]
-fn the_name_is_found_from_the_bytes_not_the_extension() {
-    // A phone voice memo renamed `.wav`, and bytes handed over with no name.
-    let m4a = std::fs::read(fixture("tone_440_mono_44100.m4a")).unwrap();
-    assert!(message(decode_bytes(&m4a).unwrap_err()).contains("M4A"));
-    let renamed = std::env::temp_dir().join(format!("renamed-{}.wav", std::process::id()));
-    std::fs::write(&renamed, &m4a).unwrap();
-    let got = decode_file(&renamed);
-    let _ = std::fs::remove_file(&renamed);
-    assert!(message(got.unwrap_err()).contains("M4A"));
-}
+    use audio_decoder::{decode_bytes, decode_file, DecodeError};
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-#[test]
-fn probing_the_rate_of_an_m4a_says_the_same() {
-    let m =
-        message(audio_decoder::probe_sample_rate(&fixture("tone_440_mono_44100.m4a")).unwrap_err());
-    assert!(m.contains("M4A"), "{m}");
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+    }
+
+    fn message(e: DecodeError) -> String {
+        assert!(
+            matches!(e, DecodeError::UnsupportedFormat(_)),
+            "expected UnsupportedFormat, got {e:?}"
+        );
+        e.to_string()
+    }
+
+    #[test]
+    fn an_m4a_file_is_named_not_called_corrupt() {
+        let m = message(decode_file(&fixture("tone_440_mono_44100.m4a")).unwrap_err());
+        assert!(m.contains("M4A"), "{m}");
+        assert!(m.contains("not supported"), "{m}");
+        assert!(m.contains("WAV"), "it should say what to convert to: {m}");
+    }
+
+    #[test]
+    fn the_name_is_found_from_the_bytes_not_the_extension() {
+        // A phone voice memo renamed `.wav`, and bytes handed over with no name.
+        let m4a = std::fs::read(fixture("tone_440_mono_44100.m4a")).unwrap();
+        assert!(message(decode_bytes(&m4a).unwrap_err()).contains("M4A"));
+        let renamed = std::env::temp_dir().join(format!("renamed-{}.wav", std::process::id()));
+        std::fs::write(&renamed, &m4a).unwrap();
+        let got = decode_file(&renamed);
+        let _ = std::fs::remove_file(&renamed);
+        assert!(message(got.unwrap_err()).contains("M4A"));
+    }
+
+    #[test]
+    fn probing_the_rate_of_an_m4a_says_the_same() {
+        let m = message(
+            audio_decoder::probe_sample_rate(&fixture("tone_440_mono_44100.m4a")).unwrap_err(),
+        );
+        assert!(m.contains("M4A"), "{m}");
+    }
 }
 
 #[test]
