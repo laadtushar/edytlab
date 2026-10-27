@@ -20,7 +20,7 @@ description: "Signing, the WebView2 bootstrapper, and the ONNX Runtime and Visua
 | `WINDOWS_CERTIFICATE` | Base64-encoded Authenticode `.pfx` |
 | `WINDOWS_CERTIFICATE_PASSWORD` | Password for the `.pfx` |
 
-Until these are configured the workflow fails fast at "Verify required secrets".
+Until these are configured the workflow fails fast at its "Verify Windows secrets are set" step (the macOS leg has "Verify Apple secrets are set").
 
 ## SmartScreen reputation
 

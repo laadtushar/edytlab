@@ -103,8 +103,8 @@ export default function GettingStartedPage() {
           <tr>
             <td>Anthropic (recommended)</td>
             <td>
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">
-                console.anthropic.com/settings/keys
+              <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer">
+                platform.claude.com/settings/keys
               </a>
             </td>
             <td>No — pay-as-you-go</td>

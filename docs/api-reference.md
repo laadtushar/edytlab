@@ -1828,7 +1828,7 @@ Emitted when something needs approval before it runs, and the turn is suspended
 until `approvePlan()` or `rejectPlan()`. Each step is
 `{ step: number, tool: string, description: string }`, plus
 `unavailable: true` on a step whose tool does nothing in this build
-(`separate_stems`, `transcribe`: their inference is not shipped).
+(`separate_stems`: its inference is not shipped).
 
 The agent's own plan is checked before it is shown. A step with neither a tool
 nor a description is dropped, and so is a step naming `none` or a tool that is
