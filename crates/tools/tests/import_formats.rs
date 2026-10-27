@@ -1,4 +1,4 @@
-//! Ogg Vorbis, AIFF and (where the operating system decodes it) M4A import
+//! Ogg Vorbis, Opus, AIFF and (where the operating system decodes it) M4A import
 //! through the tools (#764).
 //!
 //! `audio-decoder` has the per-format decode tests. These check the path the
@@ -82,6 +82,8 @@ fn imports() -> Vec<(&'static str, u32, u16)> {
     let mut all = vec![
         ("tone_440_mono_44100.ogg", 44_100, 1),
         ("tones_440_880_stereo_48000.ogg", 48_000, 2),
+        ("tone_440_mono_48000.opus", 48_000, 1),
+        ("tones_440_880_stereo_48000.opus", 48_000, 2),
         ("tone_440_mono_44100_s16.aiff", 44_100, 1),
         ("tones_440_880_stereo_48000_s24.aiff", 48_000, 2),
     ];
@@ -208,6 +210,7 @@ fn batch_apply_picks_up_ogg_and_aiff_and_skips_m4a_where_the_system_cannot_decod
     // Not importable here: skipped with the other non-audio files, not a
     // failure (on macOS and Windows the system decodes M4A, so it is taken).
     std::fs::copy(fixture("tone_440_mono_44100.m4a"), takes.join("d.m4a")).unwrap();
+    // Opus is importable (#764).
     std::fs::copy(fixture("tone_440_mono_48000.opus"), takes.join("e.opus")).unwrap();
 
     let v = ok(s.call(
@@ -218,20 +221,20 @@ fn batch_apply_picks_up_ogg_and_aiff_and_skips_m4a_where_the_system_cannot_decod
             "output_dir": s.dir.path().join("out").to_string_lossy(),
         }),
     ));
-    let expected = 3 + usize::from(audio_decoder::OS_DECODER_AVAILABLE);
+    let expected = 4 + usize::from(audio_decoder::OS_DECODER_AVAILABLE);
     assert_eq!(v["files"], json!(expected), "{v}");
     assert_eq!(v["succeeded"], json!(expected), "{v}");
 }
 
 #[test]
-fn load_refuses_opus_by_name_and_writes_nothing() {
+fn load_refuses_surround_opus_by_name_and_writes_nothing() {
     let mut s = Session::new();
-    let name = "tone_440_mono_48000.opus";
+    let name = "tones_surround_6ch_48000.opus";
     let src = s.dir.path().join(name);
     std::fs::copy(fixture(name), &src).unwrap();
     let msg = err(s.call("load", json!({ "path": src.to_string_lossy() })));
-    assert!(msg.contains("Opus"), "{name}: {msg}");
-    assert!(msg.contains("not supported"), "{name}: {msg}");
+    assert!(msg.contains("6 channels"), "{name}: {msg}");
+    assert!(msg.contains("only mono and stereo"), "{name}: {msg}");
     assert!(
         s.store.head().is_none(),
         "{name}: a refused load wrote a node"
@@ -266,7 +269,7 @@ fn the_load_description_names_what_it_opens() {
         .find(|t| t["name"] == "load")
         .expect("load schema");
     let d = load["description"].as_str().unwrap();
-    for word in ["WAV", "MP3", "FLAC", "Ogg Vorbis", "AIFF"] {
+    for word in ["WAV", "MP3", "FLAC", "Ogg Vorbis", "Opus", "AIFF"] {
         assert!(
             d.contains(word),
             "load's description does not name {word}: {d}"
@@ -280,7 +283,7 @@ fn the_load_description_names_what_it_opens() {
         "load's description should say where M4A/AAC opens: {d}"
     );
     assert!(
-        d.contains("M4A/AAC on Linux and Opus are not supported"),
+        d.contains("M4A/AAC on Linux and multichannel Opus are not supported"),
         "load's description should say what is not supported: {d}"
     );
 }

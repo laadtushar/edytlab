@@ -17,7 +17,7 @@ import { importExtensions } from "./importFormats";
 // picker offers but the decoder cannot open fails after the person chose it.
 // The list is `importFormats.ts`, which `crates/audio-decoder/tests/
 // supported_extensions.rs` holds equal to the decoder's own. M4A/AAC is in it
-// on macOS and Windows only (the system's decoder, #764); Opus is not.
+// on macOS and Windows only (the system's decoder, #764); Opus is on every platform (a pure-Rust codec).
 const audioFilters = () => [{ name: "Audio", extensions: importExtensions() }];
 
 /**

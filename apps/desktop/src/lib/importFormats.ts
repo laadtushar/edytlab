@@ -11,17 +11,17 @@
  * macOS, Media Foundation on Windows, #764), because an AAC decoder built
  * into the app would need a patent licence the project does not hold. Linux
  * has none, so the picker and the landing screen offer M4A on macOS and
- * Windows only. Opus is not opened anywhere yet.
+ * Windows only. Opus is opened everywhere, by a pure-Rust codec.
  */
 
 /** Opened on every platform. */
-export const BASE_EXTENSIONS = ["wav", "mp3", "flac", "ogg", "aif", "aiff"];
+export const BASE_EXTENSIONS = ["wav", "mp3", "flac", "ogg", "opus", "aif", "aiff"];
 
 /** Opened only where the operating system has a decoder: macOS and Windows. */
 export const OS_DECODER_EXTENSIONS = ["m4a"];
 
 /** The formats' short names, as the landing screen says them (`aif` and `aiff` are one format). */
-export const BASE_FORMAT_NAMES = ["wav", "mp3", "flac", "ogg", "aiff"];
+export const BASE_FORMAT_NAMES = ["wav", "mp3", "flac", "ogg", "opus", "aiff"];
 
 /**
  * Whether this computer's own decoder handles M4A/AAC: macOS and Windows.

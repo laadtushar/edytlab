@@ -169,7 +169,7 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`:
 // 2,875 B (66,786 B to 69,661 B), with the 14 B of headroom kept.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 69_770; // measured 69,753 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B; `load` naming M4A on macOS and Windows 92 B, #764)
+const FULL_TOOLS_MAX_BYTES: usize = 69_805; // measured 69,789 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B; `load` naming Opus and M4A on macOS and Windows 128 B, #764)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -733,7 +733,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_900; // measured 72,883 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B; `load` naming M4A on macOS and Windows 92 B, #764)
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_935; // measured 72,919 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B; `load` naming Opus and M4A on macOS and Windows 128 B, #764)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

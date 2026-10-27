@@ -2,11 +2,11 @@
 //!
 //! M4A/AAC is opened only by the operating system's own decoder (macOS and
 //! Windows), because an AAC decoder built into the app would need a patent
-//! licence; where there is none (Linux) it is refused. Opus is left out
-//! because no published symphonia decodes it. Both used to come back as
+//! licence; where there is none (Linux) it is refused. It used to come back as
 //! "corrupt or unrecognised audio data" or a bare "unsupported codec", which
-//! sends a person looking for a fault in a good file. They now name the format
-//! and say what to do.
+//! sends a person looking for a fault in a good file. It now names the format
+//! and says what to do. (Opus is decoded since it got a codec of its own; the
+//! layouts it refuses are in `opus.rs`.)
 
 use std::path::{Path, PathBuf};
 
@@ -39,13 +39,6 @@ fn an_m4a_file_is_named_not_called_corrupt() {
     assert!(m.contains("WAV"), "it should say what to convert to: {m}");
 }
 
-#[test]
-fn an_opus_file_is_named_not_called_unsupported_codec() {
-    let m = message(decode_file(&fixture("tone_440_mono_48000.opus")).unwrap_err());
-    assert!(m.contains("Opus"), "{m}");
-    assert!(m.contains("not supported"), "{m}");
-}
-
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[test]
 fn the_name_is_found_from_the_bytes_not_the_extension() {
@@ -62,8 +55,6 @@ fn the_name_is_found_from_the_bytes_not_the_extension() {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[test]
 fn probing_the_rate_of_an_m4a_says_the_same() {
-    // An Opus file's header does carry a rate, so the probe reads it; `load`
-    // refuses the file at the decode, before any clip names it.
     let m =
         message(audio_decoder::probe_sample_rate(&fixture("tone_440_mono_44100.m4a")).unwrap_err());
     assert!(m.contains("M4A"), "{m}");
@@ -83,8 +74,8 @@ fn a_file_that_is_just_garbage_is_not_given_a_format_name() {
 #[test]
 fn the_supported_list_leaves_out_what_does_not_decode() {
     let listed = supported_extensions();
-    // A bare `.aac` (raw ADTS), `.mp4` and Opus are not routed to any decoder.
-    for ext in ["aac", "mp4", "opus"] {
+    // A bare `.aac` (raw ADTS) and `.mp4` are not routed to any decoder.
+    for ext in ["aac", "mp4"] {
         assert!(
             !listed.contains(&ext),
             "{ext} does not decode, so it must not be listed"

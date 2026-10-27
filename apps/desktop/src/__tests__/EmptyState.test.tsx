@@ -73,10 +73,10 @@ describe("EmptyState", () => {
   /**
    * The landing screen advertises what `audio-decoder` opens on this
    * computer: symphonia is built with mp3, wav, flac, ogg + vorbis and aiff,
-   * and M4A/AAC goes to the operating system's own decoder on macOS and
-   * Windows only (#764). No published symphonia decodes Opus, and Linux has
-   * no system AAC decoder, so an .m4a or .opus advertised there would fail on
-   * open. `crates/audio-decoder/tests/supported_extensions.rs` holds
+   * `opus-decoder` covers Opus everywhere, and M4A/AAC goes to the operating
+   * system's own decoder on macOS and Windows only (#764). Linux has no system
+   * AAC decoder, so an .m4a advertised there would fail on open.
+   * `crates/audio-decoder/tests/supported_extensions.rs` holds
    * `lib/importFormats.ts` equal to the decoder's own lists.
    */
   it("advertises only formats the decoder can actually open", () => {
@@ -84,11 +84,11 @@ describe("EmptyState", () => {
     render(<EmptyState onOpen={() => {}} />);
     const formats = screen.getByText(/wav/i, { selector: "p" });
 
-    for (const name of ["wav", "mp3", "flac", "ogg", "aiff"]) {
+    for (const name of ["wav", "mp3", "flac", "ogg", "opus", "aiff"]) {
       expect(formats.textContent).toContain(name);
     }
 
-    for (const name of ["m4a", "aac", "opus"]) {
+    for (const name of ["m4a", "aac"]) {
       expect(
         formats.textContent,
         `${name} has no decoder on this platform; loading one fails`,
@@ -104,9 +104,7 @@ describe("EmptyState", () => {
     render(<EmptyState onOpen={() => {}} />);
     const formats = screen.getByText(/wav/i, { selector: "p" });
     expect(formats.textContent).toContain("m4a");
-    for (const name of ["aac", "opus"]) {
-      expect(formats.textContent).not.toContain(name);
-    }
+    expect(formats.textContent).not.toContain("aac");
   });
 
   /**

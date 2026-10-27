@@ -31,7 +31,7 @@
     "wavesurfer.js": "^7.12.12"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1",
+    "@playwright/test": "1.64.1",
     "@tauri-apps/cli": "^2.12.4",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "^16.3.3",
