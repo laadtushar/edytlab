@@ -1419,7 +1419,7 @@ The app binary prints the same answer as one line of JSON, with no window,
 when started with `--ml-runtime-status` (`edytlab-desktop --ml-runtime-status`),
 which is how the release workflows check every installer. A library that loads
 is not a model loaded: `transcribe` loads the speech model when it is asked, and
-stem separation is not shipped (#384, #385).
+`separate_stems` loads the stem model when it is asked (#384, #385).
 
 ---
 

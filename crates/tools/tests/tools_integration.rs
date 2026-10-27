@@ -878,12 +878,13 @@ fn default_dispatcher_exposes_all_phase1_tools() {
 }
 
 // ---------------------------------------------------------------------------
-// M18 — `separate_stems` surfaces the model-missing case as an actionable
-// error (rather than panicking), regardless of which model is requested.
+// M18 — `separate_stems` surfaces the model-missing case as an error that
+// tells the agent to leave the setup to the user (rather than panicking),
+// regardless of which model is requested. It runs since #385.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn separate_stems_returns_actionable_error_when_model_missing() {
+fn separate_stems_tells_the_agent_to_leave_the_setup_to_the_user_when_it_cannot_run() {
     // Don't leak DEMUCS_*_MODEL_PATH from the host shell into the test.
     // SAFETY: tests don't run with concurrent threads observing these
     // env vars, and we never spawn subprocesses below.
@@ -902,7 +903,9 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         allowed_tools: None,
     };
 
-    // Default model (htdemucs) → looks at DEMUCS_MODEL_PATH.
+    // With no model variable and no registered models folder, the answer is
+    // the runtime's (CI has none) or the model's (a machine that has the
+    // runtime): either way the user's to fix, and neither is "not implemented".
     let default_msg = err(dispatcher
         .invoke(
             "separate_stems",
@@ -911,9 +914,13 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         )
         .unwrap());
     assert!(
-        default_msg.contains("DEMUCS_MODEL_PATH")
-            && default_msg.contains("not implemented in this build"),
-        "expected DEMUCS_MODEL_PATH install hint, got: {default_msg}"
+        default_msg.contains("Tell the user")
+            && (default_msg.contains("ONNX Runtime") || default_msg.contains("Stem model")),
+        "expected a setup answer for the user, got: {default_msg}"
+    );
+    assert!(
+        !default_msg.contains("not implemented"),
+        "stem separation runs: {default_msg}"
     );
     // The fine-tuned bag has no variable any more: nothing reads it.
     assert!(
@@ -921,7 +928,7 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         "the error names a variable nothing reads: {default_msg}"
     );
 
-    // Naming the model explicitly reads the same variable.
+    // Naming the model explicitly gives the same answer.
     let msg = err(dispatcher
         .invoke(
             "separate_stems",
@@ -929,10 +936,7 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
             &mut ctx,
         )
         .unwrap());
-    assert!(
-        msg.contains("DEMUCS_MODEL_PATH") && msg.contains("not implemented in this build"),
-        "expected DEMUCS_MODEL_PATH install hint, got: {msg}"
-    );
+    assert_eq!(msg, default_msg);
 }
 
 /// `htdemucs_ft` is a bag of four fine-tuned models with no pinned ONNX

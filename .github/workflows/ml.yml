@@ -303,6 +303,15 @@ jobs:
           DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
         run: cargo test -p ml-demucs --release --test real_model -- --ignored --nocapture --test-threads=1
 
+      # The tool around it (#385): the same fixture through `load` and the real
+      # `separate_stems` tool, its progress strip, the cache, Cancel, and a stem
+      # loaded as a track.
+      - name: The separate_stems tool end to end
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+        run: cargo test -p tools --release --test separate_stems_end_to_end -- --ignored --nocapture --test-threads=1
+
       - name: Summary (stems)
         if: always()
         run: |

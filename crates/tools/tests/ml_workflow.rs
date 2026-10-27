@@ -280,6 +280,7 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
             "crates/ml-whisper/tests/transcribe_known_words.rs".to_string(),
             "crates/ml-whisper/tests/transcribe_smoke.rs".to_string(),
             "crates/tools/tests/diarize_end_to_end.rs".to_string(),
+            "crates/tools/tests/separate_stems_end_to_end.rs".to_string(),
             "crates/tools/tests/transcribe_end_to_end.rs".to_string(),
             "crates/tools/tests/transcribe_load_errors.rs".to_string(),
         ],
@@ -375,6 +376,13 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
         read("crates/ml-demucs/tests/onnx_split.rs").contains("htdemucs_split"),
         "the split-model test does not use the committed model"
     );
+    let tool_test = read("crates/tools/tests/separate_stems_end_to_end.rs");
+    for var in ["ORT_DYLIB_PATH", "DEMUCS_MODEL_PATH"] {
+        assert!(
+            tool_test.contains(var),
+            "the separate_stems tool's test does not read {var}"
+        );
+    }
 
     // The caches are keyed by the manifests, so a changed pin misses them.
     for manifest in [
@@ -461,8 +469,10 @@ fn it_fetches_the_pinned_model_and_runtime_and_hands_them_to_the_test() {
     assert!(
         at("The stem pipeline on the real runtime") < at("Cache the stem model")
             && at("Cache the stem model") < fetch_stems
-            && fetch_stems < at("Stem separation on a mix of known stems"),
-        "the stem model is cached, then fetched, then tested"
+            && fetch_stems < at("Stem separation on a mix of known stems")
+            && at("Stem separation on a mix of known stems")
+                < at("The separate_stems tool end to end"),
+        "the stem model is cached, then fetched, then tested, and the tool's test follows the model's"
     );
     // Not the version of the runtime, which belongs to the manifest.
     assert!(

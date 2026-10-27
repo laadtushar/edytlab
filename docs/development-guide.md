@@ -73,7 +73,7 @@ sudo apt-get install -y \
 
 ### ML Model Files (Whisper/Demucs)
 
-**Transcription works; stem separation does not yet.** What each needs:
+**Transcription and stem separation work once their models are on the machine.** What each needs:
 
 - **Transcription** (`transcribe`, #384) runs the pinned Whisper export on
   the CPU. It needs two things on the machine, and the tool never fetches
@@ -101,9 +101,15 @@ sudo apt-get install -y \
 - **Stem separation** (#385): `ml-demucs` runs HT-Demucs v4 on ONNX Runtime
   (`DemucsModel::separate_to_dir`, tested end to end on the real model in the
   `ml.yml` workflow), and the pinned model is `htdemucs` in `models.json` (two
-  files, 170.7 MB, from `Intel/demucs-openvino`). The `separate_stems` **tool is
-  not wired to it yet**, so it still answers "not implemented" and the app does
-  not offer the model for download; both come in the next changes.
+  files, 170.7 MB, from `Intel/demucs-openvino`). The `separate_stems` tool runs
+  it (`track` or `path`; four 16-bit WAVs in `<project>/.audiograph/stem-cache/`,
+  progress per segment, Cancel, a cache kept under 1 GiB; it appends no node, so
+  the agent calls `load` on a stem). It needs the same two things as
+  `transcribe`, and never fetches either: **ONNX Runtime 1.23.2** (`ORT_DYLIB_PATH`
+  in a build from source) and **the stem model**, about 171 MB, which in the app
+  the user downloads in Settings → Account (the row comes in the next change),
+  or `DEMUCS_MODEL_PATH` names a folder of the two files. It needs about 4 GB of
+  free memory and takes about half the audio's length on a 4-core CPU.
 - `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
   pinned model artifact (tested against a local HTTP server). Three models are
   pinned: the speech model `whisper-base` (about 139 MB from
@@ -119,8 +125,8 @@ sudo apt-get install -y \
   a check of the pins:
   `cargo test -p ml-pipeline --test model_real_download -- --ignored --nocapture`.
 - If a model variable below names a model but there is no ONNX Runtime
-  library, `separate_stems` returns a tool error that says so (and that the
-  feature is not implemented in the tool yet), and `transcribe` returns the
+  library, `separate_stems` returns a tool error that says so (telling the
+  agent to leave it to the user), and `transcribe` returns the
   `[onnx_runtime_unavailable]` answer. They used to hang the agent.
 
 [//]: # "historical:begin"

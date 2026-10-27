@@ -169,7 +169,7 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`:
 // 2,875 B (66,786 B to 69,661 B), with the 14 B of headroom kept.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 69_675; // measured 69,661 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B)
+const FULL_TOOLS_MAX_BYTES: usize = 69_786; // measured 69,772 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B; `separate_stems` 111 B net, #385: its descriptor now says what it does and what to tell the user, and is 111 B longer than the not-implemented one)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -478,8 +478,9 @@ fn tool_names_in(tools: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-/// The tools that describe themselves as doing nothing in this build
-/// (stem separation). A small model is not offered them.
+/// The tools that describe themselves as doing nothing in this build (none
+/// now: `separate_stems` was the last, until #385). A small model is not
+/// offered them.
 fn not_implemented_tools() -> BTreeSet<String> {
     ToolDispatcher::default_dispatcher()
         .tool_schemas()
@@ -733,7 +734,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_809; // measured 72,791 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B)
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_916; // measured 72,902 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B; `separate_stems` 111 B, #385)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
@@ -1650,10 +1651,10 @@ async fn ollama_is_shown_the_tools_its_approved_plan_names() {
 /// message, and the request still fits the bound with the names in it.
 #[tokio::test]
 async fn ollama_every_permitted_tool_is_sent_or_named_and_the_bound_holds() {
-    assert!(
-        !not_implemented_tools().is_empty(),
-        "no tool says it is not implemented: has the marker changed?"
-    );
+    // No registered tool says it is not implemented since #385 (the last was
+    // `separate_stems`), so nothing is held back and every one is offered; the
+    // rule stays for a tool that does, and `tool_selection.rs` tests it on a
+    // stub.
     let not_offered = tools_not_offered();
     let permitted: BTreeSet<String> = registered_tool_names()
         .difference(&not_offered)

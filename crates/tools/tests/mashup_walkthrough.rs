@@ -5,7 +5,9 @@
 //!   assembly → render_final.
 //!
 //! The `separate_stems` step is documented via a test that asserts the
-//! graceful error returned when the ONNX model is absent (M28 pending).
+//! graceful error returned when the model (or the runtime) is absent. The
+//! step with a model is `separate_stems_tool.rs` and, on the real one,
+//! `separate_stems_end_to_end.rs`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -552,10 +554,9 @@ fn mashup_synthesis_and_render() {
 /// Document that `separate_stems` fails gracefully when the ONNX model
 /// is not installed.
 ///
-/// This test guards against the tool panicking instead of returning an
-/// actionable `ToolResult::Error`. The stem-separation DSP path is
-/// guarded by M28 (model sourcing); until then the tool must surface a
-/// human-readable message directing the developer to the install hint.
+/// This test guards against the tool panicking instead of returning a
+/// `ToolResult::Error` that says what is missing and leaves the setup to the
+/// user.
 #[test]
 fn separate_stems_returns_model_missing_gracefully() {
     // Serialize all env-var-touching tests to prevent races with parallel runners.

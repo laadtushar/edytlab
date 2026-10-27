@@ -2,10 +2,11 @@
 //!
 //! Transcription and stem separation are headline features on the README
 //! and the marketing site. Neither worked, and every route out of that
-//! was a dead end. (Transcription runs now, #384; stem separation still
-//! does not, and the checks below keep it honest. What is left for
-//! transcription is that nothing sends anyone to a script that does not
-//! exist, and that its model's missing-file error is not an empty success.)
+//! was a dead end. (Transcription runs now, #384, and so does stem
+//! separation, #385. What is left is that nothing sends anyone to a script
+//! that does not exist, that the model's missing-file error is not an empty
+//! success, and that the schemas tell the agent to leave the setup to the
+//! user.)
 //!
 //! * Six production strings — two error messages, two tool schemas, a
 //!   module doc and the in-app card — told the user to run
@@ -313,80 +314,38 @@ fn transcribe_does_not_report_success_with_an_empty_transcript() {
     }
 }
 
-/// The tool schemas the *model* reads must say a feature that does nothing
-/// is unavailable.
-///
-/// This is the one an agent acts on. While the schema described a
-/// working separator with a setup step, the agent would confidently
-/// tell the user to install a model — repeating the dead end rather
-/// than reporting it. (`transcribe` runs now and is checked by
-/// `transcribe_tells_the_agent_what_to_say_when_it_cannot_run`.)
+/// The tools that work must not be described as ones that do not, and must
+/// not leave the agent to invent a setup: the user downloads the model, and
+/// the agent says so (#384 for `transcribe`, #385 for `separate_stems`, which
+/// was the stub this file's first checks were written for: while its schema
+/// described a working separator with a setup step, the agent would
+/// confidently tell the user to install a model, repeating the dead end).
 #[test]
-fn the_schemas_tell_the_agent_the_features_are_unavailable() {
+fn the_tools_that_run_tell_the_agent_what_to_say_when_they_cannot() {
     let dispatcher = tools::ToolDispatcher::default_dispatcher();
     let schemas = dispatcher.tool_schemas();
-    let schemas = schemas.as_array().expect("tool_schemas returns an array");
-
-    {
-        let name = "separate_stems";
+    for name in ["transcribe", "separate_stems"] {
         let schema = schemas
+            .as_array()
+            .expect("tool_schemas returns an array")
             .iter()
             .find(|s| s.get("name").and_then(|v| v.as_str()) == Some(name))
-            .unwrap_or_else(|| panic!("{name} is not registered"));
+            .unwrap_or_else(|| panic!("{name} is registered"));
         let desc = schema
             .get("description")
             .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_lowercase();
+            .unwrap_or_default();
         assert!(
-            desc.contains("not implemented"),
-            "`{name}`'s schema does not tell the agent the feature is unimplemented, so it will \
-             offer it as though it works: {desc}"
-        );
-        // "Not implemented" alone is not enough. A description reading
-        // "not implemented; install the model with ..." passes that
-        // check and sends the agent straight back to the dead end, so
-        // the two properties the fix actually relies on are asserted
-        // separately. Raised in review on #317.
-        assert!(
-            desc.contains("no setup that changes that"),
-            "`{name}`'s schema does not say the state is unfixable, so the agent may still \
-             invent a setup step: {desc}"
+            !desc.to_lowercase().contains("not implemented"),
+            "`{name}` runs, and its schema says it does not: {desc}"
         );
         assert!(
-            desc.contains("do not suggest installing"),
-            "`{name}`'s schema does not tell the agent to stop recommending an install: {desc}"
+            desc.contains("Settings → Account"),
+            "the schema does not say where the user gets the model: {desc}"
+        );
+        assert!(
+            desc.contains("do not try to download, install or configure anything"),
+            "the schema does not stop the agent from inventing a setup: {desc}"
         );
     }
-}
-
-/// The tool that works must not be described as one that does not, and must
-/// not leave the agent to invent a setup: the user downloads the model, and
-/// the agent says so (#384).
-#[test]
-fn transcribe_tells_the_agent_what_to_say_when_it_cannot_run() {
-    let dispatcher = tools::ToolDispatcher::default_dispatcher();
-    let schemas = dispatcher.tool_schemas();
-    let schema = schemas
-        .as_array()
-        .expect("tool_schemas returns an array")
-        .iter()
-        .find(|s| s.get("name").and_then(|v| v.as_str()) == Some("transcribe"))
-        .expect("transcribe is registered");
-    let desc = schema
-        .get("description")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
-    assert!(
-        !desc.to_lowercase().contains("not implemented"),
-        "`transcribe` runs, and its schema says it does not: {desc}"
-    );
-    assert!(
-        desc.contains("Settings → Account"),
-        "the schema does not say where the user gets the model: {desc}"
-    );
-    assert!(
-        desc.contains("do not try to download, install or configure anything"),
-        "the schema does not stop the agent from inventing a setup: {desc}"
-    );
 }
