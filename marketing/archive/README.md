@@ -108,6 +108,10 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 
 Earlier versions of the documents and scripts in `marketing/` (the READMEs, `script.md`, the Python tools) were edited in place rather than replaced, so they are not copied here; `git log -p -- marketing/` shows every version.
 
+## Code analysis
+
+The archive is excluded from code analysis (SonarCloud's `sonar.exclusions` and `sonar.cpd.exclusions` in the root `.sonarcloud.properties`) because it is a record, not code that runs.
+
 ## Adding to the archive
 
 When a PR replaces or removes a video, caption, contact sheet, cue file, timing file, or a rendered image or PDF in `marketing/` or `website/public/demos/`, move the old one here in the same PR: `<what>/<date it landed>-<version or look>/<kind>/`, and add its row above.
