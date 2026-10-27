@@ -101,10 +101,11 @@ sudo apt-get install -y \
 - `DemucsModel::separate` returns `NotImplemented`: **stem separation is a
   stub**, and no configuration makes it work.
 - `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
-  pinned model artifact (tested against a local HTTP server). One model is
-  pinned, the speech model `whisper-base` (about 139 MB from
-  huggingface.co, `crates/ml-pipeline/models.json`), and the app downloads
-  it **only when you click Download** in Settings → Account (`Speech
+  pinned model artifact (tested against a local HTTP server). Two models are
+  pinned: the speech model `whisper-base` (about 139 MB from
+  huggingface.co, `crates/ml-pipeline/models.json`) and the speaker model
+  `speaker-diarization` (about 33 MB, two files, #168), and the app downloads
+  each **only when you click its Download** in Settings → Account (`Speech
   model`; from v0.8.0), with a progress bar, Cancel (a resume with a `Range` request
   carries on from what arrived) and Remove. The `transcribe` tool finds the
   files there with `ml_pipeline::models::cached`, which hashes them (0.7 to 0.9 s in a release
