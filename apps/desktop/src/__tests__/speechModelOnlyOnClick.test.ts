@@ -10,10 +10,11 @@
  *   but `lib/tauri-bridge.ts`, so no other file can `invoke` it;
  * - `downloadMlModel` is used in any file but the bridge (which defines it)
  *   and the row;
- * - the speech and speaker rows (`SpeechModelRow`, `SpeakerModelRow`) only
- *   hand `ModelRow` their words, and the speaker row is mounted by Settings
- *   beside the speech row, nowhere else (so no launch path renders it into a
- *   download: a row asks for a status, never a download);
+ * - the speech, speaker and stem rows (`SpeechModelRow`, `SpeakerModelRow`,
+ *   `StemModelRow`) only hand `ModelRow` their words, and the speaker and stem
+ *   rows are mounted by Settings beside the speech row, nowhere else (so no
+ *   launch path renders them into a download: a row asks for a status, never
+ *   a download);
  * - in the row, `downloadMlModel` is used anywhere but its import and one
  *   call inside the `download` handler; or
  * - in the row, the `download` handler is used for anything but a button's
@@ -107,19 +108,22 @@ function mounting(tag: string): string[] {
 }
 
 describe("downloading a model", () => {
-  it("has the speech and speaker rows mounted by Settings alone", () => {
+  it("has the speech, speaker and stem rows mounted by Settings alone", () => {
     expect(mounting("SpeechModelRow")).toEqual(["components/Settings.tsx"]);
     expect(mounting("SpeakerModelRow")).toEqual(["components/Settings.tsx"]);
+    expect(mounting("StemModelRow")).toEqual(["components/Settings.tsx"]);
   });
 
-  it("gives the two rows their own model ids and no download call of their own", () => {
-    for (const file of ["SpeechModelRow", "SpeakerModelRow"]) {
+  it("gives the three rows their own model ids and no download call of their own", () => {
+    for (const file of ["SpeechModelRow", "SpeakerModelRow", "StemModelRow"]) {
       const path = join(SRC, `components/${file}.tsx`);
       expect(identifiersIn(path, "downloadMlModel"), file).toEqual([]);
       expect(identifiersIn(path, "invoke"), file).toEqual([]);
     }
     const speaker = readFileSync(join(SRC, "lib/speakerModel.ts"), "utf8");
     expect(speaker).toContain('SPEAKER_MODEL_ID = "speaker-diarization"');
+    const stem = readFileSync(join(SRC, "lib/stemModel.ts"), "utf8");
+    expect(stem).toContain('STEM_MODEL_ID = "htdemucs"');
   });
 
   it("names the command in the bridge and nowhere else in src/", () => {

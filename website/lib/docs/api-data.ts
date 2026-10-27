@@ -783,7 +783,7 @@ export const apiAreas: ApiArea[] = [
   {
     slug: "speech-model",
     title: "Speech Model and Runtime",
-    summary: "Check the ONNX Runtime, download, cancel or remove the speech and speaker models, and read the open source licences.",
+    summary: "Check the ONNX Runtime, download, cancel or remove the speech, speaker and stem models, and read the open source licences.",
     sections: [
       {
         kind: "commands",
@@ -792,7 +792,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlRuntimeStatus()",
             returns: "MlRuntimeStatus",
-            desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library runs nothing by itself: no model ships with it, transcribe uses the speech model only once it is downloaded (see Speech Model), and stem separation has not shipped. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
+            desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library runs nothing by itself: no model ships with it, transcribe uses the speech model only once it is downloaded (see Speech Model), and separate_stems the stem model. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
           },
         ],
       },
@@ -803,12 +803,12 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlModelStatus(model)",
             returns: "MlModelStatus",
-            desc: "Where a downloadable model is, for the Speech model and Speaker model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, and speaker-diarization, about 33 MB in two files, both from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
+            desc: "Where a downloadable model is, for the Speech model, Speaker model and Stem model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, speaker-diarization, about 33 MB in two files, and htdemucs, about 171 MB in two files, all from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
           },
           {
             name: "downloadMlModel(model)",
             returns: "MlModelStatus",
-            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base and speaker-diarization); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there.",
+            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base, speaker-diarization and htdemucs); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there; diarize and separate_stems do the same with their models.",
           },
           {
             name: "cancelMlModelDownload(model)",

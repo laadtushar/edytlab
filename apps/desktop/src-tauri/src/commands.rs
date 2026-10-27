@@ -1827,8 +1827,10 @@ pub struct MlModels {
 /// the manifest before the app offers it, but its host must also be named
 /// on the privacy page first. `speaker-diarization` (#168, two files from two
 /// Hugging Face repositories, the host the speech model already uses) is
-/// offered by its own Settings row, and its privacy copy says so.
-pub const OFFERED_ML_MODELS: &[&str] = &["whisper-base", "speaker-diarization"];
+/// offered by its own Settings row, and its privacy copy says so. So is
+/// `htdemucs` (#385, two files from one Hugging Face repository, the same
+/// host): the Stem model row.
+pub const OFFERED_ML_MODELS: &[&str] = &["whisper-base", "speaker-diarization", "htdemucs"];
 
 impl MlModels {
     /// The shipped catalog (`models.json`), kept under `models_dir`, of which
@@ -11561,14 +11563,17 @@ mod tests {
         assert!(err.to_string().contains("no data folder"), "{err}");
     }
 
-    /// The shipped app downloads the two models Settings has a row for
-    /// (`whisper-base`, `speaker-diarization`, #168) and nothing else, even
-    /// a model that is pinned in `models.json`.
+    /// The shipped app downloads the models Settings has a row for
+    /// (`whisper-base`, `speaker-diarization`, #168, and `htdemucs`, #385) and
+    /// nothing else, even a model that is pinned in `models.json`.
     #[test]
     fn the_shipped_app_downloads_only_the_models_settings_offers() {
         let dir = tempfile::tempdir().expect("tempdir");
         let models = MlModels::new(dir.path().join("models"), |_| {});
-        assert_eq!(OFFERED_ML_MODELS, ["whisper-base", "speaker-diarization"]);
+        assert_eq!(
+            OFFERED_ML_MODELS,
+            ["whisper-base", "speaker-diarization", "htdemucs"]
+        );
         for id in OFFERED_ML_MODELS {
             models.check_offered(id).expect("offered");
             // Offered means pinned: the allow-list names no id the catalog lacks.
@@ -11577,6 +11582,8 @@ mod tests {
         for id in [
             "../whisper-base",
             "speaker-diarization/",
+            "htdemucs_ft",
+            "htdemucs/",
             "whisper-tiny",
             "",
         ] {

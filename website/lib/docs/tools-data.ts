@@ -602,9 +602,9 @@ export const toolAreas: ToolArea[] = [
           {
             name: "separate_stems",
             prompt: 'separate the stems on track 1',
-            what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
-            output: "node_id, stem track IDs",
-            note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no stem model to download and no environment variable that changes that. Only htdemucs is a recognised model id.",
+            what: "Split a track (as it sits on the timeline) or a file into four stems with Demucs, on this computer: vocals, drums, bass and other. It writes four WAVs into the project and returns their paths without changing the session; ask for a stem as a track and the assistant loads it. The audio never leaves the computer, and the tool never downloads the stem model. The user can cancel.",
+            output: "model, stem file paths (vocals, drums, bass, other), cached",
+            note: "Needs about 4 GB of free memory and takes about half the audio's length on a four-core processor. The stems are estimates: some of one source stays in another. Separations are kept in the project's stem cache (up to 1 GiB, the least recently used going first); a stem you load is copied into the project. If the stem model or the ONNX Runtime library is missing, the result says so. The user downloads the stem model in Settings → Account. Only htdemucs is a recognised model id.",
           },
           {
             name: "split_by_speaker",

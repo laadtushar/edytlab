@@ -122,6 +122,17 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
+              <td>The stem model (about 171 MB)</td>
+              <td>
+                Downloaded from Hugging Face (huggingface.co) only when you
+                click its Download in Settings, never automatically. Hugging
+                Face sees your IP address, the files you asked for and that
+                the request comes from edytlab (and which version), and
+                nothing about your audio. Splitting a recording into stems
+                with it runs on your computer and makes no request of its own.
+              </td>
+            </tr>
+            <tr>
               <td>Usage data from the app</td>
               <td>None. The app sends no telemetry.</td>
             </tr>

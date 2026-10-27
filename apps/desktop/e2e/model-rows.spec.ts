@@ -1,11 +1,11 @@
 /**
- * The model rows in Settings → Account (the speech model, #383, and the
- * speaker model, #168), in a real browser.
+ * The model rows in Settings → Account (the speech model, #383, the speaker
+ * model, #168, and the stem model, #385), in a real browser.
  *
- * The two rows are the same component with different words, so one table
- * drives the same behaviours for each: every test below runs once per entry
- * of `MODELS`, with the same assertions, and a check only one row has (the
- * speaker model's two files and licence credit) is an `extra` of its entry.
+ * The rows are the same component with different words, so one table drives
+ * the same behaviours for each: every test below runs once per entry of
+ * `MODELS`, with the same assertions, and a check only one row has (the
+ * speaker model's licence credit, say) is an `extra` of its entry.
  *
  * jsdom cannot see where the row is drawn: that it fits in the dialog at
  * the smallest window, that the progress bar's fill is the share of its
@@ -26,8 +26,11 @@ import {
   speakerModelStatus,
   speechModelCommands,
   speechModelStatus,
+  stemModelCommands,
+  stemModelStatus,
   SPEAKER_MODEL_BYTES,
   SPEECH_MODEL_BYTES,
+  STEM_MODEL_BYTES,
 } from "./backend";
 import { expect, test, type App } from "./fixtures";
 
@@ -42,7 +45,7 @@ interface ModelRow {
   /** The model id every command is called with. */
   id: string;
   /** The key `modelStatuses` takes this row's status under. */
-  statusKey: "speech" | "speaker";
+  statusKey: "speech" | "speaker" | "stem";
   /** The row's id, and the prefix of the test ids inside it. */
   rowTestId: string;
   prefix: string;
@@ -127,6 +130,40 @@ const MODELS: ModelRow[] = [
     longReason:
       "downloading https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/f0c48c298fd835726c27956a5d617bad7115627e/voxceleb_resnet34_LM.onnx failed (HTTP 503): Service Unavailable",
   },
+  {
+    name: "stem model",
+    id: "htdemucs",
+    statusKey: "stem",
+    rowTestId: "settings-stem-model",
+    prefix: "stem-model",
+    commands: stemModelCommands,
+    status: stemModelStatus,
+    bytes: STEM_MODEL_BYTES,
+    about: "Stem separation (HT-Demucs v4), 171 MB, from Hugging Face.",
+    downloadText: "Download (171 MB)",
+    noteParts: [
+      "runs on this computer",
+      "once it is downloaded",
+      "4 GB of free memory",
+      "two files",
+      "huggingface.co",
+    ],
+    extra: async (page) => {
+      // The licences the two files ask to be credited.
+      const licences = page.getByTestId("stem-model-licences");
+      await expect(licences).toContainText("MIT");
+      await expect(licences).toContainText("Meta");
+      await expect(licences).toContainText("Intel");
+    },
+    halfText: "85.4 of 170.7 MB (50%)",
+    readyText: "Ready: 171 MB on disk. Ask the assistant to separate the stems of a track.",
+    cancelPercent: "11",
+    partialText: "20.5 of 170.7 MB already downloaded",
+    removeSubject: "Remove the stem model",
+    removeSize: "171 MB",
+    longReason:
+      "downloading https://huggingface.co/Intel/demucs-openvino/resolve/efb3d2bc54f93899b13b72b12c57001e19f09ae2/htdemucs_v4/htdemucs_fwd.onnx.data failed (HTTP 503): Service Unavailable",
+  },
 ];
 
 const PROGRESS = "ml-model-progress";
@@ -169,7 +206,7 @@ for (const m of MODELS) {
       expect(await app.requestsFor("ml_model_status")).toEqual(
         expect.arrayContaining([{ model: m.id }]),
       );
-      expect(await app.requestsFor("ml_model_status")).toHaveLength(2);
+      expect(await app.requestsFor("ml_model_status")).toHaveLength(MODELS.length);
       for (const cmd of ["download_ml_model", "cancel_ml_model_download", "remove_ml_model"]) {
         expect(await app.requestsFor(cmd), `${cmd} was called`).toEqual([]);
       }

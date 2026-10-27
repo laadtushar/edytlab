@@ -341,7 +341,8 @@ fn the_offered_list_is_checked_by_the_download_command_before_it_starts() {
     let list = &text[at..end];
     assert!(list.contains("\"whisper-base\""), "{list}");
     assert!(list.contains("\"speaker-diarization\""), "{list}");
-    assert_eq!(list.matches('"').count(), 4, "unexpected models in {list}");
+    assert!(list.contains("\"htdemucs\""), "{list}");
+    assert_eq!(list.matches('"').count(), 6, "unexpected models in {list}");
 }
 
 /// No tool, agent path or startup code names either model's *download*:

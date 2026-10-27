@@ -66,6 +66,7 @@ import { OpenSourceLicencesRow } from "./OpenSourceLicencesRow";
 import { RecordingLatencyRow } from "./RecordingLatencyRow";
 import { SpeakerModelRow } from "./SpeakerModelRow";
 import { SpeechModelRow } from "./SpeechModelRow";
+import { StemModelRow } from "./StemModelRow";
 import { ProjectEditor } from "./ProjectEditor";
 import { SkillsEditor } from "./SkillsEditor";
 import { IDENTIFIER_INPUT } from "../lib/identifierInput";
@@ -1653,13 +1654,14 @@ export function Settings({
               is no use to someone who has not set a key yet. The speech
               model's row follows it (#383): the one place a model is
               downloaded, and only when Download is pressed. The speaker
-              model's row (#168) follows the speech model's, on the same
-              terms. */}
+              model's row (#168) follows the speech model's, and the stem
+              model's (#385) the speaker model's, on the same terms. */}
           {mode === "panel" ? (
             <>
               <MlRuntimeLine />
               <SpeechModelRow />
               <SpeakerModelRow />
+              <StemModelRow />
               <OpenSourceLicencesRow />
             </>
           ) : null}
