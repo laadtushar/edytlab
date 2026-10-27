@@ -91,6 +91,16 @@ pub struct SessionOptions {
     /// Preferred execution provider. Unsupported platform combinations
     /// retain the registry's CPU fallback behavior.
     pub execution_provider: ExecProvider,
+    /// ONNX Runtime's CPU memory arena. `None` keeps its default (on). The
+    /// arena keeps what a run allocated for the next one, which is faster and,
+    /// for a model with large intermediate tensors, holds the peak for the
+    /// life of the session (htdemucs: gigabytes, #385); `Some(false)` hands
+    /// memory back as each tensor is freed.
+    pub cpu_memory_arena: Option<bool>,
+    /// ONNX Runtime's memory-pattern planning, which reuses the layout of one
+    /// run for the next when the input shapes repeat. `None` keeps its default
+    /// (on).
+    pub memory_pattern: Option<bool>,
 }
 
 impl Default for SessionOptions {
@@ -99,6 +109,8 @@ impl Default for SessionOptions {
             intra_op_threads: None,
             optimization_level: None,
             execution_provider: ExecProvider::Cpu,
+            cpu_memory_arena: None,
+            memory_pattern: None,
         }
     }
 }
@@ -129,7 +141,20 @@ pub fn build(path: &Path, options: SessionOptions) -> Result<Session> {
             .with_optimization_level(level)
             .map_err(|error| Error::Ort(error.to_string()))?;
     }
+    if let Some(enable) = options.memory_pattern {
+        builder = builder
+            .with_memory_pattern(enable)
+            .map_err(|error| Error::Ort(error.to_string()))?;
+    }
     let mut builder = apply_execution_provider(builder, options.execution_provider)?;
+    if let Some(enable) = options.cpu_memory_arena {
+        // Last, so it is the fallback behind any provider asked for above.
+        builder = builder
+            .with_execution_providers([ort::ep::CPU::default()
+                .with_arena_allocator(enable)
+                .build()])
+            .map_err(|error| Error::Ort(error.to_string()))?;
+    }
     Ok(builder.commit_from_file(path)?)
 }
 
