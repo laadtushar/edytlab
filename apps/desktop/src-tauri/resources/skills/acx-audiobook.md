@@ -1,8 +1,8 @@
 ---
 name: acx-audiobook
 description: Measure, clean, level and re-measure an audiobook narration against ACX's rules
-trigger: keywords
-keywords: [acx, audiobook, audible, narration, narrator, noise floor, rms, peak, qc, quality check]
+trigger: regex
+pattern: \b(acx|audible|audio ?books?|narrat(or|ion)s?)\b
 enabled: true
 ---
 
