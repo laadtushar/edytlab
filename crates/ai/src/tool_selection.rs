@@ -214,7 +214,10 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// raised on its own branch; with both, the built-in names are 1,265 B and
 /// the smallest budget that leaves 400 B for MCP names is 1,665 B.
 /// `diarize` is left out of a slim request until a message names it.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_665;
+/// #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`,
+/// 53 B of names with their separators: the built-in names are 1,318 B and
+/// the smallest budget that leaves 400 B for MCP names is 1,718 B.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_718;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still
@@ -651,7 +654,7 @@ impl SlimSelection {
             listed.push_str(&format!("and {more} more"));
         }
         Some(format!(
-            "More tools you can call by exact name, though their schemas are not shown here (a \
+            "More tools you can call by exact name, without schemas here (a \
              call with wrong arguments is rejected and says what is wrong): {listed}."
         ))
     }

@@ -1,0 +1,25 @@
+# cargo-nextest settings (https://nexte.st/docs/configuration/). CI selects
+# the `ci` profile with `cargo nextest run --profile ci`; a developer who
+# runs `cargo nextest run` gets `default`. nextest runs each test in its own
+# process, so a test's process-wide statics (the live-store registry, the
+# model cache, `set_bundle_dir`) are never shared with another test. It does
+# not run doctests: `cargo test --doc` does (see .github/workflows/ci.yml).
+
+[profile.default]
+# Mark a test slow after a minute so a hang shows in the output.
+slow-timeout = "60s"
+
+[profile.ci]
+# Run every test and report all failures, as `cargo test --no-fail-fast` did.
+fail-fast = false
+# A test is marked slow after 60 s and killed after 20 minutes (60 s x 20):
+# a guard against a hung test holding a runner for the job's 45-minute cap,
+# not a performance bound. Nothing in the suite is meant to take that long;
+# the real-model tests that do are `#[ignore]`d and run by ml.yml.
+slow-timeout = { period = "60s", terminate-after = 20 }
+# No retries on purpose. A retry would turn a test that fails under
+# parallelism into a green run with a "FLAKY" note nobody reads. If a test
+# turns out to need the old one-at-a-time behaviour, give it a test group
+# (https://nexte.st/docs/configuration/test-groups/) with `max-threads = 1`
+# in an `[[profile.ci.overrides]]` for that test rather than slowing the suite.
+retries = 0

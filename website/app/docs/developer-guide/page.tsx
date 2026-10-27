@@ -38,8 +38,8 @@ export default function DeveloperGuidePage() {
           </tr>
           <tr>
             <td>Node.js</td>
-            <td>20+</td>
-            <td>LTS recommended</td>
+            <td>22.22.2+</td>
+            <td>CI uses 24</td>
           </tr>
           <tr>
             <td>pnpm</td>
@@ -92,7 +92,7 @@ pnpm tauri:dev             # dev mode; incremental builds take under 30 s`}</cod
   cli/                Headless one-turn agent driver (E2E tests)
 crates/
   ai/                 LLM providers, agent loop, keychain
-  tools/              96 audio-editing tools
+  tools/              99 audio-editing tools
   session/            Session DAG data model and store
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by tools and render
@@ -101,7 +101,7 @@ crates/
   audio-analysis/     BPM, key, beat grid
   recorder/           Microphone capture to WAV; recording-latency measurement
   ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
-  ml-diarize/         Speaker diarization (pyannote's pipeline on ONNX; no tool runs it yet)
+  ml-diarize/         Speaker diarization (pyannote's pipeline on ONNX; the diarize tool runs it)
   ml-whisper/         Transcription (ONNX Whisper; run by transcribe)
   ml-pipeline/        Shared ONNX runtime gate (finds the bundled library), model downloader (called by the user's Download click), inference cache
   memory/             Global/project markdown memory

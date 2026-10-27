@@ -473,7 +473,7 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: pnpm install
@@ -502,7 +502,7 @@ jobs:
       # below sends exactly what was checked (see the header).
       - name: Build unsigned bundle via tauri-action
         id: build
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         with:
           projectPath: apps/desktop
           args: ${{ matrix.platform.args }}

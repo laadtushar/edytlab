@@ -12,25 +12,109 @@ on:
 # auto-release. Rapid back-to-back merges to main were the symptom:
 # each merge triggered CI, the next merge cancelled the prior, and we
 # missed dev releases for those commits.
+#
+# `cancel-in-progress: false` is not enough on its own: GitHub also cancels
+# a run that is still *pending* when a newer run joins the same group
+# (https://docs.github.com/en/actions/using-jobs/using-concurrency), and
+# that is what main's history shows (runs 1570 and 1571 ended `cancelled`
+# while their successor queued). So a main run gets a group of its own, the
+# run id, and no push to main can displace another.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: short
+  # No debug info in CI builds (the dev and test profiles). The workspace
+  # links ~190 integration-test executables plus the app's, and with full
+  # debug info each link writes debug data (a PDB on Windows) that CI never
+  # reads, and a panic still names its file and line
+  # (that comes from the panic location, not from DWARF). Tauri's own CI
+  # sets CARGO_PROFILE_DEV_DEBUG=0 for this reason and Bevy sets both:
+  # https://github.com/tauri-apps/tauri/blob/dev/.github/workflows/test-core.yml
+  # https://github.com/bevyengine/bevy/blob/main/.github/workflows/ci.yml
+  # rust-cache hashes every CARGO* variable into its key, so this one
+  # empties the cache once.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 permissions:
   contents: read
 
 jobs:
+  # Decides whether the macOS and Windows legs of `build` have anything to
+  # test. Both exist for platform-specific code (keychain, ONNX Runtime
+  # loading, file identity, the recorder), and a change that touches only
+  # `website/`, `marketing/`, `docs/` or a root-level Markdown file cannot
+  # change what they check. The Linux leg still runs every test, so the
+  # Rust tests that read the site and the docs (`website_tool_docs.rs`,
+  # `website_provider_claims.rs`, `tools_reference_doc.rs`, ...) still run
+  # on such a PR; that is why this does not skip Rust as a whole.
+  #
+  # It is a job, not a `paths:` filter, on purpose: a workflow skipped by
+  # `paths:` leaves its required checks Pending and blocks the merge, while
+  # a job that runs and skips its own steps reports Success
+  # (https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks).
+  # `build` keeps running as a matrix, with the same three check names, and
+  # only its steps are conditional. A job-level `if:` on a matrix job would
+  # report one check named `build (${{ matrix.platform.name }})`, which
+  # none of the required names match.
+  #
+  # Same technique as astral-sh/uv (checkout depth 2 on a pull request) and
+  # zed-industries/zed (a `git diff --name-only` in a job of its own):
+  # https://github.com/astral-sh/uv/blob/main/.github/workflows/ci.yml
+  # https://github.com/zed-industries/zed/blob/main/.github/workflows/run_tests.yml
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      native: ${{ steps.diff.outputs.native }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # On a pull request the checkout is the merge commit, whose first
+          # parent is the base: depth 2 holds both.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      - name: Do the macOS and Windows legs have work?
+        id: diff
+        run: |
+          native=true
+          if [ "${{ github.event_name }}" = "pull_request" ] && git rev-parse --verify -q HEAD^2 >/dev/null; then
+            changed=$(git diff --name-only HEAD^1 HEAD)
+            echo "Changed files:"; echo "$changed"
+            # A file outside website/, marketing/, docs/, a root-level *.md,
+            # docs.json and .mintignore is Rust, frontend, script or workflow
+            # input. An empty diff counts as no work.
+            if ! echo "$changed" | grep -qvE '^(website|marketing|docs)/|^[^/]+\.md$|^docs\.json$|^\.mintignore$'; then
+              native=false
+            fi
+          fi
+          echo "native=$native" >> "$GITHUB_OUTPUT"
+          echo "native=$native"
+
   build:
     name: build (${{ matrix.platform.name }})
+    needs: changes
+    # Runs even when `changes` failed (then `native` is empty and the legs
+    # run in full), so a broken detector can never leave the three required
+    # checks unreported.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.platform.runner }}
-    # 45, not 30: a warm Windows run already takes ~27 min, and a toolchain
-    # bump empties the cache (rust-cache keys on rustc), so the first run
-    # after one compiles cold; a cancelled job saves no cache, so a run that
+    env:
+      # False only for macOS and Windows on a pull request that touched
+      # nothing `changes` counts. Every step below that costs time carries
+      # `if: env.RUN_NATIVE == 'true'`.
+      RUN_NATIVE: ${{ matrix.platform.name == 'linux-x86_64' || needs.changes.outputs.native != 'false' }}
+    # 45, not 30: a warm Windows run took ~27 min before nextest, the Dev
+    # Drive and the frontend's move to its own job, and a toolchain bump (or
+    # a change to a CARGO* variable above) empties the cache (rust-cache
+    # keys on rustc and those variables), so the first run after one
+    # compiles cold; a cancelled job saves no cache, so a run that
     # timed out would leave the next one cold too.
     timeout-minutes: 45
     strategy:
@@ -46,6 +130,7 @@ jobs:
 
     steps:
       - name: Checkout
+        if: env.RUN_NATIVE == 'true'
         uses: actions/checkout@v7
 
       # Linux Tauri builds need GTK/WebKit/AppIndicator system libs.
@@ -118,7 +203,34 @@ jobs:
             install_deps
           }
 
+      # Windows only: the build directory on a Dev Drive (ReFS), mounted at
+      # <workspace>/target so cargo, rust-cache and every path in the repo
+      # see the same `target/`. A Dev Drive is a ReFS volume with Microsoft
+      # Defender in performance mode, built for build output: this job
+      # writes and then launches ~190 new test executables, each one scanned
+      # on NTFS. Microsoft: "Dev Drive ... to improve performance for key
+      # developer workloads" and build output is on its list of what to put
+      # there (https://learn.microsoft.com/en-us/windows/dev-drive/); the
+      # action's README measures "about 25% or more" on build and test
+      # (https://github.com/samypr100/setup-dev-drive), and astral-sh/uv
+      # runs its Windows tests on one
+      # (https://github.com/astral-sh/uv/blob/main/.github/workflows/setup-dev-drive.ps1).
+      # After checkout, because mounting onto the workspace folder itself
+      # makes checkout fail (the action's README). 16 GB is a dynamic
+      # (sparse) size below the ~15 GB the README gives as free on a public
+      # runner; the debug-less target is far smaller. `trusted-dev-drive`
+      # is what selects Defender's performance mode.
+      - name: Set up Dev Drive for target/ (Windows)
+        if: matrix.platform.name == 'windows-x86_64' && env.RUN_NATIVE == 'true'
+        uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+        with:
+          drive-size: 16GB
+          drive-format: ReFS
+          mount-path: ${{ github.workspace }}/target
+          trusted-dev-drive: true
+
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        if: env.RUN_NATIVE == 'true'
         # `@stable` bootstraps rustup; the rust-toolchain.toml in the
         # repo (channel = 1.90 + rustfmt + clippy) is then auto-applied
         # by rustup's shim on the first cargo invocation. The `@master`
@@ -129,6 +241,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo registry & target
+        if: env.RUN_NATIVE == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -143,32 +256,55 @@ jobs:
           # step had passed. PRs still restore main's cache.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-        # Version is read from packageManager in package.json (single source of truth).
-
-      - name: Install Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: pnpm install
-        run: pnpm install --frozen-lockfile
-
+      # Formatting is the same on every OS (rustfmt reads rustfmt.toml and
+      # the sources, not the platform), so one leg checks it.
       - name: cargo fmt --check
+        if: matrix.platform.name == 'linux-x86_64'
         run: cargo fmt --all --check
 
+      # Per OS, deliberately: 34 source files carry `cfg(target_os)`,
+      # `cfg(windows)` or `cfg(unix)` (keychain, ONNX Runtime loading,
+      # file identity, the recorder, the ChatGPT token store), and clippy
+      # only lints the code a platform compiles. It costs ~1.5 min a leg
+      # on a warm cache (run 40381239991).
       - name: cargo clippy
+        if: env.RUN_NATIVE == 'true'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: cargo test
-        # `--test-threads=1` serialises tests within each binary so
-        # tests sharing global state (e.g. crates/ai's model cache)
-        # don't race. Specifically `cache_returns_within_ttl` was
-        # flaking on Windows when scheduled alongside another test
-        # that calls `clear_cache()`.
-        run: cargo test --workspace --no-fail-fast -- --test-threads=1
+      # cargo-nextest runs each test in its own process
+      # (https://nexte.st/docs/design/why-process-per-test/), so the global
+      # state `--test-threads=1` used to protect cannot be shared in the
+      # first place: `--test-threads=1` came in with #48 to stop
+      # `cache_returns_within_ttl` racing another test that clears crates/ai's
+      # process-wide model cache on Windows, and a statically shared cache
+      # now belongs to one test's process. The registry, `set_bundle_dir`,
+      # `set_settings_dir` and `tools::progress` are in-process statics, so
+      # they are isolated the same way. What nextest does not isolate is a
+      # file or port outside the process: the tests use temp dirs and no
+      # fixed port (`git grep` for both found none), and the OS keychain
+      # tests are `#[ignore]`d. Tests run in parallel, one per core, where
+      # `cargo test -- --test-threads=1` ran them one at a time.
+      # Settings are in .config/nextest.toml (profile `ci`).
+      # Pinned: the action to a release tag more than two weeks old, the
+      # tool to a version older than that.
+      - name: Install cargo-nextest
+        if: env.RUN_NATIVE == 'true'
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest@0.9.146
+
+      - name: cargo nextest run
+        if: env.RUN_NATIVE == 'true'
+        run: cargo nextest run --workspace --profile ci
+
+      # nextest does not run doctests ("Doctests are currently not
+      # supported because of limitations in stable Rust",
+      # https://nexte.st/docs/running/), and the workspace has some
+      # (`LiveStore`'s `compile_fail` one pins that the open project can
+      # only be a store the registry made). `--doc` builds nothing else.
+      - name: cargo test --doc
+        if: env.RUN_NATIVE == 'true'
+        run: cargo test --workspace --doc --no-fail-fast
 
       # A model run on the real ONNX Runtime, the version the app pins
       # (#383). `ml-pipeline`'s `cache_smoke` tests build a session from
@@ -210,6 +346,39 @@ jobs:
         # green without having run a model.
         run: cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real --test onnx_session_builder -- --ignored --test-threads=1
 
+      # Full Tauri bundle build is intentionally NOT in CI: it triples wall clock
+      # and the release workflows (release-dev.yml / release-signed.yml) cover
+      # path. CI only verifies that source compiles and tests pass.
+
+  # The frontend (vitest, the slow-scheduler run, `tsc -b` + vite build),
+  # once, on Linux, in parallel with the Rust legs. It used to run at the
+  # end of all three `build` legs, ~3 min of a Windows leg that is the
+  # slowest job. The bundle and the tests do not depend on the OS: jsdom
+  # runs them in Node, the webview is not in the loop, and the real-browser
+  # run is `e2e (chromium)` below, on Linux only. `frontend (test)` is a new
+  # check name: a branch rule that relied on `build (...)` to cover the
+  # frontend has to require it too.
+  frontend:
+    name: frontend (test)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        # Version is read from packageManager in package.json (single source of truth).
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
       # The frontend test suite was not run by CI at all.
       #
       # `cargo test` covers the Rust side and `pnpm build` proves the
@@ -232,7 +401,6 @@ jobs:
       # be slow — which is how #343 went red on a test it never touched.
       # One leg: timing is what it varies, not the OS.
       - name: pnpm test (frontend, slow scheduler)
-        if: matrix.platform.name == 'linux-x86_64'
         run: pnpm --filter @edytlab/desktop test:slow-scheduler
 
       # `build` runs `tsc -b`, which type-checks the app, its tests and
@@ -242,10 +410,6 @@ jobs:
       # tsconfig.json is a solution file and plain `tsc` checks nothing.
       - name: pnpm build (frontend)
         run: pnpm --filter @edytlab/desktop build
-
-      # Full Tauri bundle build is intentionally NOT in CI: it triples wall clock
-      # and the release workflows (release-dev.yml / release-signed.yml) cover
-      # path. CI only verifies that source compiles and tests pass.
 
   # The frontend in a real browser (apps/desktop/e2e). jsdom has no
   # layout, no Web Audio and no shadow DOM anything renders into, so a
@@ -270,7 +434,7 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: pnpm install
@@ -323,7 +487,7 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
           cache-dependency-path: website/pnpm-lock.yaml
 

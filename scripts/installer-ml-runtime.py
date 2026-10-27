@@ -568,6 +568,27 @@ def describe_dll(path):
         print("imports: %s" % name)
 
 
+def with_packed_apps(paths):
+    """`paths` plus the .app.tar.gz tauri-action packs beside each .app.
+
+    A missing tarball is a warning, not a failure: release-signed.yml never
+    uploads it, so only a rename on tauri-action's side should be noticed, and
+    the .app itself and every other path are still checked.
+    """
+    out = []
+    for path in paths:
+        out.append(path)
+        if not path.endswith(".app"):
+            continue
+        packed = path + ".tar.gz"
+        if Path(packed).is_file():
+            out.append(packed)
+        else:
+            print("::warning::no %s beside the .app; tauri-action's tarball naming may have changed" % packed,
+                  flush=True)
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -586,11 +607,7 @@ def main():
     elif args.command == "check":
         artifacts = list(args.artifacts)
         if args.paths_json:
-            for path in json.loads(args.paths_json):
-                artifacts.append(path)
-                packed = path + ".tar.gz"
-                if path.endswith(".app") and Path(packed).is_file():
-                    artifacts.append(packed)
+            artifacts.extend(with_packed_apps(json.loads(args.paths_json)))
         if not artifacts:
             die("no installers to check")
         check(args.platform, artifacts, args.signed)

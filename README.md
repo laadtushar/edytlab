@@ -46,7 +46,7 @@ The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails
 Prerequisites:
 
 - Rust toolchain pinned by `rust-toolchain.toml` (currently 1.90, installs automatically via `rustup`)
-- Node 20+ and `pnpm` 9.15+
+- Node 22.22.2+ (CI uses 24) and `pnpm` 9.15+
 - Platform Tauri prerequisites: see <https://tauri.app/start/prerequisites/> (Xcode CLT on macOS, MSVC build tools + WebView2 on Windows, the WebKitGTK / GTK / ALSA dev packages on Linux — the exact `apt` list is in [`docs/development-guide.md`](docs/development-guide.md#linux-ubuntu-2204))
 
 ```bash
@@ -93,7 +93,7 @@ Ollama is sent a smaller set of tools than the hosted providers: the common edit
 ┌──────────────────────────────────────────────────────────────────┐
 │  Rust core (cargo workspace)                                     │
 │   crates/ai          — LlmProvider trait, agent loop, keychain   │
-│   crates/tools       — 96 deterministic tools + dispatcher       │
+│   crates/tools       — 99 deterministic tools + dispatcher       │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, DSP, engine, time-domain ops      │
 │   crates/ml-*        — Demucs (not shipped), Whisper (runs)      │
@@ -127,7 +127,7 @@ apps/
   cli/                Headless one-turn agent driver (edytlab-cli) for E2E tests and smoke runs
 crates/
   ai/                 LLM provider abstraction, agent loop, keychain, prompt cache
-  tools/              96 audio-editing tools (load, cut, gain, normalize, render, …)
+  tools/              99 audio-editing tools (load, cut, gain, normalize, render, …)
   session/            Session-graph data model, DAG storage, fork/diff/compare
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by the tools and the renderer (no dependencies)
