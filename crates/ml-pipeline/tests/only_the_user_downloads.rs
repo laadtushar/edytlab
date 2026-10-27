@@ -308,3 +308,59 @@ fn startup_and_the_setup_hook_do_not_download() {
         );
     }
 }
+
+/// The speaker-diarization model (#168) is downloaded the same way as the
+/// speech model: by the same command, after the same allow-list. Two models
+/// are offered, each from its own Settings row, and the allow-list is read
+/// in one place only: the body of `download_ml_model`, before it starts
+/// anything. A second reader (or no reader) of the list would be a model
+/// that is started without the check.
+#[test]
+fn the_offered_list_is_checked_by_the_download_command_before_it_starts() {
+    let (_, text) = other_sources()
+        .into_iter()
+        .find(|(p, _)| p == "apps/desktop/src-tauri/src/commands.rs")
+        .expect("commands.rs");
+
+    let (open, close) =
+        body_of(&text, "download_ml_model").expect("the download_ml_model command exists");
+    let body = &text[open..close];
+    let check = body
+        .find("check_offered")
+        .expect("download_ml_model checks the offered list");
+    let start = body
+        .find("start_download")
+        .expect("download_ml_model starts the download");
+    assert!(check < start, "the offered list is checked after the start");
+
+    // The list names exactly the models that have a Settings row.
+    let at = text
+        .find("pub const OFFERED_ML_MODELS")
+        .expect("the offered list");
+    let end = at + text[at..].find(';').expect("the list ends");
+    let list = &text[at..end];
+    assert!(list.contains("\"whisper-base\""), "{list}");
+    assert!(list.contains("\"speaker-diarization\""), "{list}");
+    assert_eq!(list.matches('"').count(), 4, "unexpected models in {list}");
+}
+
+/// No tool, agent path or startup code names either model's *download*:
+/// a tool finds a model that is already there (`models::cached`) and says it
+/// is not downloaded when it is missing. The two ids may be named by the
+/// tools that look for them, but the downloader's types may not (that is
+/// `nothing_outside_ml_pipeline_names_the_downloader`), and no source other
+/// than `commands.rs` may name the allow-list.
+#[test]
+fn only_the_desktop_commands_name_the_offered_list() {
+    for (path, text) in other_sources() {
+        if path == "apps/desktop/src-tauri/src/commands.rs"
+            || path == "apps/desktop/src-tauri/src/lib.rs"
+        {
+            continue;
+        }
+        assert!(
+            !mentions(&text, "OFFERED_ML_MODELS"),
+            "{path} names `OFFERED_ML_MODELS`; only the desktop commands decide what Settings offers"
+        );
+    }
+}

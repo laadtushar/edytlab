@@ -290,18 +290,19 @@ export const octoberPosts: BlogPost[] = [
     slug: "which-llm-should-drive-your-audio-editor",
     title: "Which LLM Should Drive Your Audio Editor?",
     date: "2026-10-09",
+    dateModified: "2026-10-27",
     description:
-      "edytlab works with six LLM providers, one of them local. How to weigh Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama, and how to switch in Settings.",
+      "Six API providers, one local, plus your ChatGPT plan. How to weigh Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama, and how to switch in Settings.",
     coverAlt:
       "A central agent node with six spokes to six provider nodes, one drawn as a laptop to mark the local option",
     excerpt:
-      "edytlab does not ship a model. You pick one of six providers, and the choice shapes cost, speed, privacy and how well a long edit holds together. Here is how to think about it.",
+      "edytlab does not ship a model. You pick one of six API providers or your ChatGPT plan, and the choice shapes cost, speed, privacy and how well a long edit holds together. Here is how to think about it.",
     readTime: 5,
     tags: ["LLM providers", "Ollama", "bring your own key", "privacy"],
     body: [
       {
         type: "p",
-        text: "The editing in edytlab is done by its own audio engine. The language model only decides which tools to call, and with what settings. That makes the model a swappable part, and the choice is yours: six providers, each with its own key, one of them running on your own computer.",
+        text: "The editing in edytlab is done by its own audio engine. The language model only decides which tools to call, and with what settings. That makes the model a swappable part, and the choice is yours: six API providers, each with its own key except the one that runs on your own computer, or your ChatGPT plan.",
       },
       { type: "h2", text: "What the model does, and what it never sees" },
       {
@@ -312,7 +313,7 @@ export const octoberPosts: BlogPost[] = [
         type: "p",
         text: "So the model matters for how well your sentence turns into the right sequence of tools, not for how the result sounds. A given tool call produces the same audio whichever model made it.",
       },
-      { type: "h2", text: "The six providers" },
+      { type: "h2", text: "The six API providers" },
       {
         type: "ul",
         items: [
@@ -323,6 +324,10 @@ export const octoberPosts: BlogPost[] = [
           "**Google Gemini.** Gemini models with a long context window.",
           "**Ollama (local).** Models running on your own machine through Ollama. No account and no key, and nothing leaves the computer, not even the chat.",
         ],
+      },
+      {
+        type: "p",
+        text: "Besides those six, you can run the agent on your ChatGPT plan. It signs in with your ChatGPT account instead of a key, and it is a preview.",
       },
       { type: "h2", text: "Trade-offs, without the benchmarks" },
       {
@@ -381,7 +386,7 @@ export const octoberPosts: BlogPost[] = [
       {
         type: "p",
         text:
-          "A short, concrete request like that one is a good test: it has three tools in a fixed order, and any model that handles it has cleared the basic bar. The [Models section of the home page](/#providers) lists the six providers with links to their key pages, and [the latest release](" +
+          "A short, concrete request like that one is a good test: it has three tools in a fixed order, and any model that handles it has cleared the basic bar. The [Models section of the home page](/#providers) lists the six API providers with links to their key pages (the ChatGPT plan signs in instead of using a key), and [the latest release](" +
           RELEASES +
           ") has installers for macOS, Windows and Linux.",
       },

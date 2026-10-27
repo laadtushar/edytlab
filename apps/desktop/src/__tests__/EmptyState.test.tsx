@@ -72,21 +72,20 @@ describe("EmptyState", () => {
 
   /**
    * The landing screen advertises what `audio-decoder` opens: symphonia is
-   * built with mp3, wav, flac, ogg + vorbis and aiff (#764). Nothing provides
-   * isomp4 or aac (a patent licence stands in the way), and no published
-   * symphonia decodes Opus, so an .m4a or .opus advertised here would fail on
-   * open. `crates/audio-decoder/tests/supported_extensions.rs` holds this
+   * built with mp3, wav, flac, ogg + vorbis and aiff, and `opus-decoder`
+   * covers Opus (#764). Nothing provides isomp4 or aac (a patent licence
+   * stands in the way), so an .m4a advertised here would fail on open. `crates/audio-decoder/tests/supported_extensions.rs` holds this
    * line equal to the decoder's own list.
    */
   it("advertises only formats the decoder can actually open", () => {
     render(<EmptyState onOpen={() => {}} />);
     const formats = screen.getByText(/wav/i, { selector: "p" });
 
-    for (const name of ["wav", "mp3", "flac", "ogg", "aiff"]) {
+    for (const name of ["wav", "mp3", "flac", "ogg", "opus", "aiff"]) {
       expect(formats.textContent).toContain(name);
     }
 
-    for (const name of ["m4a", "aac", "opus"]) {
+    for (const name of ["m4a", "aac"]) {
       expect(
         formats.textContent,
         `${name} has no decoder compiled in; loading one fails`,

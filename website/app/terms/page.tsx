@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalShell title="Terms of use" path="/terms" updated="2026-10-25">
+    <LegalShell title="Terms of use" path="/terms" updated="2026-10-27">
       <p>
         These terms govern your use of the edytlab desktop application and this
         marketing website. By installing or using the app you agree to these
@@ -49,6 +49,29 @@ export default function TermsPage() {
         download, and they are kept on your computer. See{" "}
         <a href="https://huggingface.co/openai/whisper-base">the model card</a>
         {" "}and the <a href="/privacy">privacy page</a>.
+      </p>
+      <p>
+        The speaker model you can download from Settings is two files. The
+        speaker-turn (segmentation) network is pyannote&apos;s{" "}
+        <a href="https://huggingface.co/pyannote/segmentation-3.0">
+          segmentation-3.0
+        </a>
+        , released under the MIT licence (&copy; CNRS) and downloaded as the
+        ONNX export{" "}
+        <a href="https://huggingface.co/onnx-community/pyannote-segmentation-3.0">
+          onnx-community/pyannote-segmentation-3.0
+        </a>
+        . The voiceprint (speaker embedding) network is{" "}
+        <a href="https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM">
+          WeSpeaker ResNet34-LM
+        </a>
+        , by the WeSpeaker authors, licensed under{" "}
+        <a href="https://creativecommons.org/licenses/by/4.0/">
+          Creative Commons Attribution 4.0 (CC BY 4.0)
+        </a>
+        . edytlab does not include or redistribute either: when you click
+        Download, the app fetches the files from Hugging Face, whose terms
+        apply to that download, and they are kept on your computer.
       </p>
 
       <h2>Disclaimer</h2>

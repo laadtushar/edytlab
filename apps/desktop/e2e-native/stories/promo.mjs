@@ -559,7 +559,7 @@ const stories = [
       assert(/updated when a release changes them, unless you have edited them/i.test(note), `the note (${note})`);
       mark(ctx, "bundled note shown");
       const rows = await d.exec(() => [...document.querySelectorAll("[data-testid^='skills-row-']")].map((e) => e.getAttribute("data-testid").replace("skills-row-", "")));
-      assert(rows.length === 8 && rows.includes("loudness-master"), `eight bundled skills (${rows.join(", ")})`);
+      assert(rows.length === 9 && rows.includes("loudness-master"), `nine bundled skills (${rows.join(", ")})`);
       await sleep(900);
       await pointAt(ctx, "[data-testid='skills-bundled-note']");
       await sleep(2600);

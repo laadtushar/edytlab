@@ -43,12 +43,14 @@ import { Settings } from "../components/Settings";
 
 describe("Settings: the speech model row", () => {
   beforeEach(() => {
-    mlModelStatusMock.mockReset().mockResolvedValue({
-      model: "whisper-base",
-      state: "not_downloaded",
-      bytes: 0,
-      size: 138_644_904,
-    });
+    mlModelStatusMock.mockReset().mockImplementation((model: string) =>
+      Promise.resolve({
+        model,
+        state: "not_downloaded",
+        bytes: 0,
+        size: model === "speaker-diarization" ? 32_517_217 : 138_644_904,
+      }),
+    );
     downloadMock.mockReset();
     window.localStorage.clear();
   });
@@ -73,6 +75,22 @@ describe("Settings: the speech model row", () => {
     expect(downloadMock).not.toHaveBeenCalled();
   });
 
+  it("has the speaker model's row after it, asked for by its own id, and downloads nothing", async () => {
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    const speech = await screen.findByTestId("settings-speech-model");
+    const speaker = await screen.findByTestId("settings-speaker-model");
+    expect(
+      speech.compareDocumentPosition(speaker) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(await screen.findByTestId("speaker-model-download")).toHaveTextContent(
+      "Download (33 MB)",
+    );
+    expect(mlModelStatusMock).toHaveBeenCalledWith("speaker-diarization");
+    expect(mlModelStatusMock).toHaveBeenCalledWith("whisper-base");
+    expect(downloadMock).not.toHaveBeenCalled();
+  });
+
   it("is on the Account tab only", async () => {
     const user = userEvent.setup();
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
@@ -80,6 +98,7 @@ describe("Settings: the speech model row", () => {
 
     await user.click(screen.getByTestId("settings-tab-plugins"));
     expect(screen.queryByTestId("settings-speech-model")).toBeNull();
+    expect(screen.queryByTestId("settings-speaker-model")).toBeNull();
     expect(downloadMock).not.toHaveBeenCalled();
   });
 
@@ -88,6 +107,7 @@ describe("Settings: the speech model row", () => {
     await screen.findByTestId("settings-provider-picker");
 
     expect(screen.queryByTestId("settings-speech-model")).toBeNull();
+    expect(screen.queryByTestId("settings-speaker-model")).toBeNull();
     expect(mlModelStatusMock).not.toHaveBeenCalled();
     expect(downloadMock).not.toHaveBeenCalled();
   });

@@ -214,7 +214,7 @@ export function EmptyState({
         style={group(3)}
         className="reveal-in font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]"
       >
-        wav · mp3 · flac · ogg · aiff
+        wav · mp3 · flac · ogg · opus · aiff
       </p>
 
       <p style={group(3)} className="reveal-in max-w-sm text-xs text-[var(--text-faint)]">

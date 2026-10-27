@@ -618,7 +618,7 @@ export const toolAreas: ToolArea[] = [
             prompt: "who is speaking on track 1? there are two of them",
             what: "Find who spoke when, on this computer, and return the speaker turns without changing the session. Give `track` (turn times are then session seconds) or `path` for a file (the file's times). Pass `num_speakers` when you know how many people speak; otherwise the count is estimated, bounded by `min_speakers` and `max_speakers`. The audio never leaves the computer, and the tool never downloads the speaker model. The user can cancel.",
             output: "speakers, turn_count, duration_sec, cached, talk_time, and the turns as [start_sec, end_sec, speaker_N] numbered by who speaks first",
-            note: "The listing is bounded to 6,000 bytes; a longer conversation is cut off and says so. Hand the turns to split_by_speaker. Voices that sound alike can merge, and overlapping speech goes to one speaker. If the speaker model or the ONNX Runtime library is missing, the result says so. This build has no download button for the speaker model yet.",
+            note: "The listing is bounded to 6,000 bytes; a longer conversation is cut off and says so. Hand the turns to split_by_speaker. Voices that sound alike can merge, and overlapping speech goes to one speaker. If the speaker model or the ONNX Runtime library is missing, the result says so. The user downloads the speaker model in Settings → Account.",
           },
           {
             name: "transcribe",

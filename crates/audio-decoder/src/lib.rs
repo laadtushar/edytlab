@@ -9,6 +9,7 @@
 //! buffered API is unchanged — callers that already use [`decode_file`] do
 //! NOT need to migrate.
 
+mod opus;
 mod stream;
 
 pub use stream::WavStreamReader;
@@ -16,9 +17,10 @@ pub use stream::WavStreamReader;
 use std::fs::File;
 use std::io::{Cursor, Read};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{CodecRegistry, DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -33,10 +35,12 @@ use symphonia::core::probe::Hint;
 /// fixture in that test. A format is added here and in `Cargo.toml`'s
 /// symphonia features together.
 ///
+/// `opus` is Opus in an Ogg file (RFC 7845), and so is an `ogg` file that
+/// holds Opus rather than Vorbis: the container is found from the bytes.
+///
 /// Left out on purpose (#764): `m4a`/`aac` (AAC decoders need a patent
-/// licence) and `opus` (no published symphonia decodes it). Files of those
-/// kinds are named in [`DecodeError::UnsupportedFormat`].
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg", "aif", "aiff"];
+/// licence). Files of that kind are named in [`DecodeError::UnsupportedFormat`].
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg", "opus", "aif", "aiff"];
 
 /// Decoded PCM audio, always interleaved (`L, R, L, R, ...` for stereo).
 #[derive(Debug, Clone)]
@@ -64,12 +68,32 @@ pub enum DecodeError {
     /// A format the decoder recognises by its bytes and does not open. The
     /// name is for the person: it is what to convert from.
     #[error(
-        "{0} files are not supported yet. Convert the file to WAV, FLAC, MP3, Ogg Vorbis or AIFF and load that"
+        "{0} files are not supported yet. Convert the file to WAV, FLAC, MP3, Ogg Vorbis, Opus or AIFF and load that"
     )]
     UnsupportedFormat(&'static str),
+
+    /// An Opus file whose channel layout is not mono or stereo (surround,
+    /// ambisonics, or a layout this decoder does not know). The text says
+    /// which, for the person.
+    #[error(
+        "this Opus file uses {0}, and only mono and stereo Opus is supported. Convert the file to WAV, FLAC, MP3, Ogg Vorbis or AIFF and load that"
+    )]
+    UnsupportedOpusLayout(String),
 }
 
 pub type Result<T> = std::result::Result<T, DecodeError>;
+
+/// symphonia's codecs for the enabled features, and Opus (symphonia 0.5 has
+/// no Opus codec; see [`opus`]).
+fn codecs() -> &'static CodecRegistry {
+    static REGISTRY: OnceLock<CodecRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let mut registry = CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut registry);
+        registry.register_all::<opus::OpusPacketDecoder>();
+        registry
+    })
+}
 
 /// Decode a full audio file from disk.
 pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
@@ -145,6 +169,8 @@ fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
 }
 
 fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
+    // An Ogg Opus file says how long it is in its last page (RFC 7845 §4.4).
+    let opus_end = opus::head_in_ogg(&bytes).and_then(|_| opus::last_granule(&bytes));
     let cursor = Cursor::new(bytes);
     let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
 
@@ -168,7 +194,15 @@ fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
     let track_id = track.id;
     let codec_params = track.codec_params.clone();
 
-    let mut decoder = symphonia::default::get_codecs()
+    // Opus: say why a layout is refused, which the codec registry cannot.
+    let opus_head = if codec_params.codec == CODEC_TYPE_OPUS {
+        let extra = codec_params.extra_data.as_deref().unwrap_or_default();
+        Some(opus::parse_head(extra)?)
+    } else {
+        None
+    };
+
+    let mut decoder = codecs()
         .make(&codec_params, &DecoderOptions::default())
         .map_err(|e| match e {
             SymphoniaError::Unsupported(_) => DecodeError::UnsupportedCodec,
@@ -216,14 +250,29 @@ fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
                 }
             }
             // Per symphonia docs, decode errors on a single packet are
-            // recoverable; skip the packet and continue.
-            Err(SymphoniaError::DecodeError(_)) => continue,
+            // recoverable; skip the packet and continue. An Opus packet that
+            // does not decode keeps its place as silence instead, so the
+            // packets after it stay where the file put them.
+            Err(SymphoniaError::DecodeError(_)) => {
+                if opus_head.is_some() && channels > 0 {
+                    let frames = (packet.dur() as usize).min(5_760);
+                    samples_out.resize(samples_out.len() + frames * channels as usize, 0.0);
+                }
+                continue;
+            }
             Err(e) => return Err(map_runtime_err(e)),
         }
     }
 
     if sample_rate == 0 || channels == 0 {
         return Err(DecodeError::Corrupt);
+    }
+
+    // Cut the last packet to the length the last page states.
+    if let (Some(head), Some(granule)) = (&opus_head, opus_end) {
+        let frames = granule.saturating_sub(u64::from(head.pre_skip));
+        let keep = (frames as usize).saturating_mul(channels as usize);
+        samples_out.truncate(keep);
     }
 
     Ok(DecodedAudio {
@@ -237,8 +286,9 @@ fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
 /// not open. An Ogg stream's first page, with its `OpusHead`, is well inside.
 const SNIFF_BYTES: usize = 4096;
 
-/// A failed decode of a file whose bytes say it is M4A/MP4 or Opus becomes
-/// [`DecodeError::UnsupportedFormat`]; any other failure is returned as it
+/// A failed decode of a file whose bytes say it is M4A/MP4 becomes
+/// [`DecodeError::UnsupportedFormat`], and of one that is Opus of a layout
+/// that is not opened, [`DecodeError::UnsupportedOpusLayout`]; any other failure is returned as it
 /// was. Only called on a failure, so a file that decodes is never renamed.
 fn name_unsupported(e: DecodeError, head: &[u8]) -> DecodeError {
     if !matches!(
@@ -251,9 +301,10 @@ fn name_unsupported(e: DecodeError, head: &[u8]) -> DecodeError {
     if head.len() >= 12 && &head[4..8] == b"ftyp" {
         return DecodeError::UnsupportedFormat("M4A and MP4");
     }
-    // Ogg whose first packet is an Opus header.
-    if head.starts_with(b"OggS") && head.windows(8).any(|w| w == b"OpusHead") {
-        return DecodeError::UnsupportedFormat("Opus");
+    // Ogg whose first packet is an Opus header, of a layout that is not opened
+    // (surround, ambisonics): the container layer refuses those itself.
+    if let Some(Err(layout @ DecodeError::UnsupportedOpusLayout(_))) = opus::head_in_ogg(head) {
+        return layout;
     }
     e
 }

@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "agent_profiles"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
@@ -52,13 +52,13 @@ dependencies = [
 
 [[package]]
 name = "ai"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "agent_profiles",
  "ai",
  "audio-decoder",
  "audio-engine",
- "base64 0.22.1",
+ "base64 0.23.1",
  "eventsource-stream",
  "fs4",
  "futures-util",
@@ -66,7 +66,7 @@ dependencies = [
  "http",
  "keyring",
  "memory",
- "num-bigint",
+ "num-bigint 0.5.1",
  "reqwest 0.12.28",
  "ring",
  "serde",
@@ -380,7 +380,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio-analysis"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "ebur128",
@@ -393,9 +393,10 @@ dependencies = [
 
 [[package]]
 name = "audio-decoder"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "hound",
+ "opus-decoder",
  "proptest",
  "rustfft",
  "shine-rs",
@@ -405,11 +406,11 @@ dependencies = [
 
 [[package]]
 name = "audio-dsp"
-version = "0.9.2"
+version = "0.9.3"
 
 [[package]]
 name = "audio-engine"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "audio-dsp",
@@ -428,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "audio-time"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "realfft",
  "thiserror 2.0.21",
@@ -1466,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "edytlab-cli"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "ai",
  "anyhow",
@@ -1485,12 +1486,13 @@ dependencies = [
 
 [[package]]
 name = "edytlab-desktop"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "agent_profiles",
  "ai",
  "audio-engine",
  "chrono",
+ "hex",
  "keyring",
  "mcp",
  "memory",
@@ -2975,7 +2977,7 @@ dependencies = [
 
 [[package]]
 name = "mcp"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "blake3",
  "reqwest 0.12.28",
@@ -3009,7 +3011,7 @@ dependencies = [
 
 [[package]]
 name = "memory"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
@@ -3050,13 +3052,13 @@ dependencies = [
 
 [[package]]
 name = "ml-demucs"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "blake3",
  "hound",
  "ml-pipeline",
- "ndarray 0.16.1",
+ "ndarray",
  "ort",
  "realfft",
  "serde",
@@ -3068,7 +3070,7 @@ dependencies = [
 
 [[package]]
 name = "ml-diarize"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "hound",
  "ml-pipeline",
@@ -3083,7 +3085,7 @@ dependencies = [
 
 [[package]]
 name = "ml-pipeline"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "blake3",
  "fs4",
@@ -3102,12 +3104,12 @@ dependencies = [
 
 [[package]]
 name = "ml-whisper"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-decoder",
  "hound",
  "ml-pipeline",
- "ndarray 0.16.1",
+ "ndarray",
  "ort",
  "realfft",
  "rubato",
@@ -3136,21 +3138,6 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "ndarray"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
-dependencies = [
- "matrixmultiply",
- "num-complex",
- "num-integer",
- "num-traits",
- "portable-atomic",
- "portable-atomic-util",
- "rawpointer",
 ]
 
 [[package]]
@@ -3286,7 +3273,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
 dependencies = [
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-complex",
  "num-integer",
  "num-iter",
@@ -3296,9 +3283,19 @@ dependencies = [
 
 [[package]]
 name = "num-bigint"
-version = "0.4.6"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
+checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -3362,7 +3359,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
 dependencies = [
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-integer",
  "num-traits",
 ]
@@ -3658,6 +3655,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
+name = "opus-decoder"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15ae32c275dabb0cd2c863460bf349e9abc3568ba2abf0f9eb7b7d2edeeed07e"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ordered-stream"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3674,7 +3680,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4336a1e2b38848325241c72889086886004e589b7c74f335e60a8e8db5138a0b"
 dependencies = [
  "libloading 0.9.0",
- "ndarray 0.17.2",
+ "ndarray",
  "ort-sys",
  "smallvec",
  "tracing",
@@ -4235,7 +4241,7 @@ dependencies = [
 
 [[package]]
 name = "recorder"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "cpal",
  "hound",
@@ -4871,7 +4877,7 @@ dependencies = [
 
 [[package]]
 name = "session"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -4961,7 +4967,7 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skills"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "regex",
  "serde",
@@ -5947,7 +5953,7 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "tools"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "audio-analysis",
  "audio-decoder",
