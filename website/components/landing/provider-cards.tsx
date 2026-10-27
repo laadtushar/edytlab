@@ -17,7 +17,7 @@ const providers = [
   {
     name: "Anthropic",
     body: "Sonnet & Haiku. Best tool-use quality.",
-    href: "https://console.anthropic.com/settings/keys",
+    href: "https://platform.claude.com/settings/keys",
   },
   {
     name: "OpenRouter",
