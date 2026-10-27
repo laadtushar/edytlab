@@ -15,12 +15,12 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 // What the decoder opens, and nothing more: a type the picker offers but the
 // decoder cannot open fails after the person chose it. This repeats
 // `audio_decoder::SUPPORTED_EXTENSIONS`; `crates/audio-decoder/tests/
-// supported_extensions.rs` fails if the two differ. M4A/AAC and Opus are not
-// in it (#764), so they are not offered.
+// supported_extensions.rs` fails if the two differ. M4A/AAC is not in it
+// (#764), so it is not offered.
 const AUDIO_FILTERS = [
   {
     name: "Audio",
-    extensions: ["wav", "mp3", "flac", "ogg", "aif", "aiff"],
+    extensions: ["wav", "mp3", "flac", "ogg", "opus", "aif", "aiff"],
   },
 ];
 

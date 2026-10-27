@@ -21,6 +21,7 @@ fn file_for(ext: &str) -> PathBuf {
         "mp3" => out.join("sine_440hz_1s.mp3"),
         "flac" => fixture("tone_440_mono_44100.flac"),
         "ogg" => fixture("tone_440_mono_44100.ogg"),
+        "opus" => fixture("tone_440_mono_48000.opus"),
         "aif" | "aiff" => fixture("tone_440_mono_44100_s16.aiff"),
         other => panic!("`{other}` is in SUPPORTED_EXTENSIONS but this test has no file for it"),
     }

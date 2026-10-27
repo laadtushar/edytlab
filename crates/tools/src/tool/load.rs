@@ -9,7 +9,7 @@
 //!
 //! Render-graph invariant: the M22 streaming renderer opens every clip
 //! source via `WavStreamReader` (hound, WAV-only). The decoder opens more
-//! formats (`audio_decoder::SUPPORTED_EXTENSIONS`: mp3, flac, ogg, aiff,
+//! formats (`audio_decoder::SUPPORTED_EXTENSIONS`: mp3, flac, ogg, opus, aiff,
 //! ...), so a load of a non-WAV source would resolve here but blow up at
 //! render with
 //! "Ill-formed WAVE file: no RIFF tag found". To keep the renderer
@@ -55,7 +55,7 @@ impl Tool for LoadTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "load",
-            "Decode an audio file and add it to the session as a new track. Opens WAV, MP3, FLAC, Ogg Vorbis and AIFF; M4A/AAC and Opus are not supported (ask the user to convert). With no current head this creates a fresh single-track session; otherwise the file is appended as a new track on the current head, leaving existing tracks intact. Returns the new session node id, the new track's index, and the source's sample rate, length, and channel count.",
+            "Decode an audio file and add it to the session as a new track. Opens WAV, MP3, FLAC, Ogg Vorbis, Opus (mono or stereo) and AIFF; M4A/AAC is not supported (ask the user to convert). With no current head this creates a fresh single-track session; otherwise the file is appended as a new track on the current head, leaving existing tracks intact. Returns the new session node id, the new track's index, and the source's sample rate, length, and channel count.",
             object_schema(&[("path", "string", true)]),
         )
     }
