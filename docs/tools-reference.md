@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 96 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 99 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -50,6 +50,9 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`fade`](#fade) — Apply a linear fade-in or fade-out to a time range of a track.
 - [`fork_node`](#fork_node) — Branch the session DAG at the given node id (defaults to the current head when `from` is omitted).
 - [`gain`](#gain) — Apply a constant gain in decibels to a track.
+- [`generate_chirp`](#generate_chirp) — Generate a linear or logarithmic frequency sweep and add it as a new track.
+- [`generate_click_track`](#generate_click_track) — Generate a percussive click track.
+- [`generate_dtmf`](#generate_dtmf) — Generate standard dual-tone multifrequency keypad audio and add it as a new track.
 - [`generate_noise`](#generate_noise) — Generate a noise track (white, pink, or brown/Brownian noise) and add it as a new track.
 - [`generate_tone`](#generate_tone) — Synthesize a tone (sine, square, sawtooth, or triangle wave) and add it as a new track.
 - [`high_pass_filter`](#high_pass_filter) — Apply a Butterworth high-pass filter to a track, removing frequencies below cutoff_hz.
@@ -470,6 +473,49 @@ Apply a constant gain in decibels to a track. Composes additively with any exist
 |---|---|---|---|
 | `db` | number | yes |  |
 | `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `generate_chirp`
+
+Generate a linear or logarithmic frequency sweep and add it as a new track. Frequencies are in Hz; duration is in seconds.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `amplitude` | number | no | Peak amplitude from 0 to 1 |
+| `duration_sec` | number | yes | Sweep duration in seconds (max 600, less above 96 kHz); sample count rounds to the nearest frame |
+| `end_frequency_hz` | number | yes | Sweep end frequency in Hz; must be below Nyquist |
+| `method` | one of `linear`, `logarithmic` | no | Sweep shape |
+| `start_frequency_hz` | number | yes | Sweep start frequency in Hz; must be below Nyquist |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `generate_click_track`
+
+Generate a percussive click track. Supply a BPM or a track to detect tempo from, not both. Give exactly one of bars or duration_sec; duration_sec includes offset_sec. Downbeats are accented every beats_per_bar beats. Returns the new track index. BPM must be positive and at most 6000; clip length is at most 600 seconds (less above 96 kHz).
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `amplitude` | number | no | Downbeat peak amplitude, 0..1. |
+| `bars` | integer | no | Number of bars to generate (positive). |
+| `beats_per_bar` | integer | no | Beats in each bar, 1..32. |
+| `bpm` | number | no | Explicit tempo in beats per minute; give either bpm or track, not both. |
+| `duration_sec` | number | no | Total clip duration including the offset (seconds, >0 and \<=600, less above 96 kHz). |
+| `offset_sec` | number | no | Initial silence before the first click, in seconds. |
+| `track` | integer | no | Track index to measure tempo from when bpm is absent. |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `generate_dtmf`
+
+Generate standard dual-tone multifrequency keypad audio and add it as a new track.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `amplitude` | number | no | Peak combined tone amplitude from 0 to 1 |
+| `digits` | string | yes | One or more keypad symbols: 0-9, *, #, or A-D |
+| `gap_duration_sec` | number | no | Silence between tones, in seconds (0 for none) |
+| `tone_duration_sec` | number | no | Duration of each tone in seconds (minimum 40 ms; total up to 600 s, less above 96 kHz) |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

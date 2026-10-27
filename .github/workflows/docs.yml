@@ -47,7 +47,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       # Installed with --ignore-scripts so no dependency's install script runs on
       # the runner (`npx` would run them); mint needs none to validate.
