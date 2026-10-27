@@ -91,14 +91,13 @@
 //! email address is left out of `Debug` too.
 
 use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::future::Future;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, MutexGuard as StdMutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fs4::{FileExt, TryLockError};
 use serde_json::{Map, Value};
 use tokio::sync::Mutex;
 
@@ -587,7 +586,7 @@ impl Drop for FileLock {
     fn drop(&mut self) {
         // Closing releases it too; unlocking first makes it immediate.
         if let FileLock::Os(file) = self {
-            let _ = FileExt::unlock(file);
+            let _ = file.unlock();
         }
     }
 }
@@ -1972,9 +1971,7 @@ impl Core {
             Err(e) => return Err(failed(&e)),
         };
         loop {
-            // Not `file.try_lock()`: std has a method of that name from Rust
-            // 1.89, with another error type, and it would win the call.
-            match FileExt::try_lock(&file) {
+            match file.try_lock() {
                 Ok(()) => return Ok(FileLock::Os(file)),
                 Err(TryLockError::WouldBlock) => {
                     if tokio::time::Instant::now() >= deadline {

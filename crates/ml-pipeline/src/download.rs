@@ -32,7 +32,7 @@
 //!   edytlab is not a single-instance app: nothing stops a second window,
 //!   or the CLI, from running against the same data directory, and two
 //!   fetches writing one `.part` corrupt it. So a fetch holds an OS lock
-//!   (`flock`, or `LockFileEx` on Windows, through the `fs4` crate) on
+//!   (`flock`, or `LockFileEx` on Windows, through `std::fs::File::try_lock`) on
 //!   `<root>/<id>.lock` from before it touches the artifact until it
 //!   returns; another fetch of the same artifact, in this process or
 //!   another, waits and then finds the cache already valid. In-process
@@ -71,14 +71,13 @@
 //! never fetches it; stem separation is not implemented (#385).
 
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use fs4::{FileExt, TryLockError};
 use sha2::{Digest, Sha256};
 
 use crate::{Error, Result};
@@ -568,7 +567,7 @@ impl Drop for ArtifactLock {
         // Closing the file releases the lock as well. Asking first makes
         // the release immediate; on Windows the system may otherwise take
         // its time over a closed handle's lock.
-        let _ = FileExt::unlock(&self.file);
+        let _ = self.file.unlock();
     }
 }
 
@@ -603,9 +602,7 @@ fn lock_artifact(
         .open(&path)
         .map_err(lock_error)?;
     loop {
-        // Not `file.try_lock()`: std has had a method of that name since
-        // Rust 1.89, with another error type, and it would win the call.
-        match FileExt::try_lock(&file) {
+        match file.try_lock() {
             Ok(()) => {
                 return Ok(ArtifactLock {
                     file,

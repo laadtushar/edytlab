@@ -48,10 +48,6 @@ url = "2"
 http = "1"
 # Constant-time comparison of the callback's `state` and the ID token's `nonce`.
 subtle = "2.6"
-# The ChatGPT session's cross-process refresh lock (`flock`, or `LockFileEx`
-# on Windows). Already in Cargo.lock through ml-pipeline, which locks its
-# model downloads the same way.
-fs4 = "1.1"
 
 [target.'cfg(windows)'.dependencies]
 # SO_EXCLUSIVEADDRUSE on the OAuth loopback listener (src/oauth/loopback.rs).
@@ -71,5 +67,3 @@ audio-decoder = { path = "../audio-decoder" }
 # second socket that tries to take over the loopback listener's port.
 num-bigint = "0.5"
 socket2 = "0.6"
-# The ChatGPT refresh-lock test's second process takes the lock with it.
-fs4 = "1.1"

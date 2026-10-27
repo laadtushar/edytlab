@@ -884,7 +884,7 @@ fn lock_holder_child() {
         .truncate(false)
         .open(path)
         .unwrap();
-    fs4::FileExt::lock(&file).unwrap();
+    file.lock().unwrap();
     println!("LOCKED");
     std::io::stdout().flush().unwrap();
     let mut line = String::new();

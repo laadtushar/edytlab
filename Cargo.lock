@@ -60,7 +60,6 @@ dependencies = [
  "audio-engine",
  "base64 0.23.1",
  "eventsource-stream",
- "fs4",
  "futures-util",
  "hound",
  "http",
@@ -3087,7 +3086,6 @@ name = "ml-pipeline"
 version = "0.9.3"
 dependencies = [
  "blake3",
- "fs4",
  "libc",
  "libloading 0.9.0",
  "ort",
