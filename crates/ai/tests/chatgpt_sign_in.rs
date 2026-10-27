@@ -742,7 +742,9 @@ async fn a_sign_in_whose_caller_stops_waiting_still_finishes() {
         }
     }
     assert!(session.is_signing_in(), "still finishing");
-    for _ in 0..100 {
+    // Up to 10 s: the loop leaves as soon as the sign-in is done, and a CI
+    // runner running many test processes at once can take over 2 s here.
+    for _ in 0..500 {
         if !session.is_signing_in() {
             break;
         }

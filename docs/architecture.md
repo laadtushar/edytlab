@@ -48,7 +48,7 @@ description: "Workspace layout, the AI subsystem, tool dispatch, the session gra
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
      │  crates/│  │ crates/ │  │    crates/   │  │   crates/   │
      │  ai     │  │ tools   │  │    session   │  │   audio-*   │
-     │  agent  │  │ 96 tools│  │    DAG store │  │   ml-*      │
+     │  agent  │  │ 99 tools│  │    DAG store │  │   ml-*      │
      └──────┬──┘  └────┬────┘  └──────────┬───┘  └──────┬──────┘
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
@@ -101,7 +101,7 @@ edytlab/
     ├── recorder/                 # Microphone capture to WAV; recording-latency measurement (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # 96 deterministic audio-editing tools
+    └── tools/                    # 99 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -450,7 +450,7 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   a tool the profile or the Capabilities menu took away is in neither. The
   built-in tools come first and are always all listed (they come to about
   1 KB). The MCP tools follow, in name order, while the names stay within
-  `SLIM_NAMES_BUDGET_BYTES` (1,614 B), and the line then ends "and N more",
+  `SLIM_NAMES_BUDGET_BYTES` (1,709 B), and the line then ends "and N more",
   which counts MCP tools only. The order matters: an MCP wire name is
   `<server>__<tool>` and can sort ahead of every built-in name, so a cap that
   walked the names alphabetically would cut built-in tools that sort late to
@@ -746,7 +746,7 @@ pub struct ToolContext<'a> {
 
 impl ToolDispatcher {
     pub fn new() -> Self                    // empty
-    pub fn default_dispatcher() -> Self     // registers all 96 built-in tools
+    pub fn default_dispatcher() -> Self     // registers all 99 built-in tools
     pub fn register(&mut self, tool: Box<dyn Tool>)
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
@@ -771,7 +771,7 @@ The agent calls `tools::Shared::dispatch` (`crates/tools/src/shared.rs`), not `i
 
 `Shared::dispatch` also says where the call left the head (`Dispatched::moved_head`, #594), and the agent loop sends `agent://node-created` with that head only when it is set. A locked run reads the store's head before and after the tool, under the lock; an off-lock run reads its staged handle's head before and after, and reports it once the commit has published it. So the event names the head the store is on, never a tool's `node_id` (`name_node` returns the node it labelled, and `apply_diff` and `apply_recipe` return none though they move the head), a tool that moves the head several times is reported once, one that moves it and then fails is still reported, and a user's edit that lands while an off-lock tool runs is not reported as the agent's.
 
-Which tools run off the lock is pinned by name in `crates/tools/tests/off_lock_tools.rs`: the pure audio edits, `load`, `mix_to_new_track`, and the analysis tools, among them `select_region` and `duck_under_speech`, which with `voice_tracks` decode and scan every clip of the voice tracks (#570). That test also scans each opted-in tool's source, and the helper files they share (`util.rs`, `speech_detect.rs`, `ducking.rs`), with comments and literals blanked, `#[cfg(test)]` items skipped and the rest of the file read, for what a staged run cannot do (clipboard, engine, nested dispatchers, history rewrites, `progress`, `rederive`, `materialize`, recipes, sweeps), and allows only the `crate::` modules (and the `super::` paths that name the same ones) it has been told are safe to reach, so a helper in another file does not slip through. One spelling in one file is allowed by name (`ALLOWED`): `select_region`'s `crate::progress::report(`, which sends the selection to the window. It appends nothing, so it is never run again and reports once, and the progress sink takes no lock. The scan reads text, so it also finds the spellings that hide a second `Store` (`type S = Store;`, `<Store>::open`, a `use` group rustfmt wraps onto several lines), but not a path put together by a macro; review is the guard for that.
+Which tools run off the lock is pinned by name in `crates/tools/tests/off_lock_tools.rs`: the pure audio edits, `load`, `mix_to_new_track`, the three signal generators, and the analysis tools, among them `select_region` and `duck_under_speech`, which with `voice_tracks` decode and scan every clip of the voice tracks (#570). That test also scans each opted-in tool's source, and the helper files they share (`util.rs`, `speech_detect.rs`, `ducking.rs`, `generated_audio.rs`), with comments and literals blanked, `#[cfg(test)]` items skipped and the rest of the file read, for what a staged run cannot do (clipboard, engine, nested dispatchers, history rewrites, `progress`, `rederive`, `materialize`, recipes, sweeps), and allows only the `crate::` modules (and the `super::` paths that name the same ones) it has been told are safe to reach, so a helper in another file does not slip through. One spelling in one file is allowed by name (`ALLOWED`): `select_region`'s `crate::progress::report(`, which sends the selection to the window. It appends nothing, so it is never run again and reports once, and the progress sink takes no lock. The scan reads text, so it also finds the spellings that hide a second `Store` (`type S = Store;`, `<Store>::open`, a `use` group rustfmt wraps onto several lines), but not a path put together by a macro; review is the guard for that.
 
 **A re-run must mean what the first run meant.** A call names a track by its position (`track: 1`) and a time by its seconds, as the model saw them. Before this change a user's edit waited for the tool, so the tool always ran on the session the model had seen. Off the lock the edit can land first, and running the same arguments on the new head would edit another track and report success: with the tracks `[drums, vocals, bass]`, `time_stretch {track: 1}` (vocals) loses to the user removing drums, and the re-run on `[vocals, bass]` would stretch bass. Undoing a `remove_track` while the tool runs does the same the other way, and a clip dragged on the target track makes `fade`'s seconds land on other audio. So `Shared::dispatch` remembers, for a call that names tracks (`tools::shared::addressed_tracks`: any top-level argument with `track` in its name that holds a whole number or a list of them, and nothing else: `off_lock_tools.rs` rejects an opted-in tool that names a track inside an object or a list of objects, or in an integer whose name lacks `track`, at any depth of its schema), each named track's id and clips as they were at the head its first run began on. A later run, the re-run or the locked run, starts only if every named position still holds that track with those clips. If not, nothing is applied and the call returns a `ToolResult::Error` that says what changed, where each track the call named is now if it is still in the session (`"vocals" is now track 0`, so the model does not send the same position again), and lists the tracks as they are now, for the model to read and call again; the user's edit is kept. An edit elsewhere does not stop a re-run: a marker, a fader, a track added or removed after the named one, a clip moved on another track. A call that names no track (`load`) is always re-run. The check is about the tracks a call names, and one off-lock tool also edits tracks it does not: with sync-lock on, `insert_silence` opens its gap on every other track, shifting their clips after `at` later by the same time (each track counts it in its own clip frames, #673) and splitting a clip that straddles it, so the tracks stay aligned. That is safe to run again. The shift is made on the head the run lands on, to whatever clips the other tracks have by then, so it can only keep them aligned, and the track it names is checked like any other. It is the only such tool on the list (`cut_range`, the other sync-lock edit, is not off the lock); a tool that opts in and edits a track it does not name must make the same argument. Clips are compared whole, so a user who edits the very track the agent is working on, during the seconds a tool takes, makes the agent call again instead of getting a wrong edit.
 
@@ -783,7 +783,7 @@ There are four ways to open a store. `Store::open_shared` is the project the win
 
 ### The Tools
 
-There are 96, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
+There are 99, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
 One of them is a stub: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) returns an error in this build. `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) runs the speech model on this computer once the user has downloaded it in Settings → Account (see "Whisper (Transcription)" below), and `cut_words`, `remove_fillers` and the `text` mode of `select_region` work from the transcript it makes. `duck_under_speech` and `select_region`'s `speech_passage` do not need one: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
@@ -1171,7 +1171,7 @@ Memory fragments are injected into the system prompt on every turn:
 </edytlab-memory>
 ```
 
-The agent sees memory on every turn but has no tool to write it: none of the 96 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
+The agent sees memory on every turn but has no tool to write it: none of the 99 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
 
 ### Skills System
 
