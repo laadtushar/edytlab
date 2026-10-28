@@ -41,7 +41,7 @@ The night before a gig goes on chores.
 ```
 The night before a gig goes on chores. Matching tempos, counting bars, nudging levels.
 
-Here I hand three of them to an editor I just type to: a blend, a longer intro, a short mix. Each one comes back as a finished WAV.
+Here three of them go to an editor you just type to: a blend, a longer intro, a short mix. Each one comes back as a finished WAV.
 
 It's called edytlab. I built it, it's free and open source, and your music stays on your computer.
 
@@ -75,7 +75,7 @@ You have a 128 BPM track, and the one playing is 120.
 ```
 You have a 128 BPM track, and the one playing is 120. Getting from one to the other without a clunk is a chore.
 
-Here I just say what I want. The editor slows the new track to 120 without changing its pitch, brings it in under the end of the other, and fades one out while the other fades in.
+Here the DJ just says what they want. The editor slows the new track to 120 without changing its pitch, brings it in under the end of the other, and fades one out while the other fades in.
 
 The tracks are short demo loops. Link in bio to try it, free and open source.
 
@@ -135,7 +135,7 @@ A warm-up mix is mostly joins.
 ```
 A warm-up mix is mostly joins. Three tracks, and every join has to sound like it was meant.
 
-Here I ask for the whole thing in one go. The three tracks come to one tempo, overlap by a few bars, crossfade, and settle at one level for streaming, with a limiter at the end so nothing clips. Out comes one WAV.
+Here the DJ asks for it in four short steps. The three tracks come to one tempo, overlap by a few bars, crossfade, and settle at one level, with a limiter at the end so nothing clips. Out comes one WAV.
 
 It preps files, it doesn't play live. Link in bio, free and open source for Mac, Windows and Linux.
 

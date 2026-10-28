@@ -39,7 +39,7 @@ The night before a gig goes on chores. Matching tempos, counting bars, nudging l
 
 I wanted an editor I could just tell what to do. So I built one.
 
-In the video I ask it for three things, in plain English. Blend a 128 BPM track into a 120 BPM one over the last 8 bars. Build an extended club intro from a track's opening drums. Stitch three tracks into a short mix. Each one comes back as a finished WAV.
+In the video it does three jobs, each asked for in plain English. Blend a 128 BPM track into a 120 BPM one over the last 8 bars. Build an extended club intro from a track's opening drums. Stitch three tracks into a short mix. Each one comes back as a finished WAV.
 
 The part I care about most: it shows its work. Every edit appears in the chat as a step you can read, check and undo. You stay the DJ. It just does the counting.
 
@@ -121,7 +121,7 @@ touches a sample, told as how I built it. About 210 words.
 ```
 If you've ever wondered whether an AI audio editor is listening to your music: mine isn't. The model never touches a sample, and everything else in the design follows from that.
 
-It reads a short summary of the session, like each track's tempo, key and loudness, and picks from 99 editing tools: fades, EQ, filters, time-stretch, loudness, export. Those tools are ordinary Rust code running on your computer. The video shows it sequencing a three-track mix with them.
+It reads a short summary of the session and what its analysis tools measure, like each track's tempo, key and loudness, and picks from 99 editing tools: fades, EQ, filters, time-stretch, loudness, export. Those tools are ordinary Rust code running on your computer. The video shows it sequencing a three-track mix with them.
 
 That one choice gave me the things I care about. Every step is a tool you can read, so nothing happens behind your back. Every edit is a node in a history you can fork, compare and undo, so nothing is lost. And since the model never gets the audio, there is nothing to upload.
 
@@ -161,7 +161,7 @@ You have a recording you would rather not send anywhere. An unreleased track, or
 
 For edytlab, nowhere. Decoding, editing, mixing and export all run on your computer. The extended intro in the video was built that way, and the app itself sends no telemetry.
 
-What does leave is the chat. Your messages, plus a short text summary of the session (a track's tempo, key and loudness), go to the AI you picked. The model never receives the audio.
+What does leave is the chat. Your messages go to the AI you picked, with a short text summary of the session and readings like a track's tempo and loudness. The model never receives the audio.
 
 If you'd rather keep even the chat at home, run a local model with Ollama. It needs no key, and the chat stays on your machine too.
 
@@ -244,7 +244,7 @@ Decisions for you:
 - Post 5 names #846 to #850 as the open `good first issue` issues (true when
   checked on 2026-10-27). Re-check that they are still open before posting;
   edit that paragraph if one has been taken.
-- Post 1 says the agent in the recordings is Claude. That is what the demo
+- No post names the AI in the recordings. If asked, it is Claude, as the demo
   captions say. No model version is named anywhere.
 - A test script types the requests into the real app when the demos are
   recorded (`apps/desktop/e2e-native/stories/demos.mjs`); the replies and
