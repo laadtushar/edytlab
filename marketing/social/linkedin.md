@@ -17,7 +17,7 @@ You know what you want the transition to sound like. Getting the software to do 
 
 I've released edytlab 0.9.3, a free, open-source audio editor you drive by describing what you want.
 
-The demo is a DJ transition, asked for in one go. Get both tracks' tempos, match the incoming track to it, start it 8 bars before the outgoing one ends, crossfade with a low-pass on the old track, then compress the mix, bring it to -14 LUFS and export a WAV. The AI turns that into editing steps and shows you each one. The recording is 2:23 with sound, and I sped up the waits.
+The demo is a DJ transition, asked for in six short requests. Get both tracks' tempos, match the incoming track to the outgoing one, start it 8 bars before the outgoing one ends, crossfade with a low-pass on the old track, then compress the mix, bring it to -14 LUFS and export a WAV. The AI turns that into editing steps and shows you each one. The recording is 2:23 with sound, and I sped up the waits.
 
 The part I care about most: the AI never touches your audio. It reads a summary of the session and picks the tools. The editing runs on your computer, so your files aren't uploaded. And every edit can be undone.
 

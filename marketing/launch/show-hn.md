@@ -30,20 +30,20 @@ Post this as a comment on your own submission as soon as it is up.
 
 ---
 
-Hi HN. Some edits take one sentence to describe and twenty minutes to do:
+Hi HN. Some edits take one sentence to describe and a lot of clicking to do:
 "bring the second track in under the last 8 bars of the first, match the tempo,
-crossfade, and export a WAV." I built edytlab so I can type that sentence and
-watch it happen.
+crossfade, and export a WAV." I built edytlab so I can type that and watch it
+happen.
 
 It's a desktop audio editor for macOS, Windows and Linux, MIT licensed. An LLM
-reads a summary of your session, things like tempo, key and loudness, and calls
-the editing tools it needs, 99 of them. The tools do the signal processing, in
+reads a summary of your session, plus what its analysis tools report, like
+tempo, key and loudness, and calls the editing tools it needs, 99 of them. The tools do the signal processing, in
 Rust, on your computer. The model only chooses them and puts them in order. It
 never sees a sample.
 
-There's a screen recording of that exact kind of request, with sound, at
-https://edytlab.com/#demos. The agent's replies in it are the model's own
-words, not a script.
+There's a screen recording of that job, with sound, at
+https://edytlab.com/#demos. It's asked for in six short requests, and the waits
+are sped up. The agent's replies in it are the model's own words, not a script.
 
 **Where your audio goes.** Nowhere. Decoding, DSP, mixing and export all run
 in-process. What does leave your machine is the chat: your prompts, the session
