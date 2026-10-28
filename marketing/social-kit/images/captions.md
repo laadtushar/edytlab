@@ -33,14 +33,14 @@ Image: `1-describe-the-edit__*`. Video page: <https://edytlab.com/videos/launch-
 
 **X**
 You know the edit you want. Then you go hunting for where the app hides it.
-Here I just type it: "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB." Two edits, each one a version I can go back to.
+Here it's just typed: "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB." Two edits, each one a version I can go back to.
 https://edytlab.com/videos/launch-video
 
 **LinkedIn**
 You know exactly what edit you want. Then you go looking for where the app hides it.
-So I built an audio editor I can just tell. In this clip I type one plain sentence, a fade for the backing and a little less vocal, and it becomes two edits.
+So I built an audio editor I can just tell. In this clip one plain sentence, a fade for the backing and a little less vocal, becomes two edits.
 Each one is a version I can go back to, and my audio stays on my computer.
-It's free and open source. Here it is happening:
+It's free and open source. Here it is on a DJ job:
 https://edytlab.com/videos/launch-video
 
 **Instagram**
@@ -77,18 +77,18 @@ Image: `2-dj-transition-in-one-sentence__*`. Video page: <https://edytlab.com/vi
 
 **X**
 Two tracks, 120 BPM and 128, and a join that has to sound like it was meant.
-One sentence: match the tempo, fade one out, fade the other in, a low-pass on the one leaving. Real app, real Claude, on short demo tracks.
+Match the tempo, then one sentence: fade one out, fade the other in, a low-pass on the one leaving. Real app, real Claude, on short demo tracks.
 https://edytlab.com/videos/dj-beatmatched-transition
 
 **LinkedIn**
 You have two tracks at different tempos and a blend to make. It's the kind of chore that eats the night before a gig.
-Here a DJ describes the blend in one sentence. The assistant matches one track's tempo to the other, then crossfades them with a low-pass filter on the track going out.
+Here a DJ has one track's tempo matched to the other, then describes the blend in one sentence: a crossfade, with a low-pass filter on the track going out.
 Every step shows in the chat, and every edit is a version you can go back to.
 It's free and open source, and your audio stays on your computer. Built for prep, not for playing live.
 https://edytlab.com/videos/dj-beatmatched-transition
 
 **Instagram**
-A 128 BPM track, matched to 120 and blended in, from one typed sentence.
+A 128 BPM track, matched to 120 and blended in, a typed sentence at a time.
 The tempo lines up, the old track fades out under a low-pass filter, the new one fades in. You can watch every step.
 Real app, real Claude, on short demo tracks. Free and open source. Link in bio: edytlab.com
 #djtips #beatmatching #opensource
@@ -97,17 +97,17 @@ Real app, real Claude, on short demo tracks. Free and open source. Link in bio: 
 Matching two tracks at different tempos is one of those chores that fills the night before a gig. In this recording a DJ asks the assistant to bring a 128 BPM track in under a 120 BPM one. It matches the tempo, lines up the overlap, then fades one out and the other in with a low-pass filter on the track leaving. It is the real app with Claude, on short demo tracks. edytlab is free and open source, for macOS, Windows and Linux. https://edytlab.com/videos/dj-beatmatched-transition
 
 **Threads**
-A DJ blend from one sentence: the tempos match, one track fades out under a low-pass filter, the other fades in. Real app, real Claude, on short demo tracks. Free and open source. https://edytlab.com/videos/dj-beatmatched-transition
+A DJ blend, a sentence at a time: the tempos match, one track fades out under a low-pass filter, the other fades in. Real app, real Claude, on short demo tracks. Free and open source. https://edytlab.com/videos/dj-beatmatched-transition
 
 **Bluesky**
 Describe a DJ blend and the editor does it: match the tempo, crossfade, low-pass on the track going out. Recorded in the real app with Claude, on demo tracks. Free and open source. https://edytlab.com/videos/dj-beatmatched-transition
 
 **TikTok**
-Beatmatch and blend two tracks with one sentence. Real app, real Claude, on short demo loops. edytlab.com #djtips #beatmatching #opensource
+Beatmatch and blend two tracks by describing it. Real app, real Claude, on short demo loops. edytlab.com #djtips #beatmatching #opensource
 
 **YouTube**
 Title: A DJ transition in one sentence: beatmatch and blend
-Description: A DJ asks for two tracks' tempos, then describes the blend in one sentence. The assistant matches the tempo, lines up the overlap, crossfades with a low-pass filter on the track going out, then masters the mix and exports a WAV. Recorded in the real app with Claude, on short demo tracks, with waits sped up. Free and open source (MIT). https://edytlab.com/videos/dj-beatmatched-transition
+Description: A DJ asks for two tracks' tempos, then describes the blend a step at a time. The assistant matches the tempo, lines up the overlap, crossfades with a low-pass filter on the track going out, then masters the mix and exports a WAV. Recorded in the real app with Claude, on short demo tracks, with waits sped up. Free and open source (MIT). https://edytlab.com/videos/dj-beatmatched-transition
 
 **Pinterest**
 Title: A DJ transition in one sentence
