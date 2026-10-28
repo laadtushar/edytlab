@@ -3,8 +3,9 @@
 Issue: [#713](https://github.com/laadtushar/edytlab/issues/713).
 Authority: accepted [ADR 0001](../../adr/0001-session-state-in-the-window.md).
 Baseline: `60ca7a17074dc624392c4c747ad67b9143468ec6`.
-Status: narrow scope approved in chat on 2026-10-28; written design awaiting
-review before an implementation plan or source changes.
+Status: narrow scope and written design approved in chat on 2026-10-28;
+the user's “Validate and approve” authorizes proceeding after validation.
+Independent review's unmount-cleanup finding is addressed in `7939332d`.
 
 ## Outcome and scope
 
