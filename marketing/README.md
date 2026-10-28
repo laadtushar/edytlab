@@ -256,7 +256,7 @@ comments, and one thread cannot be answered well while three others are open.
 | 2 | **r/LocalLLaMA** | Wants the Ollama angle and honest numbers. Bring the #395 data and the request sizes from #479, and say that no local model has run a full job. |
 | 3 | **r/DJs** | Lead with the demo video. |
 | 4 | **r/WeAreTheMusicMakers** | Read the sidebar the same day; self-promotion is often limited to a set thread. |
-| 5 | **r/podcasting** | Say plainly what transcription was checked on (a short synthetic English recording and 16 minutes of English audiobook speech), that it needs a one-time model download, and that there is no speaker splitting by voice. |
+| 5 | **r/podcasting** | Say plainly what transcription was checked on (a short synthetic English recording and 16 minutes of English audiobook speech), that it needs a one-time model download, and that telling speakers apart (v0.9.3) needs a second download of its own. |
 | 6 | **r/audioengineering** | Expect scrutiny of the DSP. Post only if the current rules allow it. |
 | 7 to 14 | **Product Hunt** ([`launch/product-hunt.md`](launch/product-hunt.md)) | Needs the screenshots and a launch-day calendar. Schedule it for 00:01 PT. Later is fine; it works better with a few real users to show up. |
 | After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. The repo had 4 on 2026-10-10 and 6 on 2026-10-22. |

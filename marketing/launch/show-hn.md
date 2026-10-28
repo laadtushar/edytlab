@@ -72,7 +72,7 @@ of one undo stack you can fork, name, compare two versions by ear and go back.
 There's also an optional "plan first" mode, where the agent shows its steps and
 you approve them before anything runs. Export is WAV, FLAC or MP3.
 
-**What's missing.** I'd rather tell you here than have you find out.
+**What's missing.**
 
 - Stem separation doesn't work yet. The tool is registered and returns an
   error. The installers carry the ONNX Runtime, but there's no stem model in the
