@@ -126,8 +126,8 @@ holds up only if the rules allow it.
 > I'm after criticism of the approach, not downloads.
 >
 > The idea is simple. The model gets a text description of the session: tracks,
-> levels, effects, and measurements like tempo, key, beat grid and EBU R128
-> loudness. It also gets a list of 99 tools. It picks and orders the tools, and
+> levels and effects, plus what its analysis tools measure, like tempo, key,
+> beat grid and EBU R128 loudness. It also gets a list of 99 tools. It picks and orders the tools, and
 > the tools do the audio work, in Rust, on your machine. The same tool call on
 > the same file gives the same bytes. The model's choice of calls is not
 > deterministic, but the processing is, and the model never hears or sees a
@@ -205,7 +205,7 @@ any model works unless you have tried it.
 >
 > edytlab is a desktop audio editor you drive by chatting. The model chooses
 > and orders calls to 99 audio tools, and the DSP runs in Rust on your machine.
-> Ollama is one of the AI providers you can pick. It needs no key, so the chat
+> Ollama is one of the AI providers you can pick. It needs no key, the chat
 > stays on your computer too, and the Test button in Settings checks that the
 > model can call tools.
 >
