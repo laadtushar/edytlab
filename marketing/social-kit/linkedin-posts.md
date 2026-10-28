@@ -1,6 +1,7 @@
 # LinkedIn: five posts
 
-Five posts with different angles, written in your voice. Post one a few days
+Five posts with different angles, written in your voice (see
+[`../brand-voice.md`](../brand-voice.md)). Post one a few days
 apart, not back to back (see `calendar.md`). Each has a video to attach as
 native video and a one-line comment to pin right after you publish. Each also
 has a square image, and post 3 has a carousel PDF to post in place of its reel;
@@ -17,10 +18,11 @@ come once narration credits are available).
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
 download <https://github.com/laadtushar/edytlab/releases/latest> (the newest
-release, v0.9.3 on 2026-10-27; check before each post that the version a post
-names is still the newest)
+release, v0.9.3 on 2026-10-27; the posts name no version, so the link is
+all to check)
 
-**Conventions used in every post:** no emoji; 3 to 5 hashtags at the end;
+**Conventions used in every post:** no emoji; at most 3 hashtags at the end;
+one message per post, in the voice of [`../brand-voice.md`](../brand-voice.md);
 only post 1 has a link in the body, the others carry the link in the pinned
 comment, because outbound links in the body are commonly reported to reduce
 reach (not verified here). Wherever a download is mentioned, the installers
@@ -30,31 +32,34 @@ are described as unsigned.
 
 ## 1. Launch: what it is (attach `reel-highlights.mp4`)
 
-Angle: the one-paragraph product, the three demos in one breath, the honest
-limits. About 250 words.
+Angle: the chore every DJ knows, handed off in plain English. About 190 words.
 
 ```
-I built an audio editor you talk to. The video is three DJ jobs, each described in plain English and ending in an exported WAV.
+The night before a gig goes on chores. Matching tempos, counting bars, nudging levels, track after track. None of it is the fun part.
 
-A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 bars of the first, crossfaded with a low-pass on the outgoing track, mastered for streaming. An extended club intro, made by copying a track's drums-only first 8 bars. A three-track mini-mix at 124 BPM with overlaps of about 4 bars.
+I wanted an editor I could just tell what to do. So I built one.
 
-What I like best: it shows its work. Every edit is a tool call you can read in the chat, followed by a plain-words reply saying what changed, so you can check it instead of taking its word.
+In the video it does three jobs, each asked for in plain English. Blend a 128 BPM track into a 120 BPM one over the last 8 bars. Build an extended club intro from a track's opening drums. Stitch three tracks into a short mix. Each one comes back as a finished WAV.
 
-How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 99 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini, or your ChatGPT plan, a preview), or stays local with Ollama.
+The part I care about most: it shows its work. Every edit appears in the chat as a step you can read, check and undo. You stay the DJ. It just does the counting.
 
-Honest limits: the demo tracks are short synthetic loops I generated, and the agent in the recordings is Claude. It preps files; it isn't a live DJ tool. No stem separation yet. The installers are unsigned, so macOS and Windows warn on first launch.
+And your music stays yours. The AI never hears the audio. It reads a summary of the session and picks from 99 editing tools that run on your own computer, so nothing gets uploaded.
 
-Free, open source (MIT), v0.9.3 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
+It's called edytlab. Free and open source, for macOS, Windows and Linux, and built for prep, not for playing live.
 
-Demos and downloads: https://edytlab.com
+What's the prep job you'd hand off first?
 
-#OpenSource #DJing #AudioEngineering #LocalFirst #AIAgents
+https://edytlab.com
+
+#DJ #MusicProduction #OpenSource
 ```
 
 **Pin this comment:**
 
 ```
-Source (MIT) and installers for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/latest (unsigned, so expect a first-launch warning).
+Download for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/latest
+
+The installers aren't signed yet, so expect a warning the first time you open it.
 ```
 
 **Image:** `linkedin/out/post-1-launch.png` (1200x1200). Use it as the video's
@@ -62,50 +67,45 @@ cover if LinkedIn's uploader offers a custom thumbnail, or post it alone. The
 chat in it is the app's real chat panel with a scripted example conversation (the
 numbers are fixture values, not a model's output), and the image says so.
 
-**Shorter version (under 90 words), same video:**
+**Shorter version (about 50 words), same video:**
 
 ```
-I built an audio editor you talk to. The video: three DJ jobs, each described in plain English and ending in an exported WAV. A beatmatched blend, an extended club intro, a three-track mini-mix. Every edit shows as a tool call, with a reply saying what changed.
+Most DJ prep is chores: matching tempos, lining up bars, checking levels.
 
-Free and open source (MIT) for macOS, Windows and Linux. Audio is processed on your machine. It preps files, it doesn't play live, and the installers are unsigned, so expect a first-launch warning.
+I built an audio editor you can hand them to in plain English. It shows every step, and your audio never leaves your computer.
 
-https://edytlab.com
+Free and open source. https://edytlab.com
 
-#OpenSource #DJing #AudioEngineering
+#DJ #OpenSource
 ```
 
 ---
 
 ## 2. The DJ workflow, before and after (attach `reel-beatmatched-transition.mp4`)
 
-Angle: a chore list, then the same list done by the agent, with the one moment
-that builds trust. About 250 words.
+Angle: the small chores behind one blend, then the same blend described in a
+sentence, and the moment that builds trust. About 200 words.
 
 ```
-Prepping one blend between two tracks is a pile of small chores. Find both tempos. Stretch one to match. Line up the downbeats. Draw the fades. Put a filter on the outgoing track. Check the loudness. Export a file.
+Every blend between two tracks starts the same way. Find both tempos. Stretch one to match. Line up the downbeats. Draw the fades. Check the level. Export. Then you do it again for the next pair.
 
-Before: that list, by hand, in an editor, every time.
+In the video, the DJ describes the blend. Bring the 128 BPM track in under the last 8 bars of the 120 BPM one, fade the old track out under a low-pass filter, and get the mix ready for streaming.
 
-After, in the video: a DJ describes the blend and an AI agent works through the list on the files.
+It starts by telling the DJ each track's tempo, without changing anything. Then it slows the faster track to 120 BPM without changing its pitch, starts it at 16 seconds, lays the two fades over each other and exports a WAV.
 
-- It starts by telling the DJ each track's tempo, 120 BPM and 128 BPM, without changing anything.
-- It time-stretches the 128 BPM track to 120, keeping its pitch, and starts it at 16 seconds, under the last 8 bars of the other.
-- The outgoing track fades under a low-pass filter while the incoming one fades in.
-- The mix is mastered for streaming (gentle compression, a limiter at -1 dB, normalised to -14 LUFS, all as the DJ asked) and exported as a WAV.
+The moment I trust it most comes after each edit. It says in plain words what it just changed, so you never hunt for what moved. And you can listen to the transition in the app before anything is exported.
 
-The moment I trust it most is after each edit: it says in words what it changed, next to the tool calls it ran, rather than leaving you to hunt for what moved. The DJ can listen to the transition in the app before anything is exported.
-
-Limits, so nobody has to find them: the tracks are short synthetic loops I generated, so this shows the workflow, not how it copes with a real record. Beat detection is an estimate and can be wrong on a drifting tempo. This is prep for files, not a live tool.
+One thing to know: the tracks in the video are short loops I generated, so it shows the workflow, not how it copes with a real record.
 
 Which step of your own prep would you hand off first?
 
-#DJing #DJTips #AudioEngineering #OpenSource
+#DJing #AudioEditing #OpenSource
 ```
 
 **Pin this comment:**
 
 ```
-The DJ walkthrough, with all three recordings and the full list of what it can't do: https://edytlab.com/use-cases/dj
+The DJ walkthrough, with all three recordings: https://edytlab.com/use-cases/dj
 ```
 
 **Image:** `linkedin/out/post-2-before-after.png` (1200x1200), same use, and the
@@ -115,27 +115,23 @@ same scripted example conversation, captioned as one.
 
 ## 3. The build story (attach `reel-mini-mix.mp4`)
 
-Angle: the design decision everything hangs off (the model never touches a
-sample), then three engineering choices, one of them a bug story. About 250
-words.
+Angle: the one design decision everything hangs off, that the model never
+touches a sample, told as how I built it. About 210 words.
 
 ```
-The audio editor I've been building has an AI agent in it, and the model never touches a sample. Everything else follows from that.
+If you've ever wondered whether an AI audio editor is listening to your music: mine isn't. The model never touches a sample, and everything else in the design follows from that.
 
-The agent chooses and orders 99 audio tools: fades, EQ, filters, time-stretch, loudness, export. The tools are plain Rust functions, with no model in the audio path. The video shows it sequencing a three-track mix with them.
+It reads a short summary of the session and what its analysis tools measure, like each track's tempo, key and loudness, and picks from 99 editing tools: fades, EQ, filters, time-stretch, loudness, export. Those tools are ordinary Rust code running on your computer. The video shows it sequencing a three-track mix with them.
 
-What I'd tell someone starting this:
+That one choice gave me the things I care about. Every step is a tool you can read, so nothing happens behind your back. Every edit is a node in a history you can fork, compare and undo, so nothing is lost. And since the model never gets the audio, there is nothing to upload.
 
-- The stack is a Tauri 2 shell, a React front end and a Rust workspace behind it. The effects crate has zero dependencies, on purpose.
-- I wanted Rubber Band for time-stretch and dropped it. A native dependency needs a different package on each of three CI targets and breaks all three builds at once. So the phase vocoder is mine, and the cost is that dense mixes smear at large changes.
-- Every edit is a node in a history graph, with fork and A/B compare. Nodes are named after their content, so mute then unmute lands back on an old node, and undo used to jump to that node's first parent. v0.4.0 fixes it: undo and redo follow the path you actually took.
-- Plan first is an optional mode where nothing changes until you approve the agent's steps.
+I even wrote the time-stretch myself instead of bundling a library, so the app builds the same way on macOS, Windows and Linux. The price is that dense mixes can smear when you stretch them a lot.
 
-I build it with Claude Code, and the repo has a CLAUDE.md with the working rules.
+I build it with Claude Code, and the working rules live in a CLAUDE.md in the repo. The source is MIT, if you want to read how any of it works.
 
-Source is MIT, if you want to read how any of it works. What would you want to review first?
+What would you want to review first?
 
-#Rust #Tauri #OpenSource #AIAgents #AudioEngineering
+#Rust #OpenSource #AudioEngineering
 ```
 
 **Pin this comment:**
@@ -157,28 +153,21 @@ shows: there is no video in that version.
 
 ## 4. Privacy and local-first, with the Ollama option (attach `reel-extended-club-intro.mp4`)
 
-Angle: answer the first question people ask about AI audio tools, precisely,
-including the part that does not work well yet. About 330 words.
+Angle: the first question people ask about an AI audio tool, answered plainly,
+with the one part still being tested said once. About 160 words.
 
 ```
-"Does my audio get uploaded?" is the first question about any AI audio tool, so here is the exact answer for edytlab.
+You have a recording you would rather not send anywhere. An unreleased track, or an interview someone trusted you with. So the first thing you ask about any AI audio tool is: where does my audio go?
 
-Your audio files: no. Decoding, editing, mixing and export all run on your computer, in a Rust engine. The extended intro in the video was built that way.
+For edytlab, nowhere. Decoding, editing, mixing and export all run on your computer. The extended intro in the video was built that way, and the app itself sends no telemetry.
 
-What does leave: the chat. Your messages, plus the text the agent works from (a track's tempo, key and loudness, and the results of its tool calls), go to the AI provider you picked: Anthropic, OpenAI, OpenRouter, Groq or Gemini, using your own API key, or OpenAI, if you sign in with your ChatGPT plan instead (a preview, no key). The model never receives the audio. When you open Settings, the app also asks that provider for its list of models, with your key or sign-in and no prompt or audio.
+What does leave is the chat. Your messages go to the AI you picked, with a short text summary of the session and readings like a track's tempo and loudness. The model never receives the audio.
 
-With Ollama there's no key, and the chat stays on your machine too.
+If you'd rather keep even the chat at home, run a local model with Ollama. It needs no key, and the chat stays on your machine too.
 
-Two honest caveats about that last part:
+Local models are the part I'm still testing. I haven't confirmed which ones can finish a whole job yet, so if you run one, I'd like to hear how it goes.
 
-- Local models have small context windows. In v0.4.0 one measured first request was about 15,000 tokens, and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a core set of tools plus the ones your message names, about 8.7 KB of request against about 67 KB with every tool in the test suite (bytes, not tokens), but I haven't re-run that model on it.
-- The recordings were made with Claude as the agent. I haven't confirmed which local models can finish a job like these.
-
-The desktop app sends no telemetry. API keys live in your operating system's credential store. On Linux, v0.4.0 and earlier kept them in the kernel keyring only until you reboot; since v0.5.0 they go in the Secret Service (GNOME Keyring, KWallet or KeePassXC), with a warning when none is running. I haven't checked that across a real reboot yet.
-
-The numbers are in the repo's issues and tests. If you run local models, I'd like your results.
-
-#LocalFirst #Privacy #Ollama #OpenSource #AudioEngineering
+#LocalFirst #Privacy #OpenSource
 ```
 
 **Pin this comment:**
@@ -193,27 +182,25 @@ What stays on your machine, what leaves, and how to run it with Ollama: https://
 
 ## 5. Open source: help wanted (attach `reel-teaser.mp4`)
 
-Angle: specific, honest invitations, including the big unshipped piece. About
-300 words.
+Angle: three specific invitations, including the big unshipped piece. About
+170 words.
 
 ```
-edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
+You find a project you like, you'd happily help, and you can't tell where to start. So here is where, in mine.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 99 audio tools. v0.9.3 is out for macOS, Windows and Linux (unsigned installers).
+edytlab is a free audio editor you drive by chatting with an AI, MIT licensed, for macOS, Windows and Linux. I'd love some company on it.
 
-Places a contributor could make a real difference:
+Three places to start:
 
-- Effects on a chain. Since v0.6.0 the agent can put an effect on the master bus and on a bus (pull requests 516 and 551), but only five kinds run in a chain: gain, the limiter and three filters. Still missing: streaming versions of the other eleven (reverb, echo, EQ, compressor and others), which today can only be baked into a track. A stored effect the renderer can't run is left out of the render with a warning; issue 520, now closed, has the details, in the audio-engine and tools crates.
-- macOS microphone access. Since v0.5.0 the build has the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
-- A real pass on Linux with a locked keyring. The Secret Service code is tested against fakes only. Issue 497.
-- New audio tools and new LLM providers. Each is one registered implementation, and docs/contributing.md walks through both.
-- The big one: stem separation is not shipped. The Demucs tool is wired in and the installers carry the ONNX Runtime, but nothing runs a stem model (issue 385). Transcription does run, from v0.8.0, on a Whisper model you download once; I've checked it on one short synthetic English recording and about 16 minutes of English audiobook speech (4% to 7% of the words wrong). If you've shipped model inference inside a Tauri app, I'd like to talk.
+- A small first change. Five open issues are labelled "good first issue" (#846 to #850): a wah-wah effect, a curve option for fades, a mute-all-tracks tool, and tests for mute, solo and pan. Each one says where in the code to begin and how it is checked.
+- A Mac. Microphone recording on macOS still needs a proper check by someone who has one (issue 464).
+- The big one. Stem separation isn't built yet: nothing runs a stem model. If you've shipped model inference inside a Tauri app, I'd like to talk (issue 385).
 
-Five open issues carry the "good first issue" label (#846 to #850: a wah-wah effect, a curve option for fade, a mute-all-tracks tool, and tool-level tests for mute, solo and pan). Each says where in the code to start and how it is checked; docs/contributing.md walks through a change.
+New audio tools and new AI providers are welcome too. docs/contributing.md walks through both.
 
-Bug reports with your OS, version and provider are welcome too.
+Which of those would you pick up?
 
-#OpenSource #Rust #Tauri #Contributing
+#OpenSource #Rust #Contributing
 ```
 
 **Pin this comment:**
@@ -231,25 +218,23 @@ Contributing guide: https://github.com/laadtushar/edytlab/blob/main/docs/contrib
 Sources for the claims:
 
 - Demo wording: the captions in `website/lib/demos.ts`. The posts quote the
-  prompts the DJ types (the fixture tempos, 8 and 16 bars, 16 seconds, -14 LUFS,
-  -1 dB), never what a take's reply reports (cutoffs, readings, lengths): those
-  differ from take to take, see `marketing/README.md`, "Evergreen media rules".
-- "Synthetic loops I generated": `apps/desktop/e2e-native/fixtures.mjs` writes
+  prompts the DJ types (the fixture tempos, 8 and 16 bars, 16 seconds), never
+  what a take's reply reports (cutoffs, readings, lengths): those differ from
+  take to take, see `marketing/README.md`, "Evergreen media rules".
+- "Short loops I generated": `apps/desktop/e2e-native/fixtures.mjs` writes
   the three tracks (32 seconds each) from code. The DJ page and README say
   "tracks", so this is a disclosure the site does not currently make.
 - 99 tools: `docs/tools-reference.md`. Providers and Ollama:
   `README.md`. Local-first table: `website/app/use-cases/local-ai-audio-editor/page.tsx`.
-  The 15,000-token / 8,192-context numbers are v0.4.0's, from issue 395; what
-  has been sent since v0.5.0 is in `docs/architecture.md` ("Request size and
-  small-context models", whose table is v0.6.0's) and
-  `crates/ai/tests/request_size.rs`; the 8.7 KB and 67 KB here are v0.7.0's,
-  measured on 2026-10-22 with `cargo test -p ai --test request_size --
-  --nocapture`.
-- Undo story: v0.4.0 changelog, `apps/desktop/src/lib/headTrail.ts`.
-- Zero-dependency effects crate and Rubber Band decision:
-  `crates/audio-dsp/Cargo.toml`, `crates/audio-time/src/vocoder.rs`.
+  Post 4 deliberately says nothing about context sizes or request sizes; if
+  someone asks, the numbers are in `marketing/README.md` ("Known rough edges")
+  and `crates/ai/tests/request_size.rs`.
+- No telemetry in the app: `website/app/privacy/page.tsx`. Post 4 says
+  nothing about the website's analytics, which is a different claim.
+- Own time-stretch: `crates/audio-time/src/vocoder.rs`; the Rubber Band
+  decision is in the build-story history (a native dependency per CI target).
+- Undo, fork and compare: README, `apps/desktop/src/lib/headTrail.ts`.
 - Master bus: issue 460, closed by PR 516, which v0.6.0 is the first release to ship (v0.5.0 and earlier render a baked "Master" track instead); the recordings were made after it and put the limiter on the master bus, as the mini-mix caption in `demos.ts` says.
-- Linux keyring: issue 394. v0.4.0 and earlier use the kernel keyring; v0.5.0 and later use the Secret Service (`crates/ai/src/keychain.rs`, `docs/architecture.md`).
 
 Decisions for you:
 
@@ -259,7 +244,7 @@ Decisions for you:
 - Post 5 names #846 to #850 as the open `good first issue` issues (true when
   checked on 2026-10-27). Re-check that they are still open before posting;
   edit that paragraph if one has been taken.
-- Post 1 says the agent in the recordings is Claude. That is what the demo
+- No post names the AI in the recordings. If asked, it is Claude, as the demo
   captions say. No model version is named anywhere.
 - A test script types the requests into the real app when the demos are
   recorded (`apps/desktop/e2e-native/stories/demos.mjs`); the replies and
