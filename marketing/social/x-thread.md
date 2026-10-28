@@ -14,21 +14,21 @@ Each post is 280 characters or fewer (counted by script).
 **1/8**
 
 ```
-I asked an audio editor to match a 128 BPM track to a 120 BPM one, slide it in under the last 8 bars and master the mix for streaming.
+The night before a gig is all chores: matching tempos, counting bars, nudging levels.
 
-It did. And it showed every step.
+So I built an audio editor I could just tell what to do. Here it brings a 128 BPM track in under the last 8 bars of a 120 BPM one.
 
-That's edytlab: a free, open-source audio editor you talk to. Sound on.
+Sound on.
 ```
 
 **2/8**
 
 ```
-The AI never touches your audio.
+It never hears your music.
 
-It reads a summary of your session, like tempo, key and loudness, and picks from 99 editing tools. The tools do the work, on your computer.
+The AI reads a summary of your session, like tempo, key and loudness, and picks from 99 editing tools. The tools do the work, on your computer.
 
-The model decides what to do. Your machine does it.
+It decides. Your machine does the work. You stay the DJ.
 ```
 
 **3/8**

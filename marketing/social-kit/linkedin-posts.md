@@ -30,22 +30,22 @@ are described as unsigned.
 
 ## 1. Launch: what it is (attach `reel-highlights.mp4`)
 
-Angle: the chore every DJ knows, handed off in plain English. About 175 words.
+Angle: the chore every DJ knows, handed off in plain English. About 190 words.
 
 ```
-Most DJ prep isn't creative. It's matching tempos, lining up bars and checking levels, track after track.
+The night before a gig goes on chores. Matching tempos, counting bars, nudging levels, track after track. None of it is the fun part.
 
-So I built an audio editor you can hand that to in plain English.
+I wanted an editor I could just tell what to do. So I built one.
 
-In the video I ask it for three things. Blend a 128 BPM track into a 120 BPM one over the last 8 bars. Build an extended club intro from a track's opening drums. Stitch three tracks into a short mix. Each one ends in a finished WAV.
+In the video I ask it for three things, in plain English. Blend a 128 BPM track into a 120 BPM one over the last 8 bars. Build an extended club intro from a track's opening drums. Stitch three tracks into a short mix. Each one comes back as a finished WAV.
 
-The part I care about most: it shows its work. Every edit appears in the chat as a step you can read, check and undo. Nothing happens behind a curtain.
+The part I care about most: it shows its work. Every edit appears in the chat as a step you can read, check and undo. You stay the DJ. It just does the counting.
 
-And the AI never touches your audio. It reads a summary of the session and picks from 99 editing tools that run on your own computer. Your files are never uploaded.
+And your music stays yours. The AI never hears the audio. It reads a summary of the session and picks from 99 editing tools that run on your own computer, so nothing gets uploaded.
 
-It's called edytlab. Free and open source, for macOS, Windows and Linux. It's built for prep, not for playing live.
+It's called edytlab. Free and open source, for macOS, Windows and Linux, and built for prep, not for playing live.
 
-DJs: what's the one prep job you'd hand off first?
+What's the prep job you'd hand off first?
 
 https://edytlab.com
 

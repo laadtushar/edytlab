@@ -10,10 +10,12 @@ and the brand-voice plugin's "voice constant, tone flexes" model
 
 ## The voice in one paragraph
 
-A person who built something useful, showing it to people who would use it.
-Plain words, short sentences, one good example instead of a feature list. Sure
-of what it does and relaxed about what it doesn't do yet. It sounds like
-someone talking across a desk, not a spec sheet, a changelog or a legal notice.
+A person who built something useful, telling the people who'd use it a short
+story: the chore you know, what it's like to hand it off, why it matters.
+Warm, first person, plain words, short sentences, one good example instead of
+a feature list. Sure of what it does and relaxed about what it doesn't do yet.
+It sounds like someone talking across a desk, not a spec sheet, a changelog or
+a legal notice.
 
 ## We are / we are not
 
@@ -23,12 +25,14 @@ someone talking across a desk, not a spec sheet, a changelog or a legal notice.
 | **Plain-spoken.** Everyday words, short sentences, one idea per sentence. Read it aloud and it sounds like a person. | **Mechanical.** Parentheses inside sentences, semicolon chains, "which", "so that" clauses stacked three deep. |
 | **Honest, lightly.** The one limit that matters to this reader, said once, in passing. | **Defensive.** "Honest limits:", "so you don't have to find out", a paragraph of caveats in every post. |
 | **Confident.** Say what it does. Let the demo prove it. | **Hype.** "Revolutionary", "game-changer", "AI-powered", superlatives, exclamation marks. |
-| **Personal.** "I built", "what I care about most". A solo maker, open source. | **Corporate.** "We are excited to announce", "leverage", "solution", "empower". |
+| **Warm.** "I built", "the part I care about most", "you stay the DJ". A solo maker talking to people like them. | **Corporate.** "We are excited to announce", "leverage", "solution", "empower". |
+| **Story-led.** A small scene the reader recognises: the night before a gig, the third retake, the interview with two mics. | **Made up.** No invented anecdotes, numbers, users or quotes. A scene is the reader's ("you know the night before a gig"), or the owner's own, told by the owner. |
 
 ## What every post does
 
-1. **Open with the reader's moment, not the product.** The job they hate, the
-   thing they typed, the result they got. "I built X" can come second.
+1. **Open with a scene, not the product.** The reader's moment: the chore,
+   the night before, the file that's too quiet. Then what changes when they
+   hand it off. "I built X" comes second.
 2. **One message per post.** Pick one pillar below. Everything else goes to
    the link.
 3. **Show one example.** Specific beats complete. Two numbers at most.
@@ -74,7 +78,7 @@ Never: emoji, "AI-powered", "revolutionary", "seamless", "unlock",
 | Channel | Formality | Energy | Technical depth | Principle |
 |---|---|---|---|---|
 | X | low | high | low | One idea a post, the hook in the first line |
-| LinkedIn | medium | medium | low | A short story: the job, what happened, why it matters |
+| LinkedIn | medium | warm | low | A short story: the scene, what happened, why it matters to you |
 | Instagram / reels | low | high | low | Visual first; the caption names the moment |
 | Reddit | low | low | medium | A peer in the subreddit's own terms; ask, don't pitch |
 | Show HN / dev | medium | low | high | How it works, what was hard, what's missing |
@@ -94,13 +98,14 @@ outcome.
 
 **After:**
 
-> I asked an audio editor to match a 128 BPM track to a 120 BPM one, slide it
-> in under the last 8 bars and master the mix for streaming.
+> The night before a gig is all chores: matching tempos, counting bars,
+> nudging levels.
 >
-> It did. And it showed every step.
+> So I built an audio editor I could just tell what to do.
 
-What changed: the reader's moment first, one sentence per idea, "for
-streaming" for "-14 LUFS", and the result as a short line of its own.
+What changed: a scene the reader knows first, then the maker's reason, one
+sentence per idea. The numbers (BPM, bars) come in the next line, as the
+example, and "-14 LUFS" becomes "for streaming".
 
 **Before** (LinkedIn):
 
@@ -111,14 +116,15 @@ streaming" for "-14 LUFS", and the result as a short line of its own.
 
 **After:**
 
-> It's for prep, not for playing live.
+> It's built for prep, not for playing live. You stay the DJ.
 
-What changed: one limit, the one a DJ would trip on. The rest is on the
-download page.
+What changed: one limit, the one a DJ would trip on, said warmly. The rest is
+on the download page.
 
 ## Check before you post
 
 - Read it aloud. Anything you would not say to a person goes.
+- Is there a scene? Is every detail of it true or clearly the reader's own?
 - Count the ideas. More than one per post: cut or split.
 - Count the parentheses. More than one: rewrite.
 - Every claim still passes the accuracy rules in `README.md`.
