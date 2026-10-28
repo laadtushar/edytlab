@@ -110,8 +110,19 @@ turns and whether a refresh occurs inside or outside them stay unchanged.
 supersedes pending tickets and cancels the exact query, without resetting the
 monotonic ticket counter. App's current release-before-refresh paths remain for
 undo, redo, Set as head, Accept B, project opening, assistant nodes, and punch.
-Preview clicks remain separate from head moves. Query cleanup/unmount prevents
-late results or confirmations; StrictMode reattachment must work normally.
+Preview clicks remain separate from head moves.
+
+The track-query hook is the one track-query owner per App. Its effect cleanup
+explicitly advances a private observer-lifetime generation, supersedes pending
+read tickets, and cancels the exact query. Each refresh captures that lifetime
+and checks it as well as its ticket after awaiting cancellation and before
+confirming a snapshot. StrictMode setup starts an active lifetime without
+resetting the ticket counter; merely toggling a mounted boolean is insufficient
+because an older refresh could resume after reattachment. Do not rely on the
+library's automatic final-observer cancellation or consume its AbortSignal as
+an implicit cancellation mechanism. Test a held native read resolving after
+the final observer unmounts: it must not repopulate the cancelled query or
+confirm ownership. A new mounted App/client still starts its own normal read.
 
 Tauri invoke has no AbortSignal contract here. Query cancellation prevents late
 cache adoption; it does not interrupt native work. No native cancellation claim
@@ -132,8 +143,10 @@ for these distinct behaviors:
 - A newer unsent input stays held; multiple commits preserve last-sent ordering.
 - A reset while a read is held rejects the old snapshot, including identical
   head/track IDs across projects.
-- App mounts and provider clients are isolated; StrictMode cleanup/replay does
-  not adopt an old result, leak listeners, or prevent the second boot read.
+- App mounts and provider clients are isolated; a held read resolving after
+  final-observer removal cannot repopulate the cancelled cache. StrictMode
+  cleanup/replay does not adopt an old result, confirm an old claim, leak
+  listeners, or prevent the second boot read.
 - A claim cannot be passed to a hook without its owner (typecheck regression).
 
 Keep these issue-required suites unchanged: `App.laneControls.test.tsx`,
