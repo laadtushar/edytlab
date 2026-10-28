@@ -26,7 +26,7 @@ Sound on.
 ```
 It never hears your music.
 
-The AI reads a summary of your session, like tempo, key and loudness, and picks from 99 editing tools. The tools do the work, on your computer.
+The AI reads a summary of your session and what the tools measure, like tempo and loudness, then picks from 99 editing tools. The tools do the work, on your computer.
 
 It decides. Your machine does the work. You stay the DJ.
 ```
