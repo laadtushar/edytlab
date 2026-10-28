@@ -13,6 +13,7 @@
 # explicitly so autocrlf can't touch them.
 crates/session/tests/snapshots/*.json text eol=lf
 crates/tools/tests/snapshots/*.json   text eol=lf
+crates/tools/tests/fixtures/transcript_export/* text eol=lf
 crates/ai/tests/snapshots/*.snap      text eol=lf
 crates/ai/prompts/*.md                text eol=lf
 # OpenAI's approved Sign in with ChatGPT logos: byte-identical to the

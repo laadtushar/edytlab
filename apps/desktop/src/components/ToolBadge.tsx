@@ -35,6 +35,7 @@ const TOOL_LABELS: Record<string, string> = {
   render_final: "Export",
   export_multiple: "Export tracks",
   export_labels: "Export labels",
+  export_transcript: "Export transcript",
   import_labels: "Import labels",
   list_session: "List session",
 
@@ -55,6 +56,7 @@ const TOOL_LABELS: Record<string, string> = {
   revert_to: "Revert",
   name_node: "Rename version",
   label: "Add marker",
+  transcript_to_markers: "Transcript markers",
 
   // Tracks
   add_track: "Add track",

@@ -124,7 +124,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 
 | Claim | Where it was checked |
 |---|---|
-| 99 tools | `docs/tools-reference.md` (generated from the tool registry) |
+| 101 tools | `docs/tools-reference.md` (generated from the tool registry) |
 | Six API providers plus your ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama, and (from v0.9.0, a preview for Plus and Pro) Continue with ChatGPT | `README.md`, `website/app/docs/getting-started/page.tsx`, `crates/ai/tests/website_provider_claims.rs` |
 | Keys and the ChatGPT sign-in token share one OS-keychain entry, so macOS asks for the login password at most once per launch; provider, model and base URL are in `provider-settings.json`, never a secret | `website/app/privacy/page.tsx`, `docs/adr/0009-settings-and-secrets-storage.md`; counted against fake keychain slots, not yet on a real Mac (see below) |
 | Ollama needs no key and can keep the chat on your machine | `website/app/privacy/page.tsx`, user guide |
