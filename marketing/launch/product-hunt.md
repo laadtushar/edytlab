@@ -36,9 +36,9 @@ Hi Product Hunt, I'm the maker of edytlab.
 
 The night before a gig is all chores: matching tempos, counting bars, nudging levels. So I built an audio editor I can just tell what to do.
 
-You type something like "bring the second track in under the last 8 bars of the first, crossfade, and export a WAV." The editor does it, and each step shows up in the chat, where you can read it, check it and undo it. The demo on the site is exactly that.
+You type something like "bring the second track in under the last 8 bars of the first, crossfade, and export a WAV." The editor does it, and each step shows up in the chat, where you can read it, check it and undo it. The demo on the site is that job, asked for a step at a time.
 
-Your music stays on your computer. The AI never hears the audio. It reads a summary of the session and picks from 99 editing tools, and the tools run on your machine. Only the chat goes to the AI you choose, and with a local model through Ollama nothing leaves at all.
+Your music stays on your computer. The AI never hears the audio. It reads a summary of the session and picks from 99 editing tools, and the tools run on your machine. Only the chat goes to the AI you choose, and with a local model through Ollama the chat stays on your computer too.
 
 It's free and open source, for macOS, Windows and Linux. It's built for prep, not for playing live. The installers aren't signed yet, so macOS and Windows will warn you the first time you open it, and the release notes walk you through it.
 
