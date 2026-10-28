@@ -75,7 +75,7 @@ You have a 128 BPM track, and the one playing is 120.
 ```
 You have a 128 BPM track, and the one playing is 120. Getting from one to the other without a clunk is a chore.
 
-Here I just say what I want. The editor slows the new track to 120 without changing its pitch, brings it in under the last 8 bars of the other, and fades one out while the other fades in.
+Here I just say what I want. The editor slows the new track to 120 without changing its pitch, brings it in under the end of the other, and fades one out while the other fades in.
 
 The tracks are short demo loops. Link in bio to try it, free and open source.
 

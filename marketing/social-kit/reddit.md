@@ -61,7 +61,7 @@ The night before a gig is all chores, so I built a free editor you can just tell
 **Body:**
 
 ```
-Disclosure: I'm the developer. It's free and open source (MIT), no account.
+Disclosure: I'm the developer. It's free, open source and MIT-licensed, with no account.
 
 You know the night before a gig. Finding the tempos, stretching one track to match, counting bars, drawing the fades, checking levels, bouncing a file. None of it is the fun part.
 
@@ -76,7 +76,8 @@ It's for prep, not for playing live: it edits files, so there are no decks, and 
 Your music isn't uploaded. The chat goes to whichever AI you pick, or stays on your machine if you use a local model through Ollama.
 
 Recordings: https://edytlab.com/use-cases/dj
-Downloads for macOS, Windows and Linux (the installers are unsigned, so you'll see a warning the first time you open it): https://github.com/laadtushar/edytlab/releases/latest
+The installers are unsigned, so you'll see a warning the first time you open it.
+Downloads for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/latest
 
 For people who prep: which chore do you repeat the most, and what would make you not trust a tool like this?
 ```
@@ -142,7 +143,7 @@ How do you make DJ-friendly versions of your own tracks? I've been extending a d
 **Body:**
 
 ```
-Disclosure: I build this tool (free, MIT). The question is the point, so I'll start with it.
+Disclosure: I build this tool, and it's free and MIT-licensed. The question is the point, so I'll start with it.
 
 You finish a track and want a version a DJ can mix. So you stretch the intro and outro with drums only, to give them something to beat-match over. How do you do that? Copy and paste in the DAW, a separate pass in an audio editor, a dedicated extended-mix bounce?
 
@@ -156,7 +157,7 @@ Two things I'd like producers' opinions on:
 2. What would you not trust an AI to do to your master?
 
 Recording: https://edytlab.com/use-cases/dj
-Free and open source for macOS, Windows and Linux (the installers are unsigned): https://github.com/laadtushar/edytlab/releases/latest
+Free and open source for macOS, Windows and Linux, with unsigned installers: https://github.com/laadtushar/edytlab/releases/latest
 ```
 
 ---
@@ -191,19 +192,19 @@ edytlab is a desktop audio editor for macOS, Windows and Linux. You say what edi
 
 Where I'd love a hand:
 
-- Making more effects run live. Today a gain, a limiter and three filters can sit on the master bus or a bus. Reverb, echo, EQ and the compressor still get baked into a track's audio. That's Rust work in the audio-engine and tools crates (issue 520 has the background).
-- A Mac. The macOS build has the microphone permission set up, but nobody has checked it on a signed, notarized build (issue 464).
-- A Linux desktop with a locked Secret Service, to see what happens to saved keys (issue 497).
-- Stem separation. It isn't built yet (issue 385), and it's the one I'd most like to see land.
+- Making more effects run live. Today a gain, a limiter and three filters can sit on the master bus or a bus. Reverb, echo, EQ and the compressor still get baked into a track's audio. That's Rust work in the audio-engine and tools crates, and issue 520 has the background.
+- A Mac. The macOS build has the microphone permission set up, but nobody has checked it on a signed, notarized build. That's issue 464.
+- A Linux desktop with a locked Secret Service, to see what happens to saved keys. That's issue 497.
+- Stem separation. It isn't built yet, which is issue 385, and it's the one I'd most like to see land.
 - New audio tools or new AI providers. docs/contributing.md walks through both.
 
-Five open issues are labelled "good first issue" (#846 to #850: a wah-wah effect, a curve option for fade, a mute-all-tracks tool, and tests for mute, solo and pan). Each one says where in the code to start.
+Five open issues are labelled "good first issue", #846 to #850: a wah-wah effect, a curve option for fade, a mute-all-tracks tool, and tests for mute, solo and pan. Each one says where in the code to start.
 
 Things this crowd will ask:
 
-- Cost: the app is free. With a hosted AI you pay that provider under your own key, a local model through Ollama costs nothing, and you can use a ChatGPT Plus or Pro plan in place of a key (a preview). A hosted option is on the roadmap with pricing undecided. The desktop app and the engine are MIT today.
+- Cost: the app is free. With a hosted AI you pay that provider under your own key, a local model through Ollama costs nothing, and you can use a ChatGPT Plus or Pro plan in place of a key, which is a preview. A hosted option is on the roadmap with pricing undecided. The desktop app and the engine are MIT today.
 - Telemetry: none in the desktop app.
-- Signing: the installers are unsigned, so macOS and Windows warn on first launch (issue 386).
+- Signing: the installers are unsigned, so macOS and Windows warn on first launch. That's issue 386.
 
 What would make you trust it, or not?
 ```
@@ -235,24 +236,24 @@ I built an open-source audio editor where the model calls 99 tools, with an Olla
 **Body:**
 
 ```
-Disclosure: my project (MIT). I'm posting here because of the Ollama provider, and because I need data I don't have.
+Disclosure: my project, MIT-licensed. I'm posting here because of the Ollama provider, and because I need data I don't have.
 
-Anyone who has pointed a small local model at a tool-calling app knows how it goes: the tool schemas alone eat the context window. I hit it with my own app. edytlab is a desktop audio editor, and the model chooses and orders calls to 99 audio tools (EQ, fades, time-stretch, loudness, export) that run in a Rust engine on your machine. The model never receives audio, only text: the session state, measurements like tempo and loudness, and tool results.
+Anyone who has pointed a small local model at a tool-calling app knows how it goes: the tool schemas alone eat the context window. I hit it with my own app. edytlab is a desktop audio editor, and the model chooses and orders calls to 99 audio tools, like EQ, fades, time-stretch, loudness and export, that run in a Rust engine on your machine. The model never receives audio, only text: the session state, measurements like tempo and loudness, and tool results.
 
 At first a one-line request, "Make track 0 louder by 6 dB.", produced a first request of about 15,000 tokens. I pointed the Ollama provider at llama.cpp's llama-server running Qwen2.5-3B with an 8,192-token context, and it refused the request outright. The numbers are in issue 395.
 
 So now Ollama gets a smaller list. It's sent a core set of 15 tools plus the ones your message names, with shortened descriptions, and the names of the rest go in one line of the system prompt so the model knows they exist. The repo's request-size test puts that same request at about 8.7 KB of text, against about 67 KB with every tool. That's bytes, not tokens, and I haven't re-run Qwen2.5-3B on the new request. If a server refuses a request as too long, the app now says so and what to change.
 
-There's no key for Ollama. It uses the OpenAI-compatible endpoint (default http://localhost:11434/v1), and Test in Settings sends a small request to check that the model can call tools.
+There's no key for Ollama. It uses the OpenAI-compatible endpoint, http://localhost:11434/v1 by default, and Test in Settings sends a small request to check that the model can call tools.
 
-What I haven't done is run a local model through a full job. The demo recordings were made with Claude. I don't know which local models can drive this tool list without losing the thread, and I'm not going to guess. I also don't know how often the trimming hides a tool the model needed: a request described by effect ("make it sound like a cathedral") doesn't carry the reverb schema.
+What I haven't done is run a local model through a full job. The demo recordings were made with Claude. I don't know which local models can drive this tool list without losing the thread, and I'm not going to guess. I also don't know how often the trimming hides a tool the model needed: a request described by an effect, like "make it sound like a cathedral", doesn't carry the reverb schema.
 
 What I'd like opinions on: is a core set plus a names line the right shape, or would you rather the model call a search tool to fetch a schema when it needs one?
 
 If you try it, tell me the model, the quantisation, the context size, whether it kept to the schemas, and how it failed. Failure reports are as useful as successes.
 
-Source (issue 395 has the old numbers): https://github.com/laadtushar/edytlab
-Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
+Source, with the old numbers in issue 395: https://github.com/laadtushar/edytlab
+Downloads for macOS, Windows and Linux, unsigned so expect a first-launch warning: https://github.com/laadtushar/edytlab/releases/latest
 ```
 
 ---
@@ -278,22 +279,22 @@ I dropped Rubber Band for a hand-written phase vocoder in a Tauri 2 audio editor
 **Body:**
 
 ```
-Disclosure: my project (MIT), developed with Claude Code; the commit trailers and CLAUDE.md say so. I'm posting engineering notes, and I'd like specific review.
+Disclosure: my project, MIT-licensed and developed with Claude Code; the commit trailers and CLAUDE.md say so. I'm posting engineering notes, and I'd like specific review.
 
 I planned to use Rubber Band for time-stretching. It needs librubberband-dev on Linux, vcpkg on Windows and Homebrew on macOS, and a native dependency like that breaks every CI target at once. So I dropped it and wrote a phase vocoder on realfft instead, with onset-triggered phase resets to protect transients. The cost is written at the top of crates/audio-time/src/vocoder.rs: dense mixes smear, and the further the factor is from 1.0 the worse it gets.
 
 That's one piece of a desktop audio editor where an LLM agent calls 99 deterministic tools, a Rust workspace of 17 crates behind a Tauri 2 and React shell. A few other parts that might interest this sub:
 
-audio-dsp has no dependencies, on purpose. It's functions over &mut [f32] plus a sample rate and channel count, with no session types and no IO. It sits below both the tools crate and the renderer, so a dependency there would be a dependency everywhere. It exists because the effect algorithms used to be pub(crate) inside tools and the renderer needed them too, which meant a dependency cycle or a second copy.
+audio-dsp has no dependencies, on purpose. It's just functions over &mut [f32] plus a sample rate and channel count. It knows nothing about sessions and does no IO. It sits below both the tools crate and the renderer, so a dependency there would be a dependency everywhere. It exists because the effect algorithms used to be pub(crate) inside tools and the renderer needed them too, which meant a dependency cycle or a second copy.
 
-Session state is a content-addressed DAG: a node's id is the blake3 of its state. Two routes to the same state are one node, and it keeps the parent from its first visit. That bit me. Undo that followed node.parent went to the wrong place after mute then unmute (#398). The fix isn't in the graph. The frontend keeps the path the user actually took, as one reducer for head, undo trail and redo list (headTrail.ts), and that path is now saved with the project so undo survives a restart. I'm not sure it's the right model, and I'd like to hear how you'd do it.
+Session state is a content-addressed DAG: a node's id is the blake3 of its state. Two routes to the same state are one node, and it keeps the parent from its first visit. That bit me. Undo that followed node.parent went to the wrong place after mute then unmute. That's #398. The fix isn't in the graph. The frontend keeps the path the user actually took, as one reducer for head, undo trail and redo list, and that path is now saved with the project so undo survives a restart. I'm not sure it's the right model, and I'd like to hear how you'd do it.
 
-Lock discipline was the other lesson. A long tool held the store lock while synchronous Tauri commands waited on it from the main thread, and the window froze (#421). Those commands now run off the main thread. A tool that opts in runs on a staged store handle with no lock held and commits only if the head hasn't moved. If it has, the tool runs again on the new head, and a test pins which tools opt in.
+Lock discipline was the other lesson. A long tool held the store lock while synchronous Tauri commands waited on it from the main thread, and the window froze. That's #421. Those commands now run off the main thread. A tool that opts in runs on a staged store handle with no lock held and commits only if the head hasn't moved. If it has, the tool runs again on the new head, and a test pins which tools opt in.
 
-Where I'd like review: the vocoder's transient handling, and the lock discipline in the agent loop. Stem separation is still a stub (#385).
+Where I'd like review: the vocoder's transient handling, and the lock discipline in the agent loop. Stem separation is still a stub.
 
 Source: https://github.com/laadtushar/edytlab
-Demo recordings (DJ jobs, screen-captured from the real app): https://edytlab.com/#demos
+Demo recordings of DJ jobs, screen-captured from the real app: https://edytlab.com/#demos
 ```
 
 ---

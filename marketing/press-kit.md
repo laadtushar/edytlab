@@ -10,74 +10,84 @@ edit the other.
 
 ## One-sentence description
 
-edytlab is a free, open-source desktop audio editor where you edit by chatting
-with an AI agent.
+edytlab is a free, open-source desktop audio editor that you drive by telling an
+AI what you want done.
 
 ## Boilerplate
 
-edytlab is a free, open-source desktop audio editor where you edit by chatting
-with an AI agent. The agent turns a request such as "time-stretch the second
-track to match the first, crossfade, and export a WAV" into calls to 99
-deterministic audio tools. The tools run locally in a Rust engine on the user's
-own computer, so audio files are never uploaded; only the chat goes to the
-language-model provider the user selects (Anthropic, OpenAI, OpenRouter, Groq,
-Gemini, or Ollama for a fully local setup, or the user's own ChatGPT Plus or Pro
-plan through OpenAI's Sign in with ChatGPT, a preview). Every edit is saved as a node in a
-branchable history, with undo and A/B comparison. edytlab runs on macOS,
-Windows and Linux, is released under the MIT license, and its source is at
-github.com/laadtushar/edytlab.
+edytlab is a free, open-source desktop audio editor that you drive by telling an
+AI what you want done. A request such as "time-stretch the second track to match
+the first, crossfade between them, and export a WAV" becomes calls to 99
+deterministic audio tools. The tools run in a Rust engine on the user's own
+computer, so audio files are never uploaded. Only the chat goes to the AI
+provider the user chooses, and with a local model through Ollama it stays on the
+computer too. Every edit is saved as a step in a history the user can branch,
+compare and undo. edytlab runs on macOS, Windows and Linux, is released under
+the MIT license, and its source is at github.com/laadtushar/edytlab.
+
+## Key points
+
+Four sentences that can be lifted as they are.
+
+- You describe an edit in plain English, and edytlab makes it and shows each
+  step in the chat.
+- The AI never hears the audio. It reads a summary of the session and chooses
+  from 99 editing tools, and the tools run on the user's own computer.
+- Nothing is lost: every edit can be undone, and the session is a history the
+  user can branch and compare.
+- It is free and open source under the MIT license, for macOS, Windows and
+  Linux, with the user's choice of AI, including a local model.
 
 ## Fact sheet
 
-Every line below was checked against the repository or the GitHub release on
-2026-10-22, for v0.7.0 (the Latest version row was updated on 2026-10-25 for
-v0.9.0, for v0.9.1, for v0.9.2 and for v0.9.3 (the version and download lines), and the telemetry row on 2026-10-24 for the website's cookie banner; the
-AI providers, network requests and keys rows describe the ChatGPT sign-in that
-shipped in v0.9.0).
+Checked against the repository and the GitHub releases, most recently for
+v0.9.3, published 2026-10-27. The rows on AI providers, network requests and
+keys include the ChatGPT sign-in that arrived in v0.9.0.
 
 | | |
 |---|---|
 | Name | edytlab |
-| What it is | Desktop audio editor driven by an AI agent |
+| What it is | A desktop audio editor you drive by chatting with an AI |
 | Latest version | 0.9.3, published 2026-10-27 |
 | License | MIT |
 | Repository created | 2026-05-05 |
-| Platforms | macOS (one universal build for Apple Silicon and Intel), Windows 10 and 11, Linux |
-| Installers | `.dmg` (macOS), `.msi` and NSIS `.exe` (Windows), `.deb` and AppImage (Linux) |
-| Signing | Not signed or notarized yet. macOS and Windows warn on first launch; the release notes give the steps. |
-| Built with | Tauri 2, Rust, React |
-| Audio engine | Pure-Rust DSP. Decode with `symphonia`, resample with `rubato`, effects in an in-house dependency-free `audio-dsp` crate. |
-| Time-stretch / pitch-shift | A phase vocoder written for the project |
-| Tools | 99 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
-| AI providers | Six API providers plus the user's ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key), and, from 0.9.0, Continue with ChatGPT, which uses a ChatGPT Plus or Pro plan's included usage instead of a key (OpenAI's Sign in with ChatGPT for open-source apps, a preview). Available for ChatGPT Plus and Pro. May not be available on workspace plans; that depends on OpenAI and your admin. |
-| Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider; that includes the words a transcription finds (text, a bounded amount per call, never audio), which stay on the computer with Ollama. |
-| Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) and, when enabled, Google Analytics 4 only after a visitor accepts it in the cookie banner (it sets cookies; the footer's Cookie settings link withdraws it) |
-| Other network requests | Besides the AI provider and the hosts you configure (plugins, MCP servers), one download you start: from 0.8.0 (0.7.0 has no Download button), the speech model (Whisper base, about 139 MB) is downloaded from Hugging Face (huggingface.co) when the user clicks Download in Settings. The speaker model (pyannote segmentation and WeSpeaker voiceprints, two files, about 33 MB) is a second, separate Download from the same host, on the same terms. Hugging Face sees the IP address, the file requested and that edytlab (and which version) is asking, never audio. Nothing downloads at launch or from the agent. Transcribing and finding speakers make no request. From 0.9.0, and only if the user clicks Continue with ChatGPT: the browser goes to auth.openai.com to sign in, and the app then exchanges, renews and (on sign-out) revokes the sign-in with that host and sends the assistant's requests (the same text as for any provider, never audio) to api.openai.com with the user's ChatGPT access token. OpenAI can tie them to the user's ChatGPT account, to edytlab's registration and to the installation's random host ID. Signing out does not disconnect edytlab in ChatGPT; the user does that in ChatGPT settings under Security and login. |
-| Keys | Stored in the operating system's credential store. All keys, and the ChatGPT sign-in's token, share one entry of that store, so macOS asks for the login password at most once per launch; the provider, model and base URL are in a settings file in the app's config folder, with no secret in it. The ChatGPT plan has no key: its sign-in keeps one refresh token in that same entry (slot `chatgpt_refresh_token`) and a small `registration.json` (host ID, OpenAI's client ID for edytlab, the account's email as a label) in the app's config folder. |
-| History | Branchable graph of edits with fork, A/B compare and undo |
-| Optional safety | "Plan first" mode shows the agent's steps for approval before they run |
-| Export | WAV, FLAC, MP3 |
+| Platforms | macOS (one universal build for Apple Silicon and Intel), Windows 10 and 11, and Linux |
+| Installers | A `.dmg` for macOS, an `.msi` and an NSIS `.exe` for Windows, and a `.deb` and an AppImage for Linux |
+| Signing | The installers are not signed or notarized yet, so macOS and Windows warn on first launch. The release notes give the steps. |
+| Built with | Tauri 2, Rust and React |
+| Audio engine | Written in Rust. Decoding uses `symphonia`, resampling uses `rubato`, and the effects are in a dependency-free `audio-dsp` crate made for the project. |
+| Time-stretch and pitch-shift | A phase vocoder written for the project |
+| Tools | 99 deterministic tools the AI can call. The generated list is `docs/tools-reference.md`. |
+| AI providers | Six API providers plus the user's ChatGPT plan. The six are Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama, which runs locally and needs no key. Since 0.9.0 the user can instead continue with ChatGPT, which uses the included usage of a ChatGPT Plus or Pro plan in place of a key. That is OpenAI's Sign in with ChatGPT for open-source apps, and it is a preview. Available for ChatGPT Plus and Pro. May not be available on workspace plans; that depends on OpenAI and your admin. |
+| Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider. That includes the words a transcription finds, which are text, a limited amount per call and never audio, and which stay on the computer with Ollama. |
+| Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies). When it is enabled, the website also uses Google Analytics 4, only after a visitor accepts it in the cookie banner. That one sets cookies, and the Cookie settings link in the footer withdraws it. |
+| Other network requests | Besides the AI provider and any hosts the user sets up, such as plugins and MCP servers, the app makes the downloads the user starts. From 0.8.0, clicking Download in Settings fetches the speech model, Whisper base, about 139 MB, from Hugging Face (huggingface.co). Version 0.7.0 has no Download button. The speaker model, two files and about 33 MB, is a second, separate Download from the same host on the same terms. Hugging Face sees the IP address, the file requested, and that edytlab is asking and which version. It never sees audio. Nothing downloads at launch or from the AI, and transcribing or finding speakers makes no request. If the user clicks Continue with ChatGPT (0.9.0 and later), the browser goes to auth.openai.com to sign in, and the app renews the sign-in and, on sign-out, revokes it with that host. The assistant's requests then go to api.openai.com with the user's ChatGPT access token. They carry the same text as for any provider and never audio. OpenAI can tie them to the user's ChatGPT account, to edytlab's registration and to the installation's random host ID. Signing out does not disconnect edytlab in ChatGPT. The user does that in ChatGPT settings under Security and login. |
+| Keys | Stored in the operating system's credential store. All the keys and the ChatGPT sign-in's token share one entry there, so macOS asks for the login password at most once per launch. The provider, model and base URL live in a settings file in the app's config folder, with no secret in it. The ChatGPT plan has no key. Its sign-in keeps one refresh token in that same entry, and a small `registration.json` in the config folder holds a host ID, OpenAI's client ID for edytlab and the account's email as a label. |
+| History | A branchable graph of edits, with fork, A/B compare and undo |
+| Optional safety | "Plan first" mode shows the AI's steps for approval before they run |
+| Export | WAV, FLAC and MP3 |
 | Maintainer | `@laadtushar` on GitHub |
 
 ### What is not shipped
 
 State this plainly if asked.
 
-- Stem separation (Demucs) is registered as a tool but not implemented in any
-  build.
-- Speech transcription (Whisper base) works from 0.8.0, on the user's computer,
-  only after the user downloads the speech model (about 139 MB) in Settings.
-  0.7.0 and earlier cannot transcribe. Its accuracy has been checked on one
-  short synthetic English recording and about 16 minutes of English audiobook
-  speech (4% to 7% of the words wrong), not on a range of voices or languages.
-- It is an offline editor for files. It is not a live DJ tool and it is not a
-  DAW (no MIDI, no VST/CLAP hosting).
+- Stem separation is not available. The tool is registered, but it is not
+  implemented in any build.
+- Transcription (Whisper base) works from 0.8.0, on the user's computer, once
+  the user downloads the speech model (about 139 MB) in Settings. Version 0.7.0
+  and earlier cannot transcribe. Its accuracy has been checked on one short
+  synthetic English recording and about 16 minutes of English audiobook speech,
+  where 4% to 7% of the words were wrong. It has not been checked on a range of
+  voices or languages.
+- edytlab edits files, offline. It is not a live DJ tool, and it is not a DAW:
+  there is no MIDI and no VST or CLAP hosting.
 - There is no web or mobile version.
 
 ### Not available from the project
 
-There are no user counts, download statistics, benchmarks, testimonials,
-awards or press quotes to cite, and none should be invented.
+There are no user counts, download statistics, benchmarks, testimonials, awards
+or press quotes to cite, and none should be invented.
 
 ## Assets (all in the repository)
 
@@ -115,6 +125,6 @@ recording.
 
 ## Short bios by length
 
-**20 words:** edytlab is a free, open-source desktop audio editor you drive by chatting with an AI agent. Audio is processed locally.
+**20 words:** edytlab is a free, open-source desktop audio editor you drive by chatting with an AI. Audio never leaves your computer.
 
-**50 words:** edytlab is a free, open-source desktop audio editor for macOS, Windows and Linux. You describe an edit in chat and an AI agent runs deterministic audio tools to do it. The processing is local, so audio is never uploaded; only the chat goes to the AI provider you choose, or none if you use Ollama.
+**50 words:** edytlab is a free, open-source audio editor for macOS, Windows and Linux. You tell it what you want in chat and an AI runs the editing tools. The work happens on your computer. Audio is never uploaded. Only the chat goes to the AI you choose, or nowhere with Ollama.
