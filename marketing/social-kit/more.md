@@ -63,7 +63,7 @@ The part I like best: it shows its work. Every edit appears in the chat as a ste
 **6/7**
 
 ```
-It never hears your music. The AI reads a summary, like tempo, key and loudness, and picks from 99 editing tools. The tools run on your computer. Only the chat goes out, to the AI you choose, or stays home with a local model.
+It never hears your music. The AI reads a summary and the tools' readings, like tempo and loudness, and picks from 99 editing tools. The tools run on your computer. Only the chat goes out, to the AI you choose, or stays home with a local model.
 ```
 
 **7/7**
@@ -78,7 +78,7 @@ https://github.com/laadtushar/edytlab
 **Single post** (attach `reel-teaser.mp4` or `reel-highlights.mp4`):
 
 ```
-The night before a gig is all chores. So I built a free, open-source audio editor you talk to. In the video, a DJ describes a blend and it time-stretches, crossfades, masters for streaming and exports a WAV. The editing runs on your computer.
+The night before a gig is all chores. So I built a free, open-source audio editor you talk to. In the video, a DJ describes a blend and it matches the tempos and crossfades the two tracks. The editing runs on your computer.
 
 https://edytlab.com
 ```
@@ -102,7 +102,7 @@ Attach `reel-highlights.mp4`, and add alt text (use the one in `instagram.md`).
 ```
 The night before a gig is all chores: matching tempos, counting bars, nudging levels. So I built an audio editor you talk to. Free and open source (MIT), for macOS, Windows and Linux.
 
-The video shows three DJ jobs, described in plain English: a 128 BPM track beatmatched to 120, an 8-bar drum intro stretched to 16, and a three-track mini-mix. The editing tools run on your computer and your audio isn't uploaded. The demo tracks are synthetic loops.
+The video shows three DJ jobs, described in plain English: a 128 BPM track beatmatched to 120, an 8-bar drum intro extended to 16, and a three-track mini-mix. The editing tools run on your computer and your audio isn't uploaded. The demo tracks are synthetic loops.
 
 https://edytlab.com
 
