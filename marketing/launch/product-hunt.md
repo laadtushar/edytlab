@@ -15,41 +15,37 @@ edytlab
 ## Tagline (60 characters or fewer)
 
 ```
-Edit audio by chatting with an AI agent
+Edit audio by typing what you want
 ```
 
 Alternates:
 
-- `Describe an audio edit. An agent does it, locally.`
-- `Open-source audio editor you control by chatting`
+- `Describe an audio edit and it happens, on your computer`
+- `A free, open-source audio editor you talk to`
 
 ## Description (260 characters or fewer)
 
 ```
-A free, open-source desktop audio editor. Describe an edit in chat and an AI agent runs 99 audio tools. The DSP runs locally in Rust, so audio is never uploaded. Bring a key (Anthropic, OpenAI, OpenRouter, Groq, Gemini), a ChatGPT plan (preview) or Ollama.
+A free, open-source audio editor you talk to. Say what you want, like blending one track into another, and it does it and shows each step. Your audio stays on your computer. Use the AI of your choice, including one that runs locally.
 ```
 
 ## Maker's first comment
 
 ```
-Hi Product Hunt. I'm the maker of edytlab.
+Hi Product Hunt, I'm the maker of edytlab.
 
-edytlab is a desktop audio editor (macOS, Windows, Linux, MIT) where you edit by describing what you want. "Time-stretch track 2 to match track 1's tempo, crossfade the last 8 bars, limit at -1 dB, bring it to -14 LUFS, export a WAV." An AI agent turns that into calls to 99 audio tools. The tools do the signal processing; the model only picks and orders them, and never touches the samples.
+The night before a gig is all chores: matching tempos, counting bars, nudging levels. So I built an audio editor I can just tell what to do.
 
-What I care about:
+You type something like "bring the second track in under the last 8 bars of the first, crossfade, and export a WAV." The editor does it, and each step shows up in the chat, where you can read it, check it and undo it. The demo on the site is exactly that.
 
-- Your audio stays on your machine. Decode, DSP, mixing and export run locally in Rust. Only the chat goes to the AI provider you choose. With Ollama there's no key and nothing leaves your computer.
-- You stay in control. An optional "plan first" mode shows the agent's steps for your approval, and every edit is a node in a branchable graph, so you can fork, A/B compare and go back.
-- It's not locked to one model: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama or, in a preview, your ChatGPT plan, switchable from Settings.
+Your music stays on your computer. The AI never hears the audio. It reads a summary of the session and picks from 99 editing tools, and the tools run on your machine. Only the chat goes to the AI you choose, and with a local model through Ollama nothing leaves at all.
 
-The clearest example is the demo on the site: a DJ asks for two tracks' tempos, the incoming track is time-stretched to match, crossfaded in 8 bars before the first one ends, and the mix is exported as a WAV at -14 LUFS. (It's a recording with sound; the waits for the agent are sped up.)
-
-What it doesn't do yet, so you don't have to find out: no stem separation (the tool is registered but not implemented). Transcription, and so editing by text, works from v0.8.0 once you download the speech model (about 139 MB) in Settings; it runs on your computer, and the words, not the audio, go to your AI provider. The builds are unsigned, so macOS and Windows will warn on first launch; the release notes have the two-line fix. It's an offline editor, not a live DJ tool.
+It's free and open source, for macOS, Windows and Linux. It's built for prep, not for playing live. The installers aren't signed yet, so macOS and Windows will warn you the first time you open it, and the release notes walk you through it.
 
 Download: https://github.com/laadtushar/edytlab/releases/latest
 Demo and docs: https://edytlab.com
 
-I'd love to know which edit you'd ask for first.
+Which edit would you hand it first?
 ```
 
 ## Gallery (5 images or clips)
@@ -64,11 +60,11 @@ filenames out of the repo unless you want them in `website/public`.
 
 | # | Show | Caption |
 |---|---|---|
-| 1 | The demo video, or its poster `website/public/demos/dj-beatmatched-transition.jpg` (<https://edytlab.com/demos/dj-beatmatched-transition.mp4>) | Ask in plain English; the agent beatmatches, crossfades, masters and exports a WAV. |
-| 2 | Chat panel after an edit, with tool badges visible beside the waveform | Every edit is a real tool call you can see, not a black box. |
-| 3 | The plan card with Plan first switched on | Plan first: review the agent's steps and approve them before anything runs. |
-| 4 | The history Graph view with a forked branch | Fork a take, A/B it against the original, go back whenever you like. |
-| 5 | Settings with the provider list open, Ollama selected | Six API providers plus your ChatGPT plan (a preview), including Ollama for a model that stays on your machine. |
+| 1 | The demo video, or its poster `website/public/demos/dj-beatmatched-transition.jpg` (<https://edytlab.com/demos/dj-beatmatched-transition.mp4>) | Say what you want, and it beatmatches, crossfades and exports a WAV. |
+| 2 | Chat panel after an edit, with tool badges visible beside the waveform | Every step shows up in the chat, so you can read it and check it. |
+| 3 | The plan card with Plan first switched on | Plan first: read the steps and approve them before anything runs. |
+| 4 | The history Graph view with a forked branch | Fork a take, compare it with the original, go back whenever you like. |
+| 5 | Settings with the provider list open, Ollama selected | Pick your AI in Settings, including Ollama for a model that stays on your computer. |
 
 ## Topics
 

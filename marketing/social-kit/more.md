@@ -1,9 +1,12 @@
 # Everything else: X, Bluesky, Mastodon, TikTok, YouTube, Show HN, newsletter
 
-All in your voice. Same accuracy rules as the other files: no stem separation
+All in your voice, the warm one from [`brand-voice.md`](../brand-voice.md):
+a scene first, one idea a post, plain words. Technical channels (Show HN)
+go deeper on how it works, but still as a maker explaining what was hard and
+what is missing. Same accuracy rules as the other files: no stem separation
 claims, transcription only as v0.8.0 describes it (a one-time model download,
-checked on a short English recording and 16 minutes of English audiobook speech), installers described as unsigned wherever a download
-appears, the demo tracks are synthetic loops, no invented numbers.
+checked on English only), installers described as unsigned wherever a
+download appears, the demo tracks are synthetic loops, no invented numbers.
 
 **Links:**
 site <https://edytlab.com> ·
@@ -28,45 +31,45 @@ characters or fewer (counted by script; X counts any link as 23).
 **1/7** (attach `reel-highlights.mp4`)
 
 ```
-I built a desktop audio editor you talk to. The video: three DJ jobs, each described in plain English and ending in an exported WAV.
+The night before a gig is all chores: matching tempos, counting bars, nudging levels.
 
-Free, open source, macOS / Windows / Linux.
+So I built an audio editor I could just tell what to do. The video is three DJ jobs on synthetic demo loops, each described in plain English.
 ```
 
 **2/7**
 
 ```
-Job 1: a 128 BPM track is time-stretched to 120 (pitch kept), started under the last 8 bars of the other, crossfaded with a low-pass filter on the outgoing one, mastered for streaming and exported as a WAV.
+Job one: blend a 128 BPM track into a 120 BPM one. It slows the 128 to 120 without changing the pitch, starts it under the last 8 bars of the other, crossfades the two, and exports a WAV.
 ```
 
 **3/7**
 
 ```
-Job 2: copy a track's drums-only first 8 bars, splice them in, and the intro runs 16 bars. A high-pass filter holds the low end back until the drop.
+Job two: the intro is too short to mix over. It copies the drums-only first 8 bars and splices them in, so the intro runs 16 bars, and holds the low end back until the drop.
 ```
 
 **4/7**
 
 ```
-Job 3: three tracks at 124 BPM, overlaps of about 4 bars with crossfades, about -14 LUFS each, a limiter at -1 dBFS, exported as a WAV.
+Job three: a warm-up mix. Three tracks at 124 BPM, each one coming in about 4 bars before the last one ends, crossfaded, with a limiter on the master. One WAV at the end.
 ```
 
 **5/7**
 
 ```
-The part I like best: it shows its work. Every edit is a tool call you can read in the chat, with a reply saying what changed.
+The part I like best: it shows its work. Every edit appears in the chat as a step you can read, and every one can be undone.
 ```
 
 **6/7**
 
 ```
-How it works: the model never hears the audio. It gets text (tempo, key, loudness) and picks from 99 deterministic tools. The DSP runs on your machine, in Rust. The chat goes to the provider you pick, or stays local with Ollama.
+It never hears your music. The AI reads a summary, like tempo, key and loudness, and picks from 99 editing tools. The tools run on your computer. Only the chat goes out, to the AI you choose, or stays home with a local model.
 ```
 
 **7/7**
 
 ```
-Limits: the demo tracks are short synthetic loops I generated. It preps files, not live sets. No stem separation. Installers are unsigned, so macOS and Windows warn on first launch.
+Free and open source (MIT), for macOS, Windows and Linux. Built for prep, not for playing live. You stay the DJ.
 
 https://edytlab.com
 https://github.com/laadtushar/edytlab
@@ -75,7 +78,7 @@ https://github.com/laadtushar/edytlab
 **Single post** (attach `reel-teaser.mp4` or `reel-highlights.mp4`):
 
 ```
-I built a free, open-source audio editor you talk to. In the video, a DJ describes a blend and an AI agent time-stretches, crossfades, masters for streaming and exports a WAV. Audio is processed on your machine. It preps files, not live sets.
+The night before a gig is all chores. So I built a free, open-source audio editor you talk to. In the video, a DJ describes a blend and it time-stretches, crossfades, masters for streaming and exports a WAV. The editing runs on your computer.
 
 https://edytlab.com
 ```
@@ -87,7 +90,7 @@ https://edytlab.com
 Attach `reel-highlights.mp4`.
 
 ```
-I built an audio editor you talk to. The video is three DJ jobs described in plain English: a beatmatched blend, a 16-bar extended intro, a three-track mini-mix. Free, open source (MIT), audio processed on your machine. It preps files, not live sets. https://edytlab.com
+The night before a gig is all chores: matching tempos, counting bars, nudging levels. So I built an audio editor you talk to. The video is a beatmatched blend, a 16-bar intro and a three-track mini-mix, each described in plain English. Free, open source, and your audio stays on your computer. https://edytlab.com
 ```
 
 ---
@@ -97,47 +100,49 @@ I built an audio editor you talk to. The video is three DJ jobs described in pla
 Attach `reel-highlights.mp4`, and add alt text (use the one in `instagram.md`).
 
 ```
-I built a free, open-source desktop audio editor you talk to (macOS, Windows, Linux; MIT).
+The night before a gig is all chores: matching tempos, counting bars, nudging levels. So I built a desktop audio editor you talk to. Free, open source (MIT), for macOS, Windows and Linux.
 
-The video shows three DJ jobs described in plain English: a 128 BPM track beatmatched to 120, an 8-bar drum intro extended to 16, and a three-track mini-mix. An AI agent calls 99 audio tools that run on your machine; the chat goes to the provider you choose, or stays local with Ollama.
+The video shows three DJ jobs, each described in plain English: a 128 BPM track beatmatched to 120, a drum intro stretched from 8 bars to 16, and a three-track mini-mix. The AI picks the editing tools. They run on your computer, so your audio isn't uploaded. The demo tracks are synthetic loops.
 
-Demo tracks are synthetic loops. Unsigned installers. https://edytlab.com
+https://edytlab.com
 
-#OpenSource #Rust #AudioEngineering #DJ
+#OpenSource #Rust #DJ
 ```
 
 ---
 
 ## 4. TikTok and YouTube Shorts
 
-TikTok hashtags are kept to five. If the app offers a toggle to label
-AI-generated or AI-edited content, read its wording and decide: the video is
-a screen recording of an AI agent editing synthetic demo tracks, and I could
-not check from here whether either platform would want it flagged.
+TikTok and Shorts hashtags are kept to three. If the app offers a toggle to
+label AI-generated or AI-edited content, read its wording and decide: the
+video is a screen recording of an AI agent editing synthetic demo tracks, and I
+could not check from here whether either platform would want it flagged.
 
 ### `reel-highlights.mp4`
 
 TikTok:
 
 ```
-Three DJ jobs, described in plain English: a beatmatched blend, an extended intro, a three-track mini-mix. Free and open source. Link in bio. #dj #djtips #beatmatching #musicproduction #opensource
+Matching tempos, counting bars, nudging levels. Or just say what you want. Three DJ jobs, described in plain English, each ending in a finished file. Free and open source. Link in bio. #dj #beatmatching #opensource
 ```
 
 YouTube Shorts title (under 100 characters):
 
 ```
-Three DJ jobs by chatting with an AI agent (free, open source)
+Three DJ jobs, described in plain English, in a free audio editor
 ```
 
 YouTube Shorts description:
 
 ```
-Three DJ jobs described in plain English: a beatmatched blend, an extended club intro and a three-track mini-mix. edytlab is a free, open-source desktop audio editor for macOS, Windows and Linux. The audio is processed on your computer; the chat goes to the AI provider you choose, or stays local with Ollama. Demo tracks are synthetic loops. It preps files; it isn't a live DJ tool.
+The night before a gig is all chores: matching tempos, counting bars, nudging levels. Here, three of those jobs are described in plain English: a beatmatched blend, an extended club intro and a three-track mini-mix. Each ends in an exported WAV.
 
-Demos and downloads (installers are unsigned): https://edytlab.com
+edytlab is a free, open-source audio editor for macOS, Windows and Linux. The editing runs on your computer, and the demo tracks are short synthetic loops.
+
+Demos and downloads (the installers are unsigned): https://edytlab.com
 Source: https://github.com/laadtushar/edytlab
 
-#Shorts #DJ #BeatMatching #OpenSource
+#Shorts #DJ #OpenSource
 ```
 
 ### `reel-beatmatched-transition.mp4`
@@ -145,22 +150,22 @@ Source: https://github.com/laadtushar/edytlab
 TikTok:
 
 ```
-A 128 BPM track time-stretched to 120, blended under the end of another, mastered for streaming and exported. Link in bio. #beatmatching #djtransitions #djing #audioengineering #opensource
+Blending a 128 BPM track into a 120 BPM one usually means doing the maths on both. Here you just say it: the faster track is slowed to match and starts under the last 8 bars of the other. Link in bio. #beatmatching #dj #opensource
 ```
 
 Shorts title:
 
 ```
-AI agent beatmatches 120 and 128 BPM tracks and exports a WAV
+Beatmatch a 128 and a 120 BPM track by describing it
 ```
 
 Shorts description:
 
 ```
-A DJ asks what they are working with: two tracks, at 120 and 128 BPM. The 128 BPM track is time-stretched to 120 and started under the last 8 bars of the other, which fades out under a low-pass filter while the new one fades in. The mix is mastered for streaming and exported as a WAV. Demo tracks are synthetic loops.
+A 128 BPM track has to blend into a 120 BPM one. The DJ starts by asking for each tempo, and nothing changes yet. Then the 128 is slowed to 120 without changing its pitch and started under the last 8 bars of the other. The first track fades out under a low-pass filter while the second fades in. The mix is mastered for streaming and exported as a WAV. The demo tracks are synthetic loops.
 
 edytlab is free and open source (MIT): https://edytlab.com
-Installers are unsigned, so macOS and Windows warn on first launch.
+The installers are unsigned, so macOS and Windows warn on first launch.
 
 #Shorts #DJ #BeatMatching
 ```
@@ -170,7 +175,7 @@ Installers are unsigned, so macOS and Windows warn on first launch.
 TikTok:
 
 ```
-Need a longer intro to mix over? The drums-only first 8 bars are copied and spliced in, so it runs 16 bars, with a high-pass filter until the drop. Link in bio. #djedits #extendedmix #djtips #musicproduction #opensource
+The intro is too short to mix over. So copy the drums-only first 8 bars, splice them in, and it runs 16. A high-pass filter keeps the low end back until the drop. Link in bio. #djedits #dj #opensource
 ```
 
 Shorts title:
@@ -182,10 +187,10 @@ Extend a drum intro from 8 to 16 bars by describing it
 Shorts description:
 
 ```
-A DJ asks for the track's tempo and bar length first. Then the agent copies the drums-only first 8 bars and splices them in so the intro runs 16 bars, and a high-pass filter holds the low end back until the drop on bar 17. The demo track is a synthetic loop.
+A club intro that's too short to mix over. The DJ asks for the tempo and bar length first, and nothing changes. Then the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, and a high-pass filter holds the low end back until the drop on bar 17. The demo track is a synthetic loop.
 
 edytlab is free and open source (MIT): https://edytlab.com
-Installers are unsigned, so macOS and Windows warn on first launch.
+The installers are unsigned, so macOS and Windows warn on first launch.
 
 #Shorts #DJ #MusicProduction
 ```
@@ -195,22 +200,22 @@ Installers are unsigned, so macOS and Windows warn on first launch.
 TikTok:
 
 ```
-Three tracks at 124 BPM, sequenced with overlaps and crossfades, limited at -1 dBFS, exported as a WAV. Link in bio. #djmix #minimix #djing #audioengineering #opensource
+A warm-up mix is mostly overlap maths. Here it's three tracks at 124 BPM, each one coming in about 4 bars before the last ends, then one exported WAV. Link in bio. #djmix #dj #opensource
 ```
 
 Shorts title:
 
 ```
-A three-track DJ warm-up mix, built by chatting with an AI agent
+A three-track DJ warm-up mix, built by describing it
 ```
 
 Shorts description:
 
 ```
-Two tracks are time-stretched to 124 BPM keeping their pitch, then all three are sequenced so each comes in about 4 bars before the previous one ends, with a crossfade over each overlap. Each is brought to about -14 LUFS and the mix gets a limiter at -1 dBFS before it is exported as a WAV. Demo tracks are synthetic loops.
+Two tracks are slowed or sped up to 124 BPM without changing their pitch, then all three are lined up so each comes in about 4 bars before the previous one ends, with a crossfade over the overlap. Each is brought to a similar loudness, the master gets a limiter, and the mix is exported as a WAV. The demo tracks are synthetic loops.
 
 edytlab is free and open source (MIT): https://edytlab.com
-Installers are unsigned, so macOS and Windows warn on first launch.
+The installers are unsigned, so macOS and Windows warn on first launch.
 
 #Shorts #DJ #DJMix
 ```
@@ -220,7 +225,7 @@ Installers are unsigned, so macOS and Windows warn on first launch.
 TikTok:
 
 ```
-Describe the blend. Get the file. A free, open-source audio editor you talk to. Link in bio. #dj #beatmatching #musicproduction #aiaudio #opensource
+Describe the blend. Get the file. A free, open-source audio editor you talk to. Link in bio. #dj #beatmatching #opensource
 ```
 
 Shorts title:
@@ -232,7 +237,7 @@ Describe the blend, get the file: a free open-source audio editor
 Shorts description:
 
 ```
-edytlab is a free, open-source desktop audio editor where an AI agent calls audio tools that run on your computer. Full demos: https://edytlab.com (installers are unsigned).
+edytlab is a free, open-source desktop audio editor you talk to. The editing tools run on your computer. Full demos: https://edytlab.com (the installers are unsigned).
 
 #Shorts #DJ #OpenSource
 ```
@@ -243,7 +248,7 @@ edytlab is a free, open-source desktop audio editor where an AI agent calls audi
 
 Title options:
 
-1. `edytlab: three DJ jobs with an AI audio agent (beatmatch, extended intro, mini-mix)`
+1. `edytlab: three DJ jobs by describing them (beatmatch, extended intro, mini-mix)`
 2. `I built an audio editor you talk to: three full DJ demos, with sound`
 
 **Chapters.** The three recordings are 2:23, 1:39 and 1:42. If you upload them
@@ -251,16 +256,12 @@ back to back with no title cards, the chapters are 0:00, 2:23 and 4:02 and the
 total is 5:44. That is arithmetic on the durations in `website/lib/demos.ts`,
 not a measurement of the finished file: **check them against the actual
 upload and change the numbers if you added intros or cards.** Per-step chapters
-inside each demo are left as TODO because the step times are not in the repo.
+inside each demo are left out because the step times are not in the repo.
 
 ```
-edytlab is a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools to do it. These are three full screen recordings of the app, made with sound on a released build of the desktop app. Waits for the agent are sped up; every playback is in real time. The agent in the recordings is Claude.
+The night before a gig is all chores: matching tempos, counting bars, nudging levels. I built edytlab, a free, open-source desktop audio editor, so I could just tell it what to do. These are three full screen recordings of it at work, with sound, on a released build of the app.
 
-Read this before you watch:
-- The three tracks are short synthetic loops I generated for the demos, not real records. These show the workflow, not how it copes with a messy library.
-- A test script types the requests into the real app when I record. The agent's replies and edits are live. I only publish runs that passed my checks.
-- It's for prepping audio files, not for playing live. There are no decks or controllers.
-- No stem separation: the tool exists but its inference isn't shipped. (These demos don't use transcription; it needs a speech model you download once, from v0.8.0.)
+A few things about how they were made. The three tracks are short synthetic loops I generated, not real records, so they show the workflow and not how it copes with a messy library. A test script types the requests into the real app when I record; the replies and edits are live, with Claude as the AI, and I only publish runs that passed my checks. Waits are sped up, and every playback is in real time.
 
 Chapters
 0:00 Beatmatch and blend two tracks
@@ -268,21 +269,21 @@ Chapters
 4:02 A three-track mini-mix
 
 What happens in each
-1. Two tracks, at 120 and 128 BPM. The DJ asks for each tempo first, without changing anything. The 128 BPM track is time-stretched to 120 and started at 16 s, under the last 8 bars of the other. The first track fades out under a low-pass filter while the second fades in, then the transition plays in real time. The mix is mastered for streaming (compressed, limited at -1 dB, normalised to -14 LUFS) and exported as a WAV. (TODO: step timestamps)
-2. The DJ asks for the tempo and bar length first, and nothing changes. The agent copies the drums-only first 8 bars and splices them in, so the intro runs 16 bars. A high-pass filter holds the low end back until the drop on bar 17, the first 4 bars fade in, and the track is exported as a WAV. (TODO: step timestamps)
-3. A warm-up mix at 124 BPM. Two tracks are time-stretched to 124, keeping their pitch. The agent sequences the three so each comes in about 4 bars before the one before it ends, with a crossfade over each overlap. Each track is brought to about -14 LUFS, with a limiter at -1 dBFS on the master, and the mix is exported as a WAV. (TODO: step timestamps)
+1. Two tracks, one at 120 BPM and one at 128. The DJ asks for each tempo first, without changing anything. Then the 128 is slowed to 120 and started under the last 8 bars of the other, which fades out under a low-pass filter while the new one fades in. The mix is mastered for streaming and exported as a WAV.
+2. The DJ asks for the tempo and bar length first, and nothing changes. Then the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars. A high-pass filter holds the low end back until the drop on bar 17, the first 4 bars fade in, and the track is exported as a WAV.
+3. A warm-up mix at 124 BPM. Two tracks are time-stretched to 124, keeping their pitch, and all three are lined up so each comes in about 4 bars before the one before it ends, with a crossfade over each overlap. Each is brought to a similar loudness, the master gets a limiter, and the mix is exported as a WAV.
 
 How it works
-The model never hears the audio. It chooses and orders calls to 99 deterministic audio tools; the signal processing runs on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI provider you pick (Anthropic, OpenAI, OpenRouter, Groq, Gemini, or your ChatGPT plan, a preview), or stays local with Ollama.
+The AI never hears the audio. It chooses from 99 editing tools, and they run on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI you pick, or stays home with a local model (Ollama).
 
 Get it
-Free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch; the release notes have the steps.
+It's free and open source (MIT), for macOS, Windows and Linux. It's for prepping files, not for playing live. The installers are unsigned, so macOS and Windows warn on first launch, and the release notes have the steps.
 Website and docs: https://edytlab.com
 Download v0.9.3: https://github.com/laadtushar/edytlab/releases/tag/v0.9.3
 Source: https://github.com/laadtushar/edytlab
-The DJ walkthrough, with the limits: https://edytlab.com/use-cases/dj
+The DJ walkthrough: https://edytlab.com/use-cases/dj
 
-#DJ #BeatMatching #OpenSource #AudioEditing
+#DJ #BeatMatching #OpenSource
 ```
 
 Tags field (comma separated):
