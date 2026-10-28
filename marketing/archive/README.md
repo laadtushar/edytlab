@@ -68,6 +68,8 @@ archive/
 │   │   └── shots/                    ollama.png
 │   └── 2026-10-26-v0.9.1/            the renders that said "v0.9.1", replaced for v0.9.2
 │       └── out/                      post-1-launch.png, post-3-carousel.pdf
+├── copy/
+│   └── 2026-10-28-before-brand-voice/   the post texts as they were before `brand-voice.md`, one copy of each file the rewrite replaced
 ├── docs-brand/
 │   └── 2026-10-11-violet-six-providers/   the Settings screenshot of the brand pair (#515), replaced for v0.9.0
 │                                     after-06-settings-dialog.png

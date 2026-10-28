@@ -30,31 +30,34 @@ are described as unsigned.
 
 ## 1. Launch: what it is (attach `reel-highlights.mp4`)
 
-Angle: the one-paragraph product, the three demos in one breath, the honest
-limits. About 250 words.
+Angle: the chore every DJ knows, handed off in plain English. About 175 words.
 
 ```
-I built an audio editor you talk to. The video is three DJ jobs, each described in plain English and ending in an exported WAV.
+Most DJ prep isn't creative. It's matching tempos, lining up bars and checking levels, track after track.
 
-A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 bars of the first, crossfaded with a low-pass on the outgoing track, mastered for streaming. An extended club intro, made by copying a track's drums-only first 8 bars. A three-track mini-mix at 124 BPM with overlaps of about 4 bars.
+So I built an audio editor you can hand that to in plain English.
 
-What I like best: it shows its work. Every edit is a tool call you can read in the chat, followed by a plain-words reply saying what changed, so you can check it instead of taking its word.
+In the video I ask it for three things. Blend a 128 BPM track into a 120 BPM one over the last 8 bars. Build an extended club intro from a track's opening drums. Stitch three tracks into a short mix. Each one ends in a finished WAV.
 
-How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 99 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini, or your ChatGPT plan, a preview), or stays local with Ollama.
+The part I care about most: it shows its work. Every edit appears in the chat as a step you can read, check and undo. Nothing happens behind a curtain.
 
-Honest limits: the demo tracks are short synthetic loops I generated, and the agent in the recordings is Claude. It preps files; it isn't a live DJ tool. No stem separation yet. The installers are unsigned, so macOS and Windows warn on first launch.
+And the AI never touches your audio. It reads a summary of the session and picks from 99 editing tools that run on your own computer. Your files are never uploaded.
 
-Free, open source (MIT), v0.9.3 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
+It's called edytlab. Free and open source, for macOS, Windows and Linux. It's built for prep, not for playing live.
 
-Demos and downloads: https://edytlab.com
+DJs: what's the one prep job you'd hand off first?
 
-#OpenSource #DJing #AudioEngineering #LocalFirst #AIAgents
+https://edytlab.com
+
+#DJ #MusicProduction #OpenSource
 ```
 
 **Pin this comment:**
 
 ```
-Source (MIT) and installers for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/latest (unsigned, so expect a first-launch warning).
+Download for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/latest
+
+The installers aren't signed yet, so expect a warning the first time you open it.
 ```
 
 **Image:** `linkedin/out/post-1-launch.png` (1200x1200). Use it as the video's
@@ -62,16 +65,16 @@ cover if LinkedIn's uploader offers a custom thumbnail, or post it alone. The
 chat in it is the app's real chat panel with a scripted example conversation (the
 numbers are fixture values, not a model's output), and the image says so.
 
-**Shorter version (under 90 words), same video:**
+**Shorter version (about 50 words), same video:**
 
 ```
-I built an audio editor you talk to. The video: three DJ jobs, each described in plain English and ending in an exported WAV. A beatmatched blend, an extended club intro, a three-track mini-mix. Every edit shows as a tool call, with a reply saying what changed.
+Most DJ prep is chores: matching tempos, lining up bars, checking levels.
 
-Free and open source (MIT) for macOS, Windows and Linux. Audio is processed on your machine. It preps files, it doesn't play live, and the installers are unsigned, so expect a first-launch warning.
+I built an audio editor you can hand them to in plain English. It shows every step, and your audio never leaves your computer.
 
-https://edytlab.com
+Free and open source. https://edytlab.com
 
-#OpenSource #DJing #AudioEngineering
+#DJ #OpenSource
 ```
 
 ---

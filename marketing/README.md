@@ -61,6 +61,10 @@ Where this is applied: `apps/desktop/e2e-native/stories/demos.mjs` (prompts and 
 
 **Known exceptions, not yet applied** (they are text for the owner or UI screenshots, and need a decision): the launch kit's posts and the `social-kit/artifact/launch-hub.mjs` page name the release they were written for, quote the tool count and say the installers are unsigned (true today, and a post is text for the owner, not footage); `social-kit/*.md`, `launch/*.md` and `social/*.md` no longer quote readings, cutoffs or export lengths from the old recordings (the owner's #710 text follow-up), only what the DJ types and the fixture tempos, and `social-kit/artifact/launch-hub.mjs` reads them; `social-kit/linkedin/shots/*.png` are screenshots of the app's Settings and chat and show the UI of the day (retake with `node render.mjs --shots` after a UI change); `docs/brand/` is a before/after record of the 2026 restyle and is kept as it was.
 
+## How the copy should sound
+
+Read [`brand-voice.md`](brand-voice.md) before writing or editing a post: one message per post, the reader's moment first, plain words, one limit at most. The rules below say what a post may claim; that file says how it should sound.
+
 ## The accuracy rules (read before you edit anything)
 
 These are the claims that are easy to get wrong. Each has bitten a draft once.
