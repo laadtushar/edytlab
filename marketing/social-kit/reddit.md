@@ -137,7 +137,7 @@ post the question part there and keep the link out of the main body.
 **Title:**
 
 ```
-How do you make DJ-friendly versions of your own tracks? I've been extending a drum intro to 16 bars by describing it, and I want to know what you do
+How do you make DJ-friendly versions of your own tracks? My tool extends a drum intro to 16 bars when you describe it, and I want to know what you do
 ```
 
 **Body:**
@@ -246,7 +246,7 @@ So now Ollama gets a smaller list. It's sent a core set of 15 tools plus the one
 
 There's no key for Ollama. It uses the OpenAI-compatible endpoint, http://localhost:11434/v1 by default, and Test in Settings sends a small request to check that the model can call tools.
 
-What I haven't done is run a local model through a full job. The demo recordings were made with Claude. I don't know which local models can drive this tool list without losing the thread, and I'm not going to guess. I also don't know how often the trimming hides a tool the model needed: a request described by an effect, like "make it sound like a cathedral", doesn't carry the reverb schema.
+What I haven't done is run a local model through a full job. The demo recordings were made with Claude. I don't know which local models can drive this tool list without losing the thread, and I'm not going to guess. I also don't know how often the trimming hides a tool the model needed: a request described by an effect, like "make it sound like a cathedral", may not carry the reverb schema.
 
 What I'd like opinions on: is a core set plus a names line the right shape, or would you rather the model call a search tool to fetch a schema when it needs one?
 
