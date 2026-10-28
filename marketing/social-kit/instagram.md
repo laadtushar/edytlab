@@ -1,8 +1,9 @@
 # Instagram: five reel captions, story frames, bio line
 
-Captions are written in your voice. Instagram does not make URLs in captions
-clickable, so every call to action says "link in bio" and there is no URL in
-a caption.
+Captions are written in your voice, visual first: each one names the moment
+the reel shows, tells a line or two of story, then points to the link in bio.
+Instagram does not make URLs in captions clickable, so every call to action
+says "link in bio" and there is no URL in a caption.
 
 **Bio link:** set it to <https://edytlab.com> (or
 <https://edytlab.com/use-cases/dj> if you want the DJ page with all three
@@ -11,7 +12,7 @@ recordings).
 **Bio line (under 150 characters):**
 
 ```
-Free, open-source AI audio editor for prepping DJ blends. Mac / Windows / Linux. Demos and downloads below.
+An audio editor you talk to. Free and open source, for prepping DJ blends. Mac, Windows, Linux. Demos below.
 ```
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
@@ -21,35 +22,34 @@ carry the app's real audio and their own on-screen captions, no voiceover
 available). Instagram generally does not take an `.srt` upload, so the
 on-screen captions have to do the work there.
 
-**Conventions:** at most two emoji per caption (none are used below, add one
-if you like). Where a caption mentions the installers it says they are
-unsigned. Demo tracks are described as synthetic loops, which is what they
-are. Hashtag popularity was not checked (no live Instagram access here): swap
-any tag that looks dead or off-topic when you paste.
+**Conventions:** no emoji, and three hashtags at the end of each caption.
+Each caption carries at most one limit, said lightly: the demo tracks are
+synthetic loops, or this is for prep and not for playing live. The download
+page states the unsigned installers, and the story frame that sends people to
+the site repeats it. Hashtag popularity was not checked (no live Instagram
+access here): swap any tag that looks dead or off-topic when you paste.
 
 ---
 
 ## 1. `reel-highlights.mp4` (the lead reel)
 
 **Hook line:**
-Three DJ jobs, described in plain English.
+The night before a gig goes on chores.
 
 **Caption:**
 
 ```
-Three DJ jobs, described in plain English.
+The night before a gig goes on chores. Matching tempos, counting bars, nudging levels.
 
-A beatmatched blend, an extended club intro and a three-track mini-mix. Each one ends in an exported WAV.
+Here I hand three of them to an editor I just type to: a blend, a longer intro, a short mix. Each one comes back as a finished WAV.
 
-It's edytlab, a free, open-source audio editor I built. An AI agent runs the audio tools, and the audio is processed on your computer.
+It's called edytlab. I built it, it's free and open source, and your music stays on your computer.
 
-For prepping files, not playing live. The demo tracks are short synthetic loops.
+It's for prep, not for playing live. You stay the DJ.
 
-Link in bio for the demos and downloads (unsigned installers, so Mac and Windows warn on first launch). Which prep chore would you hand off first?
+Link in bio for the demos. Which prep chore would you hand off first?
 
-.
-.
-#dj #djing #djlife #djtips #djmix #djtransitions #beatmatching #djprep #musicproduction #musicproducer #producerlife #audioengineering #audioediting #mixing #homestudio #aiaudio #aitools #aiagent #opensource #opensourcesoftware #localfirst #rustlang
+#dj #djtips #opensource
 ```
 
 **On-screen hook text (pick one):**
@@ -60,7 +60,7 @@ Link in bio for the demos and downloads (unsigned installers, so Mac and Windows
 **Alt text:**
 
 ```
-Screen recording of the edytlab desktop audio editor, showing a chat panel and waveform timeline as an AI agent handles three DJ jobs: a beatmatched blend, an extended intro and a three-track mix.
+Screen recording of the edytlab desktop audio editor, showing a chat panel and waveform timeline as the AI handles three DJ jobs: a beatmatched blend, an extended intro and a three-track mix.
 ```
 
 ---
@@ -68,33 +68,29 @@ Screen recording of the edytlab desktop audio editor, showing a chat panel and w
 ## 2. `reel-beatmatched-transition.mp4`
 
 **Hook line:**
-A 128 BPM track, matched to 120 and blended in.
+You have a 128 BPM track, and the one playing is 120.
 
 **Caption:**
 
 ```
-A 128 BPM track, matched to 120 and blended in.
+You have a 128 BPM track, and the one playing is 120. Getting from one to the other without a clunk is a chore.
 
-The agent time-stretches it to 120 BPM, keeping the pitch, and starts it under the last 8 bars of the other track. One fades out under a low-pass filter while the other fades in.
+Here I just say what I want. The editor slows the new track to 120 without changing its pitch, brings it in under the last 8 bars of the other, and fades one out while the other fades in.
 
-Then the mix is mastered for streaming and exported as a WAV.
+The tracks are short demo loops. Link in bio to try it, free and open source.
 
-Link in bio to try it, free and open source. Demo tracks are synthetic loops, and it's for prep, not live sets.
-
-.
-.
-#beatmatching #djtransitions #djtips #djing #dj #djlife #bpm #timestretch #crossfade #lufs #mastering #audioengineering #musicproduction #musicproducer #mixing #aiaudio #aitools #aiagent #opensource #localfirst
+#beatmatching #djtips #opensource
 ```
 
 **On-screen hook text (pick one):**
 1. Beatmatching 120 and 128 BPM by chatting
 2. Ask for the blend. Get the WAV.
-3. Watch an AI agent beatmatch two tracks
+3. Watch two tracks get beatmatched from a chat
 
 **Alt text:**
 
 ```
-Screen recording of the edytlab app: an AI agent time-stretches a 128 BPM track to 120 BPM, places it under the end of another track, crossfades them with a low-pass filter, and exports a WAV.
+Screen recording of the edytlab app: the AI time-stretches a 128 BPM track to 120 BPM, places it under the end of another track, crossfades them with a low-pass filter, and exports a WAV.
 ```
 
 ---
@@ -102,22 +98,18 @@ Screen recording of the edytlab app: an AI agent time-stretches a 128 BPM track 
 ## 3. `reel-extended-club-intro.mp4`
 
 **Hook line:**
-Need a longer intro to mix over?
+The track opens with 8 bars of drums, and you wish it had 16.
 
 **Caption:**
 
 ```
-Need a longer intro to mix over?
+The track opens with 8 bars of drums, and you wish it had 16.
 
-Here the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars. A high-pass filter holds the low end back until the drop, and the first 4 bars fade in.
+Here the editor copies those first 8 bars and splices them in, so the intro runs twice as long. The low end stays out until the drop, and the first few bars fade in. Then it exports a WAV.
 
-The agent exports a WAV.
+The demo track is a short loop. Link in bio to try it, free and open source.
 
-Link in bio for the demos and downloads. The demo track is a synthetic loop, and the installers are unsigned (first-launch warning on Mac and Windows).
-
-.
-.
-#djedits #extendedmix #clubedit #dj #djing #djtips #djprep #musicproduction #producerlife #edmproducer #audioediting #audioengineering #highpassfilter #mixing #aiaudio #aitools #aiagent #opensource #rustlang #localfirst
+#djedits #clubmusic #opensource
 ```
 
 **On-screen hook text (pick one):**
@@ -128,7 +120,7 @@ Link in bio for the demos and downloads. The demo track is a synthetic loop, and
 **Alt text:**
 
 ```
-Screen recording of the edytlab app: an AI agent copies a track's drums-only first 8 bars to make a 16-bar intro, adds a high-pass filter until the drop, and exports a WAV.
+Screen recording of the edytlab app: the AI copies a track's drums-only first 8 bars to make a 16-bar intro, adds a high-pass filter until the drop, and exports a WAV.
 ```
 
 ---
@@ -136,20 +128,18 @@ Screen recording of the edytlab app: an AI agent copies a track's drums-only fir
 ## 4. `reel-mini-mix.mp4`
 
 **Hook line:**
-Three tracks, one warm-up mix.
+A warm-up mix is mostly joins.
 
 **Caption:**
 
 ```
-Three tracks, one warm-up mix.
+A warm-up mix is mostly joins. Three tracks, and every join has to sound like it was meant.
 
-Two of them are time-stretched to 124 BPM, keeping their pitch. Then all three are sequenced with overlaps of about 4 bars and crossfades, each brought to about -14 LUFS, with a limiter at -1 dBFS on the result.
+Here I ask for the whole thing in one go. The three tracks come to one tempo, overlap by a few bars, crossfade, and settle at one level for streaming, with a limiter at the end so nothing clips. Out comes one WAV.
 
-Link in bio. Free, open source, Mac / Windows / Linux. It preps files; it doesn't play live.
+It preps files, it doesn't play live. Link in bio, free and open source for Mac, Windows and Linux.
 
-.
-.
-#djmix #minimix #dj #djing #djlife #djtips #djprep #beatmatching #djtransitions #crossfade #lufs #limiter #audioengineering #musicproduction #mixing #aiaudio #aitools #aiagent #opensource #localfirst #buildinpublic
+#djmix #minimix #opensource
 ```
 
 **On-screen hook text (pick one):**
@@ -160,7 +150,7 @@ Link in bio. Free, open source, Mac / Windows / Linux. It preps files; it doesn'
 **Alt text:**
 
 ```
-Screen recording of the edytlab app: an AI agent lines up three tracks at 124 BPM with overlaps of about 4 bars and crossfades, limits the result, and exports a WAV.
+Screen recording of the edytlab app: the AI lines up three tracks at 124 BPM with overlaps of about 4 bars and crossfades, limits the result, and exports a WAV.
 ```
 
 ---
@@ -175,15 +165,11 @@ Describe the blend. Get the file.
 ```
 Describe the blend. Get the file.
 
-edytlab is a free, open-source audio editor where an AI agent calls audio tools that run on your computer. Beatmatching, intros, crossfades, loudness, export.
+That's the whole idea behind edytlab, an audio editor you talk to. Beatmatching, intros, crossfades, loudness: say it in plain words and watch each step happen.
 
-A prep tool, not a live one.
+It's for prep, not for playing live. Free and open source. Link in bio for the full demos.
 
-Full demos at the link in bio.
-
-.
-.
-#dj #djing #djtips #beatmatching #musicproduction #musicproducer #audioengineering #audioediting #aiaudio #aitools #aiagent #aiforcreators #opensource #opensourcesoftware #localfirst #rustlang #buildinpublic #indiedev
+#dj #djtips #opensource
 ```
 
 **On-screen hook text (pick one):**
@@ -194,7 +180,7 @@ Full demos at the link in bio.
 **Alt text:**
 
 ```
-Short screen recording of the edytlab desktop audio editor, with a chat panel next to a waveform timeline, as an AI agent edits a DJ blend.
+Short screen recording of the edytlab desktop audio editor, with a chat panel next to a waveform timeline, as the AI edits a DJ blend.
 ```
 
 ---
@@ -204,9 +190,9 @@ Short screen recording of the edytlab desktop audio editor, with a chat panel ne
 1. Question sticker on a still from `reel-highlights.mp4`:
    `What's the most tedious step when you prep a blend?`
 2. Text over a short clip from `reel-beatmatched-transition.mp4`:
-   `Three DJ jobs done by chatting with an AI agent. New reel on the feed.`
+   `New reel on the feed: three prep chores, handed off by typing.`
 3. Text on a plain frame, with the link sticker to <https://edytlab.com>:
-   `Free and open source. Mac, Windows, Linux. Unsigned installers, so expect a first-launch warning.`
+   `Free and open source, for Mac, Windows and Linux. The installers are unsigned, so expect a warning the first time you open it.`
 
 ---
 
@@ -218,9 +204,8 @@ not the cutoffs the agent picks, the length of an export or what it says it
 found, which differ from take to take); the demo tracks being synthetic comes from
 `apps/desktop/e2e-native/fixtures.mjs`.
 
-- The mini-mix and highlights captions say "an AI agent runs the audio tools"
-  and do not name the model. The recordings use Claude; say so in a comment if
-  asked.
+- The captions do not name the model. The recordings use Claude; say so in a
+  comment if asked.
 - "The audio is processed on your computer" is true. If a comment asks about
   privacy, the full answer is: audio files are not uploaded; the chat text goes
   to the AI provider you pick, or stays local with Ollama.
