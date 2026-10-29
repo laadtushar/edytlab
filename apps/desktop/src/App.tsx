@@ -27,8 +27,6 @@ import {
   getNode,
   getTranscript,
   cutTranscriptWords,
-  isNoSession,
-  listTracks,
   getSyncLock,
   setSyncLock,
   removeMarker,
@@ -77,6 +75,7 @@ import {
 } from "./components/Timeline";
 import { useMarkers } from "./hooks/useMarkers";
 import { useSession } from "./hooks/useSession";
+import { SessionQueryProvider } from "./lib/sessionQueries";
 import {
   getKeychainPersistence,
   hasApiKey,
@@ -145,7 +144,21 @@ function isApiKeyError(message: string): boolean {
 }
 
 function App() {
+  return (
+    <SessionQueryProvider>
+      <AppSession />
+    </SessionQueryProvider>
+  );
+}
+
+function AppSession() {
+  // A control stays held until the query observer adopts its confirming
+  // list (#596). The owner's layout-effect hand-back redraws that list.
+  const [ownedVersion, bumpOwned] = useReducer((n: number) => n + 1, 0);
+  const [owned] = useState(() => new OwnedControls(bumpOwned));
   const {
+    tracks,
+    refreshTracks,
     renderHead,
     head,
     setHeadLocal,
@@ -158,7 +171,7 @@ function App() {
     forgetRemoved,
     graphVersion,
     inOrder,
-  } = useSession();
+  } = useSession({ trackControls: owned });
   // The node the history graph is previewing, apart from `head` (#522): a
   // click there shows a node, and only "Set as head" moves the head, so the
   // undo path and the file it is saved to follow real moves alone.
@@ -241,59 +254,12 @@ function App() {
   useEffect(() => {
     setExportedWithout(null);
   }, [head]);
-  const [tracks, setTracks] = useState<TrackSummary[]>([]);
-  // The lane controls the user has set and the session has not yet
-  // confirmed (#596). A track list that lands does not overwrite them; the
-  // rule and its reasons are in `lib/ownedControls.ts`. `ownedVersion`
-  // changes whenever one is handed back, so the lanes are drawn again from
-  // the session's own list. A plain state update, not an external-store
-  // subscription: it must be drawn in the same batch as the `setTracks`
-  // that confirms the control, and a synchronous one would draw the older
-  // list first.
-  const [ownedVersion, bumpOwned] = useReducer((n: number) => n + 1, 0);
-  const [owned] = useState(() => new OwnedControls(bumpOwned));
   // The latest list, for handlers that must compare against what the
   // session holds now rather than what they closed over.
   const tracksRef = useRef<TrackSummary[]>(tracks);
   useEffect(() => {
     tracksRef.current = tracks;
   }, [tracks]);
-  /**
-   * The one way the track list is refreshed (#341, #342).
-   *
-   * - **The latest request wins.** Boot lists the tracks, and so does
-   *   every edit; nothing ordered the replies, so a boot reply arriving
-   *   after an edit's replaced the newer list with the older one. Each
-   *   request is numbered, and only the newest one's reply is applied.
-   * - **`NoSession` is an empty list**, not an error: it is what a new
-   *   project with no history answers. "New project…" on an empty folder
-   *   showed it as a failure.
-   *
-   * - **A control the user holds is handed back with the list that
-   *   confirms it** (#596): the request's number says whether the list was
-   *   read after the control's commit was answered, and the hand-back is
-   *   in the same batch as `setTracks`, so no list is drawn without it.
-   *
-   * Any other failure is thrown to the caller, which reports it — unless
-   * a newer request has been made since, in which case it is moot. A
-   * failed read confirms nothing: the user's values stay over the list
-   * until one that is read.
-   */
-  const trackRequestRef = useRef(0);
-  const refreshTracks = useCallback(async (): Promise<void> => {
-    const request = ++trackRequestRef.current;
-    let next: TrackSummary[];
-    try {
-      next = await listTracks();
-    } catch (err) {
-      if (request !== trackRequestRef.current) return;
-      if (!isNoSession(err)) throw err;
-      next = [];
-    }
-    if (request !== trackRequestRef.current) return;
-    owned.applied(request);
-    setTracks(next);
-  }, [owned]);
   /**
    * What the timeline draws and the status bar names: the session's own
    * audio, whichever track holds it. The track itself is kept for its
@@ -819,16 +785,13 @@ function App() {
       } catch (e) {
         setRenderError(String(e));
       }
-      // `refreshTracks` numbers its request as it is called, with nothing
-      // awaited before: the next number is the read made right below.
-      if (claim) owned.finish(claim, trackRequestRef.current + 1);
       try {
-        await refreshTracks();
+        await refreshTracks(claim);
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [applyEdit, owned],
+    [applyEdit, refreshTracks],
   );
 
   // Release, key-up and blur all commit a slider, and most carry the value
@@ -1429,7 +1392,7 @@ function App() {
     // launch and restores its `HEAD`, so a returning user's tracks are
     // already there; a fresh project has no head yet and answers
     // `NoSession`, which leaves the list empty.
-    void refreshTracks().catch(() => setTracks([]));
+    void refreshTracks().catch(() => undefined);
     // Then the view they left. Saving stays off until this has been
     // read, whether or not there was anything to read.
     //
