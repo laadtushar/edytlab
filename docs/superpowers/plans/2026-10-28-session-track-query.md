@@ -38,6 +38,7 @@
 | `apps/desktop/package.json`, `pnpm-lock.yaml` | Exact approved dependency and its resolution |
 | `apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt` | Generated shipped-dependency notices |
 | `CLAUDE.md` | Correct only descriptions of the track-read owner changed by Stage 2 |
+| `docs/architecture.md`, `docs/adr/README.md` | Correct local-state and no-query-library claims; mark only Stage 2 partial completion |
 
 The frontend migration is one coherent task: splitting public hook composition
 from App adoption would leave a misleading intermediate migration and duplicate
@@ -198,7 +199,8 @@ No push or PR yet. Report full evidence and concerns in the task report.
 ### Task 2: Ship dependency notices and accurate Stage 2 documentation
 
 **Files:** `apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt`, relevant
-track-read-owner wording in `CLAUDE.md`, and the plan/spec status only.
+track-read-owner wording in `CLAUDE.md`, `docs/architecture.md` State Management,
+ADR 0001's Built row in `docs/adr/README.md`, and the plan/spec status only.
 
 **Interfaces:** Consumes Task 1's real bundled dependency and passing frontend;
 produces generated notices verified by the repository's unchanged generator.
