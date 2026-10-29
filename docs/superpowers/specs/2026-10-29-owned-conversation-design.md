@@ -51,9 +51,12 @@ is allowed from Drop. Existing PlanGate cleanup remains responsible for its slot
 
 A scoped pending-step guard is appropriate when it can own ordered completion
 without leaking transport/policy into the module. A fully completed step must
-not get duplicate Drop answers. Every explicit outcome and unwinding path must
-retain prior completed results. Do not implement speculative recovery beyond
-what the retained-Agent regression proves; report materially wider needs.
+not get duplicate Drop answers. Explicit outcomes retain prior completed results.
+Arm interrupted-before-execution cleanup only while awaiting held approval:
+dispatch can return before event callbacks and result storage, so a missing
+recorded result is not proof that an edit never ran. Do not extend this cleanup
+to callback or dispatch panics. A broader guard would need explicit execution
+state and separate evidence; that recovery is outside this stage.
 
 ## Verification and compatibility
 
