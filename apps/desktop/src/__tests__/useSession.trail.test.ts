@@ -68,6 +68,7 @@ const graphOf = (head: string, ids: string[]) => ({
 
 import type { SavedTrail } from "../lib/headTrail";
 import { useSession } from "../hooks/useSession";
+import { SessionQueryProvider } from "../lib/sessionQueries";
 
 /** Mute, then unmute: the project ends the session on A, having been on M. */
 const mutedAndUnmuted: SavedTrail = { head: "A", trail: ["A", "M"], redo: [] };
@@ -76,7 +77,7 @@ const nothing: SavedTrail = { head: null, trail: [], redo: [] };
 
 /** Mount, and wait until the head and the saved path have both been read. */
 async function mountOnA() {
-  const hook = renderHook(() => useSession());
+  const hook = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
   await waitFor(() => expect(hook.result.current.peekUndo()).not.toBeNull());
   await act(async () => {
     await Promise.allSettled(bridge.getHeadTrail.mock.results.map((r) => r.value));
@@ -150,7 +151,7 @@ describe("useSession: the path comes back after a restart", () => {
   it("an edit that lands before the saved path is read wins over it", async () => {
     const path = held<SavedTrail>();
     bridge.getHeadTrail.mockReturnValue(path.promise);
-    const { result } = renderHook(() => useSession());
+    const { result } = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
     await waitFor(() => expect(result.current.peekUndo()).not.toBeNull());
 
     act(() => result.current.setHeadLocal("B"));

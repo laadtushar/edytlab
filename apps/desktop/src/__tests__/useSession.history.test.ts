@@ -36,10 +36,11 @@ vi.mock("../lib/tauri-bridge", () => ({
 }));
 
 import { useSession } from "../hooks/useSession";
+import { SessionQueryProvider } from "../lib/sessionQueries";
 
 /** Mount the hook on a project whose head is "A", once that head has arrived. */
 async function mountOnA() {
-  const hook = renderHook(() => useSession());
+  const hook = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
   await waitFor(() => expect(hook.result.current.peekUndo()).not.toBeNull());
   return hook;
 }
@@ -74,7 +75,7 @@ describe("useSession: the path taken", () => {
 
   it("has nothing to undo or redo with no head", async () => {
     bridge.getSessionHead.mockRejectedValue("no session loaded");
-    const { result } = renderHook(() => useSession());
+    const { result } = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
     // Let the refused read land, then ask.
     await act(async () => {
       await Promise.allSettled(bridge.getSessionHead.mock.results.map((r) => r.value));
