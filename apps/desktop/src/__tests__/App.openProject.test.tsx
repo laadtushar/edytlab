@@ -17,39 +17,14 @@
  */
 
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
+import { type Args, appAnswer, bootIpc, node, settle, voiceTrack } from "./appHarness";
 import App from "../App";
 
-type Args = Record<string, unknown>;
-
-/**
- * A node id. The status bar shows the first seven characters, so each id
- * is told apart by them: `node(2)` reads `head 0000002`.
- */
-const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
 const headLabel = (n: number): string => `head ${node(n).slice(0, 7)}`;
 
 const OTHER = "/home/user/Music/other";
@@ -77,30 +52,12 @@ class Backend {
   handle = (cmd: string, args: Args = {}): unknown => {
     this.calls.push({ cmd, args });
     switch (cmd) {
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-      case "list_markers":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
       case "get_view_state":
         return this.view;
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
       case "get_session_head":
         return this.head;
       case "get_node":
         return { id: args.id, parent: null };
-      case "save_view_state":
-      case "set_selection_context":
-        return null;
       // The folder picker, answered with the folder to open.
       case "plugin:dialog|open":
         return OTHER;
@@ -116,7 +73,7 @@ class Backend {
       case "get_graph":
         return { nodes: [], head: this.head };
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 
@@ -126,32 +83,13 @@ class Backend {
   }
 
   private track() {
-    return {
-      id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-      name: "Voice",
-      muted: false,
-      gain_db: 0,
-      pan: 0,
-      soloed: false,
-      audio_path: "/tmp/voice.wav",
-      clips: [
-        { start_sec: 0, length_sec: 10, source_path: "/tmp/voice.wav", volume_envelope: [] },
-      ],
-    };
+    return voiceTrack();
   }
 }
 
-/** Let what the app does next happen. */
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
 async function start(): Promise<Backend> {
   const backend = new Backend();
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   render(<App />);
   await screen.findByTestId("timeline-lane-gain");
   await waitFor(() =>

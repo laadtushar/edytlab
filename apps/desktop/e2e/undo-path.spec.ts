@@ -33,6 +33,7 @@ import { fixturePath, fixtureSeconds } from "./audio-fixtures";
 import type { SavedTrail } from "../src/lib/headTrail";
 
 import {
+  type Backend,
   headMovesWithin,
   nodeId,
   ok,
@@ -51,63 +52,96 @@ const MUTED = nodeId(3);
 const DUPLICATED = nodeId(4);
 const SOLOED = nodeId(5);
 
+const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
+
+/** The store's graph after a mute and an unmute: one node for each state. */
+const threeNodes = (head: string) =>
+  ok({
+    nodes: [
+      { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
+      { id: START, parent: BEFORE_LOAD, label: "load", tool: "load", created_at: at(1) },
+      { id: MUTED, parent: START, label: "mute", tool: "set_track_muted", created_at: at(2) },
+    ],
+    head,
+  });
+
+/** The start state: two tracks loaded, the three-second tone to render, and the test's own answers. */
+const started = (extra: Backend = {}): Backend => ({
+  ...projectWith([toneTrack()], START),
+  render_preview: ok(fixturePath("tone3s")),
+  ...extra,
+});
+
+/** Boot on the start state, and wait until the ruler shows the tone. */
+async function bootStarted(app: App, extra: Backend = {}) {
+  await app.boot(started(extra));
+  await expect(app.page.getByTestId("ruler")).toContainText("0:03");
+  return app.page;
+}
+
+/** Click mute, and wait until the app has sent the `n`th mute. */
+async function clickMute(app: App, n: number) {
+  await app.page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(n);
+}
+
+/** Mute, then unmute: the head is START again, with [START, MUTED] behind it. */
+async function muteThenUnmute(app: App) {
+  await clickMute(app, 1);
+  await app.become({ set_track_muted: ok(START) });
+  await clickMute(app, 2);
+  await app.settle();
+}
+
+/**
+ * Three undos from START with the mute behind it: the mute, then START's
+ * state before it (both from the path, with no parent asked for), and,
+ * once the path is spent, START's stored parent.
+ */
+async function undoThroughThePath(app: App) {
+  const moves: { nodeId: string }[] = [];
+  const undoTo = async (to: string, asked: { id: string }[]) => {
+    await app.become({ set_head_to: ok(to) });
+    await app.page.keyboard.press("Control+z");
+    moves.push({ nodeId: to });
+    await expect.poll(() => app.requestsFor("set_head_to")).toEqual(moves);
+    expect(await app.requestsFor("get_node")).toEqual(asked);
+  };
+  await undoTo(MUTED, []);
+  await app.settle();
+  await undoTo(START, []);
+  await app.settle();
+  await undoTo(BEFORE_LOAD, [{ id: START }]);
+}
+
+
 test("mute, unmute, then undo brings the mute back before anything older", async ({ app }) => {
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  await bootStarted(app, {
     get_node: ok(sessionNode(START, BEFORE_LOAD)),
     set_track_muted: ok(MUTED),
     set_head_to: ok(MUTED),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await clickMute(app, 1);
 
   // Unmuting reaches the state the project started in: the same node.
   await app.become({ set_track_muted: ok(START) });
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
+  await clickMute(app, 2);
   await app.settle();
 
-  // First undo: the muted state, from the trail, with no need to ask the
-  // graph for a parent.
-  await app.become({ set_head_to: ok(MUTED) });
-  await page.keyboard.press("Control+z");
-  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: MUTED }]);
-  await app.settle();
-  expect(await app.requestsFor("get_node")).toEqual([]);
-
-  // Second undo: the state before the mute, which is START again.
-  await app.become({ set_head_to: ok(START) });
-  await page.keyboard.press("Control+z");
-  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: MUTED }, { nodeId: START }]);
-  await app.settle();
-  expect(await app.requestsFor("get_node")).toEqual([]);
-
-  // The trail is spent: now the stored parent is the right answer.
-  await app.become({ set_head_to: ok(BEFORE_LOAD) });
-  await page.keyboard.press("Control+z");
-  await expect
-    .poll(() => app.requestsFor("set_head_to"))
-    .toEqual([{ nodeId: MUTED }, { nodeId: START }, { nodeId: BEFORE_LOAD }]);
-  expect(await app.requestsFor("get_node")).toEqual([{ id: START }]);
+  // Each press takes the step the path holds, and asks the graph for no parent
+  // until the path is spent.
+  await undoThroughThePath(app);
 });
 
 test("redo goes back along the same path", async ({ app }) => {
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     get_node: ok(sessionNode(START, BEFORE_LOAD)),
     set_track_muted: ok(MUTED),
     set_head_to: ok(START),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await clickMute(app, 1);
   await app.settle();
 
   await page.keyboard.press("Control+z"); // back to START
@@ -169,20 +203,15 @@ test("duplicate, remove the copy, then undo brings the copy back", async ({ app 
 });
 
 test("a new edit after an undo leaves nothing to redo", async ({ app }) => {
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     // The store's answer for the node undo leaves, for a build that asks.
     get_node: ok(sessionNode(MUTED, START)),
     set_track_muted: ok(MUTED),
     set_track_soloed: ok(SOLOED),
     set_head_to: ok(START),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await clickMute(app, 1);
   await app.settle();
 
   await page.keyboard.press("Control+z");
@@ -247,33 +276,16 @@ test("opening another project forgets the old project's path", async ({ app }) =
 });
 
 test("the history graph draws the path taken", async ({ app }) => {
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     set_track_muted: ok(MUTED),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
-  await app.become({ set_track_muted: ok(START) });
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
-  await app.settle();
+  await muteThenUnmute(app);
 
   // The store holds one node per state: the unmute is START again, and
   // MUTED's parent is START. The graph has no edge from MUTED back.
-  const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
   await app.become({
-    get_graph: ok({
-      nodes: [
-        { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
-        { id: START, parent: BEFORE_LOAD, label: "load", tool: "load", created_at: at(1) },
-        { id: MUTED, parent: START, label: "mute", tool: "set_track_muted", created_at: at(2) },
-      ],
-      head: START,
-    }),
+    get_graph: threeNodes(START),
   });
   await page.getByTestId("tab-graph").click();
   await expect(page.getByTestId("graph-bubble")).toHaveCount(3);
@@ -294,31 +306,18 @@ test("Set as head in the graph is a step: undo comes back from it, redo goes aga
   // The graph used to call `set_head_to` itself. The app never learned of
   // the jump, so Ctrl+Z from there went to where the head was before it
   // (START), not back to the node the user jumped from (MUTED).
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     set_track_muted: ok(MUTED),
     // The store's answer for the node undo leaves, for a build that asks.
     get_node: ok(sessionNode(START, BEFORE_LOAD)),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
   // The head is MUTED and the path so far is [START].
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await clickMute(app, 1);
   await app.settle();
 
-  const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
   await app.become({
-    get_graph: ok({
-      nodes: [
-        { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
-        { id: START, parent: BEFORE_LOAD, label: "load", tool: "load", created_at: at(1) },
-        { id: MUTED, parent: START, label: "mute", tool: "set_track_muted", created_at: at(2) },
-      ],
-      head: MUTED,
-    }),
+    get_graph: threeNodes(MUTED),
     set_head_to: ok(BEFORE_LOAD),
   });
   await page.getByTestId("tab-graph").click();
@@ -365,20 +364,11 @@ test("the path survives a restart: mute, unmute, close, open, undo brings the mu
 }) => {
   // The path used to live in the webview alone. After a restart undo asked
   // the node for its parent, which skips the mute (#398).
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     set_track_muted: ok(MUTED),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
-  await app.become({ set_track_muted: ok(START) });
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
-  await app.settle();
+  await muteThenUnmute(app);
 
   // Each move saved the whole path with the project; the last one ends at
   // the head the project is on.
@@ -390,54 +380,27 @@ test("the path survives a restart: mute, unmute, close, open, undo brings the mu
 
   // The app is closed and opened again. The project is as it was left:
   // the same head, and the file the app saved.
-  await app.restart({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  await app.restart(started({
     get_head_trail: ok(saves.at(-1)),
     // The store's answer for the node undo leaves, for a build that asks.
     get_node: ok(sessionNode(START, BEFORE_LOAD)),
     set_head_to: ok(MUTED),
-  });
+  }));
   await expect(page.getByTestId("ruler")).toContainText("0:03");
   await app.settle();
 
-  // First undo: the mute, from the saved path, with no need to ask the
-  // graph for a parent.
-  await page.keyboard.press("Control+z");
-  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: MUTED }]);
-  await app.settle();
-  expect(await app.requestsFor("get_node")).toEqual([]);
-
-  // Second undo: the state before the mute, which is START again.
-  await app.become({ set_head_to: ok(START) });
-  await page.keyboard.press("Control+z");
-  await expect
-    .poll(() => app.requestsFor("set_head_to"))
-    .toEqual([{ nodeId: MUTED }, { nodeId: START }]);
-  await app.settle();
-  expect(await app.requestsFor("get_node")).toEqual([]);
-
-  // The path is spent: now the stored parent is the right answer.
-  await app.become({ set_head_to: ok(BEFORE_LOAD) });
-  await page.keyboard.press("Control+z");
-  await expect
-    .poll(() => app.requestsFor("set_head_to"))
-    .toEqual([{ nodeId: MUTED }, { nodeId: START }, { nodeId: BEFORE_LOAD }]);
-  expect(await app.requestsFor("get_node")).toEqual([{ id: START }]);
+  // Each press takes the step the path holds, and asks the graph for no parent
+  // until the path is spent.
+  await undoThroughThePath(app);
 });
 
 test("the redo list survives a restart too (#453)", async ({ app }) => {
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     set_track_muted: ok(MUTED),
     set_head_to: ok(START),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await clickMute(app, 1);
   await app.settle();
   await page.keyboard.press("Control+z"); // back to START, with the mute to redo
   await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: START }]);
@@ -446,12 +409,10 @@ test("the redo list survives a restart too (#453)", async ({ app }) => {
   const saved = (await savedPaths(app)).at(-1);
   expect(saved).toEqual({ head: START, trail: [], redo: [MUTED] });
 
-  await app.restart({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  await app.restart(started({
     get_head_trail: ok(saved),
     set_head_to: ok(MUTED),
-  });
+  }));
   await expect(page.getByTestId("ruler")).toContainText("0:03");
   await app.settle();
 
@@ -462,15 +423,11 @@ test("the redo list survives a restart too (#453)", async ({ app }) => {
 test("a saved path that ends at another head is not used (#453)", async ({ app }) => {
   // The save for the last move was lost: the file ends one move behind
   // the store. It is not the way to this head, so undo asks for the parent.
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     get_head_trail: ok({ head: MUTED, trail: [START], redo: [] }),
     get_node: ok(sessionNode(START, BEFORE_LOAD)),
     set_head_to: ok(BEFORE_LOAD),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
   await app.settle();
 
   await page.keyboard.press("Control+z");
@@ -481,15 +438,11 @@ test("a saved path that ends at another head is not used (#453)", async ({ app }
 test("a project that cannot read its path still opens, and undo uses the parent (#453)", async ({
   app,
 }) => {
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     get_head_trail: reject("could not read the project"),
     get_node: ok(sessionNode(START, BEFORE_LOAD)),
     set_head_to: ok(BEFORE_LOAD),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
   await app.settle();
 
   await page.keyboard.press("Control+z");
@@ -501,12 +454,7 @@ test("opening another project takes the path saved with that project (#453)", as
   const B1 = nodeId(0xb1);
   const BM = nodeId(0xb2); // B1 muted
   const other = "/home/user/Music/other";
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
-  });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  const page = await bootStarted(app);
   await app.settle();
 
   // Project B was closed after a mute and an unmute: B1 again, with BM on
@@ -547,34 +495,17 @@ test("a preview click in the graph leaves the head and the saved path alone, and
   // A click used to move the window's head and not the store's, so the file
   // ended at the node that was only looked at, the next launch ignored it,
   // and undo skipped the mute.
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     set_track_muted: ok(MUTED),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
 
   // Mute, unmute: the head is START again, with [START, MUTED] behind it.
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
-  await app.become({ set_track_muted: ok(START) });
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
-  await app.settle();
+  await muteThenUnmute(app);
   const saved = await savedPaths(app);
   expect(saved.at(-1)).toEqual({ head: START, trail: [START, MUTED], redo: [] });
 
-  const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
   await app.become({
-    get_graph: ok({
-      nodes: [
-        { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
-        { id: START, parent: BEFORE_LOAD, label: "load", tool: "load", created_at: at(1) },
-        { id: MUTED, parent: START, label: "mute", tool: "set_track_muted", created_at: at(2) },
-      ],
-      head: START,
-    }),
+    get_graph: threeNodes(START),
   });
   await page.getByTestId("tab-graph").click();
   await expect(page.getByTestId("graph-bubble")).toHaveCount(3);
@@ -601,13 +532,11 @@ test("a preview click in the graph leaves the head and the saved path alone, and
   expect(await app.requestsFor("set_head_to")).toEqual([]);
 
   // The app is closed and opened again; the project is as it was left.
-  await app.restart({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  await app.restart(started({
     get_head_trail: ok(saved.at(-1)),
     get_node: ok(sessionNode(START, BEFORE_LOAD)),
     set_head_to: ok(MUTED),
-  });
+  }));
   await expect(page.getByTestId("ruler")).toContainText("0:03");
   await app.settle();
 
@@ -624,7 +553,6 @@ test("a preview click in the graph leaves the head and the saved path alone, and
  * only the unmute stepped back from, is gone.
  */
 function compacted() {
-  const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
   return ok({
     nodes: [
       { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
@@ -634,27 +562,12 @@ function compacted() {
   });
 }
 
-/** Mute, then unmute: the head is START again, with [START, MUTED] behind it. */
-async function muteThenUnmute(app: App) {
-  const page = app.page;
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
-  await app.become({ set_track_muted: ok(START) });
-  await page.getByTestId("timeline-lane-mute").click();
-  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
-  await app.settle();
-}
-
 test("after the agent compacts the session, undo goes past the mute it removed (#595)", async ({
   app,
 }) => {
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     set_track_muted: ok(MUTED),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
   await muteThenUnmute(app);
   expect((await savedPaths(app)).at(-1)).toEqual({ head: START, trail: [START, MUTED], redo: [] });
 
@@ -690,13 +603,9 @@ test("undo skips a step the store refuses as gone, instead of failing on every p
 }) => {
   // The nodes went without the window hearing of it: a compaction run
   // from the CLI, say. The store's refusal is the first it learns of it.
-  await app.boot({
-    ...projectWith([toneTrack()], START),
-    render_preview: ok(fixturePath("tone3s")),
+  const page = await bootStarted(app, {
     set_track_muted: ok(MUTED),
   });
-  const page = app.page;
-  await expect(page.getByTestId("ruler")).toContainText("0:03");
   await muteThenUnmute(app);
 
   await app.become({

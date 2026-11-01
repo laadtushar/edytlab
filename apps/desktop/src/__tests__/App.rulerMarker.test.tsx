@@ -12,36 +12,15 @@
  * `list_markers` from them.
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
+import { type Args, appAnswer, bootIpc, node, settle, voiceTrack } from "./appHarness";
 import App from "../App";
 
-type Args = Record<string, unknown>;
-
-const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
 const headLabel = (n: number): string => `head ${node(n).slice(0, 7)}`;
 
 /** The ruler's tick area, as `Ruler.test.tsx` lays it out: past the 132px spacer. */
@@ -71,48 +50,16 @@ class Backend {
       }
       case "list_markers":
         return this.markers.map((m) => ({ ...m }));
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
       case "get_session_head":
         return this.head;
       case "get_node":
         return { id: args.id, parent: null };
       case "get_head_trail":
         return { head: null, trail: [], redo: [] };
-      case "save_view_state":
-      case "set_selection_context":
-        return null;
       case "list_tracks":
-        return [
-          {
-            id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-            name: "Voice",
-            muted: false,
-            gain_db: 0,
-            pan: 0,
-            soloed: false,
-            audio_path: "/tmp/voice.wav",
-            clips: [
-              { start_sec: 0, length_sec: 10, source_path: "/tmp/voice.wav", volume_envelope: [] },
-            ],
-          },
-        ];
+        return [voiceTrack()];
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 
@@ -122,15 +69,8 @@ class Backend {
   }
 }
 
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
 async function open(backend: Backend) {
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   render(<App />);
   await screen.findByTestId("timeline-lane-mute");
   await waitFor(() =>

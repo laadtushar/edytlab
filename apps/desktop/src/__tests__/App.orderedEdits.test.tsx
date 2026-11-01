@@ -27,41 +27,16 @@
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { held, type Held } from "./held";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
+import { type Args, appAnswer, bootIpc, node, quiet, settle, voiceTrack } from "./appHarness";
 import App from "../App";
 
-type Args = Record<string, unknown>;
-
-/**
- * A node id. The status bar shows the first seven characters, so each id
- * is told apart by them: `node(2)` reads `head 0000002`.
- */
-const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
 const headLabel = (n: number): string => `head ${node(n).slice(0, 7)}`;
 
 /** An edit the backend has been asked for and has not answered. */
@@ -109,31 +84,12 @@ class Backend {
     this.calls++;
     if (EDITS.has(cmd)) return this.edit(cmd, args);
     switch (cmd) {
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
       case "list_markers":
         return this.labels;
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
       case "get_session_head":
         return this.head;
       case "get_node":
         return { id: args.id, parent: null };
-      case "save_view_state":
-      case "set_selection_context":
-        return null;
       // The file picker, answered with one file.
       case "plugin:dialog|open":
         return ["/tmp/other.wav"];
@@ -152,23 +108,12 @@ class Backend {
           head: this.head,
         };
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 
   private track() {
-    return {
-      id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-      name: "Voice",
-      muted: this.muted,
-      gain_db: this.gainDb,
-      pan: 0,
-      soloed: false,
-      audio_path: "/tmp/voice.wav",
-      clips: [
-        { start_sec: 0, length_sec: 10, source_path: "/tmp/voice.wav", volume_envelope: [] },
-      ],
-    };
+    return voiceTrack({ muted: this.muted, gain_db: this.gainDb });
   }
 
   private edit(cmd: string, args: Args): Promise<unknown> {
@@ -224,31 +169,6 @@ class Backend {
   private take(edit: Edit): void {
     this.waiting = this.waiting.filter((e) => e !== edit);
   }
-}
-
-/** Let what the app does next (sending the next edit, refreshing) happen. */
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-/**
- * Wait until the app has stopped asking for things.
- *
- * Boot is not over when the first lane is drawn: the head arriving makes
- * the app read the transcript, the labels and the sync-lock, and each
- * answer re-renders it. The timeline puts its lanes back to what the
- * session holds whenever it is handed a new track list, which every
- * render of the app does, so a fader dragged just as one of those lands
- * is put back before it is let go of, and the drag is lost.
- */
-async function quiet(backend: Backend): Promise<void> {
-  for (let guard = 0; guard < 20; guard++) {
-    const before = backend.calls;
-    await settle();
-    if (backend.calls === before) return;
-  }
-  throw new Error("the app never stopped asking");
 }
 
 /**
@@ -323,9 +243,7 @@ const names = (backend: Backend) => backend.sent.map((s) => s.cmd);
 async function start(appliesOn: "send" | "answer", labels: unknown[] = []): Promise<Backend> {
   const backend = new Backend(appliesOn);
   backend.labels = labels;
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   const { rerender } = render(<App />);
   await screen.findByTestId("timeline-lane-gain");
   await waitFor(() =>
