@@ -7,26 +7,13 @@ const { mockZoom } = vi.hoisted(() => {
   return { mockZoom };
 });
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: mockZoom,
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      destroy: vi.fn(),
-      getDuration: () => 60,
-      getCurrentTime: () => 0,
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      setTime: vi.fn(),
-      isPlaying: vi.fn(() => false),
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferWith } = await import("./wavesurferStub");
+  return wavesurferWith(() => ({
+    zoom: mockZoom,
+    getDuration: () => 60,
+  }));
+});
 
 import { Timeline } from "../components/Timeline";
 

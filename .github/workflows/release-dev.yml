@@ -299,7 +299,7 @@ jobs:
       matrix:
         platform:
           - name: macos-universal
-            runner: macos-14
+            runner: macos-15
             # Universal rather than arm64: one artifact that runs on
             # both architectures beats two the user has to choose
             # between, and matches what release-signed.yml already

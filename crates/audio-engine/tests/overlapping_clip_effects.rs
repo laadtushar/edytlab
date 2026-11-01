@@ -22,10 +22,13 @@
 
 use std::path::{Path, PathBuf};
 
-use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use session::{EffectInstance, SessionState};
 use tempfile::TempDir;
+
+mod support;
+use support::{
+    peak_lsb as peak, plain_track, render_i16, session_of, unity_clip, write_sine_trunc,
+};
 
 const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: u64 = SAMPLE_RATE as u64; // one second
@@ -58,21 +61,14 @@ fn ceiling_lsb() -> i32 {
 const CEILING_TOLERANCE_LSB: i32 = 4;
 
 fn write_tone(dir: &Path) -> PathBuf {
-    let path = dir.join("tone.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 220.0 * t).sin() * CLIP_AMP;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
+    write_sine_trunc(
+        dir,
+        "tone.wav",
+        SAMPLE_RATE,
+        FRAMES as usize,
+        220.0,
+        CLIP_AMP,
+    )
 }
 
 fn limiter() -> Vec<EffectInstance> {
@@ -83,63 +79,21 @@ fn limiter() -> Vec<EffectInstance> {
     }]
 }
 
-fn clip(source: &Path) -> Clip {
-    Clip {
-        source_path: source.to_path_buf(),
-        start_in_track: 0,
-        source_offset: 0,
-        length: FRAMES,
-        content_hash: None,
-        time_stretch_factor: None,
-        pitch_shift_semitones: None,
-        beat_grid: None,
-        volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
-    }
-}
-
 /// One track holding `n` copies of the same clip, all starting at zero
 /// — so they overlap completely and their contributions add.
 fn state(source: &Path, n: usize, effects: Vec<EffectInstance>) -> SessionState {
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "t1".into(),
-            clips: (0..n).map(|_| clip(source)).collect(),
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects,
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: SAMPLE_RATE,
-        length_samples: FRAMES,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    let mut track = plain_track(
+        "t1",
+        (0..n).map(|_| unity_clip(source, 0, 0, FRAMES)).collect(),
+    );
+    track.effects = effects;
+    session_of(vec![track], SAMPLE_RATE, FRAMES)
 }
 
 fn render(n: usize, effects: Vec<EffectInstance>) -> Vec<i16> {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
-    let out = tmp.path().join("out.wav");
-    let st = state(&src, n, effects);
-    render_state_to_wav(&st, &out, None).expect("render");
-    WavReader::open(&out)
-        .expect("open out")
-        .samples::<i16>()
-        .map(|r| r.expect("sample"))
-        .collect()
-}
-
-fn peak(x: &[i16]) -> i32 {
-    x.iter().map(|s| (*s as i32).abs()).max().unwrap_or(0)
+    render_i16(&state(&src, n, effects))
 }
 
 /// The premise, in two halves.

@@ -17,34 +17,20 @@ import { describe, expect, it, vi } from "vitest";
 
 const { setScroll } = vi.hoisted(() => ({ setScroll: vi.fn() }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn((event: string, cb: () => void) => {
-        if (event === "decode") cb();
-      }),
-      un: vi.fn(),
-      // A promise, as the real one returns: `undefined` here made the
-      // lane's `.catch` throw, so every lane recorded a failed load and
-      // never had audio to scroll.
-      load: vi.fn(() => Promise.resolve()),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 60,
-      getCurrentTime: () => 0,
-      getWrapper: () => document.createElement("div"),
-      getScroll: () => 0,
-      setScroll,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferWith, onDecode } = await import("./wavesurferStub");
+  return wavesurferWith(() => ({
+    on: onDecode(),
+    // A promise, as the real one returns: `undefined` here made the
+    // lane's `.catch` throw, so every lane recorded a failed load and
+    // never had audio to scroll.
+    load: vi.fn(() => Promise.resolve()),
+    getDuration: () => 60,
+    getWrapper: () => document.createElement("div"),
+    getScroll: () => 0,
+    setScroll,
+  }));
+});
 
 import { Timeline, type TimelineHandle } from "../components/Timeline";
 

@@ -24,40 +24,24 @@ function sine(length: number, period: number): Float32Array {
 
 const CHANNEL = sine(SR * LANE_SECONDS, 480);
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn((event: string, cb: () => void) => {
-        if (event === "decode") cb();
-      }),
-      un: vi.fn(),
-      // Returns a promise because the real one does. Returning
-      // undefined made `load(url).catch(...)` throw synchronously on
-      // every mount, which the lane now treats as a failed load.
-      load: vi.fn(() => Promise.resolve()),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => LANE_SECONDS,
-      getCurrentTime: () => 0,
-      // The lane draws at the timeline's density and scrolls to its
-      // window through these (#344).
-      getWrapper: () => document.createElement("div"),
-      setScroll: vi.fn(),
-      getScroll: () => 0,
-      getDecodedData: () => ({
-        sampleRate: SR,
-        getChannelData: () => CHANNEL,
-      }),
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferWith, onDecode, laneMembers } = await import("./wavesurferStub");
+  return wavesurferWith(() => ({
+    on: onDecode(),
+    // Returns a promise because the real one does. Returning
+    // undefined made `load(url).catch(...)` throw synchronously on
+    // every mount, which the lane now treats as a failed load.
+    load: vi.fn(() => Promise.resolve()),
+    getDuration: () => LANE_SECONDS,
+    // The lane draws at the timeline's density and scrolls to its
+    // window through these (#344).
+    ...laneMembers(),
+    getDecodedData: () => ({
+      sampleRate: SR,
+      getChannelData: () => CHANNEL,
     }),
-  },
-}));
+  }));
+});
 
 import { Timeline } from "../components/Timeline";
 

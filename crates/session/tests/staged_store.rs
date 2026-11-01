@@ -6,82 +6,14 @@
 //! until the commit, a commit onto a head that moved writes nothing at all,
 //! and a handle cannot do anything that rewrites history.
 
-use std::fs;
-use std::path::Path;
-
-use chrono::Utc;
-use session::{
-    Annotation, AnnotationId, AnnotationKind, BusGraph, Commit, Error, NodeId, NodeOp, SessionNode,
-    SessionState, Store, TempoMap, STORE_DIR,
-};
+use session::{Annotation, Commit, Error, NodeId, Store};
 use tempfile::TempDir;
 
-fn node(length_samples: u64) -> SessionNode {
-    SessionNode {
-        id: NodeId([0u8; 32]),
-        parent: None,
-        created_at: Utc::now(),
-        label: None,
-        reasoning: None,
-        state: SessionState {
-            tracks: Vec::new(),
-            bus_routing: BusGraph::default(),
-            master_chain: Vec::new(),
-            tempo_map: TempoMap::default(),
-            key_map: None,
-            transcript: None,
-            sample_rate: 48_000,
-            length_samples,
-            annotations: Vec::new(),
-            sync_lock: false,
-        },
-        op: None,
-    }
-}
-
-fn op(tool: &str) -> NodeOp {
-    NodeOp::new(tool.into(), serde_json::json!({}), "test".into())
-}
-
-/// The files under `<project>/.audiograph/`, as `(relative path, bytes)`,
-/// sorted: what "nothing was written" is checked against.
-fn snapshot(project: &Path) -> Vec<(String, Vec<u8>)> {
-    fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, Vec<u8>)>) {
-        let Ok(entries) = fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                walk(&path, root, out);
-            } else {
-                let rel = path.strip_prefix(root).unwrap().display().to_string();
-                out.push((rel, fs::read(&path).unwrap()));
-            }
-        }
-    }
-    let root = project.join(STORE_DIR);
-    let mut out = Vec::new();
-    walk(&root, &root, &mut out);
-    out.sort();
-    out
-}
-
-fn node_file(project: &Path, id: NodeId) -> std::path::PathBuf {
-    let hex = id.to_hex();
-    project
-        .join(STORE_DIR)
-        .join("nodes")
-        .join(&hex[0..2])
-        .join(format!("{hex}.json"))
-}
+mod support;
+use support::{marker_at, node, node_file, op, snapshot};
 
 fn marker(name: &str) -> Annotation {
-    Annotation {
-        id: AnnotationId::new(),
-        name: name.to_string(),
-        kind: AnnotationKind::Marker { time_sec: 1.0 },
-    }
+    marker_at(name, 1.0)
 }
 
 #[test]
