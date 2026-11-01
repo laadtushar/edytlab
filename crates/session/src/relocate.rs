@@ -18,7 +18,8 @@
 //! `load` copies in), `.audiograph/clipboard/` (the blobs a paste
 //! depends on) and `generated/` at the project's root (`generate_tone`,
 //! `generate_noise`, `mix_to_new_track`). Since #620 every writer but one
-//! names a file by `tools::provenance::audio_hash`, the blake3 of the
+//! names a file by `audio_store::audio_hash` (re-exported as
+//! `tools::provenance::audio_hash`), the blake3 of the
 //! samples *with their rate and channel count*; the exception, a
 //! mixed-down track, is named by the blake3 of its WAV file, header
 //! included, which holds the layout too. So a file of the same name holds

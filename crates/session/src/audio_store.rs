@@ -100,7 +100,7 @@ impl AudioFolder {
 /// **The name of every audio file the project writes from its samples**
 /// (`<hash>.wav`), and the only function to name one with: a writer that
 /// hashed on its own could leave the rate or channel count out again
-/// (#620), and `tests/audio_names_cover_layout.rs` fails a tool source that
+/// (#620), and `crates/tools/tests/audio_names_cover_layout.rs` fails a tool source that
 /// calls blake3 itself.
 pub fn audio_hash(samples: &[f32], sample_rate: u32, channels: u16) -> String {
     let mut hasher = blake3::Hasher::new();
@@ -227,12 +227,16 @@ mod tests {
     /// 4,800 samples of `sin(i * 0.01)`, the buffer the golden names below
     /// were taken from on main before this module existed.
     fn samples() -> Vec<f32> {
-        (0..4800).map(|i| (i as f32 * 0.01).sin()).collect()
+        // Exact IEEE arithmetic, so every platform builds the same bits
+        // (`f32::sin` goes to the platform's libm, which rounds differently).
+        (0..4800u32)
+            .map(|i| ((i * 37) % 20_000) as f32 / 10_000.0 - 1.0)
+            .collect()
     }
 
-    const MONO_48K: &str = "c3a9b2e00cec59a3555d0b0cd418a1dccd77fae2612d454b2c93428cda6f2fd4";
-    const STEREO_24K: &str = "91c7961b2403c3b7210a0a95ba25aa6e293befe894afc1757cd209b4f29e7424";
-    const LEGACY: &str = "c60e6e96b254991afc384eafb5ee7d6f1cd51916f27e5bbb4806f91705ec0aa7";
+    const MONO_48K: &str = "ccbf40d3cc7e60382546ede040961f2320fd34a66db88b5b8e836723d6eb20f5";
+    const STEREO_24K: &str = "2294fd7465418a3893b8c08bb357ca25296aeca43b67a5d86e34515792ddd553";
+    const LEGACY: &str = "40dd2e135154bdb28cfa008dea44526caf12c5f92cf4f7e1ba88098c99372efe";
 
     #[test]
     fn audio_hash_names_are_unchanged() {
@@ -252,11 +256,13 @@ mod tests {
     #[test]
     fn legacy_name_ignores_layout() {
         let s = samples();
-        // The same samples at two layouts share the older name, which is
-        // the bug #620 fixed and the reason nothing may write one.
+        // The same samples at two layouts get two names now; the older name
+        // takes the samples alone (no rate, no channel count), so both
+        // layouts shared it: the bug #620 fixed, and the reason nothing may
+        // write one.
         assert_ne!(audio_hash(&s, 48_000, 1), audio_hash(&s, 24_000, 2));
-        assert_eq!(legacy_sample_hash_name(&s), legacy_sample_hash_name(&s));
         assert_ne!(legacy_sample_hash_name(&s), audio_hash(&s, 48_000, 1));
+        assert_ne!(legacy_sample_hash_name(&s), audio_hash(&s, 24_000, 2));
     }
 
     #[test]
