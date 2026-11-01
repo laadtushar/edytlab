@@ -9,9 +9,8 @@
  *    `setActiveAgentProfile`; toggling off clears the selection.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
-import { confirmAction } from "../lib/confirmAction";
 import {
   deleteAgentProfile,
   getActiveAgentProfile,
@@ -23,6 +22,16 @@ import {
   type AgentProfileSummary,
 } from "../lib/tauri-bridge";
 import { IDENTIFIER_INPUT } from "../lib/identifierInput";
+import { useRecordEditor } from "../lib/useRecordEditor";
+import {
+  EditorBody,
+  EditorFooter,
+  BodyRow,
+  DescriptionRow,
+  EditorLayout,
+  NameRow,
+  Row,
+} from "./RecordEditorParts";
 
 const DRAFT_DEFAULT: AgentProfileContent = {
   name: "",
@@ -32,271 +41,125 @@ const DRAFT_DEFAULT: AgentProfileContent = {
   body: "",
 };
 
-type EditorState =
-  | { kind: "empty" }
-  | { kind: "loading"; name: string }
-  | {
-      kind: "draft";
-      content: AgentProfileContent;
-      isNew: boolean;
-      dirty: boolean;
-    };
-
 export function AgentProfilesEditor() {
-  const [list, setList] = useState<AgentProfileSummary[]>([]);
   const [active, setActive] = useState<string | null>(null);
-  const [listError, setListError] = useState<string | null>(null);
-  const [editor, setEditor] = useState<EditorState>({ kind: "empty" });
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<{
-    kind: "idle" | "ok" | "err";
-    message: string;
-  }>({ kind: "idle", message: "" });
-
-  const refresh = async () => {
-    try {
+  const ed = useRecordEditor<AgentProfileContent, AgentProfileSummary>({
+    fetchList: async () => {
       const [l, a] = await Promise.all([
         listAgentProfiles(),
         getActiveAgentProfile(),
       ]);
-      setList(l);
       setActive(a);
-      setListError(null);
-    } catch (err) {
-      setListError(String(err));
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const open = async (name: string) => {
-    setEditor({ kind: "loading", name });
-    setStatus({ kind: "idle", message: "" });
-    try {
-      const content = await readAgentProfile(name);
-      setEditor({ kind: "draft", content, isNew: false, dirty: false });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-      setEditor({ kind: "empty" });
-    }
-  };
-
-  const newProfile = () => {
-    setEditor({
-      kind: "draft",
-      content: { ...DRAFT_DEFAULT },
-      isNew: true,
-      dirty: true,
-    });
-    setStatus({ kind: "idle", message: "" });
-  };
-
-  const handleSave = async () => {
-    if (editor.kind !== "draft") return;
-
+      return l;
+    },
+    read: readAgentProfile,
+    upsert: upsertAgentProfile,
+    remove: deleteAgentProfile,
+    newDraft: () => ({ ...DRAFT_DEFAULT }),
+    nameOf: (c) => c.name,
+    noun: "profile",
     // Creating a profile whose name is already taken used to overwrite it
     // and report "Saved." The backend `upsert` is unconditional by
     // design — it is the same call the edit path uses — so the create
     // path is the only place that can tell the difference between
     // "save my edits" and "make a new one".
-    if (editor.isNew && list.some((p) => p.name === editor.content.name)) {
-      setStatus({
-        kind: "err",
-        message: `A profile named "${editor.content.name}" already exists. Choose another name, or open that profile to edit it.`,
-      });
-      return;
-    }
-
-    setSaving(true);
-    setStatus({ kind: "idle", message: "" });
-    try {
-      await upsertAgentProfile(editor.content.name, editor.content);
-      await refresh();
-      setEditor({
-        kind: "draft",
-        content: editor.content,
-        isNew: false,
-        dirty: false,
-      });
-      setStatus({ kind: "ok", message: "Saved." });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (editor.kind !== "draft" || editor.isNew) return;
-    try {
-      if (
-        !(await confirmAction(
-          `Delete profile "${editor.content.name}"? This cannot be undone.`,
-        ))
-      )
-        return;
-      await deleteAgentProfile(editor.content.name);
-      setEditor({ kind: "empty" });
-      await refresh();
-      setStatus({ kind: "ok", message: "Deleted." });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-    }
-  };
+    validateSave: (draft, isNew, list) =>
+      isNew && list.some((p) => p.name === draft.name)
+        ? `A profile named "${draft.name}" already exists. Choose another name, or open that profile to edit it.`
+        : null,
+  });
+  const { editor, list } = ed;
 
   const toggleActive = async (target: string | null) => {
     try {
       await setActiveAgentProfile(target);
       setActive(target);
     } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
+      ed.setStatus({ kind: "err", message: String(err) });
     }
   };
 
   return (
-    <div data-testid="agent-profiles-editor" className="flex h-[28rem] gap-3">
-      <aside className="w-48 flex-shrink-0 overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
-            Agent profiles
-          </span>
-          <button
-            type="button"
-            data-testid="profiles-new"
-            onClick={newProfile}
-            className="btn-secondary rounded px-2 py-0.5 text-[10px] uppercase tracking-wider transition"
-          >
-            New
-          </button>
-        </div>
-        {listError ? (
-          <p
-            data-testid="profiles-list-error"
-            className="px-2 py-1 text-[11px] text-[var(--danger)]"
-          >
-            {listError}
-          </p>
-        ) : list.length === 0 ? (
-          <p
-            data-testid="profiles-list-empty"
-            className="px-2 py-2 text-[11px] italic text-[var(--text-faint)]"
-          >
-            No profiles yet. Click "New" or drop a .md file in ~/.edytlab/agents/.
-          </p>
-        ) : (
-          <ul>
-            {list.map((p) => {
-              const isActiveRow = active === p.name;
-              const isEditingRow =
-                editor.kind === "draft" && editor.content.name === p.name;
-              return (
-                <li key={p.name}>
-                  <button
-                    type="button"
-                    data-testid={`profiles-row-${p.name}`}
-                    onClick={() => void open(p.name)}
-                    className={
-                      "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
-                      (isEditingRow
-                        ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                        : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]")
-                    }
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-mono text-[11px]">
-                        {p.name}
+    <EditorLayout
+      testId="agent-profiles-editor"
+      asideWidth="w-48"
+      title="Agent profiles"
+      newTestId="profiles-new"
+      onNew={ed.startNew}
+      listError={ed.listError}
+      listErrorTestId="profiles-list-error"
+      isEmpty={list.length === 0}
+      emptyTestId="profiles-list-empty"
+      emptyText='No profiles yet. Click "New" or drop a .md file in ~/.edytlab/agents/.'
+      list={
+        <ul>
+          {list.map((p) => {
+            const isActiveRow = active === p.name;
+            const isEditingRow =
+              editor.kind === "draft" && editor.content.name === p.name;
+            return (
+              <li key={p.name}>
+                <button
+                  type="button"
+                  data-testid={`profiles-row-${p.name}`}
+                  onClick={() => void ed.open(p.name)}
+                  className={
+                    "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
+                    (isEditingRow
+                      ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                      : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]")
+                  }
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-mono text-[11px]">
+                      {p.name}
+                    </span>
+                    {isActiveRow ? (
+                      <span
+                        data-testid={`profiles-active-badge-${p.name}`}
+                        className="rounded bg-[var(--accent)]/20 px-1 text-[9px] uppercase tracking-wider text-[var(--accent-text)]"
+                      >
+                        active
                       </span>
-                      {isActiveRow ? (
-                        <span
-                          data-testid={`profiles-active-badge-${p.name}`}
-                          className="rounded bg-[var(--accent)]/20 px-1 text-[9px] uppercase tracking-wider text-[var(--accent-text)]"
-                        >
-                          active
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="truncate text-[10px] text-[var(--text-faint)]">
-                      {p.description || "—"}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </aside>
-
-      <section className="flex flex-1 flex-col gap-2">
-        {editor.kind === "empty" ? (
-          <div
-            data-testid="profiles-editor-empty"
-            className="flex h-full items-center justify-center rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-faint)]"
-          >
-            Select a profile or click "New" to create one.
-          </div>
-        ) : editor.kind === "loading" ? (
-          <div className="flex h-full items-center justify-center text-xs text-[var(--text-faint)]">
-            Loading {editor.name}…
-          </div>
-        ) : (
+                    ) : null}
+                  </div>
+                  <div className="truncate text-[10px] text-[var(--text-faint)]">
+                    {p.description || "—"}
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      }
+    >
+      <EditorBody
+        editor={editor}
+        emptyTestId="profiles-editor-empty"
+        emptyClassName="flex h-full items-center justify-center rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-faint)]"
+        empty='Select a profile or click "New" to create one.'
+        form={(d) => (
           <ProfileForm
-            content={editor.content}
-            isNew={editor.isNew}
-            isActive={!editor.isNew && active === editor.content.name}
-            onChange={(c) =>
-              setEditor({ ...editor, content: c, dirty: true })
-            }
+            content={d.content}
+            isNew={d.isNew}
+            isActive={!d.isNew && active === d.content.name}
+            onChange={ed.change}
             onToggleActive={(on) =>
-              void toggleActive(on ? editor.content.name : null)
+              void toggleActive(on ? d.content.name : null)
             }
           />
         )}
-
-        <div className="flex items-center justify-between gap-2">
-          <span
-            data-testid="profiles-status"
-            className={
-              "text-xs " +
-              (status.kind === "err"
-                ? "text-[var(--danger)]"
-                : status.kind === "ok"
-                ? "text-[var(--success)]"
-                : "text-[var(--text-faint)]")
-            }
-          >
-            {status.message}
-          </span>
-          <div className="flex items-center gap-2">
-            {editor.kind === "draft" && !editor.isNew ? (
-              <button
-                type="button"
-                data-testid="profiles-delete"
-                onClick={() => void handleDelete()}
-                className="btn-danger rounded-md px-3 py-1 text-xs transition"
-              >
-                Delete
-              </button>
-            ) : null}
-            <button
-              type="button"
-              data-testid="profiles-save"
-              disabled={
-                editor.kind !== "draft" ||
-                saving ||
-                !editor.dirty ||
-                editor.content.name.trim() === ""
-              }
-              onClick={() => void handleSave()}
-              className="btn-primary px-3 py-1 text-xs transition"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
+      />
+      <EditorFooter
+        prefix="profiles"
+        editor={editor}
+        status={ed.status}
+        saving={ed.saving}
+        nameOf={(c) => c.name}
+        onDelete={() => void ed.remove()}
+        onSave={() => void ed.save()}
+      />
+    </EditorLayout>
   );
 }
 
@@ -356,29 +219,18 @@ function ProfileForm({
 
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
-      <Row label="Name">
-        <input
-          {...IDENTIFIER_INPUT}
-          type="text"
-          data-testid="profiles-name"
-          value={content.name}
-          disabled={!isNew}
-          onChange={(e) => onChange({ ...content, name: e.target.value })}
-          placeholder="precision-editor"
-          className="field w-full px-2 py-1 font-mono text-xs outline-none transition disabled:cursor-not-allowed disabled:opacity-60"
-        />
-      </Row>
-      <Row label="Description">
-        <input
-          type="text"
-          data-testid="profiles-description"
-          value={content.description}
-          onChange={(e) =>
-            onChange({ ...content, description: e.target.value })
-          }
-          className="field w-full px-2 py-1 text-xs outline-none transition"
-        />
-      </Row>
+      <NameRow
+        prefix="profiles"
+        value={content.name}
+        locked={!isNew}
+        placeholder="precision-editor"
+        onChange={(name) => onChange({ ...content, name })}
+      />
+      <DescriptionRow
+        prefix="profiles"
+        value={content.description}
+        onChange={(description) => onChange({ ...content, description })}
+      />
       <Row label="Model override (optional)">
         <div className="grid grid-cols-2 gap-1.5">
           <input
@@ -448,33 +300,13 @@ function ProfileForm({
           {isNew ? "Save the profile first" : "Use this profile"}
         </label>
       </Row>
-      <Row label="System prompt addition">
-        <textarea
-          data-testid="profiles-body"
-          value={content.body}
-          onChange={(e) => onChange({ ...content, body: e.target.value })}
-          rows={10}
-          placeholder="You are a precision audio editor. Confirm any destructive operation…"
-          className="field w-full resize-y px-2 py-1 font-mono text-xs outline-none transition"
-        />
-      </Row>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <span className="block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
-        {label}
-      </span>
-      {children}
+      <BodyRow
+        label="System prompt addition"
+        prefix="profiles"
+        value={content.body}
+        placeholder="You are a precision audio editor. Confirm any destructive operation…"
+        onChange={(body) => onChange({ ...content, body })}
+      />
     </div>
   );
 }

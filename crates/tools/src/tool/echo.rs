@@ -28,15 +28,15 @@ impl Tool for EchoTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "echo",
-            "Add an echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95) repeating the pattern at the longest tap. Appends a new session node.",
+            "Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95). Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "track": { "type": "integer" },
-                    "delay_ms": { "type": "number", "description": "Echo delay in milliseconds" },
+                    "delay_ms": { "type": "number" },
                     "taps": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
                     "feedback": { "type": "number" },
-                    "decay": { "type": "number", "default": 0.5, "description": "Echo amplitude 0..1" },
+                    "decay": { "type": "number", "default": 0.5 },
                     "start_sec": { "type": "number" },
                     "end_sec": { "type": "number" }
                 },

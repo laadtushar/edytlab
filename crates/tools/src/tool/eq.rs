@@ -91,10 +91,9 @@ impl Tool for EqTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "eq",
-            "Apply an equalizer (chain of biquad bands) to a track. Each band has \
-             freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves) and optional \
-             type: peak (default), low_shelf or high_shelf (freq_hz is the corner). \
-             Appends a new session node.",
+            "EQ a track with biquad bands. Each band: freq_hz, \
+             gain_db, optional Q (default 1.0; 0.707 for shelves), optional type \
+             peak (default), low_shelf or high_shelf. Appends a new session node.",
             json!({
                 "type": "object",
                 "required": ["track", "bands"],

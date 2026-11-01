@@ -310,7 +310,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "fade",
             prompt: 'add a 3-second fade-out',
-            what: "Apply a fade-in or fade-out envelope. Curve options: linear, exponential, logarithmic.",
+            what: "Apply a linear fade-in or fade-out to a time range.",
             output: "node_id",
           },
           {
@@ -371,7 +371,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "eq",
             prompt: 'boost the highs on track 1 by 3 dB at 8 kHz',
-            what: "Apply a parametric EQ to a track using a chain of biquad peak filters. Specify frequency, gain (dB), and Q for each band.",
+            what: "EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf.",
             output: "node_id",
           },
           {
@@ -395,7 +395,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "echo",
             prompt: "add a 300 ms echo",
-            what: "Add a single echo (delay + decay). delay_ms is the echo offset in milliseconds; decay (0..1) is the echo amplitude.",
+            what: "Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95).",
             output: "node_id",
           },
           {

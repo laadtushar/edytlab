@@ -42,13 +42,13 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
-- [`echo`](#echo) — Add an echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95) repeating the pattern at the longest tap.
-- [`eq`](#eq) — Apply an equalizer (chain of biquad bands) to a track.
+- [`echo`](#echo) — Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95).
+- [`eq`](#eq) — EQ a track with biquad bands.
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
 - [`export_transcript`](#export_transcript) — Export the stored transcript as SRT, WebVTT, or plain text.
-- [`fade`](#fade) — Apply a linear fade-in or fade-out to a time range of a track.
+- [`fade`](#fade) — Apply a fade-in or fade-out to a time range of a track.
 - [`fork_node`](#fork_node) — Branch the session DAG at the given node id (defaults to the current head when `from` is omitted).
 - [`gain`](#gain) — Apply a constant gain in decibels to a track.
 - [`generate_chirp`](#generate_chirp) — Generate a linear or logarithmic frequency sweep and add it as a new track.
@@ -395,12 +395,12 @@ Create an exact copy of a track (same clips, gain, pan, effects). The duplicate 
 
 ## `echo`
 
-Add an echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95) repeating the pattern at the longest tap. Appends a new session node.
+Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95). Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `decay` | number | no | Echo amplitude 0..1 |
-| `delay_ms` | number | no | Echo delay in milliseconds |
+| `decay` | number | no |  |
+| `delay_ms` | number | no |  |
 | `end_sec` | number | no |  |
 | `feedback` | number | no |  |
 | `start_sec` | number | no |  |
@@ -409,7 +409,7 @@ Add an echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with optio
 
 ## `eq`
 
-Apply an equalizer (chain of biquad bands) to a track. Each band has freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves) and optional type: peak (default), low_shelf or high_shelf (freq_hz is the corner). Appends a new session node.
+EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -463,10 +463,11 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `fade`
 
-Apply a linear fade-in or fade-out to a time range of a track. Requires a range (start_sec, end_sec). Kind defaults to 'out'. Appends a new session node.
+Apply a fade-in or fade-out to a time range of a track. Requires a range (start_sec, end_sec). Kind defaults to 'out'; curve to 'linear'. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `curve` | one of `linear`, `exponential`, `logarithmic`, `s_curve` | no | Gain at t: linear t, exponential t*t, logarithmic sqrt(t), s_curve t*t*(3-2*t). Fade-out uses the same curve at 1-t. |
 | `kind` | one of `in`, `out` | no |  |
 | `range` | object | no |  |
 | `track` | integer | yes |  |

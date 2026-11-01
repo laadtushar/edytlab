@@ -119,13 +119,7 @@ const SLIM_FIRST_REQUEST_MAX_BYTES: usize = 4_096 * BYTES_PER_TOKEN;
 /// a margin the bound would hold today and break with the next tool. With
 /// the names budget at 2,000 B instead of 1,600 it was 194 B (40 MCP tools,
 /// found in review), which this fails.
-///
-/// 375 since #765: `echo` gained `taps` and `feedback` (+122 B in this
-/// message's request, 11,785 -> 11,907 B), and neither SLIM_TOOLS_BUDGET_BYTES
-/// nor SLIM_NAMES_BUDGET_BYTES can come down (the core must still fit at the
-/// block's cap, and the built-in names must still fit), so the margin took
-/// it. A workaround, not a decision to keep: the next tool needs a real cut.
-const MCP_HEADROOM_BYTES: usize = 375;
+const MCP_HEADROOM_BYTES: usize = 500;
 
 /// What the three buses of `mix_with_buses` (eight sends, four chain
 /// entries) may add to the system prompt (#552): measured 659 B, with the
@@ -180,7 +174,15 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // (69,789 B to 71,541 B). The ratchet rises by exactly that, keeping the
 // remaining headroom of the main branch rather than loosening the guard.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 71_781; // measured 71,765; was 71,557 (71,541 measured) + the 224 B of #765 (eq shelf `type`, echo `taps`/`feedback`)
+
+// #847 adds 246 B for fade's optional curve enum, formulas and default (266 B
+// less the 20 B of a repeated "Defaults to linear."): measured 71,769 B, with
+// the same 34 B of headroom as before.
+//
+// #765 (shelf `type` on `eq`, `taps`/`feedback` on `echo`) adds 71 B on top of
+// main after trimming the eq/echo descriptions: measured 71,840 B; the ratchet
+// is main's 71,803 + 71, the same 34 B margin.
+const FULL_TOOLS_MAX_BYTES: usize = 71_874; // main ratchet 71,803 + 71 B
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -532,20 +534,38 @@ fn system_text(body: &Value) -> String {
 /// How the line that names the tools a small model was not sent begins.
 const NAMES_LINE_START: &str = "More tools you can call by exact name";
 
-/// The words of the system prompt's names line, or none if it has none.
-/// Only that line: a tool name that happens to be an ordinary word
-/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it.
+/// The tool names the system prompt's names line lists, or none if it has
+/// none. Only that line: a tool name that happens to be an ordinary word
+/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it. A run
+/// the line writes as `generate_{chirp,tone}` is expanded to the names a
+/// model would call (`generate_chirp`, `generate_tone`).
 fn names_line_words(system: &str) -> BTreeSet<String> {
-    system
+    let Some(line) = system
         .split("\n\n")
         .find(|paragraph| paragraph.starts_with(NAMES_LINE_START))
-        .map(|line| {
-            line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|w| !w.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    else {
+        return BTreeSet::new();
+    };
+    // The list follows the "): " that ends the wording; "and N more" ends it.
+    let list = line.split_once("): ").map_or(line, |(_, list)| list);
+    let mut out = BTreeSet::new();
+    for token in list.split_whitespace() {
+        match token.split_once("_{") {
+            Some((prefix, first)) => {
+                // `prefix_{a,b,c}` is one token: it holds no space.
+                for member in first.trim_end_matches(['}', '.']).split(',') {
+                    out.insert(format!("{prefix}_{member}"));
+                }
+            }
+            None => {
+                let word = token.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+                if !word.is_empty() {
+                    out.insert(word.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The system prompt up to the names line: all of it but the part that
@@ -743,7 +763,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
 // the ratchet rises by that, keeping the main branch's remaining headroom.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_973; // measured 74,957; was 74,749 (74,733 measured) + the 224 B of #765
+
+// #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
+//
+// #765 adds the same 71 B: measured 75,032 B; main's 74,995 + 71, same 34 B margin.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_066; // main ratchet 74,995 + 71 B
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
