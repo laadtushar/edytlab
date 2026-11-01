@@ -142,17 +142,23 @@ impl Rig {
 
 /// Noise-only stretches at both ends, a tone in the middle: the first second
 /// is noise, so the old default profile works too; used for the pin.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn pin_input() -> Vec<f32> {
     signal(3.0, 7, Some((1.0, 2.0)))
 }
 
 /// FNV-1a over the rendered file, so the test needs no golden file.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fnv(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
         (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3)
     })
 }
 
+// The hash is of a float FFT's output, which differs in the last bit between
+// CPU architectures (it failed on macOS arm64), so it is held where it was
+// recorded: Linux on x86_64, as CI's Linux leg runs.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn omitting_the_profile_arguments_gives_the_bytes_of_the_unchanged_tool() {
     let mut rig = Rig::new();
@@ -166,6 +172,7 @@ fn omitting_the_profile_arguments_gives_the_bytes_of_the_unchanged_tool() {
     assert_eq!(fnv(&bytes), PINNED_FNV, "default-profile output changed");
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const PINNED_FNV: u64 = 12988580903378295446;
 
 #[test]
