@@ -31,41 +31,22 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
+use hound::WavReader;
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_exact, Session};
 
 const SAMPLE_RATE: u32 = 8_000;
 const SOURCE_FRAMES: usize = 8_000;
 
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
 /// A mono linear ramp from -0.9 to +0.9 over the whole file.
 fn write_ramp_wav(dir: &Path) -> PathBuf {
-    let path = dir.join("ramp.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SOURCE_FRAMES {
+    write_exact(&dir.join("ramp.wav"), SAMPLE_RATE, SOURCE_FRAMES, |n| {
         let f = n as f32 / (SOURCE_FRAMES - 1) as f32;
-        let s = -0.9 + 1.8 * f;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
+        -0.9 + 1.8 * f
+    })
 }
 
 /// Report the first index at which two renders differ, with values.
@@ -93,45 +74,28 @@ fn assert_same(actual: &[i16], expected: &[i16], what: &str) {
 /// Each step is `(tool, args)`. The node id threads through automatically
 /// so callers don't have to unpick it from every result.
 fn run(steps: &[(&str, Value)]) -> Vec<i16> {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_ramp_wav(tmp.path());
-    let out = tmp.path().join("out.wav");
+    let mut s = Session::empty();
+    let src = write_ramp_wav(s.dir.path());
+    let out = s.dir.path().join("out.wav");
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
-    let loaded = ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
+    let loaded = s.ok("load", json!({ "path": src.to_string_lossy() }));
     let mut node_id = loaded["node_id"].as_str().unwrap().to_string();
 
     for (tool, args) in steps {
-        let res = ok(dispatcher.invoke(tool, args.clone(), &mut ctx).unwrap());
+        let res = s.ok(tool, args.clone());
         if let Some(id) = res["node_id"].as_str() {
             node_id = id.to_string();
         }
     }
 
-    ok(dispatcher
-        .invoke(
-            "render_final",
-            json!({
-                "node_id": node_id,
-                "format": "wav",
-                "out_path": out.to_string_lossy(),
-            }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok(
+        "render_final",
+        json!({
+            "node_id": node_id,
+            "format": "wav",
+            "out_path": out.to_string_lossy(),
+        }),
+    );
 
     let mut reader = WavReader::open(&out).expect("open out");
     reader

@@ -9,42 +9,23 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use hound::WavReader;
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_exact, Session};
 
 const SAMPLE_RATE: u32 = 8_000;
 const SOURCE_FRAMES: usize = 8_000;
 const TONE_HZ: f32 = 1_000.0;
 
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
 fn write_tone_wav(dir: &Path) -> PathBuf {
-    let path = dir.join("in.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SOURCE_FRAMES {
+    write_exact(&dir.join("in.wav"), SAMPLE_RATE, SOURCE_FRAMES, |n| {
         let t = n as f32 / SAMPLE_RATE as f32;
         // Quiet enough that a +12 dB boost can't clip against full scale.
-        let s = (2.0 * std::f32::consts::PI * TONE_HZ * t).sin() * 0.1;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
+        (2.0 * std::f32::consts::PI * TONE_HZ * t).sin() * 0.1
+    })
 }
 
 fn rms(samples: &[i16]) -> f32 {
@@ -63,59 +44,36 @@ fn rms(samples: &[i16]) -> f32 {
 
 /// Cut an interior range, optionally EQ the track, render, return samples.
 fn cut_then_maybe_eq(apply_eq: bool) -> Vec<i16> {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_tone_wav(tmp.path());
-    let out = tmp.path().join("out.wav");
+    let mut s = Session::empty();
+    let src = write_tone_wav(s.dir.path());
+    let out = s.dir.path().join("out.wav");
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
-    let cut = ok(dispatcher
-        .invoke(
-            "cut_range",
-            json!({ "track": 0, "start_sample": 2000, "end_sample": 3000 }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok("load", json!({ "path": src.to_string_lossy() }));
+    let cut = s.ok(
+        "cut_range",
+        json!({ "track": 0, "start_sample": 2000, "end_sample": 3000 }),
+    );
     let mut node_id = cut["node_id"].as_str().unwrap().to_string();
 
     if apply_eq {
-        let res = ok(dispatcher
-            .invoke(
-                "eq",
-                json!({
-                    "track": 0,
-                    "bands": [{ "freq_hz": TONE_HZ, "gain_db": 12.0, "q": 1.0 }]
-                }),
-                &mut ctx,
-            )
-            .unwrap());
+        let res = s.ok(
+            "eq",
+            json!({
+                "track": 0,
+                "bands": [{ "freq_hz": TONE_HZ, "gain_db": 12.0, "q": 1.0 }]
+            }),
+        );
         node_id = res["node_id"].as_str().unwrap().to_string();
     }
 
-    ok(dispatcher
-        .invoke(
-            "render_final",
-            json!({
-                "node_id": node_id,
-                "format": "wav",
-                "out_path": out.to_string_lossy(),
-            }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok(
+        "render_final",
+        json!({
+            "node_id": node_id,
+            "format": "wav",
+            "out_path": out.to_string_lossy(),
+        }),
+    );
 
     let mut reader = WavReader::open(&out).expect("open out");
     reader

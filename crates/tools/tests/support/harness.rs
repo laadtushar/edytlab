@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
 use session::{
-    EffectInstance, NodeId, SessionNode, SessionState, Store, Transcript, TranscriptSource,
+    Clip, EffectInstance, NodeId, SessionNode, SessionState, Store, Transcript, TranscriptSource,
     TranscriptWord,
 };
 use tempfile::TempDir;
@@ -92,18 +92,28 @@ impl Session {
         s
     }
 
+    /// `with_sine(48_000, 1)` and `edits` *destructive* edits to it. `gain`
+    /// only records a track gain and writes no audio, so each edit is a
+    /// `silence_region`, longer than the last so that every edit produces
+    /// distinct samples (repeating one would hit the content-addressed
+    /// store and write no new file).
+    pub fn with_edits(edits: usize) -> Self {
+        let mut s = Self::with_sine(48_000, 1);
+        for i in 0..edits {
+            let end = 0.1 * (i as f64 + 1.0);
+            s.ok(
+                "silence_region",
+                json!({ "track": 0, "start_sec": 0.0, "end_sec": end }),
+            );
+        }
+        s
+    }
+
     /// A project with one track: `take.wav`, `seconds` of a 440 Hz sine at
     /// 8000/32767 of full scale, at 48 kHz, loaded.
     pub fn with_take(seconds: f64) -> Self {
         let mut s = Self::empty();
-        let frames = (48_000.0 * seconds) as usize;
-        let take = write_sine(
-            &s.dir.path().join("take.wav"),
-            48_000,
-            440.0,
-            8_000.0 / 32_767.0,
-            frames,
-        );
+        let take = write_secs(&s.dir.path().join("take.wav"), seconds, 440.0);
         s.load(&take);
         s
     }
@@ -374,8 +384,63 @@ pub fn read_pcm(path: &Path) -> Vec<i16> {
         .collect()
 }
 
+/// `seconds` of a mono sine at `hz`, 8000/32767 of full scale, at 48 kHz.
+pub fn write_secs(path: &Path, seconds: f64, hz: f32) -> PathBuf {
+    let frames = (48_000.0 * seconds) as usize;
+    write_sine(path, 48_000, hz, 8_000.0 / 32_767.0, frames)
+}
+
 /// One second of a 440 Hz-style take: a mono sine at `freq`, a quarter of
 /// full scale, at 48 kHz.
 pub fn write_take(path: &Path, freq: f32) -> PathBuf {
     write_sine(path, 48_000, freq, 0.25, 48_000)
+}
+
+/// As `write_frames`, mono, but quantised the way the exactness tests need:
+/// `round(sample * 32768)`, clamped. They compare whole buffers, so how the
+/// source was rounded is part of what they pin.
+pub fn write_exact(
+    path: &Path,
+    rate: u32,
+    frames: usize,
+    sample: impl Fn(usize) -> f32,
+) -> PathBuf {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: rate,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut w = WavWriter::create(path, spec).expect("wav writer");
+    for n in 0..frames {
+        let q = (sample(n) * 32_768.0)
+            .round()
+            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+        w.write_sample(q).unwrap();
+    }
+    w.finalize().unwrap();
+    path.to_path_buf()
+}
+
+/// A mono ramp from 0 to half scale, so every frame names the source frame
+/// it came from and inverting cannot clip against the i16 floor.
+pub fn write_half_ramp(path: &Path, rate: u32, frames: usize) -> PathBuf {
+    write_exact(path, rate, frames, |n| 0.5 * n as f32 / frames as f32)
+}
+
+/// A clip of `source`: `length` frames from `source_offset`, placed at
+/// `start_in_track`, with nothing else set.
+pub fn clip(source: &Path, start_in_track: u64, source_offset: u64, length: u64) -> Clip {
+    Clip {
+        source_path: source.to_path_buf(),
+        start_in_track,
+        source_offset,
+        length,
+        content_hash: None,
+        time_stretch_factor: None,
+        pitch_shift_semitones: None,
+        beat_grid: None,
+        volume_envelope: Vec::new(),
+        volume_envelope_frames: Default::default(),
+    }
 }
