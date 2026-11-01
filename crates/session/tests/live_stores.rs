@@ -12,36 +12,12 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use chrono::Utc;
 use session::live::{identify, Identity};
-use session::{
-    BusGraph, Error, FolderId, NodeId, Registry, SessionNode, SessionState, Store, TempoMap,
-    STORE_DIR,
-};
+use session::{Error, FolderId, Registry, Store, STORE_DIR};
 use tempfile::TempDir;
 
-fn node(length_samples: u64) -> SessionNode {
-    SessionNode {
-        id: NodeId([0u8; 32]),
-        parent: None,
-        created_at: Utc::now(),
-        label: None,
-        reasoning: None,
-        state: SessionState {
-            tracks: Vec::new(),
-            bus_routing: BusGraph::default(),
-            master_chain: Vec::new(),
-            tempo_map: TempoMap::default(),
-            key_map: None,
-            transcript: None,
-            sample_rate: 48_000,
-            length_samples,
-            annotations: Vec::new(),
-            sync_lock: false,
-        },
-        op: None,
-    }
-}
+mod support;
+use support::{node, snapshot};
 
 /// A disk that does not tell `Music` from `music`: a folder is named by its
 /// last component, folded to lower case. The two spellings are two real
@@ -631,30 +607,4 @@ fn reread_goes_through_the_given_spelling_when_the_stores_own_is_gone() {
     assert!(!link.exists(), "the dead spelling was read through");
     assert_eq!(live.lock().unwrap().project_dir(), real);
     assert_eq!(live.lock().unwrap().head(), Some(first));
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-fn snapshot(project: &Path) -> Vec<(String, Vec<u8>)> {
-    fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, Vec<u8>)>) {
-        let Ok(entries) = fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                walk(&path, root, out);
-            } else {
-                let rel = path.strip_prefix(root).unwrap().display().to_string();
-                out.push((rel, fs::read(&path).unwrap()));
-            }
-        }
-    }
-    let root = project.join(STORE_DIR);
-    let mut out = Vec::new();
-    walk(&root, &root, &mut out);
-    out.sort();
-    out
 }

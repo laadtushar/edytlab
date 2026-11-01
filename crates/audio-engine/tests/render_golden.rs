@@ -9,8 +9,11 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use audio_engine::{render_state_to_wav, RenderReport, TimeRange};
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use session::SessionState;
 use tempfile::TempDir;
+
+mod support;
+use support::{read_i16, single_track_state};
 
 fn out_dir() -> PathBuf {
     PathBuf::from(env!("OUT_DIR"))
@@ -29,48 +32,9 @@ fn ten_min_wav() -> PathBuf {
 }
 
 fn build_state(source: &Path, gain_db: f32) -> SessionState {
-    let decoded = audio_decoder::decode_file(source).expect("decode source");
-    let frames = (decoded.samples.len() / decoded.channels as usize) as u64;
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "t1".into(),
-            clips: vec![Clip {
-                source_path: source.to_path_buf(),
-                start_in_track: 0,
-                source_offset: 0,
-                length: frames,
-                content_hash: None,
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: Vec::new(),
-                volume_envelope_frames: Default::default(),
-            }],
-            gain_db,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: Vec::<EffectInstance>::new(),
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: decoded.sample_rate,
-        length_samples: frames,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
-}
-
-fn read_int16_samples(path: &Path) -> Vec<i16> {
-    let mut r = hound::WavReader::open(path).expect("open wav");
-    r.samples::<i16>()
-        .map(|s| s.expect("read sample"))
-        .collect()
+    let mut state = single_track_state(source);
+    state.tracks[0].gain_db = gain_db;
+    state
 }
 
 #[test]
@@ -98,8 +62,8 @@ fn unity_passthrough_byte_identical_to_golden() {
     // byte equality may legitimately drift (header/chunk-padding) but sample
     // equivalence MUST hold. Compare i16 samples directly so a regression in
     // the f32 path at unity gain is also caught here.
-    let rendered_samples = read_int16_samples(&out);
-    let source_samples = read_int16_samples(&source_wav());
+    let rendered_samples = read_i16(&out);
+    let source_samples = read_i16(&source_wav());
     assert_eq!(
         rendered_samples, source_samples,
         "unity render samples must equal source samples"
@@ -114,8 +78,8 @@ fn gain_plus_six_db_doubles_samples() {
 
     render_state_to_wav(&state, &out, None).expect("render");
 
-    let src = read_int16_samples(&source_wav());
-    let dst = read_int16_samples(&out);
+    let src = read_i16(&source_wav());
+    let dst = read_i16(&out);
     assert_eq!(src.len(), dst.len());
 
     // The +6.02 dB factor is ~2.0 in linear space. Round-tripping through

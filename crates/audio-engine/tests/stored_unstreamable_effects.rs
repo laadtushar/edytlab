@@ -19,10 +19,12 @@ use std::path::{Path, PathBuf};
 
 use audio_engine::effect_chain::{skipped_effects, ChainScope, KindSupport};
 use audio_engine::{render_state_to_wav, render_warnings, RenderReport, TimeRange};
-use hound::{SampleFormat, WavSpec, WavWriter};
-use session::{Bus, BusGraph, Clip, EffectInstance, Send, SessionState, TempoMap, Track, TrackId};
+use session::{Bus, EffectInstance, Send, SessionState, TrackId};
 use tempfile::TempDir;
 use uuid::Uuid;
+
+mod support;
+use support::{effect, gain, low_pass, single_track_state, write_sine_trunc};
 
 const SAMPLE_RATE: u32 = 44_100;
 /// Two seconds, so the render crosses a chunk boundary (the master chunk
@@ -53,37 +55,7 @@ fn unrunnable_kinds() -> Vec<&'static str> {
 }
 
 fn write_tone(dir: &Path) -> PathBuf {
-    let path = dir.join("tone.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.4;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-fn effect(kind: &str, params: serde_json::Value) -> EffectInstance {
-    EffectInstance {
-        kind: kind.to_string(),
-        params,
-        bypassed: false,
-    }
-}
-
-fn gain(db: f32) -> EffectInstance {
-    effect("gain", serde_json::json!({ "db": db }))
-}
-
-fn low_pass(hz: f32) -> EffectInstance {
-    effect("low_pass_filter", serde_json::json!({ "cutoff_hz": hz }))
+    write_sine_trunc(dir, "tone.wav", SAMPLE_RATE, FRAMES, 440.0, 0.4)
 }
 
 /// The entry an old project holds: of `kind`, switched on.
@@ -100,49 +72,22 @@ struct Chains {
 }
 
 fn state(source: &Path, chains: Chains) -> SessionState {
-    let decoded = audio_decoder::decode_file(source).expect("decode");
-    let frames = (decoded.samples.len() / decoded.channels as usize) as u64;
     let bus = Bus {
         id: Uuid::from_u128(7),
         name: "Room".into(),
         effects: chains.bus,
     };
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "Vocals".into(),
-            clips: vec![Clip {
-                source_path: source.to_path_buf(),
-                start_in_track: 0,
-                source_offset: 0,
-                length: frames,
-                content_hash: None,
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: Vec::new(),
-                volume_envelope_frames: Default::default(),
-            }],
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: chains.track,
-            sends: vec![Send {
-                bus_id: bus.id,
-                level_db: -6.0,
-            }],
-        }],
-        bus_routing: BusGraph { buses: vec![bus] },
-        master_chain: chains.master,
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: decoded.sample_rate,
-        length_samples: frames,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    let mut st = single_track_state(source);
+    let track = &mut st.tracks[0];
+    track.name = "Vocals".into();
+    track.effects = chains.track;
+    track.sends = vec![Send {
+        bus_id: bus.id,
+        level_db: -6.0,
+    }];
+    st.bus_routing.buses = vec![bus];
+    st.master_chain = chains.master;
+    st
 }
 
 /// Like [`state`] but with no send, so the session can be the plain

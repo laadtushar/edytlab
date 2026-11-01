@@ -23,9 +23,14 @@
 use std::path::{Path, PathBuf};
 
 use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use session::{Clip, EffectInstance, SessionState, TrackId};
 use tempfile::TempDir;
+
+mod support;
+use support::{
+    effect, low_pass as low_pass_effect, plain_track, render_ranged, session_of, unity_clip,
+    write_sine_trunc,
+};
 
 const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: u64 = SAMPLE_RATE as u64; // one second
@@ -35,88 +40,26 @@ const FRAMES: u64 = SAMPLE_RATE as u64; // one second
 const SPLIT_AT: u64 = 22_050;
 
 fn write_tone(dir: &Path) -> PathBuf {
-    let path = dir.join("tone.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 40.0 * t).sin() * 0.8;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
+    write_sine_trunc(dir, "tone.wav", SAMPLE_RATE, FRAMES as usize, 40.0, 0.8)
 }
 
 fn low_pass() -> Vec<EffectInstance> {
-    vec![EffectInstance {
-        kind: "low_pass_filter".to_string(),
-        params: serde_json::json!({ "cutoff_hz": 120.0 }),
-        bypassed: false,
-    }]
+    vec![low_pass_effect(120.0)]
 }
 
-/// One track carrying `clips`, with `effects`.
+/// One track carrying `clips` (all of `source`), with `effects`.
 fn state(source: &Path, clips: Vec<Clip>, effects: Vec<EffectInstance>) -> SessionState {
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "t1".into(),
-            clips,
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects,
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: SAMPLE_RATE,
-        length_samples: FRAMES,
-        annotations: Vec::new(),
-        sync_lock: false,
+    let mut track = plain_track("t1", clips);
+    track.effects = effects;
+    for clip in &mut track.clips {
+        clip.source_path = source.to_path_buf();
     }
-    .tap_source(source)
+    session_of(vec![track], SAMPLE_RATE, FRAMES)
 }
 
-/// `SessionState` has no builder, and every clip needs the same source
-/// path; this keeps the two constructions below from repeating it.
-trait TapSource {
-    fn tap_source(self, source: &Path) -> Self;
-}
-
-impl TapSource for SessionState {
-    fn tap_source(mut self, source: &Path) -> Self {
-        for track in &mut self.tracks {
-            for clip in &mut track.clips {
-                clip.source_path = source.to_path_buf();
-            }
-        }
-        self
-    }
-}
-
+/// A clip of the tone; `state` gives every clip its source path.
 fn clip(start_in_track: u64, source_offset: u64, length: u64) -> Clip {
-    Clip {
-        source_path: PathBuf::new(),
-        start_in_track,
-        source_offset,
-        length,
-        content_hash: None,
-        time_stretch_factor: None,
-        pitch_shift_semitones: None,
-        beat_grid: None,
-        volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
-    }
+    unity_clip(Path::new(""), start_in_track, source_offset, length)
 }
 
 fn render_range(
@@ -126,14 +69,7 @@ fn render_range(
 ) -> Vec<i16> {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
-    let out = tmp.path().join("out.wav");
-    let st = state(&src, clips, effects);
-    render_state_to_wav(&st, &out, range).expect("render");
-    WavReader::open(&out)
-        .expect("open out")
-        .samples::<i16>()
-        .map(|r| r.expect("sample"))
-        .collect()
+    render_ranged(&state(&src, clips, effects), range).1
 }
 
 fn render(clips: Vec<Clip>, effects: Vec<EffectInstance>) -> Vec<i16> {
@@ -294,11 +230,7 @@ fn an_unusable_effect_on_a_muted_track_does_not_fail_the_render() {
     muted.id = TrackId::new();
     muted.name = "muted".into();
     muted.muted = true;
-    muted.effects = vec![EffectInstance {
-        kind: "no_such_effect_kind".to_string(),
-        params: serde_json::json!({}),
-        bypassed: false,
-    }];
+    muted.effects = vec![effect("no_such_effect_kind", serde_json::json!({}))];
     st.tracks.push(muted);
 
     let report = render_state_to_wav(&st, &out, None)
@@ -319,11 +251,7 @@ fn the_unusable_effect_kind_is_skipped_and_reported_on_an_audible_track() {
     let out = tmp.path().join("out.wav");
 
     let mut st = state(&src, unsplit(), Vec::new());
-    st.tracks[0].effects = vec![EffectInstance {
-        kind: "no_such_effect_kind".to_string(),
-        params: serde_json::json!({}),
-        bypassed: false,
-    }];
+    st.tracks[0].effects = vec![effect("no_such_effect_kind", serde_json::json!({}))];
 
     let report = render_state_to_wav(&st, &out, None)
         .expect("a stored effect the renderer cannot run must not fail the render");
