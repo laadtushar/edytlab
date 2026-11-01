@@ -106,16 +106,16 @@ sudo apt-get install -y \
   progress per segment, Cancel, a cache kept under 1 GiB; it appends no node, so
   the agent calls `load` on a stem). It needs the same two things as
   `transcribe`, and never fetches either: **ONNX Runtime 1.23.2** (`ORT_DYLIB_PATH`
-  in a build from source) and **the stem model**, about 171 MB, which in the app
-  the user downloads in Settings → Account (the row comes in the next change),
-  or `DEMUCS_MODEL_PATH` names a folder of the two files. It needs about 4 GB of
+  in a build from source) and **the stem model**, about 171 MB, which the user downloads
+  with the Stem model row in Settings → Account (a developer can set
+  `DEMUCS_MODEL_PATH` to a folder of the two files instead). It needs about 4 GB of
   free memory and takes about half the audio's length on a 4-core CPU.
 - `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
   pinned model artifact (tested against a local HTTP server). Three models are
   pinned: the speech model `whisper-base` (about 139 MB from
   huggingface.co, `crates/ml-pipeline/models.json`), the speaker model
   `speaker-diarization` (about 33 MB, two files, #168) and the stem model
-  `htdemucs` (about 171 MB, two files, #385; not offered in the app yet), and
+  `htdemucs` (about 171 MB, two files, #385; the Stem model row), and
   the app downloads each model it offers **only when you click its Download** in Settings → Account (`Speech
   model`; from v0.8.0), with a progress bar, Cancel (a resume with a `Range` request
   carries on from what arrived) and Remove. The `transcribe` tool finds the
@@ -730,10 +730,10 @@ How each obligation FOSSA lists for the licences in the dependency graph is met:
 
 **`changes` job:** decides whether the macOS and Windows `build` legs have work. On a PR whose changed files are all under `website/`, `marketing/` or `docs/`, or are root-level `*.md`, `docs.json` or `.mintignore`, those two legs skip their steps (the check still reports Success). The Linux leg and the other jobs always run in full, because several Rust tests read the site and the docs.
 
-**`build` job — matrix:** macOS 14 (arm64) · Windows latest (x86_64) · Ubuntu 22.04 (x86_64).
+**`build` job — matrix:** macOS 15 (arm64) · Windows latest (x86_64) · Ubuntu 22.04 (x86_64).
 
 1. Install platform build deps (Linux only: GTK, WebKit, AppIndicator, libssl, libasound2)
-2. Windows only: set up a Dev Drive (ReFS) mounted at `<workspace>/target` (`samypr100/setup-dev-drive`)
+2. Windows only: pick the fixed volume with the most free space, set up a Dev Drive (ReFS) mounted at `<workspace>/target` with its VHDX there (`samypr100/setup-dev-drive`), and print every volume (a later step prints them again after the tests)
 3. Install Rust toolchain (from `rust-toolchain.toml`)
 4. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform; saved from `main` only, so a PR restores `main`'s cache and never uploads its own, #610)
 5. `cargo fmt --all --check` (Linux leg only)

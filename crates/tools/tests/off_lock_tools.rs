@@ -287,6 +287,7 @@ const FORBIDDEN: &[(&str, &str)] = &[
 const REACHABLE: &[&str] = &[
     "tool::util",
     "tool::speech_detect",
+    "tool::local_model",
     "tool::ducking",
     "tool::generated_audio",
     "util::range_resolver",
@@ -323,12 +324,16 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          reported once. `report` hands the event to the process-wide sink and takes no lock.",
     ),
     (
-        "diarize.rs",
+        "local_model.rs",
         "crate::progress::report(",
-        "`report` takes no lock. A diarization that loses the race is run again on the new \
-         head, and the re-run is a hit in the inference cache the first run filled, so the \
-         steps are not reported twice; a hit reports nothing. The closing `done` comes from a \
-         guard that exists only if a step was shown, so a strip is never left up.",
+        "the progress strip `diarize` and `separate_stems` share. `report` takes no lock. A \
+         diarization that loses the race is run again on the new head, and the re-run is a hit \
+         in the inference cache the first run filled, so the steps are not reported twice; \
+         `separate_stems` appends no node, so a lost race changes nothing it answered and it \
+         is never run again, and a second call for the same audio is a hit in the stem cache \
+         the first run filled. A hit reports nothing. The closing `done` comes from a guard \
+         that exists only if a step was shown, so a strip is never left up. `begin` and \
+         `cancelled` stay in the two tools, listed below.",
     ),
     (
         "diarize.rs",
@@ -341,14 +346,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "crate::progress::cancelled(",
         "read before every window and every voiceprint to stop the run, which then appends \
          nothing. It only reads the switch, and the one the window's Cancel button sets.",
-    ),
-    (
-        "separate_stems.rs",
-        "crate::progress::report(",
-        "`report` takes no lock. The tool appends no node, so a lost race changes nothing it \
-         answered and it is never run again; a second call for the same audio is a hit in the \
-         stem cache the first run filled and reports nothing. The closing `done` comes from a \
-         guard that exists only if a segment was shown, so a strip is never left up.",
     ),
     (
         "separate_stems.rs",
@@ -426,6 +423,7 @@ const SHARED_FILES: &[&str] = &[
     "speech_detect.rs",
     "ducking.rs",
     "generated_audio.rs",
+    "local_model.rs",
 ];
 
 fn source_of(file: &str) -> String {

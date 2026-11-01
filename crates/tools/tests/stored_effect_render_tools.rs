@@ -15,37 +15,29 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use session::EffectInstance;
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
+
+#[path = "support/effects.rs"]
+mod effects;
+#[path = "support/harness.rs"]
+mod harness;
+use effects::{entry, NOT_YET_STREAMABLE, STREAMABLE};
+use harness::{err, ok, write_sine, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
-/// What the streaming renderer can run in a chain today.
-const STREAMABLE: [&str; 5] = [
-    "gain",
-    "limiter",
-    "low_pass_filter",
-    "high_pass_filter",
-    "notch_filter",
-];
-
-/// Effects that exist as destructive tools but cannot run in a chain yet.
-const NOT_YET_STREAMABLE: [&str; 11] = [
-    "tremolo",
-    "phaser",
-    "echo",
-    "reverb",
-    "noise_gate",
-    "leveler",
-    "de_esser",
-    "distortion",
-    "stereo_widener",
-    "eq",
-    "compressor",
-];
+/// A session with `tracks` tracks, each a half-different sine.
+fn session(tracks: usize) -> Session {
+    let mut s = Session::empty();
+    for i in 0..tracks {
+        let src = s.dir.path().join(format!("in{i}.wav"));
+        let freq = 220.0 + 110.0 * i as f32;
+        write_sine(&src, SAMPLE_RATE, freq, 0.3, SAMPLE_RATE as usize);
+        s.load(&src);
+    }
+    s
+}
 
 /// Both families a stored entry can be of: the eleven above, and a kind
 /// that exists nowhere.
@@ -55,113 +47,10 @@ fn unrunnable_kinds() -> Vec<&'static str> {
     kinds
 }
 
-fn write_sine(path: &Path, freq: f32) {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
-    /// A session with `tracks` tracks, each a half-different sine.
-    fn new(tracks: usize) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        for i in 0..tracks {
-            let src = s.dir.path().join(format!("in{i}.wav"));
-            write_sine(&src, 220.0 + 110.0 * i as f32);
-            ok(s.call("load", json!({ "path": src.to_string_lossy() })));
-        }
-        s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("list nodes").len()
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store.get(self.store.head().unwrap()).unwrap().state
-    }
-
-    /// Write `kind` into track `track`'s chain, switched on, the way a
-    /// project saved by an older build holds one.
-    fn plant_on_track(&mut self, track: usize, kind: &str) {
-        let mut node = self.store.get(self.store.head().unwrap()).unwrap();
-        node.state.tracks[track].effects.push(entry(kind));
-        self.store.append(node).expect("append");
-    }
-
-    /// The same, in the master chain.
-    fn plant_on_master(&mut self, kind: &str) {
-        let mut node = self.store.get(self.store.head().unwrap()).unwrap();
-        node.state.master_chain.push(entry(kind));
-        self.store.append(node).expect("append");
-    }
-
     fn preview(&mut self) -> ToolResult {
-        let node_id = self.head();
+        let node_id = self.head_hex();
         self.call("render_preview", json!({ "node_id": node_id }))
-    }
-}
-
-fn entry(kind: &str) -> EffectInstance {
-    EffectInstance {
-        kind: kind.to_string(),
-        params: json!({}),
-        bypassed: false,
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 
@@ -192,12 +81,12 @@ fn assert_names(w: &str, parts: &[&str]) {
 /// audio of a session with no such entry.
 #[test]
 fn render_preview_renders_each_stored_kind_and_names_what_it_left_out() {
-    let mut clean = Session::new(1);
+    let mut clean = session(1);
     let clean_bytes = file_bytes(&ok(clean.preview()));
 
     for kind in unrunnable_kinds() {
-        let mut on_track = Session::new(1);
-        on_track.plant_on_track(0, kind);
+        let mut on_track = session(1);
+        on_track.plant(0, entry(kind));
         let v = ok(on_track.preview());
         let w = warnings(&v);
         assert_eq!(w.len(), 1, "{kind} on a track: {w:?}");
@@ -212,8 +101,8 @@ fn render_preview_renders_each_stored_kind_and_names_what_it_left_out() {
             "{kind} on a track: the render must equal the one without the entry"
         );
 
-        let mut on_master = Session::new(1);
-        on_master.plant_on_master(kind);
+        let mut on_master = session(1);
+        on_master.plant_master(entry(kind));
         let v = ok(on_master.preview());
         let w = warnings(&v);
         assert_eq!(w.len(), 1, "{kind} on the master: {w:?}");
@@ -230,11 +119,11 @@ fn render_preview_renders_each_stored_kind_and_names_what_it_left_out() {
 /// stored chain, the number `remove_effect` takes.
 #[test]
 fn every_stored_entry_gets_a_warning_with_its_position() {
-    let mut s = Session::new(1);
-    s.plant_on_track(0, "reverb");
+    let mut s = session(1);
+    s.plant(0, entry("reverb"));
     ok(s.call("add_effect", json!({ "track": 0, "kind": "gain" })));
-    s.plant_on_track(0, "echo");
-    s.plant_on_master("eq");
+    s.plant(0, entry("echo"));
+    s.plant_master(entry("eq"));
 
     let w = warnings(&ok(s.preview()));
     assert_eq!(w.len(), 3, "{w:?}");
@@ -249,9 +138,9 @@ fn every_stored_entry_gets_a_warning_with_its_position() {
 /// problem had gone away.
 #[test]
 fn a_cached_preview_carries_the_same_warnings() {
-    let mut s = Session::new(1);
-    s.plant_on_track(0, "reverb");
-    s.plant_on_master("wobbulator");
+    let mut s = session(1);
+    s.plant(0, entry("reverb"));
+    s.plant_master(entry("wobbulator"));
 
     let first = ok(s.preview());
     assert_eq!(first["cached"], json!(false), "{first}");
@@ -272,8 +161,8 @@ fn a_cached_preview_carries_the_same_warnings() {
 /// the warnings come from the state being rendered, not from the project.
 #[test]
 fn removing_the_stored_entry_clears_the_warning() {
-    let mut s = Session::new(1);
-    s.plant_on_master("compressor");
+    let mut s = session(1);
+    s.plant_master(entry("compressor"));
     assert_eq!(warnings(&ok(s.preview())).len(), 1);
 
     ok(s.call(
@@ -291,7 +180,7 @@ fn removing_the_stored_entry_clears_the_warning() {
 /// result a model reads on the ordinary path is unchanged.
 #[test]
 fn a_clean_preview_has_no_warnings_key() {
-    let mut s = Session::new(1);
+    let mut s = session(1);
     ok(s.call("add_effect", json!({ "track": 0, "kind": "gain" })));
     ok(s.call(
         "add_effect",
@@ -307,7 +196,7 @@ fn a_clean_preview_has_no_warnings_key() {
 /// A bypassed entry is skipped by design and says nothing.
 #[test]
 fn a_bypassed_stored_entry_says_nothing() {
-    let mut s = Session::new(1);
+    let mut s = session(1);
     let mut node = s.store.get(s.store.head().unwrap()).unwrap();
     let mut off = entry("reverb");
     off.bypassed = true;
@@ -321,9 +210,9 @@ fn a_bypassed_stored_entry_says_nothing() {
 /// A ranged preview is not cached, and warns the same way.
 #[test]
 fn a_ranged_preview_carries_the_warnings() {
-    let mut s = Session::new(1);
-    s.plant_on_master("phaser");
-    let node_id = s.head();
+    let mut s = session(1);
+    s.plant_master(entry("phaser"));
+    let node_id = s.head_hex();
     let v = ok(s.call(
         "render_preview",
         json!({ "node_id": node_id, "range": [0, 12_000] }),
@@ -338,11 +227,11 @@ fn a_ranged_preview_carries_the_warnings() {
 #[test]
 fn render_final_carries_the_warnings_in_every_format() {
     for format in ["wav", "flac"] {
-        let mut s = Session::new(1);
-        s.plant_on_track(0, "reverb");
-        s.plant_on_master("eq");
+        let mut s = session(1);
+        s.plant(0, entry("reverb"));
+        s.plant_master(entry("eq"));
         let out = s.dir.path().join(format!("final.{format}"));
-        let node_id = s.head();
+        let node_id = s.head_hex();
 
         let v = ok(s.call(
             "render_final",
@@ -363,9 +252,9 @@ fn render_final_carries_the_warnings_in_every_format() {
 
 #[test]
 fn a_clean_render_final_has_no_warnings_key() {
-    let mut s = Session::new(1);
+    let mut s = session(1);
     let out = s.dir.path().join("final.wav");
-    let node_id = s.head();
+    let node_id = s.head_hex();
     let v = ok(s.call(
         "render_final",
         json!({ "node_id": node_id, "format": "wav", "out_path": out.to_string_lossy() }),
@@ -382,10 +271,10 @@ fn a_clean_render_final_has_no_warnings_key() {
 /// index, the one the model knows the track by.
 #[test]
 fn mix_to_new_track_warns_with_the_sessions_track_numbers() {
-    let mut s = Session::new(3);
-    s.plant_on_track(2, "reverb");
-    s.plant_on_track(0, "echo");
-    s.plant_on_master("eq");
+    let mut s = session(3);
+    s.plant(2, entry("reverb"));
+    s.plant(0, entry("echo"));
+    s.plant_master(entry("eq"));
 
     let v = ok(s.call("mix_to_new_track", json!({ "track_indices": [2, 1] })));
     let w = warnings(&v);
@@ -403,7 +292,7 @@ fn mix_to_new_track_warns_with_the_sessions_track_numbers() {
     assert!(v["summary"].as_str().unwrap().contains("reverb"), "{v}");
 
     // The new track is the mix without the skipped entries.
-    let mut clean = Session::new(3);
+    let mut clean = session(3);
     let c = ok(clean.call("mix_to_new_track", json!({ "track_indices": [2, 1] })));
     let mixed = |s: &Session, v: &Value| {
         let idx = v["track_index"].as_u64().unwrap() as usize;
@@ -415,11 +304,11 @@ fn mix_to_new_track_warns_with_the_sessions_track_numbers() {
 
 #[test]
 fn export_multiple_warns_for_the_exported_tracks_and_the_master_once() {
-    let mut s = Session::new(3);
-    s.plant_on_track(0, "reverb");
-    s.plant_on_track(1, "echo");
-    s.plant_on_track(2, "phaser");
-    s.plant_on_master("eq");
+    let mut s = session(3);
+    s.plant(0, entry("reverb"));
+    s.plant(1, entry("echo"));
+    s.plant(2, entry("phaser"));
+    s.plant_master(entry("eq"));
 
     let v = ok(s.call(
         "export_multiple",
@@ -441,8 +330,8 @@ fn export_multiple_warns_for_the_exported_tracks_and_the_master_once() {
 /// the kinds that do work, and nothing is rendered or cached.
 #[test]
 fn audition_effect_refuses_each_unrunnable_kind_up_front() {
-    let mut s = Session::new(1);
-    let head = s.head();
+    let mut s = session(1);
+    let head = s.head_hex();
     let nodes = s.node_count();
 
     for kind in unrunnable_kinds() {
@@ -462,7 +351,7 @@ fn audition_effect_refuses_each_unrunnable_kind_up_front() {
         assert!(msg.contains("unknown effect kind"), "{kind:?}: {msg}");
     }
 
-    assert_eq!(s.head(), head);
+    assert_eq!(s.head_hex(), head);
     assert_eq!(s.node_count(), nodes);
     let cache: PathBuf = s.dir.path().join(".audiograph").join("auditions");
     let cached = std::fs::read_dir(&cache).map(|d| d.count()).unwrap_or(0);
@@ -473,7 +362,7 @@ fn audition_effect_refuses_each_unrunnable_kind_up_front() {
 /// reads the same whatever else is wrong with the call.
 #[test]
 fn the_kind_is_refused_even_when_the_track_is_wrong_too() {
-    let mut s = Session::new(1);
+    let mut s = session(1);
     let msg = err(s.call("audition_effect", json!({ "track": 9, "kind": "reverb" })));
     assert!(
         msg.contains("reverb") && msg.contains("gain"),
@@ -483,7 +372,7 @@ fn the_kind_is_refused_even_when_the_track_is_wrong_too() {
 
 #[test]
 fn audition_effect_still_auditions_every_kind_that_works() {
-    let mut s = Session::new(1);
+    let mut s = session(1);
     for kind in STREAMABLE {
         let v = ok(s.call("audition_effect", json!({ "track": 0, "kind": kind })));
         assert!(Path::new(v["path"].as_str().unwrap()).is_file(), "{kind}");
@@ -497,8 +386,8 @@ fn audition_effect_still_auditions_every_kind_that_works() {
 /// something.
 #[test]
 fn an_audition_carries_the_warnings_of_the_session_it_renders() {
-    let mut s = Session::new(1);
-    s.plant_on_master("reverb");
+    let mut s = session(1);
+    s.plant_master(entry("reverb"));
     let args = json!({ "track": 0, "kind": "low_pass_filter", "params": { "cutoff_hz": 1000 } });
 
     let first = ok(s.call("audition_effect", args.clone()));

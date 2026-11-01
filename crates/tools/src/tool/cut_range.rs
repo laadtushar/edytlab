@@ -12,9 +12,8 @@ use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
-    append_state, check_sample_range, check_track_index, cut_timeline, load_head_state,
-    remap_after_cut, seconds_to_frames, set_session_length, sync_other_tracks, timeline_end,
-    track_clip_rate, track_clip_rates,
+    append_state, check_sample_range, cut_timeline, load_track_state_and_rate, remap_after_cut,
+    seconds_to_frames, set_session_length, sync_other_tracks, timeline_end, track_clip_rates,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -50,21 +49,8 @@ impl Tool for CutRangeTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
-        };
-
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(msg));
-        }
-
-        // The rate each track's frames are counted in (#234): the cut is in
-        // the frames of the track it names, but the labels and words after it
-        // are in seconds and a sync-locked track needs the same seconds in its
-        // own frames. The session's rate is neither.
-        let rate = match track_clip_rate(&state.tracks[args.track], state.sample_rate) {
-            Ok(r) => r,
+        let (mut state, rate) = match load_track_state_and_rate(ctx, args.track) {
+            Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
         let rates = if state.sync_lock {

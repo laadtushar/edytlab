@@ -24,64 +24,13 @@ use ai::plan_gate::Answer as GateAnswer;
 use ai::{Agent, AgentEvent, LlmConfig, PlanGate};
 use common::{
     classifier_json, ok, plan_json, sse_text, sse_thinking_tool_step, sse_tool_step, Entry,
-    SeqResponder,
 };
 use serde_json::{json, Value};
-use tools::schema::{anthropic_tool, object_schema};
-use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer};
+use wiremock::MockServer;
 
 // ---------------------------------------------------------------------
 // Fixture tools
 // ---------------------------------------------------------------------
-
-/// Mutates, because it says nothing about it. Records what it ran with.
-struct Edit {
-    log: Arc<Mutex<Vec<Value>>>,
-}
-
-impl Tool for Edit {
-    fn name(&self) -> &'static str {
-        "edit"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "edit",
-            "Changes the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        self.log.lock().unwrap().push(args);
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
-
-/// Reads only, and says so. Counts its calls.
-struct Peek {
-    calls: Arc<AtomicUsize>,
-}
-
-impl Tool for Peek {
-    fn name(&self) -> &'static str {
-        "peek"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "peek",
-            "Reads the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn mutates(&self) -> bool {
-        false
-    }
-    fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -130,36 +79,15 @@ struct Fixture {
 
 impl Fixture {
     async fn new(plan_first: bool, whitelist: Option<Vec<String>>, responses: Vec<Entry>) -> Self {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/v1/messages"))
-            .respond_with(SeqResponder::new(responses))
-            .mount(&server)
-            .await;
+        let server = common::serve_messages(responses).await;
 
         let dir = tempfile::tempdir().expect("tempdir");
-        let edits = Arc::new(Mutex::new(Vec::new()));
-        let peeks = Arc::new(AtomicUsize::new(0));
-        let mut dispatcher = ToolDispatcher::new();
-        dispatcher.register(Box::new(Edit {
-            log: Arc::clone(&edits),
-        }));
-        dispatcher.register(Box::new(Peek {
-            calls: Arc::clone(&peeks),
-        }));
+        let (dispatcher, edits, peeks) = common::edit_and_peek();
 
         let gate = PlanGate::new();
         let cfg = LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
-        let mut agent = Agent::new(
-            cfg,
-            Arc::new(Mutex::new(dispatcher)),
-            Arc::new(Mutex::new(
-                session::Store::open(dir.path()).expect("open store"),
-            )),
-            Arc::new(Mutex::new(audio_engine::Engine::new())),
-            gate.clone(),
-            Arc::new(Mutex::new(None::<tools::Clipboard>)),
-        );
+        let mut agent =
+            common::agent_over(cfg, dispatcher, common::store_in(dir.path()), gate.clone());
         if let Some(whitelist) = whitelist {
             agent = agent.with_tool_whitelist(whitelist);
         }
@@ -245,13 +173,7 @@ impl Fixture {
 
     /// The JSON bodies the provider was sent, in order.
     async fn requests(&self) -> Vec<Value> {
-        self.server
-            .received_requests()
-            .await
-            .expect("recording is on")
-            .iter()
-            .map(|r| serde_json::from_slice(&r.body).expect("a JSON body"))
-            .collect()
+        common::request_bodies(&self.server).await
     }
 
     fn edits_run(&self) -> Vec<Value> {
@@ -286,6 +208,95 @@ fn position(events: &[Ev], wanted: impl Fn(&Ev) -> bool) -> usize {
 
 fn approve(_: usize, _: &[Value]) -> Answer {
     Answer::Approve
+}
+
+#[tokio::test]
+async fn dropping_a_held_turn_keeps_the_agent_ready_for_the_next_request() {
+    let mut responses = without_a_plan(vec![
+        sse_tool_step(&[("read", "peek", r#"{"track":0}"#)]),
+        sse_tool_step(&[
+            ("held-1", "edit", r#"{"track":0}"#),
+            ("held-2", "edit", r#"{"track":1}"#),
+        ]),
+    ]);
+    responses.extend([ok(classifier_json("general")), ok(sse_text("Okay."))]);
+    let mut fx = Fixture::new(true, None, responses).await;
+    let (shown, card) = tokio::sync::oneshot::channel();
+    {
+        let mut shown = Some(shown);
+        let turn = fx.agent.turn("make it louder".into(), |event| {
+            if let AgentEvent::Plan { steps } = event {
+                shown.take().expect("one held card").send(steps).unwrap();
+            }
+        });
+        tokio::pin!(turn);
+        tokio::select! {
+            steps = card => assert_eq!(steps.expect("held card").len(), 2),
+            result = &mut turn => panic!("turn ended before waiting for approval: {result:?}"),
+        }
+        assert!(
+            fx.gate.is_waiting(),
+            "the future reached the actual approval wait"
+        );
+        // Drop only the in-flight future. The Agent, store and provider survive.
+    }
+    assert!(!fx.gate.is_waiting(), "dropping the wait closes its gate");
+    assert!(fx.edits_run().is_empty(), "held edits must never run");
+    assert_eq!(fx.peeks.load(Ordering::SeqCst), 1);
+    let history = fx.agent.conversation();
+    assert_eq!(
+        history.len(),
+        5,
+        "keep the user, completed read and held step: {history:?}"
+    );
+    assert!(matches!(
+        history[2].content.as_slice(),
+        [ContentBlock::ToolResult { tool_use_id, is_error: None, .. }] if tool_use_id == "read"
+    ));
+    assert_eq!(history[3].role, Role::Assistant);
+    for (block, expected) in history[4].content.iter().zip(["held-1", "held-2"]) {
+        assert!(
+            matches!(
+                block,
+                ContentBlock::ToolResult { tool_use_id, content, is_error: Some(true) }
+                    if tool_use_id == expected && content.contains("interrupted")
+            ),
+            "{block:?}"
+        );
+    }
+    assert_eq!(history[4].content.len(), 2);
+
+    fx.agent.set_plan_first(false);
+    fx.turn("next request", approve).await.0.expect("next turn");
+    let requests = fx.requests().await;
+    let messages = requests.last().unwrap()["messages"].as_array().unwrap();
+    for pair in messages.windows(2) {
+        assert_ne!(pair[0]["role"], pair[1]["role"], "{messages:#?}");
+        let calls: Vec<_> = pair[0]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|block| block["type"] == "tool_use")
+            .map(|block| block["id"].clone())
+            .collect();
+        if !calls.is_empty() {
+            let answers: Vec<_> = pair[1]["content"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|block| block["type"] == "tool_result")
+                .map(|block| block["tool_use_id"].clone())
+                .collect();
+            assert_eq!(
+                answers, calls,
+                "every retained call is answered once in order"
+            );
+        }
+    }
+    assert_eq!(
+        messages.last().unwrap()["content"][2]["text"],
+        "next request"
+    );
 }
 
 // ---------------------------------------------------------------------

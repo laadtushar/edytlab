@@ -15,13 +15,9 @@
 
 mod common;
 
-use std::sync::{Arc, Mutex};
-
-use ai::{Agent, Error, LlmConfig};
-use common::{chat_reply_json, classifier_json, ok, Entry, SeqResponder};
+use ai::{Error, LlmConfig};
+use common::{chat_reply_json, classifier_json, ok, Entry};
 use tools::ToolDispatcher;
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer};
 
 const RETIRED_ANTHROPIC_BODY: &str = r#"{"type":"error","error":{"type":"not_found_error","message":"model: claude-opus-4-1-20250805"},"request_id":"req_011Cftywc6xsQRBrAxHK2RgM"}"#;
 
@@ -33,23 +29,14 @@ async fn turn(
     endpoint: &str,
     responses: Vec<Entry>,
 ) -> (ai::Result<ai::TurnResult>, usize) {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path(endpoint))
-        .respond_with(SeqResponder::new(responses))
-        .mount(&server)
-        .await;
+    let server = common::serve(endpoint, responses).await;
 
     let dir = tempfile::tempdir().expect("tempdir");
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         cfg.with_base_url(server.uri()),
-        Arc::new(Mutex::new(ToolDispatcher::new())),
-        Arc::new(Mutex::new(
-            session::Store::open(dir.path()).expect("open store"),
-        )),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
+        ToolDispatcher::new(),
+        common::store_in(dir.path()),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let result = agent.turn("make it louder".to_string(), |_| {}).await;
     let requests = server.received_requests().await.expect("recording").len();

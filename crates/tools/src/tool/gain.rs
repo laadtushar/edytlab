@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, load_track_state};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -46,14 +46,10 @@ impl Tool for GainTool {
             )));
         }
 
-        let mut state = match load_head_state(ctx) {
+        let mut state = match load_track_state(ctx, args.track) {
             Ok(s) => s,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(msg));
-        }
 
         let prior = state.tracks[args.track].gain_db;
         let new_gain = prior + args.db;

@@ -25,6 +25,17 @@ const AV_SKEW = Number(process.env.AV_SKEW ?? 0.65);
 // The app window on the 1440x900 virtual display (openbox decorations
 // included in the grab are cropped away).
 const CROP = process.env.CROP ?? "1280:776:80:82";
+// The app's version sits at the right end of the status bar. A recording
+// must not carry it (it is stale on the next release), so a box in the
+// bar's own colour is drawn over it: x:y:width:height inside the crop,
+// colour 0xRRGGBB. MASK=none turns it off (a recording of a build that
+// prints no version).
+const MASK = process.env.MASK ?? "1190:753:90:22:0x17161b";
+const maskFilter = () => {
+  if (MASK === "none") return "";
+  const [x, y, w, h, color] = MASK.split(":");
+  return `,drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${color}:t=fill`;
+};
 // The captions are set in the website's Inter: Ubuntu's `fonts-inter`, or
 // FONT= any Inter SemiBold, such as the TTF from Google Fonts, the copy
 // next/font self-hosts on the site.
@@ -117,7 +128,7 @@ for (const r of results.filter((r) => r.id.startsWith("8-demo-"))) {
       `drawtext=${text}:fontcolor=${TEXT}:box=1:boxcolor=${CARD}@0.94:boxborderw=16|24|16|24:${when}`
     );
   });
-  const video = `[0:v]setpts=PTS-STARTPTS,crop=${CROP}${draws.length ? "," + draws.join(",") : ""}[v]`;
+  const video = `[0:v]setpts=PTS-STARTPTS,crop=${CROP}${maskFilter()}${draws.length ? "," + draws.join(",") : ""}[v]`;
   const inter = join(work, "inter.mkv");
   if (a0 !== null) {
     const offset = (wallClock ? a0 - v0 : 0) + AV_SKEW;

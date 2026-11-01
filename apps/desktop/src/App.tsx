@@ -27,8 +27,6 @@ import {
   getNode,
   getTranscript,
   cutTranscriptWords,
-  isNoSession,
-  listTracks,
   getSyncLock,
   setSyncLock,
   removeMarker,
@@ -53,6 +51,7 @@ import { isUndoChord, isRedoChord, isTextEntry } from "./lib/undoRedo";
 import { isDerivedAudioPath } from "./lib/derivedAudio";
 import { mixIsCurrent, mixIsMissing, mixIsStale } from "./lib/mixState";
 import { scheduledTake, startTake, stopTake } from "./lib/recording";
+import { appliedText, isUncalibratedMessage, punchOutcome } from "./lib/punch";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -76,6 +75,7 @@ import {
 } from "./components/Timeline";
 import { useMarkers } from "./hooks/useMarkers";
 import { useSession } from "./hooks/useSession";
+import { SessionQueryProvider } from "./lib/sessionQueries";
 import {
   getKeychainPersistence,
   hasApiKey,
@@ -91,7 +91,7 @@ import {
   writeSessionOnlyDismissed,
 } from "./lib/keychainNotice";
 import { KeyringWaiting } from "./components/KeyringWaiting";
-import { listTemplates, applyTemplate, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
+import { listTemplates, applyTemplate, punchRecord, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
   listenToFileDrops,
@@ -144,7 +144,21 @@ function isApiKeyError(message: string): boolean {
 }
 
 function App() {
+  return (
+    <SessionQueryProvider>
+      <AppSession />
+    </SessionQueryProvider>
+  );
+}
+
+function AppSession() {
+  // A control stays held until the query observer adopts its confirming
+  // list (#596). The owner's layout-effect hand-back redraws that list.
+  const [ownedVersion, bumpOwned] = useReducer((n: number) => n + 1, 0);
+  const [owned] = useState(() => new OwnedControls(bumpOwned));
   const {
+    tracks,
+    refreshTracks,
     renderHead,
     head,
     setHeadLocal,
@@ -157,7 +171,7 @@ function App() {
     forgetRemoved,
     graphVersion,
     inOrder,
-  } = useSession();
+  } = useSession({ trackControls: owned });
   // The node the history graph is previewing, apart from `head` (#522): a
   // click there shows a node, and only "Set as head" moves the head, so the
   // undo path and the file it is saved to follow real moves alone.
@@ -211,7 +225,7 @@ function App() {
   }, [settingsOpen, keyConfigured]);
   // Which part of Settings' Account tab to scroll to on opening, for a caller
   // that sends the user to press a button there (the speech-setup card, #384).
-  const [settingsReveal, setSettingsReveal] = useState<"speech-model" | null>(null);
+  const [settingsReveal, setSettingsReveal] = useState<"speech-model" | "recording-latency" | null>(null);
   // Every other way in (the gear, an error's button) opens at the top, so a
   // request to reveal ends with the dialog it was for.
   useEffect(() => {
@@ -240,59 +254,12 @@ function App() {
   useEffect(() => {
     setExportedWithout(null);
   }, [head]);
-  const [tracks, setTracks] = useState<TrackSummary[]>([]);
-  // The lane controls the user has set and the session has not yet
-  // confirmed (#596). A track list that lands does not overwrite them; the
-  // rule and its reasons are in `lib/ownedControls.ts`. `ownedVersion`
-  // changes whenever one is handed back, so the lanes are drawn again from
-  // the session's own list. A plain state update, not an external-store
-  // subscription: it must be drawn in the same batch as the `setTracks`
-  // that confirms the control, and a synchronous one would draw the older
-  // list first.
-  const [ownedVersion, bumpOwned] = useReducer((n: number) => n + 1, 0);
-  const [owned] = useState(() => new OwnedControls(bumpOwned));
   // The latest list, for handlers that must compare against what the
   // session holds now rather than what they closed over.
   const tracksRef = useRef<TrackSummary[]>(tracks);
   useEffect(() => {
     tracksRef.current = tracks;
   }, [tracks]);
-  /**
-   * The one way the track list is refreshed (#341, #342).
-   *
-   * - **The latest request wins.** Boot lists the tracks, and so does
-   *   every edit; nothing ordered the replies, so a boot reply arriving
-   *   after an edit's replaced the newer list with the older one. Each
-   *   request is numbered, and only the newest one's reply is applied.
-   * - **`NoSession` is an empty list**, not an error: it is what a new
-   *   project with no history answers. "New project…" on an empty folder
-   *   showed it as a failure.
-   *
-   * - **A control the user holds is handed back with the list that
-   *   confirms it** (#596): the request's number says whether the list was
-   *   read after the control's commit was answered, and the hand-back is
-   *   in the same batch as `setTracks`, so no list is drawn without it.
-   *
-   * Any other failure is thrown to the caller, which reports it — unless
-   * a newer request has been made since, in which case it is moot. A
-   * failed read confirms nothing: the user's values stay over the list
-   * until one that is read.
-   */
-  const trackRequestRef = useRef(0);
-  const refreshTracks = useCallback(async (): Promise<void> => {
-    const request = ++trackRequestRef.current;
-    let next: TrackSummary[];
-    try {
-      next = await listTracks();
-    } catch (err) {
-      if (request !== trackRequestRef.current) return;
-      if (!isNoSession(err)) throw err;
-      next = [];
-    }
-    if (request !== trackRequestRef.current) return;
-    owned.applied(request);
-    setTracks(next);
-  }, [owned]);
   /**
    * What the timeline draws and the status bar names: the session's own
    * audio, whichever track holds it. The track itself is kept for its
@@ -374,6 +341,13 @@ function App() {
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  // A punch-in is running (#203): the microphone and the speakers are its.
+  const [punching, setPunching] = useState(false);
+  // A scheduled recording is armed (waiting or recording), which `isRecording`
+  // also covers; named apart so the Punch control can say which it is.
+  const [timerArmed, setTimerArmed] = useState(false);
+  // What the last punch-in was placed with, said once.
+  const [punchNotice, setPunchNotice] = useState<string | null>(null);
   // Projects this machine has opened. Empty on a first launch, and the
   // empty state hides the list entirely rather than showing a heading
   // with nothing under it.
@@ -793,13 +767,16 @@ function App() {
   // before the commit was answered, landing meanwhile, would put the
   // older value back under it. `claim` is the control's hold on the
   // lane (`lib/ownedControls.ts`); the answer ends the commit, and the
-  // refresh requested here is the first read that can confirm it.
+  // refresh requested here is the first read that can confirm it. It does
+  // so when `useSessionTracks` adopts that read into the track query, which
+  // hands out fresh track and clip references even for identical data, so
+  // a refused edit still redraws the lane from the session's value.
   //
   // In line (#498): two commits made in quick succession reach the
   // session in the order they were made, so the last value set is the
   // one it keeps. The refresh is outside the turn, so it never holds up
-  // the next edit; `refreshTracks` already drops a reply that a newer
-  // request has overtaken.
+  // the next edit; the track query only adopts the newest request's reply
+  // (`useSessionTracks`), so one that a newer request has overtaken is dropped.
   const commitTrackChange = useCallback(
     async (apply: () => Promise<string>, claim?: Claim) => {
       try {
@@ -811,16 +788,13 @@ function App() {
       } catch (e) {
         setRenderError(String(e));
       }
-      // `refreshTracks` numbers its request as it is called, with nothing
-      // awaited before: the next number is the read made right below.
-      if (claim) owned.finish(claim, trackRequestRef.current + 1);
       try {
-        await refreshTracks();
+        await refreshTracks(claim);
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [applyEdit, owned],
+    [applyEdit, refreshTracks],
   );
 
   // Release, key-up and blur all commit a slider, and most carry the value
@@ -1421,7 +1395,7 @@ function App() {
     // launch and restores its `HEAD`, so a returning user's tracks are
     // already there; a fresh project has no head yet and answers
     // `NoSession`, which leaves the list empty.
-    void refreshTracks().catch(() => setTracks([]));
+    void refreshTracks().catch(() => undefined);
     // Then the view they left. Saving stays off until this has been
     // read, whether or not there was anything to read.
     //
@@ -1523,11 +1497,13 @@ function App() {
     (schedule: { startAfterSec?: number; durationSec?: number }) => {
       setRenderError(null);
       setIsRecording(true);
+      setTimerArmed(true);
       void scheduledTake(
         () => timerRecord(`recording_${Date.now()}.wav`, schedule),
         loadInOrder,
       ).then((outcome) => {
         setIsRecording(false);
+        setTimerArmed(false);
         // Its head is adopted by `loadInOrder`, in its turn.
         if (outcome.kind === "loaded") {
           void refreshTracks().catch((err) => setRenderError(String(err)));
@@ -1538,6 +1514,51 @@ function App() {
       });
     },
     [loadInOrder],
+  );
+
+  /**
+   * Punch in (#203): replace the selected region of a track with a take
+   * recorded while the rest of the mix plays.
+   *
+   * The transport is paused first: the backend plays the mix itself, through
+   * the speakers, on a clock it shares with the microphone, and a second
+   * player from the webview would be in the take. `punch_record` resolves
+   * when the take is placed, tens of seconds later at most, and is not
+   * inside the edit line (`inOrder`): that would hold every other edit for
+   * its length. Only adopting the head is in the line, as for any command
+   * that changes the session. An edit made meanwhile makes the backend keep
+   * the take and refuse to apply it, so no older head is ever adopted.
+   */
+  const handlePunch = useCallback(
+    async ({ track, prerollSec }: { track: number; prerollSec: number }) => {
+      if (!selection || punching) return;
+      setRenderError(null);
+      setPunchNotice(null);
+      timelineRef.current?.pause();
+      setPunching(true);
+      try {
+        const outcome = await punchOutcome(() =>
+          punchRecord(track, selection.start, selection.end, prerollSec),
+        );
+        if (outcome.kind === "applied") {
+          await inOrder(async () => {
+            applyNewHead(outcome.head);
+          });
+          // The session moved by itself: let go of what the lanes hold, and
+          // read the tracks again (the region's audio is new).
+          owned.clear();
+          await refreshTracks().catch((err) => setRenderError(String(err)));
+          setPunchNotice(appliedText(outcome));
+        } else if (outcome.kind !== "cancelled") {
+          // A refusal or a failure says what to try; "not calibrated" also
+          // gets the button that goes there.
+          setRenderError(outcome.message);
+        }
+      } finally {
+        setPunching(false);
+      }
+    },
+    [selection, punching, inOrder, applyNewHead, owned, refreshTracks],
   );
 
   // Renders what is shown: the previewed node when the graph has one, else
@@ -1711,6 +1732,18 @@ function App() {
 
   const errorAction = useMemo(() => {
     if (!renderError) return undefined;
+    // A punch-in with no delay kept for the devices (#203): the way out is
+    // the Audio tab, where it is measured or typed.
+    if (isUncalibratedMessage(renderError)) {
+      return {
+        label: "Open Settings → Audio",
+        onClick: () => {
+          setRenderError(null);
+          setSettingsReveal("recording-latency");
+          setSettingsOpen(true);
+        },
+      };
+    }
     if (!isApiKeyError(renderError)) return undefined;
     return {
       label: "Open Settings",
@@ -1734,6 +1767,17 @@ function App() {
         isRecording={isRecording}
         onRecord={isRecording ? handleStopRecording : handleStartRecording}
         onTimerRecord={handleTimerRecord}
+        punch={{
+          tracks,
+          selection,
+          punching,
+          timerArmed,
+          onPunch: handlePunch,
+          onOpenAudioSettings: () => {
+            setSettingsReveal("recording-latency");
+            setSettingsOpen(true);
+          },
+        }}
         onSaveAs={handleSaveProjectAs}
         hasProject={Boolean(head)}
         onNewProject={handleNewProject}
@@ -1771,6 +1815,15 @@ function App() {
               message={renderError}
               action={errorAction}
               onDismiss={() => setRenderError(null)}
+            />
+          ) : null}
+          {punchNotice ? (
+            <ErrorBanner
+              tone="info"
+              testId="punch-notice"
+              message={punchNotice}
+              dismissLabel="Dismiss"
+              onDismiss={() => setPunchNotice(null)}
             />
           ) : null}
           <RenderWarningsNotice notice={mixNotice(renderWarnings)} />

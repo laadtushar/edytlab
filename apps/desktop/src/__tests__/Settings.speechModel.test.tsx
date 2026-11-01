@@ -15,28 +15,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mlModelStatusMock = vi.fn();
 const downloadMock = vi.fn();
 
-vi.mock("../lib/tauri-bridge", () => ({
+vi.mock("../lib/tauri-bridge", async () => ({
+  ...(await import("./settingsBridge")).restingAccount(),
   mlRuntimeStatus: vi.fn().mockResolvedValue({ state: "missing", searched: [] }),
   mlModelStatus: (model: string) => mlModelStatusMock(model),
   onMlModelProgress: () => Promise.resolve(() => undefined),
   downloadMlModel: (model: string) => downloadMock(model),
   cancelMlModelDownload: vi.fn(),
   removeMlModel: vi.fn(),
-  getActiveProvider: vi.fn().mockResolvedValue(""),
-  getActiveModel: vi.fn().mockResolvedValue(""),
-  getBaseUrlFor: vi.fn().mockResolvedValue(null),
-  defaultBaseUrlFor: vi.fn().mockResolvedValue("https://api.anthropic.com"),
-  getEffortFor: vi.fn().mockResolvedValue(null),
-  setEffortFor: vi.fn(),
-  listModelsFor: vi.fn().mockResolvedValue({ models: [], source: "live", notice: null }),
-  hasApiKeyFor: vi.fn().mockResolvedValue(true),
-  clearApiKeyFor: vi.fn(),
-  setApiKeyFor: vi.fn(),
-  setActiveProvider: vi.fn(),
-  setActiveModel: vi.fn(),
-  setBaseUrlFor: vi.fn(),
-  testApiKeyFor: vi.fn(),
-  installPlugin: vi.fn(),
 }));
 
 import { Settings } from "../components/Settings";

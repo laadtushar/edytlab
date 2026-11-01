@@ -13,7 +13,6 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use fs4::FileExt;
 use ml_pipeline::{
     fetched_model_path, Error, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore,
 };
@@ -1123,7 +1122,7 @@ fn hold_the_lock_like_another_process(root: &Path) -> File {
         .truncate(false)
         .open(lock_file_path(root))
         .unwrap();
-    FileExt::try_lock(&file).expect("nobody else holds the lock yet");
+    file.try_lock().expect("nobody else holds the lock yet");
     file
 }
 
@@ -1205,7 +1204,7 @@ fn the_lock_is_released_however_a_fetch_ends() {
             .truncate(false)
             .open(lock_file_path(&fx.root))
             .expect("open the lock file");
-        FileExt::try_lock(&file).is_ok()
+        file.try_lock().is_ok()
     };
 
     store.fetch(&artifact, &mut ()).expect("fetch");

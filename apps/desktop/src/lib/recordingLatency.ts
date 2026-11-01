@@ -90,3 +90,28 @@ export async function calibrateOutcome(
     return { kind: "refused", message: e instanceof Error ? e.message : String(e) };
   }
 }
+
+/** What the manual field is for, in a sentence. */
+export const MANUAL_PURPOSE =
+  "Or type the delay yourself, in milliseconds: it counts exactly as a measured one. Use it where you cannot make noise in the room, or when you measured it another way. Whichever you set last is the one used.";
+
+/** The most a typed delay may be, as the backend checks it. */
+export const MANUAL_MAX_MS = 2_000;
+
+export type ManualLatency = { ok: true; ms: number } | { ok: false; message: string };
+
+/**
+ * A delay typed in the field. The backend checks it again (0 to 2000 ms,
+ * `put_manual`); checking here turns a round trip into a reason beside the
+ * field. Empty is not a number, not zero.
+ */
+export function parseManualLatency(text: string): ManualLatency {
+  const t = text.trim().replace(",", ".");
+  if (t === "") return { ok: false, message: "Type a delay in milliseconds." };
+  const ms = Number(t);
+  if (!Number.isFinite(ms)) return { ok: false, message: `"${text.trim()}" is not a number.` };
+  if (ms < 0 || ms > MANUAL_MAX_MS) {
+    return { ok: false, message: `A delay is from 0 to ${MANUAL_MAX_MS} ms.` };
+  }
+  return { ok: true, ms };
+}

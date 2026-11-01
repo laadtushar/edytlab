@@ -315,7 +315,7 @@ fn transcribe_does_not_report_success_with_an_empty_transcript() {
 }
 
 /// The tools that work must not be described as ones that do not, and must
-/// not leave the agent to invent a setup: the user downloads the model, and
+/// not leave the agent to invent a setup: the user sets the model up, and
 /// the agent says so (#384 for `transcribe`, #385 for `separate_stems`, which
 /// was the stub this file's first checks were written for: while its schema
 /// described a working separator with a setup step, the agent would
@@ -339,10 +339,18 @@ fn the_tools_that_run_tell_the_agent_what_to_say_when_they_cannot() {
             !desc.to_lowercase().contains("not implemented"),
             "`{name}` runs, and its schema says it does not: {desc}"
         );
+        // Both models are downloaded from a row in Settings → Account (#383,
+        // #385), and the schema says so.
         assert!(
             desc.contains("Settings → Account"),
             "the schema does not say where the user gets the model: {desc}"
         );
+        if name == "separate_stems" {
+            assert!(
+                desc.contains("tell the user and stop"),
+                "the schema does not say what to do when the model is missing: {desc}"
+            );
+        }
         assert!(
             desc.contains("do not try to download, install or configure anything"),
             "the schema does not stop the agent from inventing a setup: {desc}"

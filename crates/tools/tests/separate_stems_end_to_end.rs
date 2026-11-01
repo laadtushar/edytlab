@@ -39,41 +39,17 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::{json, Value};
-use session::Store;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
 
-/// Abort, rather than stall for ever, if the run is stuck.
-fn watchdog() {
-    std::thread::spawn(|| {
-        std::thread::sleep(Duration::from_secs(1200));
-        eprintln!("separate_stems_end_to_end ran for 20 minutes: it is stuck, not slow");
-        std::process::abort();
-    });
-}
-
-fn required(var: &str, how: &str, folder: bool) -> PathBuf {
-    let value = std::env::var_os(var).unwrap_or_else(|| {
-        panic!(
-            "{var} is not set, so this test cannot run. It was asked for with --ignored, and a \
-             skip is not an answer (#263). {how}"
-        )
-    });
-    let path = PathBuf::from(value);
-    assert!(
-        if folder {
-            path.is_dir()
-        } else {
-            path.is_file()
-        },
-        "{var} is {}, which is not an existing {}. {how}",
-        path.display(),
-        if folder { "folder" } else { "file" }
-    );
-    path
-}
+#[path = "support/harness.rs"]
+mod harness;
+#[path = "support/real_model.rs"]
+mod real_model;
+use harness::Session;
+use real_model::{required, watchdog};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -131,51 +107,20 @@ fn sdr(reference: &[f32], estimate: &[f32]) -> f64 {
     10.0 * (signal / noise.max(1e-30)).log10()
 }
 
-struct Session {
-    dir: tempfile::TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-}
-
 impl Session {
-    fn new() -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = Store::open(dir.path()).expect("store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            // The real dispatcher: the real `separate_stems`, on the real model.
-            dispatcher: ToolDispatcher::default_dispatcher(),
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher
-            .invoke(tool, args, &mut ctx)
-            .unwrap_or_else(|e| panic!("`{tool}` did not dispatch: {e}"))
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("`{tool}` failed: {m}"),
-        }
-    }
-
     fn stem_cache(&self) -> PathBuf {
         self.dir.path().join(".audiograph").join("stem-cache")
     }
+}
+
+/// The entries of a stem cache: its directories, without the `<hex>.lock` file
+/// `ml_demucs::Pending::publish` leaves beside each.
+fn entries_in(root: &Path) -> usize {
+    std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .filter(|e| !e.file_name().to_string_lossy().ends_with(".lock"))
+        .count()
 }
 
 fn stem_paths(v: &Value) -> Vec<PathBuf> {
@@ -194,7 +139,7 @@ fn stem_paths(v: &Value) -> Vec<PathBuf> {
 #[test]
 #[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library) and DEMUCS_MODEL_PATH (the model folder); run by ml.yml"]
 fn the_tool_separates_a_track_on_the_real_model() {
-    watchdog();
+    watchdog("separate_stems_end_to_end", 1200);
     required(
         "ORT_DYLIB_PATH",
         "Point it at libonnxruntime (scripts/fetch-ml-runtime.sh <platform> <dir> prints it).",
@@ -222,7 +167,8 @@ fn the_tool_separates_a_track_on_the_real_model() {
     }
 
     let (stems, mix) = references();
-    let mut s = Session::new();
+    // The real dispatcher: the real `separate_stems`, on the real model.
+    let mut s = Session::empty();
     let recording = s.dir.path().join("mix.wav");
     write_wav(&recording, &mix);
     s.ok("load", json!({ "path": recording.to_string_lossy() }));
@@ -279,7 +225,7 @@ fn the_tool_separates_a_track_on_the_real_model() {
     let again = s.ok("separate_stems", json!({ "track": 0 }));
     assert_eq!(again["cached"], true);
     assert_eq!(stem_paths(&again), paths);
-    assert_eq!(std::fs::read_dir(s.stem_cache()).unwrap().count(), 1);
+    assert_eq!(entries_in(&s.stem_cache()), 1);
 
     // 3. A stem is a track.
     let loaded = s.ok("load", json!({ "path": paths[0].to_string_lossy() }));
@@ -308,7 +254,7 @@ fn the_tool_separates_a_track_on_the_real_model() {
     };
     assert!(text.contains("cancelled by the user"), "{text}");
     assert_eq!(
-        std::fs::read_dir(s.stem_cache()).unwrap().count(),
+        entries_in(&s.stem_cache()),
         1,
         "the first entry only: no entry, no .tmp- leftover"
     );

@@ -72,7 +72,7 @@ use rubato::{FftFixedInOut, Resampler};
 use session::SessionState;
 
 use crate::graph::{self, RenderGraph, TrackPlan};
-use crate::{Error, RenderReport, TimeRange};
+use crate::{Error, RenderOutcome, RenderReport, TimeRange};
 
 /// Linear interpolation of gain_db at `frame` from a sorted (time_samples, gain_db) list.
 /// Returns 0.0 dB for an empty list.
@@ -166,15 +166,46 @@ pub fn render(
     out: &Path,
     range: Option<TimeRange>,
 ) -> Result<RenderReport, Error> {
+    match render_controlled(state, out, range, &|| false)? {
+        RenderOutcome::Complete(report) => Ok(report),
+        // This wrapper supplies the only cancellation callback, which
+        // always returns false. No caller input can reach this arm.
+        RenderOutcome::Cancelled => unreachable!("legacy renders cannot be cancelled"),
+    }
+}
+
+pub(crate) fn render_range_cancellable(
+    state: &SessionState,
+    out: &Path,
+    range: TimeRange,
+    cancel: &dyn Fn() -> bool,
+) -> Result<RenderOutcome, Error> {
+    render_controlled(state, out, Some(range), cancel)
+}
+
+fn render_controlled(
+    state: &SessionState,
+    out: &Path,
+    range: Option<TimeRange>,
+    cancel: &dyn Fn() -> bool,
+) -> Result<RenderOutcome, Error> {
+    if cancel() {
+        return Ok(RenderOutcome::Cancelled);
+    }
     let graph = graph::build(state)?;
 
-    let mut report = if is_unity_passthrough(state, &graph, range) {
-        render_unity_copy(&graph, out)?
+    let outcome = if is_unity_passthrough(state, &graph, range) {
+        RenderOutcome::Complete(render_unity_copy(&graph, out)?)
     } else {
-        render_streaming(state, &graph, out, range)?
+        render_streaming(state, &graph, out, range, cancel)?
     };
-    report.warnings = render_warnings(state);
-    Ok(report)
+    match outcome {
+        RenderOutcome::Complete(mut report) => {
+            report.warnings = render_warnings(state);
+            Ok(RenderOutcome::Complete(report))
+        }
+        RenderOutcome::Cancelled => Ok(RenderOutcome::Cancelled),
+    }
 }
 
 /// What a render of `state` leaves out, as the sentences
@@ -878,7 +909,8 @@ fn render_streaming(
     graph: &RenderGraph,
     out: &Path,
     range: Option<TimeRange>,
-) -> Result<RenderReport, Error> {
+    cancel: &dyn Fn() -> bool,
+) -> Result<RenderOutcome, Error> {
     // Recompute any_solo here so should_include_track can act as a secondary
     // gate inside the mix loop (the primary gate is plan.contributes, which
     // graph::build already resolves). Both gates must agree by construction.
@@ -958,6 +990,9 @@ fn render_streaming(
         bits_per_sample: 16,
         sample_format: SampleFormat::Int,
     };
+    if cancel() {
+        return Ok(RenderOutcome::Cancelled);
+    }
     let mut writer = WavWriter::create(out, spec)?;
     let mut peak: f32 = 0.0;
 
@@ -1021,6 +1056,9 @@ fn render_streaming(
     if start_frame > 0 {
         let mut to_skip = start_frame;
         while to_skip > 0 {
+            if cancel() {
+                return Ok(RenderOutcome::Cancelled);
+            }
             let step = to_skip.min(chunk_frames);
             for mix in track_mixes.iter_mut() {
                 mix.render_chunk(
@@ -1095,6 +1133,9 @@ fn render_streaming(
     // frames in total; the final chunk may be partial.
     let mut frames_remaining = frames_to_write;
     while frames_remaining > 0 {
+        if cancel() {
+            return Ok(RenderOutcome::Cancelled);
+        }
         let this_chunk = frames_remaining.min(chunk_frames);
         let dst = &mut master_chunk[..this_chunk * chans];
         // Zero out the master chunk before summing.
@@ -1183,15 +1224,18 @@ fn render_streaming(
         frames_remaining -= this_chunk;
     }
 
+    if cancel() {
+        return Ok(RenderOutcome::Cancelled);
+    }
     writer.finalize()?;
 
-    Ok(RenderReport {
+    Ok(RenderOutcome::Complete(RenderReport {
         frames_written: frames_to_write as u64,
         sample_rate: project_rate,
         channels: max_channels,
         peak_dbfs: peak_to_dbfs(peak),
         warnings: Vec::new(),
-    })
+    }))
 }
 
 /// Buffered per-track resample helper, retained for parity testing.

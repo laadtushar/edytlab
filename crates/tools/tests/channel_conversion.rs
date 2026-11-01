@@ -12,67 +12,41 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
+use hound::WavReader;
 use serde_json::json;
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_frames, Session};
 
 const SR: u32 = 48_000;
 const FRAMES: usize = 4_800;
 
 fn write_wav(dir: &Path, name: &str, channels: u16) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("writer");
-    for n in 0..FRAMES {
+    write_frames(&dir.join(name), SR, channels, FRAMES, |n| {
         let t = n as f32 / SR as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
-        let q = (s * 32_767.0).round() as i16;
-        for _ in 0..channels {
-            w.write_sample(q).unwrap();
-        }
-    }
-    w.finalize().unwrap();
-    path
+        (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5
+    })
 }
 
 /// Run `tool` on a freshly loaded file and return the written result's
 /// (channels, frame count).
 fn convert(source_channels: u16, tool: &str) -> (u16, usize) {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_wav(tmp.path(), "in.wav", source_channels);
+    let mut s = Session::empty();
+    let src = write_wav(s.dir.path(), "in.wav", source_channels);
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-    dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+    s.try_call("load", json!({ "path": src.to_string_lossy() }))
         .expect("load");
 
-    match dispatcher
-        .invoke(tool, json!({ "track": 0 }), &mut ctx)
-        .expect("dispatch")
-    {
+    match s.try_call(tool, json!({ "track": 0 })).expect("dispatch") {
         ToolResult::Ok(_) => {}
         ToolResult::Error(e) => panic!("`{tool}` failed: {e}"),
     }
 
     // The tool repointed the clip at a new content-addressed file.
-    let head = ctx.store.head().expect("head");
-    let node = ctx.store.get(head).expect("node");
+    let head = s.store.head().expect("head");
+    let node = s.store.get(head).expect("node");
     let written = &node.state.tracks[0].clips[0].source_path;
     let reader = WavReader::open(written).expect("open written wav");
     let spec = reader.spec();

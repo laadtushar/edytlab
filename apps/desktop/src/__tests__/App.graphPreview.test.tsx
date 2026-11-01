@@ -16,38 +16,23 @@
  * against the same backend.
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
+import {
+  type Args,
+  appAnswer,
+  bootIpc,
+  node,
+  quiet,
+  voiceTrack,
+  stubGraphGlobals,
+} from "./appHarness";
 import App from "../App";
 import type { SavedTrail } from "../lib/headTrail";
-
-type Args = Record<string, unknown>;
-
-/** A node id; the status bar shows the first seven characters. */
-const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
 
 /** The load before the project's state, the state, and the state muted. */
 const BEFORE_LOAD = node(1);
@@ -108,26 +93,6 @@ class Backend {
       case "render_preview":
         // Named after the node, as the real one is.
         return `/tmp/edytlab-preview-${args.node as string}.wav`;
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-      case "list_markers":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
-      case "save_view_state":
-      case "set_selection_context":
-        return null;
       case "list_tracks":
         return [this.track()];
       case "open_project":
@@ -135,23 +100,12 @@ class Backend {
       case "plugin:dialog|open":
         return "/tmp/other-project";
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 
   private track() {
-    return {
-      id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-      name: "Voice",
-      muted: this.muted,
-      gain_db: 0,
-      pan: 0,
-      soloed: false,
-      audio_path: "/tmp/voice.wav",
-      clips: [
-        { start_sec: 0, length_sec: 10, source_path: "/tmp/voice.wav", volume_envelope: [] },
-      ],
-    };
+    return voiceTrack({ muted: this.muted });
   }
 
   /** The args of every `cmd` the app sent. */
@@ -174,22 +128,6 @@ class Backend {
 
 const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
 
-/** Let what the app does next happen. */
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-/** Wait until the app has stopped asking for things. */
-async function quiet(backend: Backend): Promise<void> {
-  for (let guard = 0; guard < 20; guard++) {
-    const before = backend.calls;
-    await settle();
-    if (backend.calls === before) return;
-  }
-  throw new Error("the app never stopped asking");
-}
-
 /**
  * Wait until the status bar says the head is `id`.
  *
@@ -205,9 +143,7 @@ const headShown = (id: string) =>
 
 /** Open the app on `backend`, and wait until it is at rest on its head. */
 async function open(backend: Backend) {
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   render(<App />);
   await screen.findByTestId("timeline-lane-mute");
   await headShown(backend.head);
@@ -295,22 +231,7 @@ async function setAsHead(backend: Backend, id: string) {
 }
 
 beforeEach(() => {
-  // React Flow measures what it draws; jsdom has neither of these.
-  if (!("ResizeObserver" in window)) {
-    class RO {
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
-    }
-    (window as unknown as { ResizeObserver: typeof RO }).ResizeObserver = RO;
-  }
-  if (!("DOMMatrixReadOnly" in window)) {
-    class M {
-      m22 = 1;
-      constructor(_init?: string | number[]) {}
-    }
-    (window as unknown as { DOMMatrixReadOnly: typeof M }).DOMMatrixReadOnly = M;
-  }
+  stubGraphGlobals();
 });
 
 afterEach(() => {

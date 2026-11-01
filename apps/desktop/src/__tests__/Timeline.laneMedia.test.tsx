@@ -24,36 +24,25 @@ interface Created {
 
 const { created } = vi.hoisted(() => ({ created: [] as Created[] }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: (options: Created["options"]) => {
-      const entry: Created = { options, loads: [] };
-      created.push(entry);
-      return {
-        on: vi.fn(),
-        un: vi.fn(),
-        load: vi.fn((...args: unknown[]) => {
-          entry.loads.push(args);
-          return Promise.resolve();
-        }),
-        zoom: vi.fn(),
-        play: vi.fn(),
-        pause: vi.fn(),
-        seekTo: vi.fn(),
-        setTime: vi.fn(),
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: vi.fn(() => false),
-        destroy: vi.fn(),
-        getDuration: () => 0,
-        getCurrentTime: () => 0,
-        getWrapper: () => document.createElement("div"),
-        setScroll: vi.fn(),
-        getScroll: () => 0,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance, laneMembers } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: (options: Created["options"]) => {
+        const entry: Created = { options, loads: [] };
+        created.push(entry);
+        return wavesurferInstance({
+          load: vi.fn((...args: unknown[]) => {
+            entry.loads.push(args);
+            return Promise.resolve();
+          }),
+          getDuration: () => 0,
+          ...laneMembers(),
+        });
+      },
     },
-  },
-}));
+  };
+});
 
 import { Timeline } from "../components/Timeline";
 

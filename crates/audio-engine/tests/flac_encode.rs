@@ -33,18 +33,20 @@ fn decode(path: &Path) -> audio_decoder::DecodedAudio {
     audio_decoder::decode_file(path).expect("symphonia decodes the file")
 }
 
-fn paths(dir: &TempDir) -> (PathBuf, PathBuf) {
-    (dir.path().join("out.wav"), dir.path().join("out.flac"))
+/// Write `pcm` as both a WAV and a FLAC in `dir`, and return their paths.
+fn write_both(dir: &TempDir, pcm: &[f32], channels: u16) -> (PathBuf, PathBuf) {
+    let wav = dir.path().join("out.wav");
+    let flac = dir.path().join("out.flac");
+    write_wav(pcm, SAMPLE_RATE, channels, &wav).expect("write wav");
+    write_flac(pcm, SAMPLE_RATE, channels, &flac).expect("write flac");
+    (wav, flac)
 }
 
 #[test]
 fn flac_decodes_to_exactly_the_same_samples_as_the_wav() {
     let tmp = TempDir::new().expect("tempdir");
-    let (wav, flac) = paths(&tmp);
     let pcm = signal();
-
-    write_wav(&pcm, SAMPLE_RATE, 2, &wav).expect("write wav");
-    write_flac(&pcm, SAMPLE_RATE, 2, &flac).expect("write flac");
+    let (wav, flac) = write_both(&tmp, &pcm, 2);
 
     let from_wav = decode(&wav);
     let from_flac = decode(&flac);
@@ -68,11 +70,8 @@ fn flac_decodes_to_exactly_the_same_samples_as_the_wav() {
 #[test]
 fn flac_is_materially_smaller_than_the_wav() {
     let tmp = TempDir::new().expect("tempdir");
-    let (wav, flac) = paths(&tmp);
     let pcm = signal();
-
-    write_wav(&pcm, SAMPLE_RATE, 2, &wav).expect("write wav");
-    write_flac(&pcm, SAMPLE_RATE, 2, &flac).expect("write flac");
+    let (wav, flac) = write_both(&tmp, &pcm, 2);
 
     let wav_len = std::fs::metadata(&wav).unwrap().len();
     let flac_len = std::fs::metadata(&flac).unwrap().len();
@@ -91,13 +90,10 @@ fn flac_is_materially_smaller_than_the_wav() {
 #[test]
 fn mono_round_trips() {
     let tmp = TempDir::new().expect("tempdir");
-    let (wav, flac) = paths(&tmp);
     let pcm: Vec<f32> = (0..SAMPLE_RATE)
         .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / SAMPLE_RATE as f32).sin() * 0.5)
         .collect();
-
-    write_wav(&pcm, SAMPLE_RATE, 1, &wav).expect("write wav");
-    write_flac(&pcm, SAMPLE_RATE, 1, &flac).expect("write flac");
+    let (wav, flac) = write_both(&tmp, &pcm, 1);
 
     let from_wav = decode(&wav);
     let from_flac = decode(&flac);
@@ -110,11 +106,8 @@ fn mono_round_trips() {
 #[test]
 fn extremes_survive_the_round_trip() {
     let tmp = TempDir::new().expect("tempdir");
-    let (wav, flac) = paths(&tmp);
     let pcm: Vec<f32> = vec![1.0, -1.0, 0.0, 0.999_9, -0.999_9, 0.0, 1.5, -1.5];
-
-    write_wav(&pcm, SAMPLE_RATE, 2, &wav).expect("write wav");
-    write_flac(&pcm, SAMPLE_RATE, 2, &flac).expect("write flac");
+    let (wav, flac) = write_both(&tmp, &pcm, 2);
 
     let from_wav = decode(&wav);
     let from_flac = decode(&flac);

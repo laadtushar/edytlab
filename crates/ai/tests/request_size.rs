@@ -20,8 +20,8 @@
 //!
 //! The split is what showed where the size is. The system prompt is
 //! small (about 1.2 KB, session block included); the tool schemas are
-//! nearly all of it (about 64.5 KB of 66 KB for Anthropic, 67 KB of 68 KB
-//! as chat-completions JSON, with 96 tools, before #770's three generators; it was 54 KB of 55 KB and
+//! nearly all of it (about 71.5 KB of 72.9 KB for Anthropic, 74.4 KB of 75.8 KB
+//! as chat-completions JSON, with 101 tools; it was 54 KB of 55 KB and
 //! 57 KB of 58 KB when #395 was fixed). So the fix is not a shorter prompt but
 //! fewer, terser tools, and only for a provider that needs it:
 //!
@@ -39,7 +39,7 @@
 //! Where three bytes per token comes from: the issue's llama.cpp run
 //! counted 15,157 tokens for a request of the whole-list kind, and
 //! `openai_first_request_reports_the_full_chat_completions_size` builds
-//! that kind of request today. Divided by 15,157 it is 4.43 bytes per
+//! that kind of request today. Divided by 15,157 it is 5.00 bytes per
 //! token (3.84 when this was written, and it rises as tools are added). The
 //! registry has grown since the issue, so today's request has more tokens
 //! than were counted, and that figure is an upper bound on the true ratio,
@@ -84,7 +84,7 @@ use std::sync::{Arc, Mutex};
 
 use ai::provider::provider_from_id;
 use ai::session_context::SESSION_BLOCK_MAX_BYTES;
-use ai::{Agent, AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
+use ai::{AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
 use common::{
     chat_reply_json, chat_sse_text, chat_sse_tool_call, classifier_json, ok, sse_text, Entry,
     SeqResponder,
@@ -168,8 +168,29 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // descriptor is 1,304 B (65,482 B to 66,786 B). It went up by that and no more.
 // #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`:
 // 2,875 B (66,786 B to 69,661 B), with the 14 B of headroom kept.
+// #842's Opus wording then added 13 B to `load` (69,674 B), and #854's
+// OS-native M4A/AAC wording brought it to 69,789 B.
+// #767 then added `export_transcript` and `transcript_to_markers`: 1,752 B
+// (69,789 B to 71,541 B). The ratchet rose by exactly that, keeping the
+// remaining headroom of the main branch rather than loosening the guard. Main
+// at #883 measures 71,523 B against a ratchet of 71,557 B (34 B of headroom).
+// #385 then replaced `separate_stems`' "not implemented" descriptor with the
+// one of a tool that runs (`track` or `path`, what it writes, what to tell the
+// user when the model or the runtime is missing): +47 B (71,523 B to
+// 71,570 B). The ratchet rises by exactly that, so the headroom is still 34 B.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 69_786; // measured 69,772 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B; `separate_stems` 111 B net, #385: its descriptor now says what it does and what to tell the user, and is 111 B longer than the not-implemented one)
+
+// #847 adds 246 B for fade's optional curve enum, formulas and default (266 B
+// less the 20 B of a repeated "Defaults to linear."): measured 71,769 B, with
+// the same 34 B of headroom as before. #385's `separate_stems` descriptor
+// (the 47 B above) comes on top of that: the ratchet is main's 71,803 B + 47 B,
+// so the headroom is still 34 B.
+//
+// #385 part 3 names where the user gets the stem model in `separate_stems`'s
+// description ("the user downloads once in Settings → Account", as
+// `transcribe`'s says): +17 B, measured 71,816 B to 71,833 B. The ratchet
+// rises by exactly that, so the headroom is still 34 B.
+const FULL_TOOLS_MAX_BYTES: usize = 71_867; // main ratchet 71,850 + the 17 B of #385 part 3
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -350,13 +371,11 @@ async fn run_conversation(
     if let Some(state) = &options.state {
         store.append(node_of(state)).expect("append the head");
     }
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         config_for(provider_id, server.uri()),
-        Arc::new(Mutex::new(dispatcher_with_mcp(options.mcp_tools))),
+        dispatcher_with_mcp(options.mcp_tools),
         Arc::new(Mutex::new(store)),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         gate.clone(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(options.plan_first);
     if let Some(whitelist) = options.whitelist {
@@ -524,20 +543,38 @@ fn system_text(body: &Value) -> String {
 /// How the line that names the tools a small model was not sent begins.
 const NAMES_LINE_START: &str = "More tools you can call by exact name";
 
-/// The words of the system prompt's names line, or none if it has none.
-/// Only that line: a tool name that happens to be an ordinary word
-/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it.
+/// The tool names the system prompt's names line lists, or none if it has
+/// none. Only that line: a tool name that happens to be an ordinary word
+/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it. A run
+/// the line writes as `generate_{chirp,tone}` is expanded to the names a
+/// model would call (`generate_chirp`, `generate_tone`).
 fn names_line_words(system: &str) -> BTreeSet<String> {
-    system
+    let Some(line) = system
         .split("\n\n")
         .find(|paragraph| paragraph.starts_with(NAMES_LINE_START))
-        .map(|line| {
-            line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|w| !w.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    else {
+        return BTreeSet::new();
+    };
+    // The list follows the "): " that ends the wording; "and N more" ends it.
+    let list = line.split_once("): ").map_or(line, |(_, list)| list);
+    let mut out = BTreeSet::new();
+    for token in list.split_whitespace() {
+        match token.split_once("_{") {
+            Some((prefix, first)) => {
+                // `prefix_{a,b,c}` is one token: it holds no space.
+                for member in first.trim_end_matches(['}', '.']).split(',') {
+                    out.insert(format!("{prefix}_{member}"));
+                }
+            }
+            None => {
+                let word = token.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+                if !word.is_empty() {
+                    out.insert(word.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The system prompt up to the names line: all of it but the part that
@@ -679,13 +716,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
     let cfg = LlmConfig::new_chatgpt_with(provider, Arc::new(session));
 
     let store = session::Store::open(dir.path()).expect("open store");
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         cfg,
-        Arc::new(Mutex::new(dispatcher_with_mcp(0))),
+        dispatcher_with_mcp(0),
         Arc::new(Mutex::new(store)),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let ctx = native_run_context();
     agent
@@ -733,8 +768,20 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // what chat completions send), so the numbers are its own. The plan is
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
+// #767's `export_transcript` and `transcript_to_markers` add 1,814 B
+// (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
+// the ratchet rose by that, keeping the main branch's remaining headroom. Main
+// at #883 measures 74,715 B against a ratchet of 74,749 B (34 B of headroom).
+// #385's `separate_stems` descriptor is +47 B here as well (74,715 B to
+// 74,762 B): the ratchet rises by exactly that, so the headroom is still 34 B.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_916; // measured 72,902 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B; `separate_stems` 111 B, #385)
+
+// #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
+// #385's 47 B come on top: main's 74,995 B + 47 B, the same 34 B of headroom.
+//
+// #385 part 3's 17 B (the Settings pointer in `separate_stems`'s description)
+// come on top: measured 75,008 B to 75,025 B, the same 34 B of headroom.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_059; // main ratchet 75,042 + the 17 B of #385 part 3
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
@@ -1912,6 +1959,16 @@ async fn ollama_loose_phrasings_are_shown_the_tool_they_ask_for() {
         ("remove the reverb from track 1", "remove_effect"),
         ("make the vocals less harsh", "de_esser"),
         ("export each track separately", "export_multiple"),
+        ("save captions as SRT", "export_transcript"),
+        ("save subtitles as VTT", "export_transcript"),
+        ("save it as TXT", "export_transcript"),
+        ("save it as plaintext", "export_transcript"),
+        (
+            "turn spoken chapters into timeline cues",
+            "transcript_to_markers",
+        ),
+        ("put each sentence on the timeline", "transcript_to_markers"),
+        ("save it as plain text", "export_transcript"),
         // Keys on a voice track's audio when there is no transcript, so it
         // is not one of the tools left out for needing one.
         ("duck the music under the speech", "duck_under_speech"),

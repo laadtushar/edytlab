@@ -20,88 +20,33 @@
 use std::path::{Path, PathBuf};
 
 use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, EnvelopePoint, SessionState, TempoMap, Track, TrackId};
+use session::{EnvelopePoint, SessionState};
 use tempfile::TempDir;
+
+mod support;
+use support::{peak, render_i16, single_track_state, write_sine_trunc};
 
 const SAMPLE_RATE: u32 = 8_000;
 const FRAMES: usize = 8_000;
 
 /// A full-scale-ish steady tone, so "did the gain apply" is unambiguous.
 fn write_tone(dir: &Path) -> PathBuf {
-    let path = dir.join("tone.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
+    write_sine_trunc(dir, "tone.wav", SAMPLE_RATE, FRAMES, 440.0, 0.5)
 }
 
 /// One track, one clip covering the whole source at project rate, unity
 /// gain, no pan, no effects — precisely the shape that qualifies for the
 /// byte copy.
-fn single_track_state(source: &Path, envelope: Vec<EnvelopePoint>) -> SessionState {
-    let decoded = audio_decoder::decode_file(source).expect("decode");
-    let frames = (decoded.samples.len() / decoded.channels as usize) as u64;
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "t1".into(),
-            clips: vec![Clip {
-                source_path: source.to_path_buf(),
-                start_in_track: 0,
-                source_offset: 0,
-                length: frames,
-                content_hash: None,
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: envelope,
-                volume_envelope_frames: Default::default(),
-            }],
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: Vec::new(),
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: decoded.sample_rate,
-        length_samples: frames,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+fn with_envelope(source: &Path, envelope: Vec<EnvelopePoint>) -> SessionState {
+    let mut state = single_track_state(source);
+    state.tracks[0].clips[0].volume_envelope = envelope;
+    state
 }
 
 fn render(envelope: Vec<EnvelopePoint>) -> Vec<i16> {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
-    let out = tmp.path().join("out.wav");
-    let state = single_track_state(&src, envelope);
-    render_state_to_wav(&state, &out, None).expect("render");
-    let mut reader = WavReader::open(&out).expect("open out");
-    reader
-        .samples::<i16>()
-        .map(|r| r.expect("sample"))
-        .collect()
-}
-
-fn peak(x: &[i16]) -> f32 {
-    x.iter().map(|v| (*v as f32).abs()).fold(0.0, f32::max) / 32_767.0
+    render_i16(&with_envelope(&src, envelope))
 }
 
 /// The reported repro: −60 dB across the second half.
@@ -151,7 +96,7 @@ fn an_empty_envelope_still_renders_the_untouched_source() {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
     let out = tmp.path().join("out.wav");
-    let state = single_track_state(&src, Vec::new());
+    let state = with_envelope(&src, Vec::new());
     render_state_to_wav(&state, &out, None).expect("render");
 
     let source_bytes = std::fs::read(&src).expect("read source");

@@ -3,56 +3,14 @@
 use std::path::Path;
 
 use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+use tools::ToolResult;
 
-struct Project {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
-impl Project {
-    fn empty() -> Self {
-        let dir = TempDir::new().unwrap();
-        let store = session::Store::open(dir.path()).unwrap();
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            dispatcher: ToolDispatcher::default_dispatcher(),
-        }
-    }
-
-    fn call(&mut self, name: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(name, args, &mut ctx).unwrap()
-    }
-
-    fn ok(&mut self, name: &str, args: Value) -> Value {
-        match self.call(name, args) {
-            ToolResult::Ok(value) => value,
-            ToolResult::Error(message) => panic!("{name}: {message}"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store
-            .get(self.store.head().expect("head"))
-            .unwrap()
-            .state
-    }
-
+impl Session {
     fn samples(&self, track: usize) -> Vec<f32> {
         let clip = &self.state().tracks[track].clips[0];
         hound::WavReader::open(&clip.source_path)
@@ -111,7 +69,7 @@ fn assert_onsets(samples: &[f32], rate: u32, bpm: f64, offset: f64, count: usize
 
 #[test]
 fn dispatcher_generates_click_track_on_an_empty_project() {
-    let mut p = Project::empty();
+    let mut p = Session::empty();
     assert!(p.store.head().is_none());
     let result = p.ok("generate_click_track", json!({ "bpm": 120, "bars": 2 }));
     assert_eq!(result["track_index"], 0);
@@ -135,7 +93,7 @@ fn dispatcher_generates_click_track_on_an_empty_project() {
 
 #[test]
 fn fractional_tempo_offset_and_custom_bar_size_have_independent_frame_rounding() {
-    let mut p = Project::empty();
+    let mut p = Session::empty();
     let (bpm, offset): (f64, f64) = (137.3, 0.037);
     p.ok("generate_click_track", json!({ "bpm": bpm, "bars": 7, "beats_per_bar": 3, "offset_sec": offset, "amplitude": 0.8 }));
     let samples = p.samples(0);
@@ -152,7 +110,7 @@ fn fractional_tempo_offset_and_custom_bar_size_have_independent_frame_rounding()
 
 #[test]
 fn duration_is_total_length_including_offset_at_48_khz() {
-    let mut p = Project::empty();
+    let mut p = Session::empty();
     p.load_wav(48_000, 1, None);
     let result = p.ok(
         "generate_click_track",
@@ -170,7 +128,7 @@ fn duration_is_total_length_including_offset_at_48_khz() {
 
 #[test]
 fn track_tempo_uses_the_same_analysis_as_analyze_track() {
-    let mut p = Project::empty();
+    let mut p = Session::empty();
     p.load_wav(44_100, 8, Some(120.0));
     let report = p.ok("analyze_track", json!({ "track": 0 }));
     let bpm = report["bpm"].as_f64().expect("steady beat");
@@ -207,7 +165,7 @@ fn invalid_arguments_never_advance_the_head() {
         json!({ "bpm": 120, "bars": 1, "amplitude": -0.1 }),
         json!({ "bpm": 120, "bars": 1, "amplitude": 1.1 }),
     ];
-    let mut p = Project::empty();
+    let mut p = Session::empty();
     for args in invalid {
         let before = p.store.head();
         assert!(

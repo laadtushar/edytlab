@@ -5,6 +5,11 @@
 //   ANTHROPIC_E2E_KEY=… RECORD=1 RECORD_AUDIO=demo.monitor \
 //     DEMO_MODEL=claude-opus-5-5 ./run-suite.sh 8-demo
 //
+// Prompts and captions here end up in the site's videos and reels, so they
+// follow marketing/README.md, "Evergreen media rules": no version, count, model
+// name or analysis reading in a caption, and a prompt that does not make the
+// reply recite them.
+//
 // They are played the way a person would: the pointer travels to every
 // control it presses, requests are typed into the chat, and the result of
 // the work is played back, so the film has something to hear. Captions
@@ -259,12 +264,12 @@ const demos = [
     title: "Demo: beatmatch and blend two tracks, then master and export the transition",
     async run(ctx) {
       const lib = library(ctx, "Friday set", "midnightDrive", "neonRush");
-      await start(ctx, lib, "A DJ blends Midnight Drive (120 BPM) into Neon Rush (128 BPM)");
+      await start(ctx, lib, "A DJ blends Midnight Drive into Neon Rush");
       const out = join(MUSIC, "Mixes", "midnight-into-neon.wav");
 
-      await listen(ctx, "Before: both tracks from the top, 120 against 128 BPM", 0, 5);
+      await listen(ctx, "Before: both tracks from the top, at different tempos", 0, 5);
 
-      await step(ctx, "1 · What am I working with?", "I'm mixing Midnight Drive into Neon Rush. What tempo is each track? Don't change anything yet.", { edits: false });
+      await step(ctx, "1 · What am I working with?", "I'm mixing Midnight Drive into Neon Rush. What tempo is each track? Answer in a sentence or two about tempo only, and don't change anything yet.", { edits: false });
       const told = numbers(await reply(ctx));
       assert(told.some((n) => Math.abs(n - 120) <= 2) && told.some((n) => Math.abs(n - 128) <= 2), `both tempos found (${told.join(", ")})`);
 
@@ -309,26 +314,28 @@ const demos = [
     title: "Demo: build an extended intro for mixing, with a filter that opens into the drop",
     async run(ctx) {
       const lib = library(ctx, "Solar Flare edit", "solarFlare");
-      await start(ctx, lib, "A DJ makes a mixable intro for Solar Flare (124 BPM)");
+      await start(ctx, lib, "A DJ makes a mixable intro for Solar Flare");
       const out = join(MUSIC, "Mixes", "solar-flare-extended-intro.wav");
 
       await listen(ctx, "Before: the original intro", 0, 6);
 
-      await step(ctx, "1 · Tempo and bar length", "What's the tempo of Solar Flare, and how long is one bar in seconds? Don't change anything yet.", { edits: false });
+      await step(ctx, "1 · Tempo and bar length", "What's the tempo of Solar Flare, and how long is one bar in seconds? Answer in a sentence or two about tempo only, and don't change anything yet.", { edits: false });
       const told = numbers(await reply(ctx));
       assert(told.some((n) => Math.abs(n - 124) <= 2), `124 BPM found (${told.join(", ")})`);
 
       const lengthBefore = await sessionEnd(ctx);
-      await step(ctx, "2 · Extend the intro", "The first 8 bars are drums only. Repeat those 8 bars once more at the start, so the intro is 16 bars long and the rest of the track follows.");
+      const build = await step(
+        ctx,
+        "2 · Extend the intro, then add a filter that opens into the drop",
+        "The first 8 bars are drums only. Repeat those 8 bars once more at the start, so the intro is 16 bars long and the rest of the track follows. Then put a high-pass filter on that 16-bar intro, so the low end is held back and comes in at the drop.",
+      );
       const lengthAfter = await sessionEnd(ctx);
       const eightBars = 8 * 4 * (60 / 124);
       assert(Math.abs(lengthAfter - lengthBefore - eightBars) < 0.5, `the track is 8 bars longer (${lengthBefore.toFixed(2)} s to ${lengthAfter.toFixed(2)} s)`);
-
-      const build = await step(ctx, "3 · A filter that opens into the drop", "Put a high-pass filter on the 16-bar intro, so the low end is held back and comes in at the drop.");
       const fx = await effectsOf(ctx, 0);
       assert(fx.some((k) => /high.?pass|eq/i.test(k)) || okBadges(build).some((b) => /high.?pass|filter|eq/i.test(b.text)), `a high-pass is on the intro (effects: ${fx.join(", ")}; tools: ${build.map((b) => b.text).join(", ")})`);
 
-      await step(ctx, "4 · Fade in and export", `Fade in the first 4 bars, then export the track as a WAV file to ${out}`);
+      await step(ctx, "3 · Fade in and export", `Fade in the first 4 bars, then export the track as a WAV file to ${out}`);
       const seconds = exported(out, { about: lengthAfter });
       ctx.note(`exported ${basename(out)}: ${seconds.toFixed(2)} s`);
 
@@ -344,10 +351,10 @@ const demos = [
     title: "Demo: a three-track mini-mix, tempo- and loudness-matched, limited and exported",
     async run(ctx) {
       const lib = library(ctx, "Warm-up mix", "midnightDrive", "solarFlare", "neonRush");
-      await start(ctx, lib, "A DJ builds a three-track mini-mix at 124 BPM");
+      await start(ctx, lib, "A DJ builds a three-track mini-mix at one tempo");
       const out = join(MUSIC, "Mixes", "mini-mix-124bpm.wav");
 
-      await step(ctx, "1 · Match every track to 124 BPM", "Time-stretch every track to 124 BPM, keeping their pitch. Solar Flare is already at 124.");
+      await step(ctx, "1 · Match every track to one tempo", "Time-stretch every track to 124 BPM, keeping their pitch. Solar Flare is already at 124.");
       // Picked together, the files load in name order, so tracks are
       // found by name, not by the order they were listed in.
       const named = (all, prefix) => {

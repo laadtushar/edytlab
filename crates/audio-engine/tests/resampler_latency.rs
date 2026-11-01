@@ -21,9 +21,12 @@
 use std::path::{Path, PathBuf};
 
 use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, SessionState, TempoMap, Track, TrackId};
+use hound::WavReader;
+use session::{SessionState, Track};
 use tempfile::TempDir;
+
+mod support;
+use support::{plain_track, session_of, unity_clip, write_wav_i16};
 
 const PROJECT_RATE: u32 = 44_100;
 
@@ -32,60 +35,21 @@ const PROJECT_RATE: u32 = 44_100;
 /// Impulses rather than a tone because the question is *where*, and an
 /// impulse has one unambiguous answer.
 fn write_impulses(dir: &Path, name: &str, rate: u32, at: &[u32]) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..rate {
-        let s = if at.contains(&n) { 30_000 } else { 0 };
-        w.write_sample(s as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
+    write_wav_i16(dir, name, rate, 1, rate as usize, |n| {
+        if at.contains(&(n as u32)) {
+            30_000
+        } else {
+            0
+        }
+    })
 }
 
 fn track(name: &str, source: &Path, length: u64) -> Track {
-    Track {
-        id: TrackId::new(),
-        name: name.into(),
-        clips: vec![Clip {
-            source_path: source.to_path_buf(),
-            start_in_track: 0,
-            source_offset: 0,
-            length,
-            content_hash: None,
-            time_stretch_factor: None,
-            pitch_shift_semitones: None,
-            beat_grid: None,
-            volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
-        }],
-        gain_db: 0.0,
-        pan: 0.0,
-        muted: false,
-        soloed: false,
-        effects: Vec::new(),
-        sends: Vec::new(),
-    }
+    plain_track(name, vec![unity_clip(source, 0, 0, length)])
 }
 
 fn state(tracks: Vec<Track>, length_samples: u64) -> SessionState {
-    SessionState {
-        tracks,
-        bus_routing: BusGraph { buses: Vec::new() },
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: PROJECT_RATE,
-        length_samples,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    session_of(tracks, PROJECT_RATE, length_samples)
 }
 
 /// The peak frame of each impulse in the render.

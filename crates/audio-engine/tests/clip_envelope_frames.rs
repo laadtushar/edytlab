@@ -8,30 +8,21 @@
 
 use std::path::{Path, PathBuf};
 
-use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{
-    BusGraph, Clip, EnvelopeFrames, EnvelopePoint, SessionState, TempoMap, Track, TrackId,
-};
-use tempfile::TempDir;
+use session::{EnvelopeFrames, EnvelopePoint};
+
+mod support;
+use support::{peak, render_i16, single_track_state, write_sine_trunc};
 
 /// One second of a steady tone, so the gain at a time is the peak there.
 fn write_tone(dir: &Path, rate: u32) -> PathBuf {
-    let path = dir.join(format!("tone{rate}.wav"));
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..rate {
-        let t = n as f32 / rate as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
+    write_sine_trunc(
+        dir,
+        &format!("tone{rate}.wav"),
+        rate,
+        rate as usize,
+        440.0,
+        0.5,
+    )
 }
 
 fn render(
@@ -40,61 +31,24 @@ fn render(
     points: &[(u64, f32)],
     frames: EnvelopeFrames,
 ) -> Vec<i16> {
-    let tmp = TempDir::new().expect("tempdir");
+    let tmp = tempfile::TempDir::new().expect("tempdir");
     let source = write_tone(tmp.path(), source_rate);
-    let state = SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "t".into(),
-            clips: vec![Clip {
-                source_path: source,
-                start_in_track: 0,
-                source_offset: 0,
-                length: u64::from(source_rate),
-                content_hash: None,
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: points
-                    .iter()
-                    .map(|&(time_samples, gain_db)| EnvelopePoint {
-                        time_samples,
-                        gain_db,
-                    })
-                    .collect(),
-                volume_envelope_frames: frames,
-            }],
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: Vec::new(),
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: project_rate,
-        length_samples: u64::from(source_rate),
-        annotations: Vec::new(),
-        sync_lock: false,
-    };
-    let out = tmp.path().join("out.wav");
-    render_state_to_wav(&state, &out, None).expect("render");
-    WavReader::open(&out)
-        .expect("open out")
-        .samples::<i16>()
-        .map(|s| s.expect("sample"))
-        .collect()
-}
-
-fn peak(x: &[i16]) -> f32 {
-    x.iter()
-        .map(|v| f32::from(v.unsigned_abs()))
-        .fold(0.0, f32::max)
-        / 32_767.0
+    let mut state = single_track_state(&source);
+    state.sample_rate = project_rate;
+    state.length_samples = u64::from(source_rate);
+    let track = &mut state.tracks[0];
+    track.name = "t".into();
+    let clip = &mut track.clips[0];
+    clip.length = u64::from(source_rate);
+    clip.volume_envelope = points
+        .iter()
+        .map(|&(time_samples, gain_db)| EnvelopePoint {
+            time_samples,
+            gain_db,
+        })
+        .collect();
+    clip.volume_envelope_frames = frames;
+    render_i16(&state)
 }
 
 /// 0 dB to half a second, -60 dB from 0.55 s: `at` and `after` are the

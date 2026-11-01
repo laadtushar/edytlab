@@ -12,59 +12,25 @@
 //! the number against the seconds the clips really reach, and against the
 //! length of a render.
 
-use std::path::{Path, PathBuf};
+use serde_json::json;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_tone, Session};
 
 const VOICE_RATE: u32 = 16_000;
 /// Common session rates; neither is a multiple of 16 kHz.
 const SESSION_RATES: [u32; 2] = [48_000, 44_100];
 
-fn write_sine(path: &Path, rate: u32, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(rate as usize * seconds) {
-        let t = n as f32 / rate as f32;
-        let v = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((v * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     /// Track 0 is a `first_rate` file of `first_secs` seconds (so the session
     /// is at that rate); track 1 is a `second_rate` file of `second_secs`.
     fn new(first: (u32, usize), second: (u32, usize)) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let a = write_sine(&dir.path().join("a.wav"), first.0, first.1);
-        let b = write_sine(&dir.path().join("b.wav"), second.0, second.1);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.ok("load", json!({ "path": a.to_string_lossy() }));
-        s.ok("load", json!({ "path": b.to_string_lossy() }));
+        let mut s = Session::empty();
+        let a = write_tone(&s.dir.path().join("a.wav"), first.0, first.1);
+        let b = write_tone(&s.dir.path().join("b.wav"), second.0, second.1);
+        s.load(&a);
+        s.load(&b);
         assert_eq!(
             s.state().sample_rate,
             first.0,
@@ -78,67 +44,16 @@ impl Session {
         Self::new((rate, bed_secs), (VOICE_RATE, voice_secs))
     }
 
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("{tool}: expected Ok, got Error({m})"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
-    }
-
     fn length(&self) -> u64 {
         self.state().length_samples
     }
 
     /// Frames a full render of the head writes.
     fn rendered_frames(&self) -> u64 {
-        let out = self._dir.path().join("length-check.wav");
+        let out = self.dir.path().join("length-check.wav");
         audio_engine::render_state_to_wav(&self.state(), &out, None)
             .expect("render")
             .frames_written
-    }
-
-    /// Words of track 1, one second each, as `transcribe` leaves them.
-    fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
-        let mut state = self.state();
-        let track_id = state.tracks[1].id.clone();
-        state.transcript = Some(session::Transcript {
-            source: Some(session::TranscriptSource::Track { track: track_id }),
-            words: words
-                .iter()
-                .map(|(text, start, end)| session::TranscriptWord {
-                    text: (*text).to_string(),
-                    start_s: *start,
-                    end_s: *end,
-                    confidence: 0.9,
-                })
-                .collect(),
-        });
-        let node = session::SessionNode {
-            id: session::NodeId([0u8; 32]),
-            parent: None,
-            created_at: chrono::Utc::now(),
-            label: Some("transcript".into()),
-            reasoning: None,
-            state,
-            op: None,
-        };
-        self.store.append(node).expect("append transcript");
     }
 }
 
@@ -292,7 +207,7 @@ fn words() -> Vec<(&'static str, f32, f32)> {
 fn cut_words_on_a_shorter_voice_leaves_the_bed_length() {
     for rate in SESSION_RATES {
         let mut s = Session::bed_and_voice(rate, 6, 4);
-        s.with_transcript(&words());
+        s.with_track_transcript(1, &words());
         s.ok("cut_words", json!({ "from_word": 1, "to_word": 2 }));
         assert_eq!(s.length(), rate_secs(rate, 6), "session at {rate}");
         assert_eq!(s.rendered_frames(), s.length(), "session at {rate}");
@@ -305,7 +220,7 @@ fn cut_words_on_a_shorter_voice_leaves_the_bed_length() {
 fn cut_words_on_the_longest_voice_shortens_by_seconds() {
     for rate in SESSION_RATES {
         let mut s = Session::bed_and_voice(rate, 2, 4);
-        s.with_transcript(&words());
+        s.with_track_transcript(1, &words());
         s.ok("cut_words", json!({ "from_word": 1, "to_word": 2 }));
         assert_eq!(s.length(), rate_secs(rate, 3), "session at {rate}");
         assert_eq!(s.rendered_frames(), s.length(), "session at {rate}");
@@ -316,7 +231,7 @@ fn cut_words_on_the_longest_voice_shortens_by_seconds() {
 fn remove_fillers_on_the_longest_voice_shortens_by_seconds() {
     for rate in SESSION_RATES {
         let mut s = Session::bed_and_voice(rate, 2, 4);
-        s.with_transcript(&words());
+        s.with_track_transcript(1, &words());
         s.ok("remove_fillers", json!({ "apply": true }));
         // "um" is half a second, and the cut leaves a little around it for a
         // fade, so the voice is a bit under 3.5 s and not one frame exact. In

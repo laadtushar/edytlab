@@ -1,0 +1,149 @@
+{
+  "video": "reel-beatmatched-transition.mp4",
+  "duration": 50.6,
+  "fps": 30,
+  "size": "1080x1920",
+  "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). The narration lines for the earlier takes are in transcripts.md.",
+  "cues": [
+    {
+      "id": "B01",
+      "kind": "hook",
+      "start": 0.0,
+      "end": 2.5,
+      "onscreen": "Beatmatch two tracks. Just ask.",
+      "title": [
+        "Beatmatch",
+        "two tracks.",
+        "Just ask."
+      ],
+      "sub": "Midnight Drive, 120 BPM, into Neon Rush, 128 BPM"
+    },
+    {
+      "id": "B02",
+      "kind": "step",
+      "start": 2.5,
+      "end": 7.3,
+      "onscreen": "1 · What am I working with?",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT04",
+        "start": 28.0,
+        "end": 32.8
+      }
+    },
+    {
+      "id": "B03",
+      "kind": "step",
+      "start": 7.3,
+      "end": 12.1,
+      "onscreen": "2 · Beatmatch",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT05",
+        "start": 37.0,
+        "end": 41.8
+      }
+    },
+    {
+      "id": "B04",
+      "kind": "step",
+      "start": 12.1,
+      "end": 16.9,
+      "onscreen": "3 · Line up the overlap",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT06",
+        "start": 52.6,
+        "end": 57.4
+      }
+    },
+    {
+      "id": "B05",
+      "kind": "step",
+      "start": 16.9,
+      "end": 21.7,
+      "onscreen": "4 · Blend: crossfade, low-pass on the outgoing track",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT07",
+        "start": 74.4,
+        "end": 79.2
+      }
+    },
+    {
+      "id": "B06",
+      "kind": "listen",
+      "start": 21.7,
+      "end": 31.967,
+      "onscreen": "Listen: the transition, from 0:12",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT08",
+        "start": 86.067,
+        "end": 96.333
+      },
+      "sound": [
+        21.963,
+        31.967
+      ]
+    },
+    {
+      "id": "B07",
+      "kind": "step",
+      "start": 31.967,
+      "end": 36.767,
+      "onscreen": "5 · Master for streaming",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT09",
+        "start": 116.0,
+        "end": 120.8
+      }
+    },
+    {
+      "id": "B08",
+      "kind": "listen",
+      "start": 36.767,
+      "end": 43.5,
+      "onscreen": "The mastered mix, from 0:20",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT11",
+        "start": 148.8,
+        "end": 155.533
+      },
+      "sound": [
+        36.997,
+        43.5
+      ]
+    },
+    {
+      "id": "B09",
+      "kind": "step",
+      "start": 43.5,
+      "end": 47.6,
+      "onscreen": "Done: midnight-into-neon.wav, 0:50, -14 LUFS",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT12",
+        "start": 161.2,
+        "end": 165.3
+      }
+    },
+    {
+      "id": "B10",
+      "kind": "end",
+      "start": 47.6,
+      "end": 50.6,
+      "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux"
+    }
+  ]
+}

@@ -9,13 +9,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde_json::{json, Value};
-use session::Store;
-use tempfile::TempDir;
+use serde_json::json;
 use tools::tool::diarize::{
     answer, DiarizeFailure, DiarizeTool, Heard, ModelRef, SpeakerModel, Stage, Turn,
 };
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::TurnSession;
 
 const RATE: u32 = 16_000;
 
@@ -99,28 +100,14 @@ impl SpeakerModel for Fake {
     }
 }
 
-struct Project {
-    dir: TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-}
+// Drop a Project before constructing another on the same thread: each owns
+// the one foreground turn, including between tool calls.
+type Project = TurnSession;
 
 impl Project {
     fn new(fake: Arc<Fake>) -> Self {
-        let dir = TempDir::new().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        let mut dispatcher = ToolDispatcher::default_dispatcher();
-        assert!(dispatcher.unregister("diarize"));
-        dispatcher.register(Box::new(DiarizeTool::with(fake)));
-        let mut p = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            dispatcher,
-        };
+        let mut p = Self::with_tool("diarize", Box::new(DiarizeTool::with(fake)));
+        tools::progress::begin();
         let path = p.wav("a.wav", 2.0, 220.0);
         p.ok("load", json!({ "path": path.to_string_lossy() }));
         p
@@ -130,29 +117,6 @@ impl Project {
         let path = self.dir.path().join(name);
         write_wav(&path, seconds, hz);
         path
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("`{tool}` failed: {m}"),
-        }
-    }
-    fn err(&mut self, tool: &str, args: Value) -> String {
-        match self.call(tool, args) {
-            ToolResult::Error(m) => m,
-            ToolResult::Ok(v) => panic!("`{tool}` succeeded: {v}"),
-        }
     }
 }
 

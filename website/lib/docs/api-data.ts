@@ -316,8 +316,8 @@ export const apiAreas: ApiArea[] = [
   },
   {
     slug: "tracks",
-    title: "Tracks and Recording",
-    summary: "List and edit tracks and clips, sync-lock and envelopes, and record from the microphone.",
+    title: "Tracks",
+    summary: "List and edit tracks and clips, sync-lock and envelopes.",
     sections: [
       {
         kind: "commands",
@@ -395,6 +395,13 @@ export const apiAreas: ApiArea[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    slug: "recording",
+    title: "Recording",
+    summary: "Record from the microphone, on a timer, and punch in over a region; the latency that places a take.",
+    sections: [
       {
         kind: "commands",
         title: "Recording",
@@ -402,7 +409,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "startRecording()",
             returns: "string",
-            desc: "Begin capturing from the default input device. Rejects while a latency measurement is running, because the take would hear its test tones.",
+            desc: "Begin capturing from the default input device. Rejects while a latency measurement or a punch-in is running, because the take would hear it.",
           },
           {
             name: "stopRecording(outputPath)",
@@ -412,7 +419,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "timerRecord(outputPath, schedule)",
             returns: "{ path?, cancelled }",
-            desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Rejects while a latency measurement is running. Emits tool-progress events throughout.",
+            desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Rejects while a latency measurement or a punch-in is running. Emits tool-progress events throughout.",
           },
           {
             name: "getRecordingLatency()",
@@ -422,12 +429,27 @@ export const apiAreas: ApiArea[] = [
           {
             name: "calibrateRecordingLatency()",
             returns: "CalibrationResult",
-            desc: "Measure the round trip of the default speakers and microphone with test sweeps, and keep it for that pair. Takes about ten seconds and makes noise. Rejects, with a reason to act on, when not every sweep is heard, the measurements disagree by more than 1 ms, audio was lost during the run, the speakers never started, the default devices cannot be named, or a recording, an armed timer or another measurement is running; resolves { cancelled: true } when cancelRecordingLatency() stopped it. Emits tool-progress events with kind calibrate_latency.",
+            desc: "Measure the round trip of the default speakers and microphone with test sweeps, and keep it for that pair. Takes about ten seconds and makes noise. Rejects, with a reason to act on, when not every sweep is heard, the measurements disagree by more than 1 ms, audio was lost during the run, the speakers never started, the default devices cannot be named, or a recording, a punch-in, an armed timer or another measurement is running; resolves { cancelled: true } when cancelRecordingLatency() stopped it. Emits tool-progress events with kind calibrate_latency.",
           },
           {
             name: "cancelRecordingLatency()",
             returns: "void",
             desc: "Ask the running latency measurement to stop at its next checkpoint; calibrateRecordingLatency() then resolves { cancelled: true }. Its own flag: cancelLongRunningTool() is the Cancel of batch_apply and timerRecord, and neither stops the other. Resolves at once, and does nothing when no measurement is running.",
+          },
+          {
+            name: "setRecordingLatency(latencyMs)",
+            returns: "{ devices, latency }",
+            desc: "Keep a delay the person typed, in milliseconds, for the current default speakers and microphone. It counts exactly as a measured one for punchRecord, and the newest write wins. Rejects a value that is not a number or is outside 0 to 2000 ms, and rejects when the default devices cannot be named. Resolves with the pair and the entry (source \"manual\", no spread_ms). Plays and records nothing.",
+          },
+          {
+            name: "punchRecord(track, startSec, endSec, prerollSec?, postrollSec?)",
+            returns: "PunchResult",
+            desc: "Replace [startSec, endSec) of a track with a new take, recorded while the rest of the mix plays through the speakers: the track is muted inside the region and heard in the lead-in (prerollSec, default 2) and the tail (postrollSec, default 1). The take is placed with the latency kept for the current devices, converted to the track's rate and channels, and applied with punch_in. Resolves { cancelled: false, head, latency_ms, latency_source, track, start_sec, end_sec }, or { cancelled: true } with no node when cancelPunchRecord() stopped it. Rejects, with a reason to act on, when no latency is kept for the devices (measured or typed), when a measurement, a recording, an armed timer or another punch-in is running, when the take lost audio, or when the project changed while it was recorded (the take is kept in the project and the message says where). Pause the transport first. Emits tool-progress events with kind punch_record, phase and remaining_sec.",
+          },
+          {
+            name: "cancelPunchRecord()",
+            returns: "void",
+            desc: "Ask the running punch-in to stop at its next checkpoint; punchRecord() then resolves { cancelled: true } and nothing is applied. Its own flag: cancelLongRunningTool() is the Cancel of batch_apply and timerRecord, and neither stops the other. Resolves at once, and does nothing when no punch-in is running.",
           },
         ],
       },
@@ -783,7 +805,7 @@ export const apiAreas: ApiArea[] = [
   {
     slug: "speech-model",
     title: "Speech Model and Runtime",
-    summary: "Check the ONNX Runtime, download, cancel or remove the speech, speaker and stem models, and read the open source licences.",
+    summary: "Check the ONNX Runtime, download, cancel or remove the speech and speaker models, and read the open source licences.",
     sections: [
       {
         kind: "commands",
@@ -792,7 +814,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlRuntimeStatus()",
             returns: "MlRuntimeStatus",
-            desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library runs nothing by itself: no model ships with it, transcribe uses the speech model only once it is downloaded (see Speech Model), and separate_stems the stem model. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
+            desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library runs nothing by itself: no model ships with it, transcribe uses the speech model only once it is downloaded (see Speech Model), and stem separation has not shipped. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
           },
         ],
       },
@@ -803,12 +825,12 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlModelStatus(model)",
             returns: "MlModelStatus",
-            desc: "Where a downloadable model is, for the Speech model, Speaker model and Stem model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, speaker-diarization, about 33 MB in two files, and htdemucs, about 171 MB in two files, all from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
+            desc: "Where a downloadable model is, for the Speech model and Speaker model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, and speaker-diarization, about 33 MB in two files, both from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
           },
           {
             name: "downloadMlModel(model)",
             returns: "MlModelStatus",
-            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base, speaker-diarization and htdemucs); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there; diarize and separate_stems do the same with their models.",
+            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base and speaker-diarization); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there.",
           },
           {
             name: "cancelMlModelDownload(model)",

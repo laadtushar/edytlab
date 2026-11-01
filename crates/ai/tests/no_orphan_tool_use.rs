@@ -41,11 +41,10 @@ use ai::anthropic::{ContentBlock, Message, Role};
 use ai::{Agent, AgentEvent, LlmConfig};
 use common::{
     chat_reply_json, chat_sse_text, chat_sse_tool_step, classifier_json, ok, sse_text,
-    sse_thinking_tool_step, sse_tool_step, Entry, SeqResponder,
+    sse_thinking_tool_step, sse_tool_step, Edit, Entry, SeqResponder,
 };
 use serde_json::{json, Value};
-use tools::schema::{anthropic_tool, object_schema};
-use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolDispatcher;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
 
@@ -300,29 +299,6 @@ fn last_user_text(wire: Wire, request: &Value) -> String {
 // Fixture
 // ---------------------------------------------------------------------
 
-/// Mutates, because it says nothing about it; needs an integer `track`.
-/// Records what it ran with.
-struct Edit {
-    log: Arc<Mutex<Vec<Value>>>,
-}
-
-impl Tool for Edit {
-    fn name(&self) -> &'static str {
-        "edit"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "edit",
-            "Changes the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        self.log.lock().unwrap().push(args);
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
-
 /// The events of a turn, reduced to what these tests compare.
 #[derive(Debug, Clone, PartialEq)]
 enum Ev {
@@ -359,15 +335,11 @@ impl Fixture {
             log: Arc::clone(&edits),
         }));
 
-        let agent = Agent::new(
+        let agent = common::agent_over(
             wire.config(server.uri()),
-            Arc::new(Mutex::new(dispatcher)),
-            Arc::new(Mutex::new(
-                session::Store::open(dir.path()).expect("open store"),
-            )),
-            Arc::new(Mutex::new(audio_engine::Engine::new())),
+            dispatcher,
+            common::store_in(dir.path()),
             ai::PlanGate::new(),
-            Arc::new(Mutex::new(None::<tools::Clipboard>)),
         );
 
         Self {
@@ -396,13 +368,7 @@ impl Fixture {
 
     /// The JSON bodies the provider was sent, in order.
     async fn requests(&self) -> Vec<Value> {
-        self.server
-            .received_requests()
-            .await
-            .expect("recording is on")
-            .iter()
-            .map(|r| serde_json::from_slice(&r.body).expect("a JSON body"))
-            .collect()
+        common::request_bodies(&self.server).await
     }
 
     fn edits_run(&self) -> Vec<Value> {
@@ -452,42 +418,6 @@ fn assert_every_badge_resolves(events: &[Ev]) {
                 .count();
             assert_eq!(ends, 1, "{id} was ended {ends} times in {events:#?}");
         }
-    }
-}
-
-/// The stored history obeys the providers' rules: roles alternate, and
-/// every `tool_use` is answered by the `tool_result`s of the next message,
-/// the same calls in the same order. No message is empty.
-fn assert_history_is_valid(history: &[Message]) {
-    for pair in history.windows(2) {
-        assert_ne!(pair[0].role, pair[1].role, "roles must alternate");
-    }
-    for (i, m) in history.iter().enumerate() {
-        assert!(!m.content.is_empty(), "message {i} is empty");
-        let used: Vec<&str> = m
-            .content
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
-                _ => None,
-            })
-            .collect();
-        let answered: Vec<&str> = history
-            .get(i + 1)
-            .map(|next| {
-                next.content
-                    .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        assert_eq!(
-            used, answered,
-            "message {i} used {used:?} and the next answered {answered:?}"
-        );
     }
 }
 
@@ -564,7 +494,7 @@ async fn two_malformed_calls(wire: Wire) {
     // The history the failed turn left is one a provider takes: the second
     // call has its answer, as an error that says why, and its badge is
     // resolved.
-    assert_history_is_valid(&failed);
+    common::assert_history_is_valid(&failed, true);
     assert_eq!(
         last_results(&failed)
             .iter()
@@ -615,7 +545,7 @@ async fn two_invalid_calls(wire: Wire) {
     fx.the_next_message_works(3, "Sorry about that. What next?")
         .await;
 
-    assert_history_is_valid(&failed);
+    common::assert_history_is_valid(&failed, true);
     assert_eq!(
         last_results(&failed)
             .iter()
@@ -640,6 +570,53 @@ async fn two_invalid_calls(wire: Wire) {
     assert!(second.contains("stopped"), "{second}");
 }
 on_both_wires!(two_invalid_calls);
+
+/// Unknown tools must be answered too, including after a completed edit and
+/// before calls that the validation limit prevents from ever running.
+async fn unknown_tools_leave_the_next_turn_usable(wire: Wire) {
+    let mut fx = Fixture::new(
+        wire,
+        vec![
+            wire.classifier(),
+            wire.calls(&[
+                ("fine", "edit", FINE),
+                ("unknown1", "not_a_tool", "{}"),
+                ("unknown2", "not_a_tool", "{}"),
+                ("unreached", "edit", r#"{"track":3}"#),
+            ]),
+            wire.classifier(),
+            wire.text("Ready again."),
+        ],
+    )
+    .await;
+    let (result, events) = fx.turn("tidy the vocals").await;
+    assert!(
+        matches!(result, Err(ai::Error::ToolValidation(_))),
+        "{result:?}"
+    );
+    assert_eq!(fx.edits_run(), vec![json!({"track": 0})]);
+    common::assert_history_is_valid(fx.agent.conversation(), true);
+    let results = last_results(fx.agent.conversation());
+    assert_eq!(
+        results
+            .iter()
+            .map(|(id, _, error)| (*id, *error))
+            .collect::<Vec<_>>(),
+        [
+            ("fine", None),
+            ("unknown1", Some(true)),
+            ("unknown2", Some(true)),
+            ("unreached", Some(true))
+        ]
+    );
+    assert!(results[0].1.contains("true"));
+    assert!(results[1].1.contains("not_a_tool"));
+    assert!(results[2].1.contains("not_a_tool") && results[2].1.contains("stopped"));
+    assert!(results[3].1.starts_with("Not run"));
+    assert_every_badge_resolves(&events);
+    fx.the_next_message_works(2, "Ready again.").await;
+}
+on_both_wires!(unknown_tools_leave_the_next_turn_usable);
 
 // ---------------------------------------------------------------------
 // Giving up in the middle of a step
@@ -701,7 +678,7 @@ async fn a_step_cut_short(wire: Wire, second: &str, third: &str, expected: &str)
     );
 
     // All four are answered, in the order they were called, in one message.
-    assert_history_is_valid(&failed);
+    common::assert_history_is_valid(&failed, true);
     let results = last_results(&failed);
     assert_eq!(
         results.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
@@ -798,7 +775,7 @@ async fn thinking_models_keep_a_valid_history_through_a_failed_turn() {
         })
         .collect();
     assert_eq!(signatures, vec!["sig-1", "sig-2"]);
-    assert_history_is_valid(&failed);
+    common::assert_history_is_valid(&failed, true);
     assert_eq!(failed.len(), 5, "{failed:#?}");
 
     // In the turn, the second step replayed the first's thinking as it

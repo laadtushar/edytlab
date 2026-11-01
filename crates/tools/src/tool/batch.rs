@@ -31,10 +31,13 @@ use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::{recipe, Tool, ToolContext, ToolDispatcher, ToolResult};
 
-/// Extensions the decoder can actually open. Anything else in the
-/// folder is skipped without comment — a batch over a music directory
-/// should not report every `.txt` in it as a failure.
-const AUDIO_EXTENSIONS: &[&str] = audio_decoder::SUPPORTED_EXTENSIONS;
+/// Extensions the decoder can actually open on this platform (M4A only where
+/// the system decodes it, #764). Anything else in the folder is skipped
+/// without comment — a batch over a music directory should not report every
+/// `.txt` in it as a failure.
+fn audio_extensions() -> Vec<&'static str> {
+    audio_decoder::supported_extensions()
+}
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -128,7 +131,7 @@ impl Tool for BatchApplyTool {
             return Ok(ToolResult::Error(format!(
                 "no audio files in {} (looked for {})",
                 input_dir.display(),
-                AUDIO_EXTENSIONS.join(", ")
+                audio_extensions().join(", ")
             )));
         }
 
@@ -294,6 +297,7 @@ fn audio_files_in(dir: &Path) -> Result<Vec<PathBuf>, String> {
     if !dir.is_dir() {
         return Err(format!("not a folder: {}", dir.display()));
     }
+    let extensions = audio_extensions();
     let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(|e| format!("failed to read {}: {e}", dir.display()))?
         .flatten()
@@ -302,7 +306,7 @@ fn audio_files_in(dir: &Path) -> Result<Vec<PathBuf>, String> {
         .filter(|p| {
             p.extension()
                 .and_then(|e| e.to_str())
-                .map(|e| AUDIO_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+                .map(|e| extensions.contains(&e.to_ascii_lowercase().as_str()))
                 .unwrap_or(false)
         })
         .collect();

@@ -7,90 +7,19 @@
 //! 3. Tracks at different sample rates auto-resample to the project rate.
 //! 4. Multi-track render is byte-deterministic across runs.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
+use hound::WavReader;
 use realfft::num_complex::Complex;
 use realfft::RealFftPlanner;
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use session::Track;
 use tempfile::TempDir;
 
+mod support;
+use support::{session_to_end as session_with, track_for, write_sine_wav};
+
 const PROJECT_RATE: u32 = 48_000;
-
-fn write_sine_wav(dir: &Path, name: &str, freq: f32, sr: u32, secs: f32, amp: f32) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: sr,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    let frames = (sr as f32 * secs) as usize;
-    for n in 0..frames {
-        let t = n as f32 / sr as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
-}
-
-fn track_for(source: &Path, gain_db: f32, muted: bool, soloed: bool) -> Track {
-    let decoded = audio_decoder::decode_file(source).expect("decode source");
-    let frames = (decoded.samples.len() / decoded.channels as usize) as u64;
-    Track {
-        id: TrackId::new(),
-        name: source
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("t")
-            .to_string(),
-        clips: vec![Clip {
-            source_path: source.to_path_buf(),
-            start_in_track: 0,
-            source_offset: 0,
-            length: frames,
-            content_hash: None,
-            time_stretch_factor: None,
-            pitch_shift_semitones: None,
-            beat_grid: None,
-            volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
-        }],
-        gain_db,
-        pan: 0.0,
-        muted,
-        soloed,
-        effects: Vec::<EffectInstance>::new(),
-        sends: Vec::new(),
-    }
-}
-
-fn session_with(tracks: Vec<Track>, project_rate: u32) -> SessionState {
-    let length = tracks
-        .iter()
-        .flat_map(|t| t.clips.iter())
-        .map(|c| c.start_in_track + c.length)
-        .max()
-        .unwrap_or(0);
-    SessionState {
-        tracks,
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: project_rate,
-        length_samples: length,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
-}
 
 fn read_f32_mono(path: &Path) -> (Vec<f32>, u32) {
     let mut reader = WavReader::open(path).expect("open out");
@@ -190,23 +119,17 @@ fn two_tone_mixdown_has_both_spectral_peaks() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance #2a: solo silences other tracks.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn solo_silences_other_tracks() {
+/// Render a 440 Hz track and an 880 Hz track, each made into a `Track` by
+/// the given function, and return the spectral magnitude at each pitch.
+fn mix_of_440_and_880(
+    first: impl Fn(&Path) -> Track,
+    second: impl Fn(&Path) -> Track,
+) -> (f32, f32) {
     let tmp = TempDir::new().unwrap();
     let a = write_sine_wav(tmp.path(), "a.wav", 440.0, PROJECT_RATE, 1.0, 0.4);
     let b = write_sine_wav(tmp.path(), "b.wav", 880.0, PROJECT_RATE, 1.0, 0.4);
 
-    let state = session_with(
-        vec![
-            track_for(&a, 0.0, false, true), // solo'd
-            track_for(&b, 0.0, false, false),
-        ],
-        PROJECT_RATE,
-    );
+    let state = session_with(vec![first(&a), second(&b)], PROJECT_RATE);
     let out = tmp.path().join("mix.wav");
     render_state_to_wav(&state, &out, None).expect("render");
 
@@ -214,6 +137,19 @@ fn solo_silences_other_tracks() {
     let (freqs, mags) = spectrum(&signal, sr);
     let (_, m440) = peak_in(&freqs, &mags, 430.0, 450.0);
     let (_, m880) = peak_in(&freqs, &mags, 870.0, 890.0);
+    (m440, m880)
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance #2a: solo silences other tracks.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn solo_silences_other_tracks() {
+    let (m440, m880) = mix_of_440_and_880(
+        |a| track_for(a, 0.0, false, true), // solo'd
+        |b| track_for(b, 0.0, false, false),
+    );
     assert!(m440 > 0.0, "solo'd 440 track must contribute");
     // The non-solo'd track must contribute zero — its peak shouldn't even
     // be visible above the rest of the spectrum.
@@ -229,24 +165,10 @@ fn solo_silences_other_tracks() {
 
 #[test]
 fn mute_silences_only_muted() {
-    let tmp = TempDir::new().unwrap();
-    let a = write_sine_wav(tmp.path(), "a.wav", 440.0, PROJECT_RATE, 1.0, 0.4);
-    let b = write_sine_wav(tmp.path(), "b.wav", 880.0, PROJECT_RATE, 1.0, 0.4);
-
-    let state = session_with(
-        vec![
-            track_for(&a, 0.0, true, false), // muted
-            track_for(&b, 0.0, false, false),
-        ],
-        PROJECT_RATE,
+    let (m440, m880) = mix_of_440_and_880(
+        |a| track_for(a, 0.0, true, false), // muted
+        |b| track_for(b, 0.0, false, false),
     );
-    let out = tmp.path().join("mix.wav");
-    render_state_to_wav(&state, &out, None).expect("render");
-
-    let (signal, sr) = read_f32_mono(&out);
-    let (freqs, mags) = spectrum(&signal, sr);
-    let (_, m440) = peak_in(&freqs, &mags, 430.0, 450.0);
-    let (_, m880) = peak_in(&freqs, &mags, 870.0, 890.0);
     assert!(
         m880 > 0.0,
         "non-muted 880 Hz track must contribute (m880={m880})"

@@ -9,12 +9,11 @@
 //! rest of the take was thrown away instead of the words. Found by driving the
 //! v0.8.0 build: transcribe a 16 kHz track that is the second one loaded.
 
-use std::path::{Path, PathBuf};
+use serde_json::json;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{ok, write_tone, Session};
 
 /// The first track's rate, which is the session's.
 const SESSION_RATE: u32 = 48_000;
@@ -22,95 +21,18 @@ const SESSION_RATE: u32 = 48_000;
 const VOICE_RATE: u32 = 16_000;
 const VOICE_SECONDS: usize = 4;
 
-fn write_sine(path: &Path, rate: u32, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(rate as usize * seconds) {
-        let t = n as f32 / rate as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     /// Track 0 is a 48 kHz bed (so the session is 48 kHz); track 1 is the
     /// 16 kHz voice, four seconds long.
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let bed = write_sine(&dir.path().join("bed.wav"), SESSION_RATE, 6);
-        let voice = write_sine(&dir.path().join("voice.wav"), VOICE_RATE, VOICE_SECONDS);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": bed.to_string_lossy() }));
-        s.call("load", json!({ "path": voice.to_string_lossy() }));
+        let mut s = Session::empty();
+        let bed = write_tone(&s.dir.path().join("bed.wav"), SESSION_RATE, 6);
+        let voice = write_tone(&s.dir.path().join("voice.wav"), VOICE_RATE, VOICE_SECONDS);
+        s.load(&bed);
+        s.load(&voice);
         assert_eq!(s.state().sample_rate, SESSION_RATE, "the bed sets the rate");
         assert_eq!(s.state().tracks.len(), 2);
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
-    }
-
-    /// What `transcribe` leaves: words in session seconds, of track 1.
-    fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
-        let mut state = self.state();
-        let track_id = state.tracks[1].id.clone();
-        state.transcript = Some(session::Transcript {
-            source: Some(session::TranscriptSource::Track { track: track_id }),
-            words: words
-                .iter()
-                .map(|(text, start, end)| session::TranscriptWord {
-                    text: (*text).to_string(),
-                    start_s: *start,
-                    end_s: *end,
-                    confidence: 0.9,
-                })
-                .collect(),
-        });
-        let node = session::SessionNode {
-            id: session::NodeId([0u8; 32]),
-            parent: None,
-            created_at: chrono::Utc::now(),
-            label: Some("transcript".into()),
-            reasoning: None,
-            state,
-            op: None,
-        };
-        self.store.append(node).expect("append transcript");
     }
 
     /// The voice track's clips as (start_in_track, source_offset, length), in
@@ -121,13 +43,6 @@ impl Session {
             .iter()
             .map(|c| (c.start_in_track, c.source_offset, c.length))
             .collect()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
     }
 }
 
@@ -148,7 +63,7 @@ fn words() -> Vec<(&'static str, f32, f32)> {
 #[test]
 fn cut_words_cuts_a_voice_track_at_its_own_rate() {
     let mut s = Session::new();
-    s.with_transcript(&words());
+    s.with_track_transcript(1, &words());
     let bed_before = s.state().tracks[0].clips.clone();
 
     ok(s.call(
@@ -174,7 +89,7 @@ fn cut_words_cuts_a_voice_track_at_its_own_rate() {
 #[test]
 fn cut_words_late_in_the_take_keeps_what_follows() {
     let mut s = Session::new();
-    s.with_transcript(&words());
+    s.with_track_transcript(1, &words());
 
     ok(s.call(
         "cut_words",
@@ -194,7 +109,7 @@ fn cut_words_late_in_the_take_keeps_what_follows() {
 #[test]
 fn cut_words_on_the_shorter_track_keeps_the_session_length() {
     let mut s = Session::new();
-    s.with_transcript(&words());
+    s.with_track_transcript(1, &words());
     let before = s.state().length_samples;
     assert_eq!(
         before,
@@ -218,7 +133,7 @@ fn cut_words_on_the_shorter_track_keeps_the_session_length() {
 #[test]
 fn remove_fillers_cuts_a_voice_track_at_its_own_rate() {
     let mut s = Session::new();
-    s.with_transcript(&words());
+    s.with_track_transcript(1, &words());
     let bed_before = s.state().tracks[0].clips.clone();
 
     let v = ok(s.call(
@@ -244,7 +159,7 @@ fn remove_fillers_cuts_a_voice_track_at_its_own_rate() {
 #[test]
 fn the_transcripts_track_is_the_default_and_keeps_its_rate() {
     let mut s = Session::new();
-    s.with_transcript(&words());
+    s.with_track_transcript(1, &words());
 
     ok(s.call("cut_words", json!({ "from_word": 1, "to_word": 2 })));
 

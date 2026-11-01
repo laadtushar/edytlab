@@ -310,7 +310,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "fade",
             prompt: 'add a 3-second fade-out',
-            what: "Apply a fade-in or fade-out envelope. Curve options: linear, exponential, logarithmic.",
+            what: "Apply a linear fade-in or fade-out to a time range.",
             output: "node_id",
           },
           {
@@ -600,6 +600,13 @@ export const toolAreas: ToolArea[] = [
         title: "ML Tools",
         tools: [
           {
+            name: "separate_stems",
+            prompt: 'separate the stems on track 1',
+            what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
+            output: "node_id, stem track IDs",
+            note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no stem model to download and no environment variable that changes that. Only htdemucs is a recognised model id.",
+          },
+          {
             name: "split_by_speaker",
             prompt: 'split track 1 by speaker: Priya 0-12s, Sam 12-30s',
             what: "Turn one track and a set of speaker segments into a track per speaker, so each voice gets its own gain, EQ and noise treatment. Writes no new audio — every speaker track points at the same source file, which is why combined playback is unchanged. Audio no segment covers goes to an 'unassigned' track rather than being dropped, and overlapping turns are awarded to whoever was listed first and reported back.",
@@ -644,25 +651,6 @@ export const toolAreas: ToolArea[] = [
     ],
   },
   {
-    slug: "stems",
-    title: "Stem Separation",
-    summary: "Split a track or a file into vocals, drums, bass and other, on this computer.",
-    sections: [
-      {
-        title: "Stem Separation",
-        tools: [
-          {
-            name: "separate_stems",
-            prompt: 'separate the stems on track 1',
-            what: "Split a track (as it sits on the timeline) or a file into four stems with Demucs, on this computer: vocals, drums, bass and other. It writes four WAVs into the project and returns their paths without changing the session; ask for a stem as a track and the assistant loads it. The audio never leaves the computer, and the tool never downloads the stem model. The user can cancel.",
-            output: "model, stem file paths (vocals, drums, bass, other), cached",
-            note: "Needs about 4 GB of free memory and takes about half the audio's length on a four-core processor. The stems are estimates: some of one source stays in another. Separations are kept in the project's stem cache (up to 1 GiB, the least recently used going first); a stem you load is copied into the project. If the stem model or the ONNX Runtime library is missing, the result says so. The user downloads the stem model in Settings → Account. Only htdemucs is a recognised model id.",
-          },
-        ],
-      },
-    ],
-  },
-  {
     slug: "rendering",
     title: "Rendering, Recipes and Batch",
     summary: "Export the session to WAV, FLAC or MP3, render previews, and replay an edit chain on one file or a folder.",
@@ -689,6 +677,13 @@ export const toolAreas: ToolArea[] = [
             prompt: "export tracks 1 and 2 as separate files",
             what: "Export selected tracks as individual WAV files to a directory.",
             output: "list of exported paths, warnings (only when something was left out)",
+          },
+          {
+            name: "export_transcript",
+            prompt: "export the transcript to captions.srt",
+            what: "Write the stored transcript to out_path (relative to the project, or absolute) as srt (default), vtt or txt. A new cue starts at sentence-ending punctuation and at a pause of pause_sec (default 0.75); max_cue_sec (default 6) and max_chars_per_line (1 to 200, default 42) bound a cue. Captions have at most two lines, except that one long stored word keeps its recorded times. UTF-8 with LF line endings.",
+            output: "out_path, format, word_count, cue_count, byte_count, time_basis, time_note, source, summary",
+            note: "Run transcribe first. Times are the transcript's as transcribed, not re-timed: moving or shifting the clip afterwards makes them stale (time_note says so). Written atomically; refuses project audio and the project's .audiograph folder. SRT keeps raw text, WebVTT escapes &, < and >. Changes no audio or history.",
           },
         ],
       },
@@ -780,6 +775,13 @@ export const toolAreas: ToolArea[] = [
             prompt: "export the markers as labels",
             what: "Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).",
             output: "label text",
+          },
+          {
+            name: "transcript_to_markers",
+            prompt: "add a marker at each transcript sentence",
+            what: "Add point markers at the starts of the stored transcript's segments (default) or sentences (mode). A file or unknown-source transcript needs an explicit offset_sec, even 0. Each label is the first six words, at most 80 characters.",
+            output: "node_id, marker_count, skipped_count, time_basis, time_note, source, applied_offset_sec, summary",
+            note: "Run transcribe first. Times are as transcribed, not re-timed: moving the clip afterwards makes them stale. A marker with the same name and time (within 1 ms) is skipped, and a run that adds none appends no node. One undoable step; no audio changes.",
           },
         ],
       },

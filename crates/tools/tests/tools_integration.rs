@@ -801,6 +801,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "export_labels",
             "export_multiple",
             "export_recipe",
+            "export_transcript",
             "fade",
             "fork_node",
             "gain",
@@ -869,6 +870,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "time_shift",
             "time_stretch",
             "transcribe",
+            "transcript_to_markers",
             "tremolo",
             "trim",
             "truncate_silence",
@@ -915,7 +917,7 @@ fn separate_stems_tells_the_agent_to_leave_the_setup_to_the_user_when_it_cannot_
         .unwrap());
     assert!(
         default_msg.contains("Tell the user")
-            && (default_msg.contains("ONNX Runtime") || default_msg.contains("Stem model")),
+            && (default_msg.contains("ONNX Runtime") || default_msg.contains("stem model")),
         "expected a setup answer for the user, got: {default_msg}"
     );
     assert!(

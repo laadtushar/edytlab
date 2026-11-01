@@ -18,10 +18,11 @@ use audio_decoder::DecodedAudio;
 use ml_demucs::separate::{SegmentModel, Stereo, MODEL_SOURCES};
 use ml_demucs::{Control, DemucsError, Separated};
 use serde_json::{json, Value};
-use session::Store;
-use tempfile::TempDir;
 use tools::tool::separate_stems::{answer, ModelRef, SeparateStemsTool, StemFailure, StemModel};
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::TurnSession;
 
 const RATE: u32 = 44_100;
 /// A tenth of a second, so two seconds of audio are several segments.
@@ -126,44 +127,17 @@ impl StemModel for Fake {
     }
 }
 
-/// The cancel switch and the progress sink are the process's, as the window's
-/// one Cancel button is, so two runs at once in this binary would press and
-/// clear each other's. A `Project` holds this for as long as it lives.
-static ONE_RUN_AT_A_TIME: Mutex<()> = Mutex::new(());
-
-struct Project {
-    // Dropped last (fields drop in order): the project is gone before the next
-    // test's starts.
-    dir: TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-    _serial: std::sync::MutexGuard<'static, ()>,
-}
+// Drop a Project before constructing another on the same thread: each holds
+// the process's one turn at the cancel switch and the progress sink.
+type Project = TurnSession;
 
 impl Project {
     fn new(fake: Arc<Fake>) -> Self {
-        Self::with_tool(SeparateStemsTool::with(fake))
+        Self::around(SeparateStemsTool::with(fake))
     }
 
-    fn with_tool(tool: SeparateStemsTool) -> Self {
-        let serial = ONE_RUN_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let dir = TempDir::new().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        let mut dispatcher = ToolDispatcher::default_dispatcher();
-        assert!(dispatcher.unregister("separate_stems"));
-        dispatcher.register(Box::new(tool));
-        let mut p = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            dispatcher,
-            _serial: serial,
-        };
+    fn around(tool: SeparateStemsTool) -> Self {
+        let mut p = TurnSession::with_tool("separate_stems", Box::new(tool));
         let path = p.wav("a.wav", 2.0, 220.0, RATE, 2);
         p.ok("load", json!({ "path": path.to_string_lossy() }));
         p
@@ -175,28 +149,6 @@ impl Project {
         path
     }
 
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("`{tool}` failed: {m}"),
-        }
-    }
-    fn err(&mut self, tool: &str, args: Value) -> String {
-        match self.call(tool, args) {
-            ToolResult::Error(m) => m,
-            ToolResult::Ok(v) => panic!("`{tool}` succeeded: {v}"),
-        }
-    }
     fn stem_cache(&self) -> PathBuf {
         self.dir.path().join(".audiograph").join("stem-cache")
     }
@@ -268,9 +220,15 @@ fn a_track_is_separated_into_four_files_and_the_session_is_untouched() {
             "{name}: the track's own length"
         );
     }
-    // One entry, whole, and nothing beside it.
-    let entries: Vec<_> = std::fs::read_dir(p.stem_cache()).unwrap().collect();
-    assert_eq!(entries.len(), 1);
+    // One entry, whole, and nothing beside it but its lock file
+    // (`<hex>.lock`, which `ml_demucs::Pending::publish` leaves).
+    let names: Vec<String> = std::fs::read_dir(p.stem_cache())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let entries: Vec<_> = names.iter().filter(|n| !n.ends_with(".lock")).collect();
+    assert_eq!(entries.len(), 1, "{names:?}");
     let summary = v["summary"].as_str().unwrap();
     assert!(
         summary.contains("load"),
@@ -378,19 +336,10 @@ fn bad_arguments_are_refused_before_the_model_is_asked() {
 fn a_model_that_is_not_offered_is_refused_by_the_schema() {
     let fake = Arc::new(Fake::new());
     let mut p = Project::new(Arc::clone(&fake));
-    let mut ctx = ToolContext {
-        store: &mut p.store,
-        engine: &mut p.engine,
-        user_message: "",
-        clipboard: &mut p.clipboard,
-        allowed_tools: None,
-    };
     let err = p
-        .dispatcher
-        .invoke(
+        .try_call(
             "separate_stems",
             json!({ "track": 0, "model": "htdemucs_ft" }),
-            &mut ctx,
         )
         .unwrap_err();
     assert!(err.to_string().contains("htdemucs_ft"), "{err}");
@@ -436,10 +385,21 @@ fn every_setup_problem_tells_the_agent_to_stop_and_names_no_path() {
             assert!(!text.contains(m), "{f:?}: {text}");
         }
     }
-    // The download is the user's: the answer names the row, not a command.
+    // The app has a Stem model row now, and the answers send the user to it
+    // the way `diarize`'s send them to the Speaker model row.
     let text = answer(&StemFailure::ModelNotDownloaded);
-    assert!(text.contains("Stem model"), "{text}");
-    assert!(text.contains("Settings"), "{text}");
+    assert!(
+        text.contains("Download on the Stem model row in Settings → Account"),
+        "{text}"
+    );
+    assert!(text.contains("Tell the user"), "{text}");
+    assert!(!text.contains("cannot download it yet"), "{text}");
+    assert!(!text.contains("/models"), "{text}");
+    let damaged = answer(&StemFailure::ModelDamaged);
+    assert!(
+        damaged.contains("Remove and then Download on the Stem model row in Settings → Account"),
+        "{damaged}"
+    );
 }
 
 #[test]
@@ -491,7 +451,7 @@ fn the_cache_is_kept_under_its_cap_and_the_new_entry_is_kept() {
     let fake = Arc::new(Fake::new());
     // One entry is 4 x 2 s x 44.1 kHz x 2 channels x 2 bytes = 705,600 bytes
     // and a bit; a cap of one and a half entries holds one.
-    let mut p = Project::with_tool(
+    let mut p = Project::around(
         SeparateStemsTool::with(Arc::clone(&fake) as Arc<dyn StemModel>).with_cache_cap(1_000_000),
     );
     let a = p.wav("a2.wav", 2.0, 300.0, RATE, 2);

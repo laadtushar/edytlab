@@ -122,7 +122,7 @@ jobs:
       matrix:
         platform:
           - name: macos-arm64
-            runner: macos-14
+            runner: macos-15
           - name: windows-x86_64
             runner: windows-latest
           - name: linux-x86_64
@@ -216,16 +216,60 @@ jobs:
       # runs its Windows tests on one
       # (https://github.com/astral-sh/uv/blob/main/.github/workflows/setup-dev-drive.ps1).
       # After checkout, because mounting onto the workspace folder itself
-      # makes checkout fail (the action's README). 16 GB is a dynamic
-      # (sparse) size below the ~15 GB the README gives as free on a public
-      # runner; the debug-less target is far smaller. `trusted-dev-drive`
-      # is what selects Defender's performance mode.
+      # makes checkout fail (the action's README). `trusted-dev-drive` is
+      # what selects Defender's performance mode.
+      #
+      # Where the drive's file lives, and how big it may grow, decide whether
+      # the build fits. The action puts the VHDX at a relative `drive-path`
+      # under "C:\, D:\ or the default workspace drive letter on the
+      # runner", and in run 41304379615 that was `D:\dev_drive.vhdx`, the
+      # volume the workspace is on. A standard public runner promises only
+      # 14 GB of storage
+      # (https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+      # the Windows Server 2025 images moved the large volume to C: and left
+      # D: small or absent (https://github.com/actions/runner-images/issues/12416,
+      # https://github.com/actions/runner-images/issues/12609), and the
+      # action's README says the size "is subject to the limit of space
+      # available on your runner". A dynamic VHDX only takes what is written
+      # to it, so the 16 GB we asked for was never reserved: the restored
+      # cache, the checkout and the ~190 test executables shared one small
+      # volume until rustc failed with "no space on device" and link.exe
+      # with LNK1180 / LNK1140. The step below therefore picks the fixed
+      # volume with the most free space, puts the VHDX on it (an absolute
+      # path outside the workspace, as the README requires) and sizes the
+      # drive from what is free there, and prints every volume before the
+      # build and after it, so the next failure names its numbers.
+      #
+      # A PDB is not the lever: rustc's MSVC linker always passes `/DEBUG`
+      # whatever `-C strip` says
+      # (compiler/rustc_codegen_ssa/src/back/linker.rs, `MsvcLinker::debuginfo`
+      # ignores its `strip` argument), and dropping it needs `/DEBUG:NONE`
+      # in RUSTFLAGS, which would rebuild every dependency and empty
+      # rust-cache's key. With `debug = 0` the PDBs are small.
+      - name: Pick the volume for the Dev Drive file (Windows)
+        id: dev_drive_host
+        if: matrix.platform.name == 'windows-x86_64' && env.RUN_NATIVE == 'true'
+        shell: pwsh
+        run: |
+          $volumes = Get-Volume | Where-Object { $_.DriveLetter -and $_.DriveType -eq 'Fixed' }
+          $volumes | Sort-Object DriveLetter |
+            Format-Table DriveLetter, FileSystemType, @{n='SizeGB';e={[math]::Round($_.Size/1GB,1)}}, @{n='FreeGB';e={[math]::Round($_.SizeRemaining/1GB,1)}} |
+            Out-String | Write-Host
+          $best = $volumes | Sort-Object SizeRemaining -Descending | Select-Object -First 1
+          $freeGb = [math]::Floor($best.SizeRemaining / 1GB)
+          # Leave 3 GB for the rest of the job; never ask for more than 48 GB.
+          $sizeGb = [math]::Max(8, [math]::Min(48, $freeGb - 3))
+          "Dev Drive file on $($best.DriveLetter): ($freeGb GB free), $sizeGb GB" | Write-Host
+          "vhdx=$($best.DriveLetter):/dev_drive.vhdx" >> $env:GITHUB_OUTPUT
+          "size=${sizeGb}GB" >> $env:GITHUB_OUTPUT
+
       - name: Set up Dev Drive for target/ (Windows)
         if: matrix.platform.name == 'windows-x86_64' && env.RUN_NATIVE == 'true'
         uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
         with:
-          drive-size: 16GB
+          drive-size: ${{ steps.dev_drive_host.outputs.size }}
           drive-format: ReFS
+          drive-path: ${{ steps.dev_drive_host.outputs.vhdx }}
           mount-path: ${{ github.workspace }}/target
           trusted-dev-drive: true
 
@@ -296,6 +340,20 @@ jobs:
       - name: cargo nextest run
         if: env.RUN_NATIVE == 'true'
         run: cargo nextest run --workspace --profile ci
+
+      # Windows only: what is left once the tests are built, kept even when
+      # the build failed (`if: always()`), so a disk failure shows its sizes.
+      - name: Disk space after the build (Windows)
+        if: always() && matrix.platform.name == 'windows-x86_64' && env.RUN_NATIVE == 'true'
+        shell: pwsh
+        run: |
+          Get-Volume | Where-Object { $_.DriveLetter } | Sort-Object DriveLetter |
+            Format-Table DriveLetter, FileSystemType, @{n='SizeGB';e={[math]::Round($_.Size/1GB,1)}}, @{n='FreeGB';e={[math]::Round($_.SizeRemaining/1GB,1)}} |
+            Out-String | Write-Host
+          if (Test-Path target) {
+            $bytes = (Get-ChildItem target -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            "target/ holds $([math]::Round($bytes/1GB,2)) GB" | Write-Host
+          }
 
       # nextest does not run doctests ("Doctests are currently not
       # supported because of limitations in stable Rust",

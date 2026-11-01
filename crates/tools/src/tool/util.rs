@@ -657,6 +657,57 @@ pub(crate) fn check_track_index(tracks: &[Track], track_index: usize) -> Result<
     Ok(())
 }
 
+/// The head's state, once `track_index` is known to be one of its tracks.
+/// The pair every tool that names a track begins with, with its two errors
+/// in their order: no head, then an index out of range.
+pub(crate) fn load_track_state(
+    ctx: &ToolContext,
+    track_index: usize,
+) -> Result<SessionState, String> {
+    let state = load_head_state(ctx)?;
+    check_track_index(&state.tracks, track_index)?;
+    Ok(state)
+}
+
+/// [`load_track_state`] and the rate the track's own frames are counted in
+/// (#234, [`track_clip_rate`]), for the edits that cut by sample. The window
+/// is in the track's frames, but the labels and words it moves are in
+/// seconds, so the session's rate is no use to them.
+pub(crate) fn load_track_state_and_rate(
+    ctx: &ToolContext,
+    track_index: usize,
+) -> Result<(SessionState, f64), String> {
+    let state = load_track_state(ctx, track_index)?;
+    let rate = track_clip_rate(&state.tracks[track_index], state.sample_rate)?;
+    Ok((state, rate))
+}
+
+/// The first clip on `track_index` at the head, for a tool that has to learn
+/// something from its source file before it edits (the interleave stride).
+pub(crate) fn first_clip(ctx: &ToolContext, track_index: usize) -> Result<Clip, String> {
+    let state = load_track_state(ctx, track_index)?;
+    state.tracks[track_index]
+        .clips
+        .first()
+        .cloned()
+        .ok_or_else(|| format!("track {track_index} has no clips"))
+}
+
+/// A track as the read-only analysis tools see it: every clip decoded and
+/// laid out on one timeline ([`flatten_track`]), so seconds mean positions on
+/// the track and not in a source file.
+pub(crate) fn load_track_audio(
+    ctx: &ToolContext,
+    track_index: usize,
+) -> Result<TrackAudio, String> {
+    let state = load_track_state(ctx, track_index)?;
+    let clips = &state.tracks[track_index].clips;
+    if clips.is_empty() {
+        return Err(format!("track {track_index} has no clips"));
+    }
+    flatten_track(clips)
+}
+
 /// The track an edit by words (`cut_words`, `remove_fillers`) cuts, from the
 /// `track` argument and what the session's transcript says it was made from
 /// (#384).
@@ -1390,6 +1441,131 @@ where
     ToolResult::Ok(Value::Object(out))
 }
 
+// ─── Destructive effects ──────────────────────────────────────────────
+//
+// An effect such as `reverb` or `de_esser` is a function on interleaved
+// samples, and a tool is that function plus its arguments. Everything around
+// it is the same each time: find out how many channels the track's source
+// has (the closure [`destructive_edit`] runs is handed only the rate), refuse
+// a window that is reversed, optionally refuse a track that is not stereo,
+// cut the window out of the buffer, run the function on it, and let
+// [`destructive_edit`] write the derived WAV (named by
+// `provenance::audio_hash`), swap the clip and append the node.
+//
+// [`EffectEdit`] owns the part in front of [`destructive_edit`]; the writing
+// stays there, so a tool never names a file. A tool that changes the buffer's
+// length, channel count or rate, or that remaps labels, calls
+// [`source_channels`] for the stride and one of the other `destructive_edit_*`
+// functions itself.
+
+/// Interleave stride of the first clip on `track`, read from its source file.
+///
+/// A source that cannot be decoded here counts as mono: the edit that follows
+/// decodes the track itself and reports that failure in its own words. Not
+/// [`track_channels`], which is the strict
+/// reading and answers a decode error with an error of its own.
+pub(crate) fn source_channels(ctx: &ToolContext, track: usize) -> Result<usize, String> {
+    let clip = first_clip(ctx, track)?;
+    Ok(audio_decoder::decode_file(&clip.source_path)
+        .map(|d| d.channels as usize)
+        .unwrap_or(1))
+}
+
+/// The sample range `[start_sec, end_sec)` names in a buffer of `len`
+/// interleaved samples, as indices into it. A missing end is the buffer's
+/// edge and an end past it is clamped to it.
+fn window(
+    len: usize,
+    sample_rate: u32,
+    channels: usize,
+    start_sec: Option<f64>,
+    end_sec: Option<f64>,
+) -> (usize, usize) {
+    let stride = channels.max(1);
+    let frames = len / stride;
+    let to_frame = |sec: f64| ((sec * f64::from(sample_rate)) as usize).min(frames);
+    let start = start_sec.map(to_frame).unwrap_or(0);
+    let end = end_sec.map(to_frame).unwrap_or(frames);
+    (start * stride, end * stride)
+}
+
+/// One effect applied to a track, set up by [`EffectEdit::on`].
+pub(crate) struct EffectEdit {
+    track: usize,
+    stereo_only: Option<&'static str>,
+}
+
+impl EffectEdit {
+    pub(crate) fn on(track: usize) -> Self {
+        Self {
+            track,
+            stereo_only: None,
+        }
+    }
+
+    /// Refuse a track whose source is not at least stereo, with
+    /// "`tool` requires a stereo track".
+    pub(crate) fn stereo_only(mut self, tool: &'static str) -> Self {
+        self.stereo_only = Some(tool);
+        self
+    }
+
+    /// Run `effect(samples, sample_rate, channels)` on the whole buffer.
+    pub(crate) fn run<F>(
+        self,
+        ctx: &mut ToolContext,
+        label: impl Into<String>,
+        effect: F,
+    ) -> ToolResult
+    where
+        F: FnOnce(&mut Vec<f32>, u32, usize),
+    {
+        let channels = match self.channels(ctx) {
+            Ok(c) => c,
+            Err(e) => return ToolResult::Error(e),
+        };
+        destructive_edit(
+            ctx,
+            self.track,
+            move |samples, sample_rate| effect(samples, sample_rate, channels),
+            label,
+        )
+    }
+
+    /// Run `effect(window, sample_rate, channels)` on the part of the buffer
+    /// `[start_sec, end_sec)` names (either end may be left out).
+    ///
+    /// A reversed window is refused first: clamping each end to the buffer on
+    /// its own leaves `start > end` standing, and slicing with it panics.
+    pub(crate) fn run_in_window<F>(
+        self,
+        ctx: &mut ToolContext,
+        start_sec: Option<f64>,
+        end_sec: Option<f64>,
+        label: impl Into<String>,
+        effect: F,
+    ) -> ToolResult
+    where
+        F: FnOnce(&mut [f32], u32, usize),
+    {
+        if let Err(e) = check_optional_seconds_order(start_sec, end_sec) {
+            return ToolResult::Error(e);
+        }
+        self.run(ctx, label, move |samples, sample_rate, channels| {
+            let (start, end) = window(samples.len(), sample_rate, channels, start_sec, end_sec);
+            effect(&mut samples[start..end], sample_rate, channels);
+        })
+    }
+
+    fn channels(&self, ctx: &ToolContext) -> Result<usize, String> {
+        let channels = source_channels(ctx, self.track)?;
+        match self.stereo_only {
+            Some(tool) if channels < 2 => Err(format!("{tool} requires a stereo track")),
+            _ => Ok(channels),
+        }
+    }
+}
+
 /// Interleave stride of the first clip on `track_idx`, read from the
 /// decoded source.
 ///
@@ -1400,12 +1576,7 @@ where
 /// covers half the requested span and, when the length lands odd,
 /// swaps left and right for everything after it.
 pub(crate) fn track_channels(ctx: &mut ToolContext, track_idx: usize) -> Result<usize, String> {
-    let state = load_head_state(ctx)?;
-    check_track_index(&state.tracks, track_idx)?;
-    let clip = state.tracks[track_idx]
-        .clips
-        .first()
-        .ok_or_else(|| format!("track {track_idx} has no clips"))?;
+    let clip = first_clip(ctx, track_idx)?;
     let decoded = audio_decoder::decode_file(&clip.source_path)
         .map_err(|e| format!("failed to decode {}: {e}", clip.source_path.display()))?;
     Ok((decoded.channels as usize).max(1))
@@ -1869,6 +2040,43 @@ pub(crate) fn track_clip_rate(track: &Track, fallback: u32) -> Result<f64, Strin
         }
     }
     Ok(rate.unwrap_or(fallback).max(1) as f64)
+}
+
+/// What a take for `track` has to be to go in by `punch_in`: the rate its
+/// clips are counted in and its channel count (#203).
+///
+/// `punch_in` refuses a take of any other rate or interleaving, so a caller
+/// that makes the take (the punch-in recording, which has a microphone's
+/// format to convert) asks first. The channel count is read from the
+/// track's first clip, the same place `punch_in` reads it.
+pub fn track_take_format(state: &SessionState, track: usize) -> Result<(u32, u16), String> {
+    check_track_index(&state.tracks, track)?;
+    let t = &state.tracks[track];
+    let clip = t
+        .clips
+        .first()
+        .ok_or_else(|| format!("track {track} has no clips"))?;
+    let rate = track_clip_rate(t, state.sample_rate)? as u32;
+    Ok((rate, clip_channels(&clip.source_path)?))
+}
+
+/// A source's channel count: from the header of a WAV (every file an edit
+/// writes, and most of what is loaded), which is a few bytes read under the
+/// store's lock; by decoding for any other format, which has no header
+/// reader here.
+fn clip_channels(path: &Path) -> Result<u16, String> {
+    let is_wav = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
+    if is_wav {
+        if let Ok(r) = hound::WavReader::open(path) {
+            return Ok(r.spec().channels.max(1));
+        }
+    }
+    let decoded = audio_decoder::decode_file(path)
+        .map_err(|e| format!("failed to decode {}: {e}", path.display()))?;
+    Ok(decoded.channels.max(1))
 }
 
 /// Seconds → this clip's own frame domain.

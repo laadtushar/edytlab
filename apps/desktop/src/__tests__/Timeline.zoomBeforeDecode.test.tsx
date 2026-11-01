@@ -27,44 +27,34 @@ interface Lane {
 
 const { lanes } = vi.hoisted(() => ({ lanes: [] as Lane[] }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: (options: { barWidth?: number }) => {
-      const lane: Lane = { isLane: options.barWidth !== undefined, decoded: null, onDecode: [], zooms: [] };
-      lanes.push(lane);
-      return {
-        on: vi.fn((event: string, cb: () => void) => {
-          if (event === "decode") lane.onDecode.push(cb);
-        }),
-        un: vi.fn(),
-        load: vi.fn(() => {
-          lane.decoded = null;
-          return Promise.resolve();
-        }),
-        getDecodedData: () => lane.decoded,
-        zoom: (pxPerSec: number) => {
-          if (!lane.decoded) throw new Error("No audio loaded");
-          lane.zooms.push(pxPerSec);
-        },
-        play: vi.fn(),
-        pause: vi.fn(),
-        seekTo: vi.fn(),
-        setTime: vi.fn(),
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: vi.fn(() => false),
-        destroy: vi.fn(),
-        // The same length before and after the edit: no new duration to
-        // re-run the zoom, so only the decode can bring it back.
-        getDuration: () => 10,
-        getCurrentTime: () => 0,
-        getWrapper: () => document.createElement("div"),
-        setScroll: vi.fn(),
-        getScroll: () => 0,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance, laneMembers } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: (options: { barWidth?: number }) => {
+        const lane: Lane = { isLane: options.barWidth !== undefined, decoded: null, onDecode: [], zooms: [] };
+        lanes.push(lane);
+        return wavesurferInstance({
+          on: vi.fn((event: string, cb: () => void) => {
+            if (event === "decode") lane.onDecode.push(cb);
+          }),
+          load: vi.fn(() => {
+            lane.decoded = null;
+            return Promise.resolve();
+          }),
+          getDecodedData: () => lane.decoded,
+          zoom: (pxPerSec: number) => {
+            if (!lane.decoded) throw new Error("No audio loaded");
+            lane.zooms.push(pxPerSec);
+          },
+          // The same length before and after the edit: no new duration to
+          // re-run the zoom, so only the decode can bring it back.
+          ...laneMembers(),
+        });
+      },
     },
-  },
-}));
+  };
+});
 
 import { Timeline } from "../components/Timeline";
 

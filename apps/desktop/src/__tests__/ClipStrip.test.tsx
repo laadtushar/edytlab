@@ -13,26 +13,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { MockedFunction } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
 import { ClipStrip, clipLabel } from "../components/ClipStrip";
 import { Timeline } from "../components/Timeline";

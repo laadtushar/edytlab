@@ -26,29 +26,17 @@
 //!
 //! A single test in its own binary, because it edits the process environment.
 
-use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
 
 use serde_json::json;
+use std::io::Write;
+use std::time::Duration;
 use tools::tool::transcribe::{MARKER_MODEL_NOT_DOWNLOADED, MARKER_MODEL_PATH_INVALID};
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
 
-fn write_wav(path: &Path) {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 16_000,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut writer = hound::WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..16_000u32 {
-        let t = n as f32 / 16_000.0;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        writer.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    writer.finalize().unwrap();
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_sine, Session};
 
 /// End the run, rather than stall it, if a tool never returns.
 fn watchdog() {
@@ -75,41 +63,30 @@ fn a_model_that_is_not_there_is_a_setup_problem_the_user_can_fix() {
         "ORT_DYLIB_PATH is {library:?}, which is not a file"
     );
 
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let wav = tmp.path().join("in.wav");
-    write_wav(&wav);
+    let mut s = Session::empty();
+    let wav = s.dir.path().join("in.wav");
+    write_sine(&wav, 16_000, 440.0, 0.25, 16_000);
 
     // 1. A file where the folder belongs: what WHISPER_MODEL_PATH used to name.
-    let file = tmp.path().join("model.onnx");
+    let file = s.dir.path().join("model.onnx");
     std::fs::write(&file, b"not an onnx model").expect("write");
 
     // 2. A folder with the three files, and a tokenizer that is not JSON.
-    let folder = tmp.path().join("whisper");
+    let folder = s.dir.path().join("whisper");
     std::fs::create_dir_all(folder.join("onnx")).expect("mkdir");
     std::fs::write(folder.join(ml_whisper::ENCODER_FILE), b"x").expect("write");
     std::fs::write(folder.join(ml_whisper::DECODER_FILE), b"x").expect("write");
     std::fs::write(folder.join(ml_whisper::TOKENIZER_FILE), b"this is not json").expect("write");
 
     // 3. A folder with the files missing.
-    let empty = tmp.path().join("empty");
+    let empty = s.dir.path().join("empty");
     std::fs::create_dir_all(&empty).expect("mkdir");
 
     // 4. A folder that is not there.
-    let gone = tmp.path().join("gone");
+    let gone = s.dir.path().join("gone");
 
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-    let loaded = dispatcher
-        .invoke("load", json!({ "path": wav.to_string_lossy() }), &mut ctx)
+    let loaded = s
+        .try_call("load", json!({ "path": wav.to_string_lossy() }))
         .expect("load dispatches");
     assert!(
         matches!(loaded, ToolResult::Ok(_)),
@@ -125,8 +102,8 @@ fn a_model_that_is_not_there_is_a_setup_problem_the_user_can_fix() {
         // SAFETY: this is the only test in this binary, so no other thread
         // reads the environment while it is edited.
         unsafe { std::env::set_var("WHISPER_MODEL_PATH", path) };
-        let result = dispatcher
-            .invoke("transcribe", json!({ "track": 0 }), &mut ctx)
+        let result = s
+            .try_call("transcribe", json!({ "track": 0 }))
             .unwrap_or_else(|e| panic!("{what}: dispatcher error {e}"));
         let ToolResult::Error(msg) = result else {
             panic!("{what}: expected an error, got a success");
@@ -140,7 +117,7 @@ fn a_model_that_is_not_there_is_a_setup_problem_the_user_can_fix() {
         assert!(
             !msg.contains("protobuf")
                 && !msg.contains("expected Whisper export")
-                && !msg.contains(&tmp.path().to_string_lossy().to_string()),
+                && !msg.contains(&s.dir.path().to_string_lossy().to_string()),
             "{what}: the answer hands the agent a load error or a path: {msg}"
         );
     }
@@ -148,8 +125,8 @@ fn a_model_that_is_not_there_is_a_setup_problem_the_user_can_fix() {
     // Nothing set, and no folder registered: the user has not downloaded it.
     // SAFETY: as above.
     unsafe { std::env::remove_var("WHISPER_MODEL_PATH") };
-    let result = dispatcher
-        .invoke("transcribe", json!({ "track": 0 }), &mut ctx)
+    let result = s
+        .try_call("transcribe", json!({ "track": 0 }))
         .expect("dispatches");
     let ToolResult::Error(msg) = result else {
         panic!("expected an error, got a success");

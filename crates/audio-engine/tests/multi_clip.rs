@@ -14,9 +14,12 @@
 use std::path::{Path, PathBuf};
 
 use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use hound::WavReader;
+use session::{Clip, SessionState};
 use tempfile::TempDir;
+
+mod support;
+use support::{pcm_round, plain_track, session_to_end, unity_clip as clip, write_wav_i16};
 
 const RATE: u32 = 8_000;
 
@@ -24,68 +27,13 @@ const RATE: u32 = 8_000;
 /// individually identifiable: sample `n` has value `n / frames`, so an
 /// assertion can say exactly *which* part of the source came out.
 fn write_ramp_wav(dir: &Path, name: &str, frames: usize) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..frames {
-        let s = n as f32 / frames as f32;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
-}
-
-fn clip(source: &Path, start_in_track: u64, source_offset: u64, length: u64) -> Clip {
-    Clip {
-        source_path: source.to_path_buf(),
-        start_in_track,
-        source_offset,
-        length,
-        content_hash: None,
-        time_stretch_factor: None,
-        pitch_shift_semitones: None,
-        beat_grid: None,
-        volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
-    }
+    write_wav_i16(dir, name, RATE, 1, frames, |n| {
+        pcm_round(n as f32 / frames as f32)
+    })
 }
 
 fn session_with(clips: Vec<Clip>) -> SessionState {
-    let length = clips
-        .iter()
-        .map(|c| c.start_in_track + c.length)
-        .max()
-        .unwrap_or(0);
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "t".into(),
-            clips,
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: Vec::<EffectInstance>::new(),
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: RATE,
-        length_samples: length,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    session_to_end(vec![plain_track("t", clips)], RATE)
 }
 
 fn read_mono(path: &Path) -> Vec<f32> {

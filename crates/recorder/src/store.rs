@@ -40,6 +40,10 @@ pub enum StoreError {
     Newer(u32),
     #[error("{0} ms is not a latency this app can apply")]
     Invalid(f64),
+    #[error(
+        "A delay of {0} ms cannot be entered by hand. Type a number from 0 to 2000 (milliseconds)."
+    )]
+    ManualOutOfRange(f64),
 }
 
 pub fn unix_now() -> u64 {
@@ -52,6 +56,10 @@ pub fn unix_now() -> u64 {
 /// The file's format. Bumped only when an old reader would misread a new
 /// file; a reader refuses a newer one rather than rewrite it.
 const FORMAT: u32 = 1;
+/// What a person may type: the delay of real hardware is never negative
+/// (the estimate's tiny negative errors are a measurement's, not a
+/// device's), and nothing over two seconds is a delay to compensate.
+pub const MANUAL_RANGE_MS: std::ops::RangeInclusive<f64> = 0.0..=2_000.0;
 /// What a stored latency may be. A measurement can come out a hair
 /// negative (the clock estimate's error); a value outside this is a typo
 /// or a broken device, not a delay to apply.
@@ -124,6 +132,24 @@ impl LatencyStore {
                 Ok(None)
             }
         }
+    }
+
+    /// Keep a delay the person typed for `pair` (#203): as good as a
+    /// measured one, for the room where a measurement cannot be made or the
+    /// delay was found elsewhere. Replaces what was there, which is the
+    /// person's last word on it. Returns what was stored.
+    pub fn put_manual(&self, pair: &DevicePair, latency_ms: f64) -> Result<Stored, StoreError> {
+        if !latency_ms.is_finite() || !MANUAL_RANGE_MS.contains(&latency_ms) {
+            return Err(StoreError::ManualOutOfRange(latency_ms));
+        }
+        let entry = Stored {
+            latency_ms,
+            spread_ms: None,
+            measured_at: unix_now(),
+            source: Source::Manual,
+        };
+        self.put(pair, entry.clone())?;
+        Ok(entry)
     }
 
     /// Keep `entry` for `pair`, replacing what was there.
@@ -370,5 +396,60 @@ mod tests {
         std::fs::write(d.path().join("audio-latency.json"), MIXED).unwrap();
         s.put(&pair("bad"), entry(12.0, Source::Manual)).unwrap();
         assert_eq!(s.get(&pair("bad")).unwrap().unwrap().latency_ms, 12.0);
+    }
+
+    #[test]
+    fn a_typed_value_is_stored_as_manual_with_no_spread() {
+        let (_d, s) = store();
+        let kept = s.put_manual(&pair("Speakers"), 42.5).unwrap();
+        assert_eq!(kept.source, Source::Manual);
+        assert_eq!(kept.spread_ms, None);
+        assert!(kept.measured_at > 1_700_000_000);
+        assert_eq!(s.get(&pair("Speakers")).unwrap(), Some(kept));
+    }
+
+    #[test]
+    fn a_typed_value_replaces_a_measured_one_and_the_other_way_round() {
+        let (_d, s) = store();
+        s.put(&pair("Speakers"), entry(30.0, Source::Measured))
+            .unwrap();
+        s.put_manual(&pair("Speakers"), 55.0).unwrap();
+        assert_eq!(s.get(&pair("Speakers")).unwrap().unwrap().latency_ms, 55.0);
+        s.put(&pair("Speakers"), entry(31.0, Source::Measured))
+            .unwrap();
+        let now = s.get(&pair("Speakers")).unwrap().unwrap();
+        assert_eq!((now.latency_ms, now.source), (31.0, Source::Measured));
+    }
+
+    #[test]
+    fn a_typed_value_outside_zero_to_two_thousand_is_refused_and_nothing_is_written() {
+        let (d, s) = store();
+        for bad in [
+            -0.1,
+            2_000.1,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            -50.0,
+        ] {
+            let e = s.put_manual(&pair("Speakers"), bad).unwrap_err();
+            assert!(matches!(e, StoreError::ManualOutOfRange(_)), "{bad}: {e}");
+            assert!(e.to_string().contains("0 to 2000"), "{e}");
+        }
+        assert!(
+            !d.path().join("audio-latency.json").exists(),
+            "a refusal wrote a file"
+        );
+        assert_eq!(s.get(&pair("Speakers")).unwrap(), None);
+        // The ends are in.
+        s.put_manual(&pair("Speakers"), 0.0).unwrap();
+        s.put_manual(&pair("Speakers"), 2_000.0).unwrap();
+    }
+
+    #[test]
+    fn a_typed_value_is_for_its_pair_only() {
+        let (_d, s) = store();
+        s.put_manual(&pair("Speakers"), 20.0).unwrap();
+        assert_eq!(s.get(&pair("Headset")).unwrap(), None);
     }
 }

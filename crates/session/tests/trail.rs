@@ -8,33 +8,12 @@
 
 use std::fs;
 
-use chrono::Utc;
 use session::trail::{read_trail, trail_path, write_trail, HeadTrail, MAX_TRAIL};
-use session::{BusGraph, NodeId, SessionNode, SessionState, Store, TempoMap, STORE_DIR};
+use session::{NodeId, Store, STORE_DIR};
 use tempfile::TempDir;
 
-fn node(length_samples: u64) -> SessionNode {
-    SessionNode {
-        id: NodeId([0u8; 32]),
-        parent: None,
-        created_at: Utc::now(),
-        label: None,
-        reasoning: None,
-        state: SessionState {
-            tracks: Vec::new(),
-            bus_routing: BusGraph::default(),
-            master_chain: Vec::new(),
-            tempo_map: TempoMap::default(),
-            key_map: None,
-            transcript: None,
-            sample_rate: 48_000,
-            length_samples,
-            annotations: Vec::new(),
-            sync_lock: false,
-        },
-        op: None,
-    }
-}
+mod support;
+use support::node;
 
 fn hex(id: NodeId) -> String {
     id.to_hex()
