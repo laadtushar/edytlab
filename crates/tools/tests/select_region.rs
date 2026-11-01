@@ -14,192 +14,21 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::{ToolContext, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+#[path = "support/signals.rs"]
+mod signals;
+use harness::{err, ok, Session};
+use signals::{noise_burst, track_with, voice_burst};
 
 const SR: u32 = 48_000;
 
-fn write_tone(path: &Path, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SR as usize * seconds) {
-        let t = n as f32 / SR as f32;
-        w.write_sample(((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-/// Mono 16-bit WAV of `samples` at `rate`.
-fn write_samples(path: &Path, rate: u32, samples: &[f32]) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for s in samples {
-        w.write_sample((s.clamp(-1.0, 1.0) * 32_767.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-/// Voiced sound: six harmonics of 140 Hz falling as 1/k, about -21 dBFS.
-/// The same synthetic voice `tests/ducking.rs` uses, so "speech" means the
-/// same thing in both.
-fn voice_burst(rate: u32, seconds: f64) -> Vec<f32> {
-    (0..(rate as f64 * seconds) as usize)
-        .map(|n| {
-            let t = n as f64 / rate as f64;
-            (1..=6)
-                .map(|k| 0.1 / k as f64 * (std::f64::consts::TAU * k as f64 * 140.0 * t).sin())
-                .sum::<f64>() as f32
-        })
-        .collect()
-}
-
-/// White noise at `rms`, from a fixed xorshift so the run is repeatable.
-fn noise_burst(rate: u32, seconds: f64, rms: f32) -> Vec<f32> {
-    let mut state = 0x2545_f491u32;
-    (0..(rate as f64 * seconds) as usize)
-        .map(|_| {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-            (state as f32 / u32::MAX as f32 * 2.0 - 1.0) * rms * 3f32.sqrt()
-        })
-        .collect()
-}
-
-/// `seconds` of silence at `rate` with each `(at_sec, signal)` mixed in.
-fn track_with(rate: u32, seconds: f64, parts: &[(f64, Vec<f32>)]) -> Vec<f32> {
-    let mut buf = vec![0.0f32; (rate as f64 * seconds) as usize];
-    for (at, signal) in parts {
-        let start = (at * rate as f64).round() as usize;
-        for (d, s) in buf[start..].iter_mut().zip(signal) {
-            *d += *s;
-        }
-    }
-    buf
-}
-
-struct Session {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let src = write_tone(&dir.path().join("take.wav"), 30);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": src.to_string_lossy() }));
-        s
-    }
-
-    /// One mono track per `(sample_rate, samples)`, in order.
-    fn with_tracks(tracks: &[(u32, Vec<f32>)]) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let paths: Vec<PathBuf> = tracks
-            .iter()
-            .enumerate()
-            .map(|(i, (rate, samples))| {
-                write_samples(&dir.path().join(format!("track{i}.wav")), *rate, samples)
-            })
-            .collect();
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        for p in &paths {
-            ok(s.call("load", json!({ "path": p.to_string_lossy() })));
-        }
-        assert_eq!(s.state().tracks.len(), tracks.len(), "one track each");
-        s
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    /// Two sentences with a long gap, so passages are unambiguous.
-    fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
-        let head = self.store.head().expect("head");
-        let mut state = self.store.get(head).expect("node").state;
-        state.transcript = Some(session::Transcript {
-            source: None,
-            words: words
-                .iter()
-                .map(|(text, a, b)| session::TranscriptWord {
-                    text: (*text).to_string(),
-                    start_s: *a,
-                    end_s: *b,
-                    confidence: 0.9,
-                })
-                .collect(),
-        });
-        self.store
-            .append(session::SessionNode {
-                id: session::NodeId([0u8; 32]),
-                parent: None,
-                created_at: chrono::Utc::now(),
-                label: Some("transcript".into()),
-                reasoning: None,
-                state,
-                op: None,
-            })
-            .expect("append");
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
+        Session::with_take(30.0)
     }
 }
 
@@ -905,7 +734,7 @@ fn selecting_from_audio_changes_nothing() {
     let head = s.store.head();
     let nodes = s.store.list_nodes().expect("list nodes").len();
     let tracks = s.state().tracks.clone();
-    let files = files_under(s._dir.path());
+    let files = files_under(s.dir.path());
 
     ok(s.call(
         "select_region",
@@ -915,7 +744,7 @@ fn selecting_from_audio_changes_nothing() {
     assert_eq!(s.store.head(), head, "the head did not move");
     assert_eq!(s.store.list_nodes().expect("list nodes").len(), nodes);
     assert_eq!(s.state().tracks, tracks, "the voice was not touched");
-    assert_eq!(files_under(s._dir.path()), files, "nothing was written");
+    assert_eq!(files_under(s.dir.path()), files, "nothing was written");
 }
 
 /// Every file under `dir`, sorted, so two listings can be compared.

@@ -17,12 +17,14 @@
 //! [`Sandbox`], which holds a lock for as long as it is alive.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use std::sync::{Mutex, MutexGuard};
+use tools::ToolResult;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, write_tone, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
@@ -35,23 +37,31 @@ const CAP_VAR: &str = tools::preview_cache::CAP_ENV;
 /// A project, and an OS temp directory of its own, empty.
 struct Sandbox {
     _lock: MutexGuard<'static, ()>,
-    _root: TempDir,
+    session: Session,
     project: PathBuf,
     os_tmp: PathBuf,
     saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
+}
+
+impl std::ops::Deref for Sandbox {
+    type Target = Session;
+    fn deref(&self) -> &Session {
+        &self.session
+    }
+}
+
+impl std::ops::DerefMut for Sandbox {
+    fn deref_mut(&mut self) -> &mut Session {
+        &mut self.session
+    }
 }
 
 impl Sandbox {
     fn new() -> Self {
         let lock = ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let root = TempDir::new().expect("tempdir");
-        let project = root.path().join("project");
-        let os_tmp = root.path().join("os-tmp");
-        std::fs::create_dir_all(&project).unwrap();
+        let session = Session::in_subfolder("project");
+        let project = session.dir.path().join("project");
+        let os_tmp = session.dir.path().join("os-tmp");
         std::fs::create_dir_all(&os_tmp).unwrap();
 
         let mut saved: Vec<_> = TMP_VARS.iter().map(|v| (*v, std::env::var_os(v))).collect();
@@ -61,36 +71,16 @@ impl Sandbox {
         }
         std::env::remove_var(CAP_VAR);
 
-        let src = write_sine(&project, "in.wav");
-        let store = session::Store::open(&project).expect("open store");
         let mut s = Self {
             _lock: lock,
-            _root: root,
+            session,
             project,
             os_tmp,
             saved,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
         };
-        ok(s.call("load", json!({ "path": src.to_string_lossy() })));
+        let src = write_tone(&s.project.join("in.wav"), SAMPLE_RATE, 1);
+        s.load(&src);
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
     }
 
     fn cap(&self, bytes: u64) {
@@ -103,7 +93,7 @@ impl Sandbox {
 
     /// `render_preview` of the head over `range` (whole mix if `None`).
     fn preview(&mut self, range: Option<[u64; 2]>) -> ToolResult {
-        let mut args = json!({ "node_id": self.head() });
+        let mut args = json!({ "node_id": self.head_hex() });
         if let Some(r) = range {
             args["range"] = json!(r);
         }
@@ -124,38 +114,6 @@ impl Drop for Sandbox {
                 None => std::env::remove_var(var),
             }
         }
-    }
-}
-
-fn write_sine(dir: &Path, name: &str) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
-fn err(result: ToolResult) -> String {
-    match result {
-        ToolResult::Error(msg) => msg,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 

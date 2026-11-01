@@ -22,29 +22,15 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavWriter};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-const SR: u32 = 48_000;
+#[path = "support/harness.rs"]
+mod harness;
+use harness::write_secs;
 
-fn write_tone(path: &Path, seconds: f64, hz: f32) -> PathBuf {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..((SR as f64 * seconds) as usize) {
-        let t = n as f32 / SR as f32;
-        w.write_sample(((2.0 * std::f32::consts::PI * hz * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
+const SR: u32 = 48_000;
 
 /// Copy a folder the way a file manager does: every file, nothing left out.
 fn copy_folder(from: &Path, to: &Path) {
@@ -124,7 +110,7 @@ impl World {
         let takes: Vec<PathBuf> = [220.0, 330.0, 440.0]
             .iter()
             .enumerate()
-            .map(|(i, hz)| write_tone(&music.join(format!("take-{i}.wav")), 2.0, *hz))
+            .map(|(i, hz)| write_secs(&music.join(format!("take-{i}.wav")), 2.0, *hz))
             .collect();
 
         let mut store = session::Store::open(&original).unwrap();
@@ -557,7 +543,7 @@ fn only_derived_audio_is_a_rebuild_target() {
     let tone = session::relocate::generated_dir(&original).join("2222.wav");
     for file in [&blob, &tone] {
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        write_tone(file, 0.1, 440.0);
+        write_secs(file, 0.1, 440.0);
     }
     let node = {
         let mut store = session::Store::open(&original).unwrap();

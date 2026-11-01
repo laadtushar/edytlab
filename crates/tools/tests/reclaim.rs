@@ -8,70 +8,19 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
+use serde_json::json;
+use tools::{ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{ok, write_sine, Session};
 use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
 
 const SR: u32 = 48_000;
 
-fn write_tone(path: &Path, seconds: f64) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..((SR as f64 * seconds) as usize) {
-        let t = n as f32 / SR as f32;
-        w.write_sample(((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let src = write_tone(&dir.path().join("take.wav"), 4.0);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": src.to_string_lossy() }));
-        s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        self.call_saying(tool, args, "")
-    }
-
-    /// A call made from a chat message, which some tools read their
-    /// range from (`[apply to 0:01-0:02]`, as the app adds for a
-    /// selection).
-    fn call_saying(&mut self, tool: &str, args: Value, message: &str) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: message,
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
+        Session::with_take(4.0)
     }
 
     /// A few *destructive* edits, so `derived/` has history in it.
@@ -119,13 +68,6 @@ impl Session {
             .iter()
             .flat_map(|t| t.clips.iter().map(|c| c.source_path.clone()))
             .collect()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
     }
 }
 
@@ -964,7 +906,13 @@ fn audio_the_head_comes_to_need_after_planning_is_kept() {
 fn an_orphan_a_node_comes_to_name_after_planning_is_kept() {
     let mut s = Session::new();
     s.make_history();
-    let orphan = write_tone(&s.derived().join("0badcafe.wav"), 0.5);
+    let orphan = write_sine(
+        &s.derived().join("0badcafe.wav"),
+        SR,
+        440.0,
+        8_000.0 / 32_767.0,
+        SR as usize / 2,
+    );
 
     let plan = tools::reclaim::plan_sweep(&s.store, 0).expect("plan");
     let head = s.store.head().expect("head");

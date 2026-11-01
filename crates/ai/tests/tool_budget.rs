@@ -21,65 +21,15 @@ mod common;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ai::anthropic::{ContentBlock, Message, Role};
+use ai::anthropic::Role;
 use ai::{Agent, AgentEvent, LlmConfig, MAX_TOOL_CALLS_PER_TURN as CAP};
-use common::{classifier_json, ok, plan_json, sse_text, sse_tool_step, Entry, SeqResponder};
+use common::{classifier_json, ok, plan_json, sse_text, sse_tool_step, Entry};
 use serde_json::{json, Value};
-use tools::schema::{anthropic_tool, object_schema};
-use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer};
+use wiremock::MockServer;
 
 // ---------------------------------------------------------------------
 // Fixture tools
 // ---------------------------------------------------------------------
-
-/// Mutates, because it says nothing about it. Records what it ran with.
-struct Edit {
-    log: Arc<Mutex<Vec<Value>>>,
-}
-
-impl Tool for Edit {
-    fn name(&self) -> &'static str {
-        "edit"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "edit",
-            "Changes the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        self.log.lock().unwrap().push(args);
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
-
-/// Reads only, and says so. Counts its calls.
-struct Peek {
-    calls: Arc<AtomicUsize>,
-}
-
-impl Tool for Peek {
-    fn name(&self) -> &'static str {
-        "peek"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "peek",
-            "Reads the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn mutates(&self) -> bool {
-        false
-    }
-    fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -116,36 +66,15 @@ struct Fixture {
 
 impl Fixture {
     async fn new(plan_first: bool, responses: Vec<Entry>) -> Self {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/v1/messages"))
-            .respond_with(SeqResponder::new(responses))
-            .mount(&server)
-            .await;
+        let server = common::serve_messages(responses).await;
 
         let dir = tempfile::tempdir().expect("tempdir");
-        let edits = Arc::new(Mutex::new(Vec::new()));
-        let peeks = Arc::new(AtomicUsize::new(0));
-        let mut dispatcher = ToolDispatcher::new();
-        dispatcher.register(Box::new(Edit {
-            log: Arc::clone(&edits),
-        }));
-        dispatcher.register(Box::new(Peek {
-            calls: Arc::clone(&peeks),
-        }));
+        let (dispatcher, edits, peeks) = common::edit_and_peek();
 
         let gate = ai::PlanGate::new();
         let cfg = LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
-        let mut agent = Agent::new(
-            cfg,
-            Arc::new(Mutex::new(dispatcher)),
-            Arc::new(Mutex::new(
-                session::Store::open(dir.path()).expect("open store"),
-            )),
-            Arc::new(Mutex::new(audio_engine::Engine::new())),
-            gate.clone(),
-            Arc::new(Mutex::new(None::<tools::Clipboard>)),
-        );
+        let mut agent =
+            common::agent_over(cfg, dispatcher, common::store_in(dir.path()), gate.clone());
         agent.set_plan_first(plan_first);
 
         Self {
@@ -191,13 +120,7 @@ impl Fixture {
 
     /// The JSON bodies the provider was sent, in order.
     async fn requests(&self) -> Vec<Value> {
-        self.server
-            .received_requests()
-            .await
-            .expect("recording is on")
-            .iter()
-            .map(|r| serde_json::from_slice(&r.body).expect("a JSON body"))
-            .collect()
+        common::request_bodies(&self.server).await
     }
 
     fn edits_run(&self) -> Vec<Value> {
@@ -277,41 +200,6 @@ fn assert_every_badge_resolves(events: &[Ev]) {
             .filter(|e| matches!(e, Ev::ToolEnd(i, _) | Ev::NotRun(i) if i == id))
             .count();
         assert_eq!(ends, 1, "{id} was ended {ends} times in {events:#?}");
-    }
-}
-
-/// The wire message list obeys the provider's rules: roles alternate, and
-/// every `tool_use` is answered by a `tool_result` in the next message
-/// (and the other way round). A violation is a 400 on the next request.
-fn assert_history_is_valid(history: &[Message]) {
-    for pair in history.windows(2) {
-        assert_ne!(pair[0].role, pair[1].role, "roles must alternate");
-    }
-    for (i, m) in history.iter().enumerate() {
-        let used: Vec<&str> = m
-            .content
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
-                _ => None,
-            })
-            .collect();
-        let answered: Vec<&str> = history
-            .get(i + 1)
-            .map(|next| {
-                next.content
-                    .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        assert_eq!(
-            used, answered,
-            "message {i} used {used:?} and the next answered {answered:?}"
-        );
     }
 }
 
@@ -444,7 +332,7 @@ async fn a_turn_that_keeps_calling_tools_past_the_cap_ends_with_a_summary() {
 
     // And the history that is kept is valid for the next request.
     let history = fx.agent.conversation();
-    assert_history_is_valid(history);
+    common::assert_history_is_valid(history, false);
     assert_eq!(history.last().unwrap().role, Role::Assistant);
 }
 
@@ -517,7 +405,7 @@ async fn a_tool_call_in_the_summary_request_is_not_run() {
     assert!(events.contains(&Ev::NotRun("late0".into())));
     assert_every_badge_resolves(&events);
     assert_eq!(events.last(), Some(&Ev::Done));
-    assert_history_is_valid(fx.agent.conversation());
+    common::assert_history_is_valid(fx.agent.conversation(), false);
     assert_eq!(
         fx.requests().await.len(),
         1 + CAP + 1 + 1,
@@ -545,7 +433,7 @@ async fn a_summary_with_no_words_is_replaced_by_a_notice() {
         "the turn's text is not what was shown to the user"
     );
     assert_eq!(events.last(), Some(&Ev::Done));
-    assert_history_is_valid(fx.agent.conversation());
+    common::assert_history_is_valid(fx.agent.conversation(), false);
 }
 
 /// If the summary request itself fails, the turn ends with that error
@@ -571,7 +459,7 @@ async fn a_failed_summary_request_is_the_turns_error() {
     // next message joins; it holds no call without its answer.
     let history = fx.agent.conversation();
     assert_eq!(history.last().unwrap().role, Role::User);
-    assert_history_is_valid(history);
+    common::assert_history_is_valid(history, false);
 }
 
 // ---------------------------------------------------------------------
@@ -618,7 +506,7 @@ async fn with_plan_first_a_step_over_the_cap_is_never_shown_for_approval() {
     assert!(!events.contains(&Ev::PlanRejected), "nobody declined");
     assert_every_badge_resolves(&events);
     assert_eq!(events.last(), Some(&Ev::Done));
-    assert_history_is_valid(fx.agent.conversation());
+    common::assert_history_is_valid(fx.agent.conversation(), false);
 }
 
 /// The control for the test above: the same turn one call shorter fits,

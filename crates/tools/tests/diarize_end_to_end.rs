@@ -41,11 +41,16 @@
 //! The numbers are printed (`--nocapture`).
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use session::Store;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use std::time::Instant;
+
+#[path = "support/harness.rs"]
+mod harness;
+#[path = "support/real_model.rs"]
+mod real_model;
+use harness::Session;
+use real_model::{required, watchdog};
 
 /// Talk time found, against the annotation's speech (the union of its turns,
 /// 33.1 s). Overlap goes to one speaker, and the pinned model is 13 to 15 %
@@ -55,36 +60,6 @@ const TALK_RATIO: std::ops::RangeInclusive<f64> = 0.75..=1.25;
 /// (14 s and 23 s).
 const MIN_PER_SPEAKER_S: f64 = 5.0;
 const RECORDING_S: f64 = 40.0;
-
-/// Abort, rather than stall for ever, if the run is stuck.
-fn watchdog() {
-    std::thread::spawn(|| {
-        std::thread::sleep(Duration::from_secs(900));
-        eprintln!("diarize_end_to_end ran for 15 minutes: it is stuck, not slow");
-        std::process::abort();
-    });
-}
-
-fn required(var: &str, how: &str, folder: bool) -> PathBuf {
-    let value = std::env::var_os(var).unwrap_or_else(|| {
-        panic!(
-            "{var} is not set, so this test cannot run. It was asked for with --ignored, and a \
-             skip is not an answer (#263). {how}"
-        )
-    });
-    let path = PathBuf::from(value);
-    assert!(
-        if folder {
-            path.is_dir()
-        } else {
-            path.is_file()
-        },
-        "{var} is {}, which is not an existing {}. {how}",
-        path.display(),
-        if folder { "folder" } else { "file" }
-    );
-    path
-}
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -123,46 +98,7 @@ fn annotated_speech() -> (f64, Vec<f64>) {
     (union, per_speaker)
 }
 
-struct Session {
-    _dir: tempfile::TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-}
-
 impl Session {
-    fn new() -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = Store::open(dir.path()).expect("store");
-        Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            // The real dispatcher: the real `diarize`, on the real model.
-            dispatcher: ToolDispatcher::default_dispatcher(),
-        }
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        match self
-            .dispatcher
-            .invoke(tool, args, &mut ctx)
-            .unwrap_or_else(|e| panic!("{tool}: dispatcher error {e}"))
-        {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("`{tool}` failed: {m}"),
-        }
-    }
-
     fn cache_entries(&self) -> usize {
         std::fs::read_dir(self.store.project_dir().join(".audiograph/inference-cache"))
             .map(|d| d.count())
@@ -189,7 +125,7 @@ fn turns_of(answer: &Value) -> Vec<(f64, f64, String)> {
 #[test]
 #[ignore = "needs ORT_DYLIB_PATH and DIARIZE_MODEL_PATH (the model folder); run with --ignored"]
 fn the_tool_finds_two_speakers_in_the_ami_excerpt_changes_nothing_and_caches() {
-    watchdog();
+    watchdog("diarize_end_to_end", 900);
     required(
         "ORT_DYLIB_PATH",
         "scripts/fetch-ml-runtime.sh <platform> <dir> prints the library to point it at.",
@@ -206,7 +142,7 @@ fn the_tool_finds_two_speakers_in_the_ami_excerpt_changes_nothing_and_caches() {
     println!("  annotation: {speech_s:.2} s of speech, per speaker {per_speaker_s:?}");
 
     // The recording goes in through `load`, as a user's would.
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let wav = fixture("ami_es2004a_640_680s.wav");
     s.ok("load", json!({ "path": wav.to_string_lossy() }));
     let nodes = s.store.list_nodes().unwrap().len();

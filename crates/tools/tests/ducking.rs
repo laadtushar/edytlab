@@ -7,99 +7,22 @@
 //! plus the one that makes it usable, that the output is an ordinary
 //! automation curve rather than a black box.
 
-use std::path::{Path, PathBuf};
+use serde_json::json;
+use tools::ToolContext;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+#[path = "support/harness.rs"]
+mod harness;
+#[path = "support/signals.rs"]
+mod signals;
+use harness::{err, ok, Session};
+use signals::{noise_burst, track_with, voice_burst};
 
 const SAMPLE_RATE: u32 = 48_000;
-
-fn write_sine(path: &Path, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SAMPLE_RATE as usize * seconds) {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
 
 impl Session {
     /// A voice track and a music track, both twenty seconds.
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let voice = write_sine(&dir.path().join("voice.wav"), 20);
-        let music = write_sine(&dir.path().join("music.wav"), 20);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": voice.to_string_lossy() }));
-        s.call("load", json!({ "path": music.to_string_lossy() }));
-        s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
-    }
-
-    fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
-        let mut state = self.state();
-        state.transcript = Some(session::Transcript {
-            source: None,
-            words: words
-                .iter()
-                .map(|(text, start, end)| session::TranscriptWord {
-                    text: (*text).to_string(),
-                    start_s: *start,
-                    end_s: *end,
-                    confidence: 0.9,
-                })
-                .collect(),
-        });
-        let node = session::SessionNode {
-            id: session::NodeId([0u8; 32]),
-            parent: None,
-            created_at: chrono::Utc::now(),
-            label: Some("transcript".into()),
-            reasoning: None,
-            state,
-            op: None,
-        };
-        self.store.append(node).expect("append transcript");
+        Session::with_tones(SAMPLE_RATE, SAMPLE_RATE as usize * 20, &[(440.0, 0.25); 2])
     }
 
     /// The music track's automation, in (seconds, dB).
@@ -110,20 +33,6 @@ impl Session {
             .iter()
             .map(|p| (p.time_samples as f64 / SAMPLE_RATE as f64, p.gain_db))
             .collect()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 
@@ -506,62 +415,8 @@ fn an_edit_that_changes_length_rescales_the_curve() {
 // from the audio: voiced (pitched) sound counts, a breath, a click or
 // hiss does not.
 
-/// Mono 16-bit WAV of `samples` at `rate`.
-fn write_samples(path: &Path, rate: u32, samples: &[f32]) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for s in samples {
-        w.write_sample((s.clamp(-1.0, 1.0) * 32_767.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-/// Voiced sound: six harmonics of 140 Hz falling as 1/k, about -21 dBFS.
-fn voice_burst(rate: u32, seconds: f64) -> Vec<f32> {
-    (0..(rate as f64 * seconds) as usize)
-        .map(|n| {
-            let t = n as f64 / rate as f64;
-            (1..=6)
-                .map(|k| 0.1 / k as f64 * (std::f64::consts::TAU * k as f64 * 140.0 * t).sin())
-                .sum::<f64>() as f32
-        })
-        .collect()
-}
-
-/// White noise at `rms`, from a fixed xorshift so the run is repeatable.
-fn noise_burst(rate: u32, seconds: f64, rms: f32) -> Vec<f32> {
-    let mut state = 0x2545_f491u32;
-    (0..(rate as f64 * seconds) as usize)
-        .map(|_| {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-            (state as f32 / u32::MAX as f32 * 2.0 - 1.0) * rms * 3f32.sqrt()
-        })
-        .collect()
-}
-
 fn rms_of(v: &[f32]) -> f32 {
     (v.iter().map(|s| s * s).sum::<f32>() / v.len() as f32).sqrt()
-}
-
-/// `seconds` of silence at `rate` with each `(at_sec, signal)` mixed in.
-fn track_with(rate: u32, seconds: f64, parts: &[(f64, Vec<f32>)]) -> Vec<f32> {
-    let mut buf = vec![0.0f32; (rate as f64 * seconds) as usize];
-    for (at, signal) in parts {
-        let start = (at * rate as f64).round() as usize;
-        for (d, s) in buf[start..].iter_mut().zip(signal) {
-            *d += *s;
-        }
-    }
-    buf
 }
 
 /// The default voice: lines at 2.0-3.0 s and 10.0-11.0 s of twenty.
@@ -584,31 +439,6 @@ fn music_at(rate: u32) -> Vec<f32> {
 }
 
 impl Session {
-    /// One track per `(sample_rate, samples)`, in order.
-    fn with_tracks(tracks: &[(u32, Vec<f32>)]) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let paths: Vec<PathBuf> = tracks
-            .iter()
-            .enumerate()
-            .map(|(i, (rate, samples))| {
-                write_samples(&dir.path().join(format!("track{i}.wav")), *rate, samples)
-            })
-            .collect();
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        for p in &paths {
-            ok(s.call("load", json!({ "path": p.to_string_lossy() })));
-        }
-        assert_eq!(s.state().tracks.len(), tracks.len(), "one track each");
-        s
-    }
-
     /// A voice track and a music track, the voice being `voice`.
     fn with_voice(voice: Vec<f32>) -> Self {
         Self::with_tracks(&[(SAMPLE_RATE, voice), (SAMPLE_RATE, music_at(SAMPLE_RATE))])
@@ -1004,7 +834,7 @@ fn a_voice_track_with_no_clips_is_refused() {
 #[test]
 fn an_empty_music_track_is_refused_before_the_voice_is_read() {
     let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
-    std::fs::remove_file(s._dir.path().join("track0.wav")).expect("delete the voice file");
+    std::fs::remove_file(s.dir.path().join("track0.wav")).expect("delete the voice file");
 
     // The control: with a music clip to automate, the missing voice
     // file is what the tool trips over.

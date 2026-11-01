@@ -712,7 +712,7 @@ How each obligation FOSSA lists for the licences in the dependency graph is met:
 **`build` job — matrix:** macOS 14 (arm64) · Windows latest (x86_64) · Ubuntu 22.04 (x86_64).
 
 1. Install platform build deps (Linux only: GTK, WebKit, AppIndicator, libssl, libasound2)
-2. Windows only: set up a Dev Drive (ReFS) mounted at `<workspace>/target` (`samypr100/setup-dev-drive`)
+2. Windows only: pick the fixed volume with the most free space, set up a Dev Drive (ReFS) mounted at `<workspace>/target` with its VHDX there (`samypr100/setup-dev-drive`), and print every volume (a later step prints them again after the tests)
 3. Install Rust toolchain (from `rust-toolchain.toml`)
 4. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform; saved from `main` only, so a PR restores `main`'s cache and never uploads its own, #610)
 5. `cargo fmt --all --check` (Linux leg only)

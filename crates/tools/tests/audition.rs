@@ -9,89 +9,31 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, write_frames, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
-fn write_sine(path: &Path) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SAMPLE_RATE as usize * 2) {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        // Two tones, so a filter has something to remove.
-        let s = ((2.0 * std::f32::consts::PI * 300.0 * t).sin()
-            + (2.0 * std::f32::consts::PI * 9000.0 * t).sin())
-            * 0.2;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let src = write_sine(&dir.path().join("in.wav"));
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": src.to_string_lossy() }));
-        s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("list nodes").len()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
-    }
+/// Two seconds of two tones, so a filter has something to remove.
+fn session() -> Session {
+    let mut s = Session::empty();
+    let src = write_frames(
+        &s.dir.path().join("in.wav"),
+        SAMPLE_RATE,
+        1,
+        SAMPLE_RATE as usize * 2,
+        |n| {
+            let t = n as f32 / SAMPLE_RATE as f32;
+            ((2.0 * std::f32::consts::PI * 300.0 * t).sin()
+                + (2.0 * std::f32::consts::PI * 9000.0 * t).sin())
+                * 0.2
+        },
+    );
+    s.load(&src);
+    s
 }
 
 fn rms(path: &Path) -> f32 {
@@ -104,7 +46,7 @@ fn rms(path: &Path) -> f32 {
 /// same node count, before and after.
 #[test]
 fn an_audition_commits_nothing() {
-    let mut s = Session::new();
+    let mut s = session();
     let head_before = s.head();
     let nodes_before = s.node_count();
 
@@ -127,7 +69,7 @@ fn an_audition_commits_nothing() {
 /// come back quieter.
 #[test]
 fn the_audition_is_the_effect_applied() {
-    let mut s = Session::new();
+    let mut s = session();
 
     let dry = ok(s.call(
         "audition_effect",
@@ -155,7 +97,7 @@ fn the_audition_is_the_effect_applied() {
 /// which is what makes auditioning usable on a slider.
 #[test]
 fn the_same_audition_twice_is_cached() {
-    let mut s = Session::new();
+    let mut s = session();
     let args = json!({
         "track": 0,
         "kind": "low_pass_filter",
@@ -174,7 +116,7 @@ fn the_same_audition_twice_is_cached() {
 /// file — a cache hit across parameters would play the wrong thing.
 #[test]
 fn different_parameters_get_different_auditions() {
-    let mut s = Session::new();
+    let mut s = session();
     let a = ok(s.call(
         "audition_effect",
         json!({ "track": 0, "kind": "low_pass_filter", "params": { "cutoff_hz": 1000 }, "end_sec": 1.0 }),
@@ -189,7 +131,7 @@ fn different_parameters_get_different_auditions() {
 /// A different region of the same settings is different audio too.
 #[test]
 fn a_different_region_is_a_different_audition() {
-    let mut s = Session::new();
+    let mut s = session();
     let effect = |start: f64, end: f64| {
         json!({
             "track": 0,
@@ -208,7 +150,7 @@ fn a_different_region_is_a_different_audition() {
 /// (#164's cache invariant, one directory over).
 #[test]
 fn auditions_are_kept_out_of_the_preview_cache() {
-    let mut s = Session::new();
+    let mut s = session();
     ok(s.call(
         "audition_effect",
         json!({ "track": 0, "kind": "gain", "params": { "db": -3.0 } }),
@@ -233,7 +175,7 @@ fn auditions_are_kept_out_of_the_preview_cache() {
 /// always was.
 #[test]
 fn accepting_an_audition_is_one_ordinary_node() {
-    let mut s = Session::new();
+    let mut s = session();
     ok(s.call(
         "audition_effect",
         json!({ "track": 0, "kind": "low_pass_filter", "params": { "cutoff_hz": 1000 } }),
@@ -249,7 +191,7 @@ fn accepting_an_audition_is_one_ordinary_node() {
 
 #[test]
 fn a_bad_track_is_refused_by_name() {
-    let mut s = Session::new();
+    let mut s = session();
     let msg = err(s.call(
         "audition_effect",
         json!({ "track": 7, "kind": "gain", "params": { "db": 0.0 } }),
@@ -259,7 +201,7 @@ fn a_bad_track_is_refused_by_name() {
 
 #[test]
 fn an_inverted_region_is_refused() {
-    let mut s = Session::new();
+    let mut s = session();
     let msg = err(s.call(
         "audition_effect",
         json!({ "track": 0, "kind": "gain", "params": { "db": 0.0 }, "start_sec": 1.0, "end_sec": 0.5 }),
