@@ -288,6 +288,7 @@ mod os_aac {
 #[cfg(target_os = "macos")]
 mod he_aac_macos {
     use super::*;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     /// Write `secs` of a tone per channel (440 Hz, then 880 Hz) as a 16-bit WAV.
