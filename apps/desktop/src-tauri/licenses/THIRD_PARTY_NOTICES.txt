@@ -61,8 +61,9 @@ does differently. The licence text of every project follows in section F.
     commit e976d93ecc3865e5757426930257e200846a520a
     MIT License, Copyright (c) Meta Platforms, Inc. and affiliates.
     derived: apply_model(split=True), center_trim, the normalisation of
-    Separator.separate_tensor, HTDemucs _spec / _ispec / _magnitude / _mask
-    in edytlab: crates/ml-demucs/src/{separate,spec}.rs
+    Separator.separate_tensor, HTDemucs _spec / _ispec / _magnitude / _mask,
+    and the standardisation HTDemucs.forward does around the network
+    in edytlab: crates/ml-demucs/src/{separate,spec,htdemucs}.rs
 
   pyannote.audio - https://github.com/pyannote/pyannote-audio
     version 3.3.2
@@ -132,6 +133,13 @@ D. Test data (in the source repository only, not in an installer)
   see crates/ml-diarize/tests/fixtures/AMI-LICENSE.md.
   The word-timing evaluation (scripts/word-timing-eval) downloads LibriSpeech
   dev-clean (CC BY 4.0) when run; nothing of it is kept in the repository.
+  Stem separation fixture, four stems of 8.5 seconds each, cut and levelled by
+  edytlab (crates/ml-demucs/tests/fixtures/stems/): a solo singer from
+  VocalSet (Wilkins, Seetharaman, Wahl and Pardo, ISMIR 2018,
+  https://doi.org/10.5281/zenodo.1193957), Creative Commons Attribution 4.0
+  International; and three loops from Freesound, dedicated to the public
+  domain under CC0 1.0 by their authors blakengouda (573948), josefpres
+  (483146) and josefpres (483627). See the README beside the files.
 
 E. Software that ships beside edytlab with notices of its own
 -------------------------------------------------------------

@@ -17,35 +17,28 @@ const { mockSetTime, instances } = vi.hoisted(() => {
   return { mockSetTime, instances };
 });
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => {
-      const handlers: Record<string, (...args: unknown[]) => void> = {};
-      const entry = { handlers, setTime: mockSetTime };
-      instances.push(entry);
-      return {
-        on: (event: string, cb: (...args: unknown[]) => void) => {
-          // Several handlers share `audioprocess`; keep the last, which
-          // is the loop one.
-          handlers[event] = cb;
-        },
-        un: vi.fn(),
-        load: vi.fn(() => Promise.resolve()),
-        zoom: vi.fn(),
-        play: vi.fn(),
-        pause: vi.fn(),
-        seekTo: vi.fn(),
-        setTime: mockSetTime,
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: vi.fn(() => false),
-        destroy: vi.fn(),
-        getDuration: () => 10,
-        getCurrentTime: () => 6,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: () => {
+        const handlers: Record<string, (...args: unknown[]) => void> = {};
+        const entry = { handlers, setTime: mockSetTime };
+        instances.push(entry);
+        return wavesurferInstance({
+          on: (event: string, cb: (...args: unknown[]) => void) => {
+            // Several handlers share `audioprocess`; keep the last, which
+            // is the loop one.
+            handlers[event] = cb;
+          },
+          load: vi.fn(() => Promise.resolve()),
+          setTime: mockSetTime,
+          getCurrentTime: () => 6,
+        });
+      },
     },
-  },
-}));
+  };
+});
 
 import { Timeline } from "../components/Timeline";
 

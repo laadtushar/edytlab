@@ -29,40 +29,33 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => {
-      const entry = {
-        url: null as string | null,
-        loadResult: () => Promise.resolve(),
-        zoom: vi.fn(),
-      };
-      instances.push(entry);
-      return {
-        on: vi.fn((event: string, cb: () => void) => {
-          if (event === "decode") cb();
-        }),
-        un: vi.fn(),
-        load: vi.fn((url: string) => {
-          entry.url = url;
-          return entry.loadResult();
-        }),
-        zoom: entry.zoom,
-        play: vi.fn(() => Promise.resolve()),
-        pause: vi.fn(),
-        seekTo: vi.fn(),
-        setTime: vi.fn(),
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: () => false,
-        destroy: vi.fn(),
-        // 3 seconds, matching the file that surfaced both bugs.
-        getDuration: () => (entry.url ? 3 : 0),
-        getCurrentTime: () => 0,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance, onDecode } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: () => {
+        const entry = {
+          url: null as string | null,
+          loadResult: () => Promise.resolve(),
+          zoom: vi.fn(),
+        };
+        instances.push(entry);
+        return wavesurferInstance({
+          on: onDecode(),
+          load: vi.fn((url: string) => {
+            entry.url = url;
+            return entry.loadResult();
+          }),
+          zoom: entry.zoom,
+          play: vi.fn(() => Promise.resolve()),
+          isPlaying: () => false,
+          // 3 seconds, matching the file that surfaced both bugs.
+          getDuration: () => (entry.url ? 3 : 0),
+        });
+      },
     },
-  },
-}));
+  };
+});
 
 import { Timeline } from "../components/Timeline";
 

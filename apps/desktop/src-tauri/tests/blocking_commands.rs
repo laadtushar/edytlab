@@ -34,10 +34,13 @@ use std::time::Duration;
 use edytlab_desktop_lib::commands;
 use edytlab_desktop_lib::state::AppState;
 use serde_json::json;
-use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponse};
-use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-use tauri::webview::InvokeRequest;
-use tauri::{WebviewWindow, WebviewWindowBuilder};
+use tauri::ipc::InvokeResponse;
+use tauri::test::MockRuntime;
+use tauri::WebviewWindow;
+
+#[macro_use]
+mod support;
+use support::make_request;
 
 /// Make Tauri's async runtime one with a single worker. Must run before
 /// anything else in this process touches the runtime, and can run once.
@@ -55,18 +58,6 @@ fn one_worker() {
     });
 }
 
-fn request(cmd: &str, body: serde_json::Value) -> InvokeRequest {
-    InvokeRequest {
-        cmd: cmd.into(),
-        callback: CallbackFn(0),
-        error: CallbackFn(1),
-        url: "tauri://localhost".parse().unwrap(),
-        body: InvokeBody::Json(body),
-        headers: Default::default(),
-        invoke_key: INVOKE_KEY.to_string(),
-    }
-}
-
 /// Send a command and return at once, with the channel its answer comes
 /// back on. `get_ipc_response` would wait for the answer.
 fn send(
@@ -76,7 +67,7 @@ fn send(
 ) -> Receiver<InvokeResponse> {
     let (tx, rx) = mpsc::channel();
     webview.as_ref().clone().on_message(
-        request(cmd, body),
+        make_request(cmd, body),
         Box::new(move |_webview, _cmd, response, _callback, _error| {
             let _ = tx.send(response);
         }),
@@ -92,32 +83,26 @@ fn commands_waiting_on_a_lock_leave_the_worker_free() {
     let project = tempfile::tempdir().expect("tempdir");
 
     let state = AppState::new();
-    let app = mock_builder()
-        .manage(state.clone())
-        .invoke_handler(tauri::generate_handler![
-            commands::open_project,
-            commands::get_plan_first,
-            commands::set_track_gain,
-            commands::set_sync_lock,
-            commands::set_head_to,
-            commands::rename_node,
-            commands::list_markers,
-            commands::get_transcript,
-            commands::get_sync_lock,
-            commands::get_graph,
-            commands::get_node,
-            commands::get_session_head,
-            commands::list_capabilities,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        state.clone();
+        commands::open_project,
+        commands::get_plan_first,
+        commands::set_track_gain,
+        commands::set_sync_lock,
+        commands::set_head_to,
+        commands::rename_node,
+        commands::list_markers,
+        commands::get_transcript,
+        commands::get_sync_lock,
+        commands::get_graph,
+        commands::get_node,
+        commands::get_session_head,
+        commands::list_capabilities,
+    );
 
     tauri::test::get_ipc_response(
         &webview,
-        request("open_project", json!({ "path": project.path() })),
+        make_request("open_project", json!({ "path": project.path() })),
     )
     .expect("open the project");
 
@@ -193,14 +178,10 @@ fn open_project_answers_while_an_agent_turn_holds_the_agent() {
     let second = tempfile::tempdir().expect("tempdir");
 
     let state = AppState::new();
-    let app = mock_builder()
-        .manage(state.clone())
-        .invoke_handler(tauri::generate_handler![commands::open_project])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        state.clone();
+        commands::open_project,
+    );
 
     // What `send_message` holds for the length of a turn.
     let turn = state.agent.blocking_lock();
@@ -252,14 +233,10 @@ fn open_project_rebuilds_the_agent_before_it_answers_when_no_turn_runs() {
 
     let state = AppState::new();
     state.set_api_key_cache(Some("saved".into()));
-    let app = mock_builder()
-        .manage(state.clone())
-        .invoke_handler(tauri::generate_handler![commands::open_project])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        state.clone();
+        commands::open_project,
+    );
 
     assert!(
         state.agent.blocking_lock().is_none(),
@@ -334,17 +311,11 @@ fn a_project_with_an_agent() -> SavedAsFixture {
 
     let state = AppState::new();
     state.set_api_key_cache(Some("saved".into()));
-    let app = mock_builder()
-        .manage(state.clone())
-        .invoke_handler(tauri::generate_handler![
-            commands::open_project,
-            commands::save_project_as
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (app, webview) = mock_window!(
+        state.clone();
+        commands::open_project,
+        commands::save_project_as,
+    );
 
     send(&webview, "open_project", json!({ "path": original.path() }))
         .recv_timeout(Duration::from_secs(5))

@@ -5,60 +5,16 @@
 //! `add_annotation` / `remove_annotation` helpers) against a real
 //! on-disk store, both for the happy paths and the edge cases.
 
-use chrono::Utc;
-use session::{
-    Annotation, AnnotationId, AnnotationKind, BusGraph, NodeId, SessionNode, SessionState, Store,
-    TempoMap,
-};
+use session::{Annotation, AnnotationId, SessionNode, Store};
 use tempfile::TempDir;
 
-fn empty_state() -> SessionState {
-    SessionState {
-        tracks: Vec::new(),
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: 48_000,
-        length_samples: 0,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
-}
-
-fn empty_node() -> SessionNode {
-    SessionNode {
-        id: NodeId([0u8; 32]),
-        parent: None,
-        created_at: Utc::now(),
-        label: None,
-        reasoning: None,
-        state: empty_state(),
-        op: None,
-    }
-}
+mod support;
+use support::{empty_node, empty_state, marker_at as marker, node_with};
 
 fn node_with_annotations(annotations: Vec<Annotation>) -> SessionNode {
     let mut state = empty_state();
     state.annotations = annotations;
-    SessionNode {
-        id: NodeId([0u8; 32]),
-        parent: None,
-        created_at: Utc::now(),
-        label: None,
-        reasoning: None,
-        state,
-        op: None,
-    }
-}
-
-fn marker(name: &str, time_sec: f64) -> Annotation {
-    Annotation {
-        id: AnnotationId::new(),
-        name: name.into(),
-        kind: AnnotationKind::Marker { time_sec },
-    }
+    node_with(state)
 }
 
 #[test]

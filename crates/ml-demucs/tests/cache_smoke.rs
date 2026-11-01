@@ -1,53 +1,12 @@
-//! Smoke tests for `ml-demucs`.
-//!
-//! Real inference is gated on (a) an HT-Demucs ONNX export, (b) a
-//! license-clean reference clip; both land in M28. Until then this
-//! file covers the cache-key contract and the `separate` stub so the
-//! tool layer can be wired with confidence.
-//!
-//! When `assets/models/htdemucs.onnx` lands, the
-//! `separate_returns_not_implemented_in_phase2_sandbox` test inverts
-//! into a real correlation check against the golden stems in
-//! `tests/golden/stems_30s_pop_clip/`.
+//! Smoke tests for the parts of `ml-demucs` that need no model: the cache
+//! layout the `separate_stems` tool relies on, and the result shape.
 
 use std::path::Path;
 
-use audio_decoder::DecodedAudio;
 use ml_demucs::{
-    hash_decoded_audio, is_oom_error, read_cached_stems, stem_dir_for, write_stems_to_dir,
-    DemucsError, DemucsModel, StemBuffer, StemPaths, StemSeparationResult, STEM_FILENAMES,
-    STEM_NAMES,
+    is_oom_error, read_cached_stems, stem_dir_for, DemucsError, Pending, StemPaths,
+    StemSeparationResult, STEM_FILENAMES, STEM_NAMES,
 };
-use ml_pipeline::ContentHash;
-
-fn audio() -> DecodedAudio {
-    DecodedAudio {
-        samples: vec![0.0, 0.05, -0.05, 0.1, -0.1, 0.15],
-        sample_rate: 44_100,
-        channels: 2,
-    }
-}
-
-#[test]
-fn cache_key_combines_input_and_model() {
-    // Acceptance criterion #2: same input + same model -> same key.
-    // Different model -> different key.
-    let input_hash = hash_decoded_audio(&audio());
-    let model_a = ContentHash::from_bytes(b"htdemucs-export-v1");
-    let model_b = ContentHash::from_bytes(b"htdemucs-export-v2");
-
-    let key_a = ContentHash::combine(&[input_hash, model_a]);
-    let key_b = ContentHash::combine(&[input_hash, model_b]);
-    assert_ne!(
-        key_a, key_b,
-        "different model hashes must produce different stem-cache keys"
-    );
-
-    // Same input, same model -> stable key. This is what the
-    // tool layer relies on for "second invocation hits the cache".
-    let key_a2 = ContentHash::combine(&[hash_decoded_audio(&audio()), model_a]);
-    assert_eq!(key_a, key_a2);
-}
 
 #[test]
 fn stem_paths_struct_serializes_round_trip() {
@@ -79,43 +38,6 @@ fn stem_paths_struct_serializes_round_trip() {
 }
 
 #[test]
-fn separate_returns_not_implemented_in_phase2_sandbox() {
-    // This test is the manual gate: when assets/models/htdemucs.onnx
-    // lands, `DemucsModel::load` will succeed and we'll need to
-    // invert this to assert `separate` returns four stems.
-    //
-    // Until then we can't construct a real `DemucsModel` — the load
-    // path requires the .onnx file. The contract we *can* assert is
-    // that the model-missing branch errors with a structured
-    // `ModelMissing` variant rather than panicking.
-    let model_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("assets")
-        .join("models")
-        .join("htdemucs.onnx");
-
-    if model_path.exists() {
-        // M28 has landed: this should be a real correlation check
-        // against tests/golden/stems_30s_pop_clip/. Surface a clear
-        // failure pointing at the next step rather than silently
-        // passing.
-        panic!(
-            "assets/models/htdemucs.onnx exists ({}) — flip this test \
-             from SKIP to a real RMS-correlation assertion against \
-             tests/golden/stems_30s_pop_clip/",
-            model_path.display()
-        );
-    }
-
-    let err = DemucsModel::load("htdemucs", &model_path).unwrap_err();
-    match err {
-        DemucsError::ModelMissing { .. } => {}
-        other => panic!("expected ModelMissing, got {other:?}"),
-    }
-}
-
-#[test]
 fn stem_filenames_match_stem_names() {
     // Sanity: the two parallel arrays line up. Catches a typo
     // refactoring `STEM_NAMES` without `STEM_FILENAMES`.
@@ -129,37 +51,17 @@ fn read_cached_stems_returns_some_only_when_all_present() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = stem_dir_for(tmp.path(), "deadbeef");
 
-    // Empty dir -> None.
+    // Nothing there -> None.
     assert!(read_cached_stems(&dir).is_none());
 
-    // Write stems.
-    let stems = [
-        StemBuffer {
-            name: "vocals",
-            samples: vec![0.0, 0.0],
-            sample_rate: 44_100,
-            channels: 2,
-        },
-        StemBuffer {
-            name: "drums",
-            samples: vec![0.0, 0.0],
-            sample_rate: 44_100,
-            channels: 2,
-        },
-        StemBuffer {
-            name: "bass",
-            samples: vec![0.0, 0.0],
-            sample_rate: 44_100,
-            channels: 2,
-        },
-        StemBuffer {
-            name: "other",
-            samples: vec![0.0, 0.0],
-            sample_rate: 44_100,
-            channels: 2,
-        },
-    ];
-    let _ = write_stems_to_dir(&dir, &stems).unwrap();
+    // An entry is made whole or not at all: a hit appears when the
+    // pending directory is published.
+    let pending = Pending::create(&dir).unwrap();
+    for file in StemPaths::for_dir(pending.dir()).iter() {
+        std::fs::write(file, b"RIFF").unwrap();
+    }
+    assert!(read_cached_stems(&dir).is_none(), "not yet published");
+    pending.publish().unwrap();
     assert!(read_cached_stems(&dir).is_some(), "expected cache hit");
 
     // Remove one file -> miss again.
@@ -174,9 +76,7 @@ fn read_cached_stems_returns_some_only_when_all_present() {
 fn oom_detection_tells_out_of_memory_from_other_failures() {
     // The OOM detection helper is what the tool uses to report an
     // out-of-memory failure as one. There is no retry: htdemucs is the
-    // only model, so there is nothing smaller to fall back to. A unit
-    // test here is the closest we can get without a contrived ONNX
-    // fixture that synthesises an OOM at runtime.
+    // only model, so there is nothing smaller to fall back to.
     let oom = DemucsError::Ort("CUDA out of memory: tried to allocate 1.5 GiB".into());
     assert!(is_oom_error(&oom));
 

@@ -11,12 +11,8 @@ use audio_decoder::{
     SUPPORTED_EXTENSIONS,
 };
 
-fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(name)
-}
+mod support;
+use support::fixture;
 
 /// One file for each extension. The WAV and MP3 are made by `build.rs`.
 fn file_for(ext: &str) -> PathBuf {

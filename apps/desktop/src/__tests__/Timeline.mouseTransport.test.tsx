@@ -15,8 +15,6 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-type Handler = (...args: unknown[]) => void;
-
 const { instances } = vi.hoisted(() => {
   const instances: {
     url: string | null;
@@ -36,71 +34,10 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => {
-      const handlers = new Map<string, Set<Handler>>();
-      const emit = (event: string, ...args: unknown[]) => {
-        for (const cb of handlers.get(event) ?? []) cb(...args);
-      };
-      // Each call mirrors what the real player reports: `play` and
-      // `pause` come back as events, and `setTime` as a `timeupdate`
-      // (`wavesurfer.js` emits it from `setTime` itself).
-      const entry = {
-        url: null as string | null,
-        currentTime: 0,
-        playing: false,
-        play: vi.fn(() => {
-          entry.playing = true;
-          emit("play");
-          return Promise.resolve();
-        }),
-        pause: vi.fn(() => {
-          entry.playing = false;
-          emit("pause");
-        }),
-        setTime: vi.fn((t: number) => {
-          entry.currentTime = t;
-          emit("timeupdate", t);
-        }),
-        emit,
-      };
-      instances.push(entry);
-      return {
-        on: vi.fn((event: string, cb: Handler) => {
-          if (!handlers.has(event)) handlers.set(event, new Set());
-          handlers.get(event)!.add(cb);
-          if (event === "decode") cb();
-        }),
-        un: vi.fn((event: string, cb: Handler) => {
-          handlers.get(event)?.delete(cb);
-        }),
-        load: vi.fn((url: string) => {
-          entry.url = url;
-          entry.currentTime = 0;
-          entry.playing = false;
-          return Promise.resolve();
-        }),
-        zoom: vi.fn(),
-        play: entry.play,
-        pause: entry.pause,
-        seekTo: vi.fn(),
-        setTime: entry.setTime,
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: () => entry.playing,
-        destroy: vi.fn(),
-        // Nothing loaded has no duration, which is what makes a seek or
-        // a play against a cold start a no-op in the real thing.
-        getDuration: () => (entry.url ? 60 : 0),
-        getCurrentTime: () => entry.currentTime,
-        getWrapper: () => document.createElement("div"),
-        setScroll: vi.fn(),
-        getScroll: () => 0,
-      };
-    },
-  },
-}));
+vi.mock("wavesurfer.js", async () => {
+  const { eventedPlayer } = await import("./wavesurferStub");
+  return { default: { create: () => eventedPlayer(instances) } };
+});
 
 import { Timeline, type Selection, type TimelineHandle } from "../components/Timeline";
 

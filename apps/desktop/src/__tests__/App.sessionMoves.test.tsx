@@ -23,39 +23,24 @@
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { held, type Held } from "./held";
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
-
+import {
+  type Args,
+  appAnswer,
+  bootIpc,
+  node,
+  quiet,
+  settle,
+  VOICE_ID,
+  HeldTrackReads,
+  stubGraphGlobals,
+} from "./appHarness";
 import App from "../App";
-
-type Args = Record<string, unknown>;
-
-/** A node id; the status bar shows the first seven characters. */
-const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
 
 /** Side A, the head the comparison starts from. */
 const A = node(1);
@@ -66,7 +51,6 @@ const EDITED = node(3);
 
 const headLabel = (id: string): string => `head ${id.slice(0, 7)}`;
 
-const VOICE_ID = "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f";
 const MUSIC_ID = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 
 interface Spec {
@@ -85,26 +69,11 @@ const TRACKS: Record<string, Spec[]> = {
   [EDITED]: [{ id: VOICE_ID, name: "Voice", gain_db: -6 }],
 };
 
-/** A track list read the backend has been asked for and has not answered. */
-interface Read {
-  /** The list as it was when the read was made. */
-  snapshot: unknown;
-  reply: Held<unknown>;
-}
-
-class Backend {
+class Backend extends HeldTrackReads {
   calls = 0;
   head = A;
-  /** Answer a track-list read when the test delivers it, not at once. */
-  holdReads = false;
   /** Every command the app sent, in order. */
   readonly sent: { cmd: string; args: Args }[] = [];
-  private reads: Read[] = [];
-
-  /** The reads waiting for an answer, oldest first. */
-  get pendingReads(): readonly Read[] {
-    return this.reads;
-  }
 
   /** How many times the app has asked for `cmd`. */
   count(cmd: string): number {
@@ -116,13 +85,8 @@ class Backend {
     this.calls++;
     this.sent.push({ cmd, args });
     switch (cmd) {
-      case "list_tracks": {
-        const snapshot = this.tracks();
-        if (!this.holdReads) return snapshot;
-        const read: Read = { snapshot, reply: held<unknown>() };
-        this.reads.push(read);
-        return read.reply.promise;
-      }
+      case "list_tracks":
+        return this.heldRead(this.tracks());
       case "prepare_compare":
         return {
           a_path: "/tmp/a.wav",
@@ -150,29 +114,10 @@ class Backend {
           ],
           head: this.head,
         };
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-      case "list_markers":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
-      case "save_view_state":
       case "save_head_trail":
-      case "set_selection_context":
         return null;
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 
@@ -191,47 +136,13 @@ class Backend {
       ],
     }));
   }
-
-  /** Deliver a held read: the list as it was when it was asked for. */
-  async deliver(read: Read): Promise<void> {
-    this.reads = this.reads.filter((r) => r !== read);
-    await read.reply.resolve(read.snapshot);
-  }
-
-  /** Deliver every held read, oldest first, until none is left. */
-  async deliverAll(): Promise<void> {
-    for (let guard = 0; guard < 20; guard++) {
-      await settle();
-      if (this.reads.length === 0) return;
-      await this.deliver(this.reads[0]);
-    }
-    throw new Error("the app kept asking for the tracks");
-  }
 }
 
 const at = (n: number) => `2026-10-22T00:0${n}:00Z`;
 
-/** Let what the app does next happen. */
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-/** Wait until the app has stopped asking for things. */
-async function quiet(backend: Backend): Promise<void> {
-  for (let guard = 0; guard < 20; guard++) {
-    const before = backend.calls;
-    await settle();
-    if (backend.calls === before) return;
-  }
-  throw new Error("the app never stopped asking");
-}
-
 async function start(): Promise<Backend> {
   const backend = new Backend();
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   const { rerender } = render(<App />);
   await screen.findByTestId("timeline-lane-gain");
   await waitFor(() =>
@@ -284,22 +195,7 @@ async function openCompare(backend: Backend): Promise<void> {
 }
 
 beforeEach(() => {
-  // React Flow measures what it draws; jsdom has neither of these.
-  if (!("ResizeObserver" in window)) {
-    class RO {
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
-    }
-    (window as unknown as { ResizeObserver: typeof RO }).ResizeObserver = RO;
-  }
-  if (!("DOMMatrixReadOnly" in window)) {
-    class M {
-      m22 = 1;
-      constructor(_init?: string | number[]) {}
-    }
-    (window as unknown as { DOMMatrixReadOnly: typeof M }).DOMMatrixReadOnly = M;
-  }
+  stubGraphGlobals();
   vi.spyOn(window, "prompt").mockReturnValue(null);
 });
 

@@ -1,5 +1,5 @@
 {
-  "_about": "The models the app can download (#383): one pin, read by the app (ml_pipeline::Catalog::built_in, included at build time) and by crates/ml-pipeline/tests/model_manifest.rs. A model is only ever downloaded when the user presses Download in Settings. `repo` and `revision` name a Hugging Face repository and the commit to fetch, never a branch, so a file cannot change under a pin; each file's `url` must be https://huggingface.co/<repo>/resolve/<revision>/<path> (the test checks it), and `size` and `sha256` are checked while the file is written and again before it is renamed into place. `license` is the SPDX id of the model the export was made from. whisper-base: the table on #384, every file downloaded and hashed on 2026-10-22. The transcribe tool runs this model (#384); it finds the files with ml_pipeline::models::cached and never downloads. speaker-diarization (#168 section 2): two files from two repositories, so each file names its own repo, revision, source_path (its path in that repo; `path` is where it is kept under the model's folder) and license; the model-level repo and revision are the first file's, and the model-level license is the expression for both. Both repositories are public and not gated; the original pyannote/segmentation-3.0 is gated, which is why the MIT ONNX export in onnx-community is pinned (the decision is the comment on #168). Every file was downloaded at its commit on 2026-10-26 and its SHA-256 compared with the Hub's LFS digest.",
+  "_about": "The models the app can download (#383): one pin, read by the app (ml_pipeline::Catalog::built_in, included at build time) and by crates/ml-pipeline/tests/model_manifest.rs. A model is only ever downloaded when the user presses Download in Settings. `repo` and `revision` name a Hugging Face repository and the commit to fetch, never a branch, so a file cannot change under a pin; each file's `url` must be https://huggingface.co/<repo>/resolve/<revision>/<path> (the test checks it), and `size` and `sha256` are checked while the file is written and again before it is renamed into place. `license` is the SPDX id of the model the export was made from. whisper-base: the table on #384, every file downloaded and hashed on 2026-10-22. The transcribe tool runs this model (#384); it finds the files with ml_pipeline::models::cached and never downloads. speaker-diarization (#168 section 2): two files from two repositories, so each file names its own repo, revision, source_path (its path in that repo; `path` is where it is kept under the model's folder) and license; the model-level repo and revision are the first file's, and the model-level license is the expression for both. Both repositories are public and not gated; the original pyannote/segmentation-3.0 is gated, which is why the MIT ONNX export in onnx-community is pinned (the decision is the comment on #168). Every file was downloaded at its commit on 2026-10-26 and its SHA-256 compared with the Hub's LFS digest. htdemucs (#385): Intel's ONNX export of HT-Demucs v4 (`Intel/demucs-openvino`, MIT; Demucs itself is MIT, facebookresearch/demucs), the graph and its external weights. The graph refers to its weights by the name `htdemucs_fwd.onnx.data`, so both are kept under their own names in one folder (`path`), and `source_path` is where they are in the repository. The export has the STFT, iSTFT and the per-segment normalisation cut out; ml-demucs does them (crates/ml-demucs/src/htdemucs.rs). Both files were read at the commit on 2026-10-27 and their SHA-256 compared with the Hub's LFS digest: the weights were streamed through sha256sum (168,361,984 bytes) and the graph was saved and parsed (opset 20, inputs x [1,4,2048,336] and xt [1,2,343980], outputs x_out [1,16,2048,336] and xt_out [1,8,343980], all float32). The `separate_stems` tool runs this model; it finds the files with ml_pipeline::models::cached and never downloads.",
   "models": [
     {
       "id": "whisper-base",
@@ -54,6 +54,29 @@
           "url": "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/f0c48c298fd835726c27956a5d617bad7115627e/voxceleb_resnet34_LM.onnx",
           "size": 26530309,
           "sha256": "7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068"
+        }
+      ]
+    },
+    {
+      "id": "htdemucs",
+      "title": "Stem model",
+      "repo": "Intel/demucs-openvino",
+      "revision": "efb3d2bc54f93899b13b72b12c57001e19f09ae2",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "htdemucs_fwd.onnx",
+          "source_path": "htdemucs_v4/htdemucs_fwd.onnx",
+          "url": "https://huggingface.co/Intel/demucs-openvino/resolve/efb3d2bc54f93899b13b72b12c57001e19f09ae2/htdemucs_v4/htdemucs_fwd.onnx",
+          "size": 2385507,
+          "sha256": "555f511fb653348a1c9495ab6b6091767d1920798f3fba68629a1fe5b135a45f"
+        },
+        {
+          "path": "htdemucs_fwd.onnx.data",
+          "source_path": "htdemucs_v4/htdemucs_fwd.onnx.data",
+          "url": "https://huggingface.co/Intel/demucs-openvino/resolve/efb3d2bc54f93899b13b72b12c57001e19f09ae2/htdemucs_v4/htdemucs_fwd.onnx.data",
+          "size": 168361984,
+          "sha256": "23a7c68669c041363caaef94641e961dc8c4e16b9891cb87f58f0e199a5e8820"
         }
       ]
     }

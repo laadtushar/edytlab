@@ -17,28 +17,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const { setOptions } = vi.hoisted(() => ({ setOptions: vi.fn() }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn((event: string, cb: () => void) => {
-        if (event === "decode") cb();
-      }),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions,
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferWith, onDecode } = await import("./wavesurferStub");
+  return wavesurferWith(() => ({
+    on: onDecode(),
+    setOptions,
+  }));
+});
 
 import { Timeline } from "../components/Timeline";
 

@@ -68,7 +68,7 @@
 //! megabytes, a tool's call should not wait on a third party, and the request
 //! is the user's to make. The speech model it pins (`models.json`) is run by
 //! the `transcribe` tool (#384), which finds it with `models::cached` and
-//! never fetches it; stem separation is not implemented (#385).
+//! never fetches it, as the `diarize` and `separate_stems` tools find theirs (#168, #385).
 
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions, TryLockError};

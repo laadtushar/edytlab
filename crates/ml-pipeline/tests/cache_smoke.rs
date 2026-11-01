@@ -48,6 +48,8 @@ use ml_pipeline::{
 };
 use serde::{Deserialize, Serialize};
 
+mod ort_support;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct AnalysisFixture {
     sample_count: u64,
@@ -217,16 +219,7 @@ fn model_registry_caches_arcs() {
 /// Run `identity.onnx` through a session and return what came out.
 fn run_identity(session: &ml_pipeline::SharedSession) -> Vec<f32> {
     let mut session = session.lock().expect("session lock");
-    let input = [3.0f32, -1.0, 0.5];
-    let tensor =
-        ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");
-    let outputs = session
-        .run(ort::inputs!["X" => tensor])
-        .expect("run identity.onnx through the registry's session");
-    let (_, data) = outputs["Y"]
-        .try_extract_tensor::<f32>()
-        .expect("Y is a float tensor");
-    data.to_vec()
+    ort_support::run_identity(&mut session, [3.0, -1.0, 0.5]).1
 }
 
 #[test]
@@ -336,17 +329,7 @@ fn a_session_from_the_registry_can_be_run() {
         .expect("load again");
 
     for handle in [&shared, &again] {
-        let mut session = handle.lock().expect("session lock");
-        let input = [3.0f32, -1.0, 0.5];
-        let tensor =
-            ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");
-        let outputs = session
-            .run(ort::inputs!["X" => tensor])
-            .expect("run identity.onnx through the registry's session");
-        let (_, data) = outputs["Y"]
-            .try_extract_tensor::<f32>()
-            .expect("Y is a float tensor");
-        assert_eq!(data, &input[..]);
+        assert_eq!(run_identity(handle), [3.0, -1.0, 0.5]);
     }
 }
 
@@ -387,17 +370,10 @@ fn identity_model_returns_its_input() {
     let mut session = onnx_session::build(&model_path, SessionOptions::default())
         .expect("build identity.onnx session");
     let input = [1.0f32, -2.5, 0.0];
-    let tensor =
-        ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");
-    let outputs = session
-        .run(ort::inputs!["X" => tensor])
-        .expect("run identity.onnx");
-    let (shape, data) = outputs["Y"]
-        .try_extract_tensor::<f32>()
-        .expect("Y is a float tensor");
+    let (shape, data) = ort_support::run_identity(&mut session, input);
 
-    assert_eq!(&shape[..], &[1, 3], "Identity keeps the shape");
-    assert_eq!(data, &input[..], "Identity must return its input");
+    assert_eq!(shape, [1, 3], "Identity keeps the shape");
+    assert_eq!(data, input, "Identity must return its input");
 }
 
 #[test]
@@ -407,19 +383,8 @@ fn runtime_info_reports_the_library_that_loaded() {
     // version the library itself reports, and where it was found. The
     // version must be the one `ml-runtime.json` pins: a library of another
     // version would run, and the status line would say so.
-    let library = env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| {
-        panic!("ORT_DYLIB_PATH is not set; scripts/fetch-ml-runtime.sh <platform> <dir> fetches it")
-    });
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("apps")
-        .join("desktop")
-        .join("src-tauri")
-        .join("ml-runtime.json");
-    let manifest: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&manifest).expect("read the manifest"))
-            .expect("the manifest is JSON");
+    let library = ort_support::ort_dylib_path();
+    let manifest = ort_support::pinned_runtime_manifest();
 
     let info = ml_pipeline::runtime::info().expect("the ONNX Runtime library ORT_DYLIB_PATH names");
 
