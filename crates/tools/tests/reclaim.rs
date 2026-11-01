@@ -8,8 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+use tools::{ToolDispatcher, ToolResult};
 
 #[path = "support/harness.rs"]
 mod harness;
@@ -21,20 +21,6 @@ const SR: u32 = 48_000;
 impl Session {
     fn new() -> Self {
         Session::with_take(4.0)
-    }
-
-    /// A call made from a chat message, which some tools read their
-    /// range from (`[apply to 0:01-0:02]`, as the app adds for a
-    /// selection).
-    fn call_saying(&mut self, tool: &str, args: Value, message: &str) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: message,
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
     }
 
     /// A few *destructive* edits, so `derived/` has history in it.
