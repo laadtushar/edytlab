@@ -8,11 +8,15 @@
  * Secrets in env values use the `<keychain:slot>` placeholder; the
  * editor renders these verbatim — the Rust side resolves them at
  * server-launch time.
+ *
+ * The form is keyed by the editing session (`formKey` in
+ * `useRecordEditor`), so opening a different server remounts it and
+ * re-derives its raw text; it does not track the id, which changes on
+ * every keystroke while naming a new server.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
-import { confirmAction } from "../lib/confirmAction";
 import {
   deleteMcpServer,
   listMcpServers,
@@ -24,6 +28,13 @@ import {
   type McpTransport,
 } from "../lib/tauri-bridge";
 import { IDENTIFIER_INPUT } from "../lib/identifierInput";
+import { useRecordEditor } from "../lib/useRecordEditor";
+import {
+  EditorBody,
+  EditorFooter,
+  EditorLayout,
+  Row,
+} from "./RecordEditorParts";
 
 const DRAFT_DEFAULT: McpServerEntry = {
   id: "",
@@ -36,282 +47,114 @@ const DRAFT_DEFAULT: McpServerEntry = {
   enabled: true,
 };
 
-type EditorState =
-  | { kind: "empty" }
-  | { kind: "loading"; id: string }
-  | {
-      kind: "draft";
-      entry: McpServerEntry;
-      isNew: boolean;
-      dirty: boolean;
-      /**
-       * Identity of this editing session, used as the form's React
-       * `key` so opening a different server remounts the form and
-       * re-derives its raw text from the new entry. It deliberately
-       * does NOT track `entry.id` — that changes on every keystroke
-       * while naming a new server, and remounting mid-edit would steal
-       * focus from the ID input.
-       */
-      formKey: number;
-    };
-
 export function McpServersEditor() {
-  const [list, setList] = useState<McpServerListEntry[]>([]);
-  const [listError, setListError] = useState<string | null>(null);
-  const [editor, setEditor] = useState<EditorState>({ kind: "empty" });
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<{
-    kind: "idle" | "ok" | "err";
-    message: string;
-  }>({ kind: "idle", message: "" });
-  // Monotonic id handed to each new editing session; see `formKey`.
-  const draftSeq = useRef(0);
-
-  const nextFormKey = () => {
-    draftSeq.current += 1;
-    return draftSeq.current;
-  };
-
-  const refresh = async () => {
-    try {
-      const l = await listMcpServers();
-      setList(l);
-      setListError(null);
-    } catch (err) {
-      setListError(String(err));
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const open = async (id: string) => {
-    setEditor({ kind: "loading", id });
-    setStatus({ kind: "idle", message: "" });
-    try {
-      const entry = await readMcpServer(id);
-      setEditor({
-        kind: "draft",
-        entry,
-        isNew: false,
-        dirty: false,
-        formKey: nextFormKey(),
-      });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-      setEditor({ kind: "empty" });
-    }
-  };
-
-  const newServer = () => {
-    setEditor({
-      kind: "draft",
-      entry: { ...DRAFT_DEFAULT },
-      isNew: true,
-      dirty: true,
-      formKey: nextFormKey(),
-    });
-    setStatus({ kind: "idle", message: "" });
-  };
-
-  const handleSave = async () => {
-    if (editor.kind !== "draft") return;
-    setSaving(true);
-    setStatus({ kind: "idle", message: "" });
-    try {
-      await upsertMcpServer(editor.entry.id, editor.entry);
-      await refresh();
-      // Keep the same `formKey`: the entry is unchanged by a save, so
-      // remounting would only cost the user their cursor position.
-      setEditor({
-        kind: "draft",
-        entry: editor.entry,
-        isNew: false,
-        dirty: false,
-        formKey: editor.formKey,
-      });
-      setStatus({ kind: "ok", message: "Saved." });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (editor.kind !== "draft" || editor.isNew) return;
-    try {
-      if (
-        !(await confirmAction(
-          `Delete server "${editor.entry.id}"? This cannot be undone.`,
-        ))
-      )
-        return;
-      await deleteMcpServer(editor.entry.id);
-      setEditor({ kind: "empty" });
-      await refresh();
-      setStatus({ kind: "ok", message: "Deleted." });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-    }
-  };
+  const ed = useRecordEditor<McpServerEntry, McpServerListEntry>({
+    fetchList: listMcpServers,
+    read: readMcpServer,
+    upsert: upsertMcpServer,
+    remove: deleteMcpServer,
+    newDraft: () => ({ ...DRAFT_DEFAULT }),
+    nameOf: (e) => e.id,
+    noun: "server",
+  });
+  const { editor, list } = ed;
 
   const handleRestart = async (id: string) => {
     try {
       await restartMcpServer(id);
-      await refresh();
-      setStatus({ kind: "ok", message: `Restarted ${id}.` });
+      await ed.refresh();
+      ed.setStatus({ kind: "ok", message: `Restarted ${id}.` });
     } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-      await refresh();
+      ed.setStatus({ kind: "err", message: String(err) });
+      await ed.refresh();
     }
   };
 
   return (
-    <div data-testid="mcp-servers-editor" className="flex h-[28rem] gap-3">
-      <aside className="w-48 flex-shrink-0 overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
-            MCP servers
-          </span>
-          <button
-            type="button"
-            data-testid="mcp-new"
-            onClick={newServer}
-            className="btn-secondary rounded px-2 py-0.5 text-[10px] uppercase tracking-wider transition"
-          >
-            New
-          </button>
-        </div>
-        {listError ? (
-          <p
-            data-testid="mcp-list-error"
-            className="px-2 py-1 text-[11px] text-[var(--danger)]"
-          >
-            {listError}
-          </p>
-        ) : list.length === 0 ? (
-          <p
-            data-testid="mcp-list-empty"
-            className="px-2 py-2 text-[11px] italic text-[var(--text-faint)]"
-          >
-            No servers registered yet. Click "New" or edit ~/.edytlab/mcp.json.
-          </p>
-        ) : (
-          <ul>
-            {list.map((s) => {
-              const isEditingRow =
-                editor.kind === "draft" && editor.entry.id === s.id;
-              return (
-                <li
-                  key={s.id}
+    <EditorLayout
+      testId="mcp-servers-editor"
+      asideWidth="w-48"
+      title="MCP servers"
+      newTestId="mcp-new"
+      onNew={ed.startNew}
+      listError={ed.listError}
+      listErrorTestId="mcp-list-error"
+      isEmpty={list.length === 0}
+      emptyTestId="mcp-list-empty"
+      emptyText='No servers registered yet. Click "New" or edit ~/.edytlab/mcp.json.'
+      list={
+        <ul>
+          {list.map((s) => {
+            const isEditingRow =
+              editor.kind === "draft" && editor.content.id === s.id;
+            return (
+              <li
+                key={s.id}
+                className={
+                  "border-b border-[var(--border)] " +
+                  (isEditingRow ? "bg-[var(--accent-soft)]" : "")
+                }
+              >
+                <button
+                  type="button"
+                  data-testid={`mcp-row-${s.id}`}
+                  onClick={() => void ed.open(s.id)}
                   className={
-                    "border-b border-[var(--border)] " +
-                    (isEditingRow ? "bg-[var(--accent-soft)]" : "")
+                    "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
+                    (isEditingRow
+                      ? "text-[var(--accent-text)]"
+                      : "text-[var(--text-dim)] hover:text-[var(--text)]")
                   }
                 >
-                  <button
-                    type="button"
-                    data-testid={`mcp-row-${s.id}`}
-                    onClick={() => void open(s.id)}
-                    className={
-                      "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
-                      (isEditingRow
-                        ? "text-[var(--accent-text)]"
-                        : "text-[var(--text-dim)] hover:text-[var(--text)]")
-                    }
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="truncate font-mono text-[11px]">
-                        {s.id}
-                      </span>
-                      <StatusBadge status={s.status} />
-                    </div>
-                    <div className="truncate text-[10px] text-[var(--text-faint)]">
-                      {s.transport}
-                      {s.status === "running" ? ` · ${s.tools_count} tools` : ""}
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid={`mcp-restart-${s.id}`}
-                    onClick={() => void handleRestart(s.id)}
-                    className="ml-2 mb-1 btn-secondary rounded px-1.5 py-0 text-[9px] uppercase tracking-wider transition"
-                  >
-                    Restart
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </aside>
-
-      <section className="flex flex-1 flex-col gap-2">
-        {editor.kind === "empty" ? (
-          <div
-            data-testid="mcp-editor-empty"
-            className="flex h-full items-center justify-center rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-faint)]"
-          >
-            Select a server or click "New" to add one.
-          </div>
-        ) : editor.kind === "loading" ? (
-          <div className="flex h-full items-center justify-center text-xs text-[var(--text-faint)]">
-            Loading {editor.id}…
-          </div>
-        ) : (
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="truncate font-mono text-[11px]">
+                      {s.id}
+                    </span>
+                    <StatusBadge status={s.status} />
+                  </div>
+                  <div className="truncate text-[10px] text-[var(--text-faint)]">
+                    {s.transport}
+                    {s.status === "running" ? ` · ${s.tools_count} tools` : ""}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  data-testid={`mcp-restart-${s.id}`}
+                  onClick={() => void handleRestart(s.id)}
+                  className="ml-2 mb-1 btn-secondary rounded px-1.5 py-0 text-[9px] uppercase tracking-wider transition"
+                >
+                  Restart
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      }
+    >
+      <EditorBody
+        editor={editor}
+        emptyTestId="mcp-editor-empty"
+        emptyClassName="flex h-full items-center justify-center rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-faint)]"
+        empty='Select a server or click "New" to add one.'
+        form={(d) => (
           <McpServerForm
-            key={editor.formKey}
-            entry={editor.entry}
-            isNew={editor.isNew}
-            onChange={(e) => setEditor({ ...editor, entry: e, dirty: true })}
+            key={d.formKey}
+            entry={d.content}
+            isNew={d.isNew}
+            onChange={ed.change}
           />
         )}
-
-        <div className="flex items-center justify-between gap-2">
-          <span
-            data-testid="mcp-status"
-            className={
-              "text-xs " +
-              (status.kind === "err"
-                ? "text-[var(--danger)]"
-                : status.kind === "ok"
-                ? "text-[var(--success)]"
-                : "text-[var(--text-faint)]")
-            }
-          >
-            {status.message}
-          </span>
-          <div className="flex items-center gap-2">
-            {editor.kind === "draft" && !editor.isNew ? (
-              <button
-                type="button"
-                data-testid="mcp-delete"
-                onClick={() => void handleDelete()}
-                className="btn-danger rounded-md px-3 py-1 text-xs transition"
-              >
-                Delete
-              </button>
-            ) : null}
-            <button
-              type="button"
-              data-testid="mcp-save"
-              disabled={
-                editor.kind !== "draft" ||
-                saving ||
-                !editor.dirty ||
-                editor.entry.id.trim() === ""
-              }
-              onClick={() => void handleSave()}
-              className="btn-primary px-3 py-1 text-xs transition"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
+      />
+      <EditorFooter
+        prefix="mcp"
+        editor={editor}
+        status={ed.status}
+        saving={ed.saving}
+        nameOf={(e) => e.id}
+        onDelete={() => void ed.remove()}
+        onSave={() => void ed.save()}
+      />
+    </EditorLayout>
   );
 }
 
@@ -498,21 +341,4 @@ function parseKv(text: string, sep: "=" | ":" = "="): Record<string, string> {
     if (k) out[k] = v;
   }
   return out;
-}
-
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <span className="block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
-        {label}
-      </span>
-      {children}
-    </div>
-  );
 }
