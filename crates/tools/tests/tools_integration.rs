@@ -845,6 +845,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "render_final",
             "render_preview",
             "reorder_effects",
+            "reorder_tracks",
             "repeat_selection",
             "resample_track",
             "reverb",

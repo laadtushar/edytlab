@@ -1648,3 +1648,36 @@ fn a_refused_call_adds_no_node() {
 
     assert_eq!(studio.node_count(), nodes + 1, "only the user's removal");
 }
+
+/// A reorder renumbers tracks, so it is a user edit the rule has to see
+/// (#771). The agent chose `time_stretch {track: 1}` when the tracks were
+/// drums, vocals, bass; the user then dragged bass to the top, so position 1
+/// is drums. The re-run must not stretch drums.
+#[test]
+fn a_reorder_while_a_tool_ran_does_not_send_the_rerun_to_another_track() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let drums = studio.clips_of("drums");
+    let vocals = studio.clips_of("vocals");
+    studio.then_the_user(UserEdit::Tool(
+        "reorder_tracks",
+        json!({ "track": 2, "new_index": 0 }),
+    ));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    let said = error_text(&result);
+    assert!(said.contains("not applied"), "{said}");
+    assert!(
+        said.contains("\"vocals\" is now track 2"),
+        "the model is told where the track it named went: {said}"
+    );
+    assert_eq!(studio.clips_of("drums"), drums, "drums were edited");
+    assert_eq!(studio.clips_of("vocals"), vocals, "nothing was applied");
+    // The user's reorder is kept, and the tool did not run a second time.
+    assert_eq!(studio.track_names(), ["bass", "drums", "vocals"]);
+    assert_eq!(
+        studio.runs(),
+        1,
+        "the tool ran again on a reordered session"
+    );
+}

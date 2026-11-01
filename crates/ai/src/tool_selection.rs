@@ -248,6 +248,7 @@ pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// reaches it by a [`CUES`] entry ("remove the vocals", "karaoke").
 const GENERIC_TOKENS: &[&str] = &[
     "track",
+    "tracks",
     "effect",
     "effects",
     "region",

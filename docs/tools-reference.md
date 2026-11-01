@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 101 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 102 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -91,6 +91,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`render_final`](#render_final) — Render a session node to a final audio file at the user's chosen path.
 - [`render_preview`](#render_preview) — Render a session node to a WAV file in the project's preview cache and return its path.
 - [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus").
+- [`reorder_tracks`](#reorder_tracks) — Move a track to new_index; the tracks between shift by one, so indices change.
 - [`repeat_selection`](#repeat_selection) — Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
@@ -954,6 +955,17 @@ Reorder a track's effect chain, the master bus's (scope "master") or a bus's (sc
 | `order` | array of integer | yes | A permutation of the current indices. Must list every effect exactly once. |
 | `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
 | `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
+
+## `reorder_tracks`
+
+Move a track to new_index; the tracks between shift by one, so indices change.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `new_index` | integer | yes |  |
+| `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `repeat_selection`
 

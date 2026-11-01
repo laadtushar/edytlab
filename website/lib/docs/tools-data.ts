@@ -57,6 +57,12 @@ export const toolAreas: ToolArea[] = [
             output: "node_id",
           },
           {
+            name: "reorder_tracks",
+            prompt: "move track 3 to the top",
+            what: "Move a track to a new position in the track list. The tracks between shift by one, so later calls must use the new indices.",
+            output: "node_id",
+          },
+          {
             name: "duplicate_track",
             prompt: "duplicate track 1",
             what: "Create an exact copy of a track (same clips, gain, pan, effects). The duplicate is appended after all existing tracks.",

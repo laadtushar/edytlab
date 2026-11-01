@@ -259,12 +259,12 @@ impl ToolDispatcher {
             NormalizeLoudnessTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool,
             PitchShiftTool, PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool,
             RemoveFillersTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool,
-            RenderPreviewTool, ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool,
-            ReverbTool, ReverseTool, RevertToTool, SelectRegionTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
-            SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool,
-            SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
-            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            RenderPreviewTool, ReorderEffectsTool, ReorderTracksTool, RepeatSelectionTool,
+            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SelectRegionTool,
+            SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
+            SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool,
+            SilenceRegionTool, SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool,
+            StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
             TranscriptToMarkersTool, TremoloTool, TrimTool, TruncateSilenceTool,
             VocalReductionTool,
         };
@@ -290,6 +290,7 @@ impl ToolDispatcher {
         d.register(Box::new(SetSendTool));
         d.register(Box::new(RemoveSendTool));
         d.register(Box::new(RemoveTrackTool));
+        d.register(Box::new(ReorderTracksTool));
         d.register(Box::new(SetTrackGainTool));
         d.register(Box::new(SetSyncLockTool));
         d.register(Box::new(RenderPreviewTool));
