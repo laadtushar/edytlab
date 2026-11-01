@@ -25,106 +25,23 @@
 //! * that a track's chain is untouched by a master edit, and the other
 //!   way round.
 
-use std::path::{Path, PathBuf};
-
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
 use session::{DiffOp, EffectScope};
-use tempfile::TempDir;
-use tools::{DispatchError, ToolContext, ToolDispatcher, ToolResult};
+use tools::DispatchError;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, Session};
 
 const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: usize = 44_100;
 
-/// A mono sine, `amp` of full scale.
-fn write_tone(dir: &Path, name: &str, freq: f32, amp: f32) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-/// A two-track session: 220 Hz and 330 Hz at 0.6 each. Their peaks line
-/// up every 1/110 s, so the sum reaches about 1.2 and the mix clips,
-/// which is the situation a limiter on the master is asked for in.
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-    renders: usize,
-}
-
 impl Session {
+    /// A two-track session: 220 Hz and 330 Hz at 0.6 each. Their peaks line
+    /// up every 1/110 s, so the sum reaches about 1.2 and the mix clips,
+    /// which is the situation a limiter on the master is asked for in.
     fn two_loud_tracks() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let a = write_tone(dir.path(), "a.wav", 220.0, 0.6);
-        let b = write_tone(dir.path(), "b.wav", 330.0, 0.6);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-            renders: 0,
-        };
-        ok(s.call("load", json!({ "path": a.to_string_lossy() })));
-        ok(s.call("load", json!({ "path": b.to_string_lossy() })));
-        s
-    }
-
-    /// The dispatcher's whole answer, including a schema rejection.
-    fn try_call(&mut self, tool: &str, args: Value) -> Result<ToolResult, DispatchError> {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx)
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        self.try_call(tool, args)
-            .unwrap_or_else(|e| panic!("{tool} was rejected before it ran: {e}"))
-    }
-
-    fn head(&self) -> session::NodeId {
-        self.store.head().expect("a head")
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store.get(self.head()).expect("head node").state
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("list nodes").len()
-    }
-
-    /// Render the head the way the app does, and return its PCM.
-    fn render(&mut self) -> Vec<i16> {
-        self.renders += 1;
-        let out = self.dir.path().join(format!("out-{}.wav", self.renders));
-        audio_engine::render_state_to_wav(&self.state(), &out, None).expect("render");
-        WavReader::open(&out)
-            .expect("open render")
-            .samples::<i16>()
-            .map(|r| r.expect("sample"))
-            .collect()
+        Session::with_tones(SAMPLE_RATE, FRAMES, &[(220.0, 0.6), (330.0, 0.6)])
     }
 
     fn add_master(&mut self, kind: &str, params: Value) -> Value {
@@ -132,20 +49,6 @@ impl Session {
             "add_effect",
             json!({ "scope": "master", "kind": kind, "params": params }),
         ))
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 
@@ -170,7 +73,7 @@ fn level(db: f32) -> f32 {
 #[test]
 fn a_limiter_added_to_the_master_bounds_the_rendered_mix() {
     let mut s = Session::two_loud_tracks();
-    let dry = s.render();
+    let dry = s.render_pcm(None);
     assert!(
         peak(&dry) > level(-3.0),
         "the premise failed: the dry mix peaks at {} and never needs limiting",
@@ -179,7 +82,7 @@ fn a_limiter_added_to_the_master_bounds_the_rendered_mix() {
 
     let v = s.add_master("limiter", json!({ "ceiling_db": -6.0 }));
     assert_eq!(v["effect_count"], 1, "{v}");
-    let limited = s.render();
+    let limited = s.render_pcm(None);
 
     assert_eq!(limited.len(), dry.len());
     let ceiling = level(-6.0);
@@ -218,10 +121,10 @@ fn a_limiter_added_to_the_master_bounds_the_rendered_mix() {
 fn a_gain_change_on_a_source_track_after_the_limiter_is_still_limited() {
     let mut s = Session::two_loud_tracks();
     s.add_master("limiter", json!({ "ceiling_db": -6.0 }));
-    let before = s.render();
+    let before = s.render_pcm(None);
 
     ok(s.call("set_track_gain", json!({ "track": 0, "db": 6.0 })));
-    let after = s.render();
+    let after = s.render_pcm(None);
 
     let ceiling = level(-6.0);
     assert!(
@@ -245,7 +148,7 @@ fn a_gain_change_on_a_source_track_after_the_limiter_is_still_limited() {
         json!({ "scope": "master", "effect_index": 0 }),
     ));
     assert!(
-        peak(&s.render()) > ceiling * 1.5,
+        peak(&s.render_pcm(None)) > ceiling * 1.5,
         "without the limiter the louder mix should be well over the ceiling"
     );
 }
@@ -255,22 +158,26 @@ fn a_gain_change_on_a_source_track_after_the_limiter_is_still_limited() {
 #[test]
 fn bypassing_or_removing_a_master_effect_renders_the_dry_mix_exactly() {
     let mut s = Session::two_loud_tracks();
-    let dry = s.render();
+    let dry = s.render_pcm(None);
     s.add_master("limiter", json!({ "ceiling_db": -6.0 }));
-    assert_ne!(s.render(), dry);
+    assert_ne!(s.render_pcm(None), dry);
 
     ok(s.call(
         "set_effect_bypassed",
         json!({ "scope": "master", "effect_index": 0, "bypassed": true }),
     ));
-    assert_eq!(s.render(), dry, "a bypassed master effect changed the mix");
+    assert_eq!(
+        s.render_pcm(None),
+        dry,
+        "a bypassed master effect changed the mix"
+    );
 
     ok(s.call(
         "set_effect_bypassed",
         json!({ "scope": "master", "effect_index": 0, "bypassed": false }),
     ));
     assert_ne!(
-        s.render(),
+        s.render_pcm(None),
         dry,
         "re-enabling it should bring the limiter back"
     );
@@ -279,7 +186,11 @@ fn bypassing_or_removing_a_master_effect_renders_the_dry_mix_exactly() {
         "remove_effect",
         json!({ "scope": "master", "effect_index": 0 }),
     ));
-    assert_eq!(s.render(), dry, "a removed master effect changed the mix");
+    assert_eq!(
+        s.render_pcm(None),
+        dry,
+        "a removed master effect changed the mix"
+    );
     assert!(s.state().master_chain.is_empty());
 }
 
@@ -289,7 +200,7 @@ fn bypassing_or_removing_a_master_effect_renders_the_dry_mix_exactly() {
 fn master_effect_params_are_editable_in_place() {
     let mut s = Session::two_loud_tracks();
     s.add_master("limiter", json!({ "ceiling_db": -6.0, "release_ms": 80.0 }));
-    let at_six = peak(&s.render());
+    let at_six = peak(&s.render_pcm(None));
 
     let v = ok(s.call(
         "set_effect_params",
@@ -301,7 +212,7 @@ fn master_effect_params_are_editable_in_place() {
         "a merge must keep the keys it was not given: {v}"
     );
 
-    let at_twelve = peak(&s.render());
+    let at_twelve = peak(&s.render_pcm(None));
     assert!(
         at_twelve <= level(-12.0) + 2.0 && at_twelve < at_six - 1_000.0,
         "lowering the ceiling from -6 to -12 dBFS should lower the peak: {at_six} -> {at_twelve}"
@@ -315,14 +226,14 @@ fn reordering_the_master_chain_changes_the_mix() {
     let mut s = Session::two_loud_tracks();
     s.add_master("gain", json!({ "db": 6.0 }));
     s.add_master("limiter", json!({ "ceiling_db": -6.0 }));
-    let gain_then_limit = s.render();
+    let gain_then_limit = s.render_pcm(None);
     assert!(peak(&gain_then_limit) <= level(-6.0) + 2.0);
 
     ok(s.call(
         "reorder_effects",
         json!({ "scope": "master", "order": [1, 0] }),
     ));
-    let limit_then_gain = s.render();
+    let limit_then_gain = s.render_pcm(None);
 
     assert_ne!(gain_then_limit, limit_then_gain);
     assert!(
@@ -565,7 +476,7 @@ fn a_master_reorder_must_be_a_permutation() {
 fn a_master_edit_is_an_undoable_node() {
     let mut s = Session::two_loud_tracks();
     let before = s.head();
-    let dry = s.render();
+    let dry = s.render_pcm(None);
 
     let v = s.add_master("limiter", json!({ "ceiling_db": -6.0 }));
     let after = s.head();
@@ -577,18 +488,18 @@ fn a_master_edit_is_an_undoable_node() {
         "the new node should hang off the head it was made from"
     );
     assert_eq!(s.state().master_chain.len(), 1);
-    let limited = s.render();
+    let limited = s.render_pcm(None);
     assert_ne!(limited, dry);
 
     // Undo: the head goes back, and the mix with it.
     s.store.set_head(before).expect("undo");
     assert!(s.state().master_chain.is_empty());
-    assert_eq!(s.render(), dry, "undo left the limiter on the mix");
+    assert_eq!(s.render_pcm(None), dry, "undo left the limiter on the mix");
 
     // Redo.
     s.store.set_head(after).expect("redo");
     assert_eq!(s.state().master_chain.len(), 1);
-    assert_eq!(s.render(), limited);
+    assert_eq!(s.render_pcm(None), limited);
 
     // And the agent's own undo, `revert_to`, lands on the same node.
     ok(s.call("revert_to", json!({ "target": before.to_hex() })));

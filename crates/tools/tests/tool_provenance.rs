@@ -18,84 +18,24 @@
 //!   would quietly drop one. That is the same drift `tool_badge_labels.rs`
 //!   and `website_tool_docs.rs` exist to catch, one surface over.
 
-use std::path::Path;
+use serde_json::json;
+use tools::ToolDispatcher;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_take, Session};
 
-const SAMPLE_RATE: u32 = 48_000;
-
-fn write_sine(dir: &Path, name: &str) -> std::path::PathBuf {
-    write_sine_at(&dir.join(name), 440.0)
-}
-
-/// Write a sine of `freq` to `path`, replacing whatever was there.
-/// Different frequency, different audio — which is the case a content
-/// hash has to notice.
-fn write_sine_at(path: &Path, freq: f32) -> std::path::PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-    src: std::path::PathBuf,
-}
-
+/// A session with `in.wav` written beside the project, not yet loaded.
 fn session() -> Session {
-    let tmp = TempDir::new().expect("tempdir");
-    let src = write_sine(tmp.path(), "in.wav");
-    let store = session::Store::open(tmp.path()).expect("open store");
-    Session {
-        store,
-        engine: audio_engine::Engine::new(),
-        dispatcher: ToolDispatcher::default_dispatcher(),
-        clipboard: None,
-        src,
-        dir: tmp,
-    }
+    let s = Session::empty();
+    write_take(&s.dir.path().join("in.wav"), 440.0);
+    s
 }
 
 impl Session {
-    fn call(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        ok(self.dispatcher.invoke(tool, args, &mut ctx).unwrap())
-    }
-
-    fn load(&mut self) {
-        let p = self.src.to_string_lossy().to_string();
-        self.call("load", json!({ "path": p }));
+    fn load_input(&mut self) {
+        let input = self.dir.path().join("in.wav");
+        self.load(&input);
     }
 
     fn head_op(&self) -> Option<session::NodeOp> {
@@ -112,8 +52,8 @@ impl Session {
 #[test]
 fn provenance_is_recorded_without_the_tool_knowing() {
     let mut s = session();
-    s.load();
-    s.call(
+    s.load_input();
+    s.ok(
         "silence_region",
         json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
     );
@@ -160,7 +100,7 @@ fn tools_reading_outside_the_session_are_marked_unreproducible() {
 #[test]
 fn loading_a_file_records_the_audio_it_imported() {
     let mut s = session();
-    s.load();
+    s.load_input();
     let op = s.head_op().expect("load records an op");
     assert_eq!(op.tool, "load");
     assert!(
@@ -185,7 +125,7 @@ fn loading_a_file_records_the_audio_it_imported() {
 #[test]
 fn a_changed_source_is_refused_and_named() {
     let mut s = session();
-    s.load();
+    s.load_input();
     let head = s.store.head().expect("head");
     assert!(
         tools::verify_chain(&s.store, head).is_empty(),
@@ -193,7 +133,7 @@ fn a_changed_source_is_refused_and_named() {
     );
 
     // Rewrite the source with different audio, same path.
-    write_sine_at(&s.dir.path().join("in.wav"), 880.0);
+    write_take(&s.dir.path().join("in.wav"), 880.0);
 
     let problems = tools::verify_chain(&s.store, head);
     let reasons: Vec<String> = problems.iter().map(|p| p.reason.clone()).collect();
@@ -211,7 +151,7 @@ fn a_changed_source_is_refused_and_named() {
 #[test]
 fn a_missing_source_is_refused_and_named() {
     let mut s = session();
-    s.load();
+    s.load_input();
     let head = s.store.head().expect("head");
     std::fs::remove_file(s.dir.path().join("in.wav")).expect("remove source");
 
@@ -231,12 +171,12 @@ fn a_missing_source_is_refused_and_named() {
 #[test]
 fn a_paste_closes_over_the_clipboard_it_spliced() {
     let mut s = session();
-    s.load();
-    s.call(
+    s.load_input();
+    s.ok(
         "copy_region",
         json!({ "track": 0, "range": { "start_sec": 0.0, "end_sec": 0.2 } }),
     );
-    s.call("paste_region", json!({ "track": 0, "at": 0.5 }));
+    s.ok("paste_region", json!({ "track": 0, "at": 0.5 }));
 
     let op = s.head_op().expect("paste records an op");
     assert_eq!(op.tool, "paste_region");
@@ -272,12 +212,12 @@ fn a_paste_closes_over_the_clipboard_it_spliced() {
 #[test]
 fn a_missing_clipboard_blob_is_reported() {
     let mut s = session();
-    s.load();
-    s.call(
+    s.load_input();
+    s.ok(
         "copy_region",
         json!({ "track": 0, "range": { "start_sec": 0.0, "end_sec": 0.2 } }),
     );
-    s.call("paste_region", json!({ "track": 0, "at": 0.5 }));
+    s.ok("paste_region", json!({ "track": 0, "at": 0.5 }));
 
     let dir = s.dir.path().join(".audiograph").join("clipboard");
     for entry in std::fs::read_dir(&dir).expect("clipboard dir").flatten() {
@@ -299,14 +239,14 @@ fn a_missing_clipboard_blob_is_reported() {
 #[test]
 fn a_read_only_tool_records_nothing() {
     let mut s = session();
-    s.load();
-    s.call(
+    s.load_input();
+    s.ok(
         "silence_region",
         json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
     );
     let before = s.store.head().expect("head");
 
-    s.call("storage_report", json!({}));
+    s.ok("storage_report", json!({}));
 
     assert_eq!(s.store.head(), Some(before), "the report moved the head");
     let op = s.head_op().expect("op");
@@ -323,14 +263,14 @@ fn a_read_only_tool_records_nothing() {
 #[test]
 fn the_first_recorded_op_wins() {
     let mut s = session();
-    s.load();
+    s.load_input();
     let loaded = s.store.head().expect("head after load");
 
     // `gain` accumulates, so +6 then -6 returns the session to exactly
     // the state it had after loading — and node ids are a hash of the
     // state, so the head lands back on the very same node.
-    s.call("gain", json!({ "track": 0, "db": 6.0 }));
-    s.call("gain", json!({ "track": 0, "db": -6.0 }));
+    s.ok("gain", json!({ "track": 0, "db": 6.0 }));
+    s.ok("gain", json!({ "track": 0, "db": -6.0 }));
 
     assert_eq!(
         s.store.head(),
@@ -351,8 +291,8 @@ fn the_first_recorded_op_wins() {
 #[test]
 fn recording_provenance_does_not_change_the_node_id() {
     let mut s = session();
-    s.load();
-    s.call(
+    s.load_input();
+    s.ok(
         "silence_region",
         json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
     );
@@ -373,14 +313,14 @@ fn recording_provenance_does_not_change_the_node_id() {
 #[test]
 fn the_storage_report_can_now_see_what_is_rebuildable() {
     let mut s = session();
-    s.load();
+    s.load_input();
     for end in [0.1, 0.2, 0.3, 0.4] {
-        s.call(
+        s.ok(
             "silence_region",
             json!({ "track": 0, "start_sec": 0.0, "end_sec": end }),
         );
     }
-    let v = s.call("storage_report", json!({}));
+    let v = s.ok("storage_report", json!({}));
 
     let files = v["history"]["files"].as_u64().expect("history files");
     let rebuildable = v["history"]["rebuildable_files"]

@@ -13,53 +13,17 @@
 use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use serde_json::{json, Value};
+use serde_json::json;
 use session::SessionState;
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
 /// Interleaved values shared by the two layouts.
 const VALUES: usize = 4_800;
 
-struct Project {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Project {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        match self
-            .dispatcher
-            .invoke(tool, args, &mut ctx)
-            .expect("invoke")
-        {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("`{tool}` failed: {m}"),
-        }
-    }
-
+impl Session {
     fn head_state(&self) -> SessionState {
         let head = self.store.head().expect("head");
         self.store.get(head).expect("head node").state
@@ -96,7 +60,7 @@ fn spec_of(path: &Path) -> (u32, u16, u32) {
 }
 
 /// What `path` renders to when it is the only track: the frames written.
-fn rendered_frames(project: &Project, track: usize) -> u64 {
+fn rendered_frames(project: &Session, track: usize) -> u64 {
     let mut state = project.head_state();
     state.tracks = vec![state.tracks[track].clone()];
     let out = project.dir.path().join(format!("only-{track}.wav"));
@@ -110,17 +74,17 @@ fn rendered_frames(project: &Project, track: usize) -> u64 {
 /// samples and a different layout.
 #[test]
 fn two_edits_with_the_same_samples_and_a_different_layout_get_different_files() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let mono = p.dir.path().join("mono-48k.wav");
     let stereo = p.dir.path().join("stereo-24k.wav");
     write_wav(&mono, 48_000, 1);
     write_wav(&stereo, 24_000, 2);
-    p.call("load", json!({ "path": mono }));
-    p.call("load", json!({ "path": stereo }));
+    p.ok("load", json!({ "path": mono }));
+    p.ok("load", json!({ "path": stereo }));
 
     // Polarity is applied sample by sample, so the two buffers stay equal.
-    p.call("invert", json!({ "track": 0 }));
-    p.call("invert", json!({ "track": 1 }));
+    p.ok("invert", json!({ "track": 0 }));
+    p.ok("invert", json!({ "track": 1 }));
 
     let (a, b) = (p.clip_file(0), p.clip_file(1));
     assert_ne!(
@@ -147,16 +111,16 @@ fn two_edits_with_the_same_samples_and_a_different_layout_get_different_files() 
 /// keeps its own layout.
 #[test]
 fn the_order_the_edits_are_made_in_changes_nothing() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let mono = p.dir.path().join("mono-48k.wav");
     let stereo = p.dir.path().join("stereo-24k.wav");
     write_wav(&mono, 48_000, 1);
     write_wav(&stereo, 24_000, 2);
-    p.call("load", json!({ "path": mono }));
-    p.call("load", json!({ "path": stereo }));
+    p.ok("load", json!({ "path": mono }));
+    p.ok("load", json!({ "path": stereo }));
 
-    p.call("invert", json!({ "track": 1 }));
-    p.call("invert", json!({ "track": 0 }));
+    p.ok("invert", json!({ "track": 1 }));
+    p.ok("invert", json!({ "track": 0 }));
 
     assert_eq!(spec_of(&p.clip_file(0)), (48_000, 1, VALUES as u32));
     assert_eq!(spec_of(&p.clip_file(1)), (24_000, 2, (VALUES / 2) as u32));
@@ -170,17 +134,17 @@ fn the_order_the_edits_are_made_in_changes_nothing() {
 /// a float exactly). The session rate is moved in between by resampling the
 /// loaded track, which is what changes it.
 fn same_samples_at_two_rates(tool: &str) {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let take = p.dir.path().join("take.wav");
     write_wav(&take, 48_000, 1);
-    p.call("load", json!({ "path": take }));
+    p.ok("load", json!({ "path": take }));
 
     let args = |seconds: f64, frequency: f64| match tool {
         "generate_tone" => json!({ "frequency_hz": frequency, "duration_sec": seconds }),
         _ => json!({ "duration_sec": seconds }),
     };
-    p.call(tool, args(1.0, 440.0));
-    p.call(
+    p.ok(tool, args(1.0, 440.0));
+    p.ok(
         "resample_track",
         json!({ "track": 0, "target_sample_rate": 24_000 }),
     );
@@ -189,7 +153,7 @@ fn same_samples_at_two_rates(tool: &str) {
         24_000,
         "the session now runs at 24 kHz, or this checks nothing"
     );
-    p.call(tool, args(2.0, 220.0));
+    p.ok(tool, args(2.0, 220.0));
 
     let (first, second) = (p.clip_file(1), p.clip_file(2));
     assert_ne!(first, second, "{tool}: one file for two session rates");
@@ -229,22 +193,22 @@ fn silent_flac(dir: &Path) -> PathBuf {
 
 /// `load` of a FLAC, then an edit that leaves it as it was, then an edit
 /// that does not (polarity: negative zeros hash differently).
-fn load_edit_edit() -> (Project, [session::NodeId; 3]) {
-    let mut p = Project::new();
+fn load_edit_edit() -> (Session, [session::NodeId; 3]) {
+    let mut p = Session::empty();
     let flac = silent_flac(p.dir.path());
-    p.call("load", json!({ "path": flac }));
+    p.ok("load", json!({ "path": flac }));
     let loaded = p.store.head().unwrap();
-    p.call(
+    p.ok(
         "silence_region",
         json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.25 }),
     );
     let same = p.store.head().unwrap();
-    p.call("invert", json!({ "track": 0 }));
+    p.ok("invert", json!({ "track": 0 }));
     let inverted = p.store.head().unwrap();
     (p, [loaded, same, inverted])
 }
 
-fn file_of(p: &Project, node: session::NodeId) -> PathBuf {
+fn file_of(p: &Session, node: session::NodeId) -> PathBuf {
     p.store.get(node).unwrap().state.tracks[0].clips[0]
         .source_path
         .clone()

@@ -15,82 +15,30 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use session::{NodeId, SessionNode, Store};
+use serde_json::json;
+use session::{NodeId, SessionNode};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_sine, Session};
 use tempfile::TempDir;
 use tools::provenance::{audio_hash, derived_dir, legacy_sample_hash_name, legacy_stem};
-use tools::{ToolContext, ToolDispatcher, ToolResult};
 
 const SR: u32 = 48_000;
+
+fn write_take(path: &Path) {
+    write_sine(path, SR, 440.0, 8_000.0 / 32_767.0, SR as usize);
+}
 
 /// Edits at these seconds, each a tenth of a second long.
 const EDITS: [f64; 3] = [0.0, 0.3, 0.6];
 
-fn write_take(path: &Path) {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..SR as usize {
-        let t = n as f32 / SR as f32;
-        w.write_sample(((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-}
-
-struct Session {
-    dir: TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = Store::open(dir.path()).expect("store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        match self
-            .dispatcher
-            .invoke(tool, args, &mut ctx)
-            .expect("invoke")
-        {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("`{tool}` failed: {m}"),
-        }
-    }
-
     fn silence(&mut self, start_sec: f64) {
-        self.call(
+        self.ok(
             "silence_region",
             json!({ "track": 0, "start_sec": start_sec, "end_sec": start_sec + 0.1 }),
         );
-    }
-
-    fn head(&self) -> NodeId {
-        self.store.head().expect("head")
     }
 
     fn node(&self, id: NodeId) -> SessionNode {
@@ -139,13 +87,13 @@ impl Session {
 /// blake3 of the samples, which is what the older build named it by).
 /// `corrupt` gives the first edit a name its samples never had.
 fn project_from_before(take: &Path, corrupt: bool) -> Session {
-    let mut now = Session::new();
-    now.call("load", json!({ "path": take }));
+    let mut now = Session::empty();
+    now.ok("load", json!({ "path": take }));
     for start in EDITS {
         now.silence(start);
     }
 
-    let mut old = Session::new();
+    let mut old = Session::empty();
     let mut first_edit = true;
     for node in now.chain() {
         let mut state = node.state.clone();
@@ -245,8 +193,8 @@ fn a_new_edit_is_named_by_audio_hash_and_records_the_older_hash() {
     let tmp = TempDir::new().expect("tempdir");
     let take = tmp.path().join("take.wav");
     write_take(&take);
-    let mut s = Session::new();
-    s.call("load", json!({ "path": take }));
+    let mut s = Session::empty();
+    s.ok("load", json!({ "path": take }));
     s.silence(EDITS[0]);
 
     let mut samples = audio_decoder::decode_file(&take).expect("decode").samples;
