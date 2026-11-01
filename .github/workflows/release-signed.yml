@@ -165,7 +165,7 @@ jobs:
       matrix:
         platform:
           - name: macos-universal
-            runner: macos-14
+            runner: macos-15
             # A universal binary needs BOTH slices installed. The
             # runner is arm64, so x86_64-apple-darwin is absent unless
             # asked for — and `rust-toolchain.toml` declares no
@@ -204,7 +204,7 @@ jobs:
 
       # ── Preflight: fail in seconds, not after a 40-minute build ──
       - name: Verify Apple secrets are set
-        if: matrix.platform.runner == 'macos-14'
+        if: matrix.platform.runner == 'macos-15'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -470,7 +470,7 @@ jobs:
 
       # ── Verify (macOS) ──────────────────────────────────────────
       - name: Verify Gatekeeper acceptance and notarization staple
-        if: matrix.platform.runner == 'macos-14'
+        if: matrix.platform.runner == 'macos-15'
         env:
           ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
         run: |
