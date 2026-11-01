@@ -222,7 +222,8 @@ impl StemFile {
 ///
 /// Takes the audio by value so that the decoded samples are freed as soon as
 /// the network's input is made (see the module docs). Reports through
-/// `control.progress` and reads `control.cancel` before every segment. On
+/// `control.progress` and reads `control.cancel` before every segment and once more before the
+/// entry is published. On
 /// cancel or any error, nothing is left at `dest` or beside it. If `dest`
 /// became a whole entry meanwhile (another run finished it first), that entry
 /// stays and its paths are returned.
@@ -270,6 +271,12 @@ pub fn separate_to_dir<M: SegmentModel + ?Sized>(
     let mut clipped = [0u64; 4];
     for (slot, file) in clipped.iter_mut().zip(files) {
         *slot = file.finish()?;
+    }
+    // A Cancel pressed during the last (or only) segment is read nowhere
+    // else: the segment loop checks before each segment, and publishing is
+    // what makes the entry visible to every later run.
+    if (control.cancel)() {
+        return Err(DemucsError::Cancelled);
     }
     let published = pending.publish()?;
     Ok(Separated {
@@ -563,6 +570,41 @@ mod tests {
             0,
             "no temporary directory either"
         );
+    }
+
+    /// A Cancel pressed while the only (or last) segment runs is honoured:
+    /// nothing is published.
+    #[test]
+    fn a_cancel_during_the_last_segment_publishes_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("abc123");
+        let flag = Cell::new(false);
+        struct Cancelling<'a>(Quarters, &'a Cell<bool>);
+        impl SegmentModel for Cancelling<'_> {
+            fn segment_samples(&self) -> usize {
+                self.0.segment_samples()
+            }
+            fn sources(&self) -> &[&'static str] {
+                self.0.sources()
+            }
+            fn separate_segment(&mut self, s: &Stereo) -> Result<Vec<Stereo>> {
+                self.1.set(true);
+                self.0.separate_segment(s)
+            }
+        }
+        let mut model = Cancelling(Quarters::new(), &flag);
+        let cancel = || flag.get();
+        let control = Control {
+            cancel: &cancel,
+            progress: &|_, _| {},
+        };
+        // Shorter than one segment: the model runs exactly once.
+        let err =
+            separate_to_dir(&mut model, audio(SEG / 2, 44_100, 2), &dest, &control).unwrap_err();
+        assert!(matches!(err, DemucsError::Cancelled), "{err:?}");
+        assert!(!dest.exists());
+        assert!(crate::read_cached_stems(&dest).is_none());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
 
     #[test]

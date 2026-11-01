@@ -18,16 +18,15 @@
 //!   `ModelMissing`;
 //! - a model configured but no ONNX Runtime library to load it with —
 //!   `RuntimeUnavailable` (this used to hang the agent, #383);
-//! - a model configured and loaded — [`DemucsModel::separate`] returns
-//!   `NotImplemented`.
+//! - a model configured and loaded — the tool still ends in the same error,
+//!   because it is not wired to the inference yet. The inference exists
+//!   ([`DemucsModel::separate_to_dir`], #385) and the tool is connected to it
+//!   in a following change.
 //!
-//! The last is the one that matters: **dropping an `.onnx` into place
-//! does not enable separation.** What is missing is the ORT decode
-//! loop, an M28 deliverable, not the file. This module used to say the
-//! opposite, and the error called itself actionable (#233).
-//!
-//! The caching path and tool dispatch are fully wired, so the decoder
-//! lands into a shape that already works.
+//! The last is the one that matters: **dropping a model into place does not
+//! enable separation in this build.** What is missing is the call from this
+//! tool to [`DemucsModel::separate_to_dir`], not the file. This module used to
+//! say the opposite, and the error called itself actionable (#233).
 //!
 //! ## Out of memory
 //!
@@ -51,10 +50,10 @@ use crate::{Tool, ToolContext, ToolResult};
 ///
 /// Named a fetch-models shell script until #233; that script has never
 /// been in the repository, and following it would not have helped
-/// anyway — `DemucsModel::separate` is a stub that always returns
-/// `NotImplemented`, so no model file produces stems.
+/// anyway — this tool does not call [`DemucsModel::separate_to_dir`] yet, so
+/// no model file produces stems through it.
 const INSTALL_HINT: &str = "stem separation is not implemented in this build: Demucs inference is \
-     a stub, so no DEMUCS_MODEL_PATH setting will produce stems. There is no setup that makes \
+     not connected to this tool yet, so no DEMUCS_MODEL_PATH setting will produce stems. There is no setup that makes \
      this work today; it is tracked post-v1 (#233)";
 
 /// Process-wide cache of `(model_path, &'static DemucsModel)`. One
@@ -126,7 +125,7 @@ impl Tool for SeparateStemsTool {
             "separate_stems",
             "NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file \
              and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached \
-             by content hash. Inference is a stub, so this always returns an error and there is \
+             by content hash. The tool is not connected to the inference yet, so this always returns an error and there is \
              no setup that changes that — do not suggest installing a model or setting \
              DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build \
              instead.",
