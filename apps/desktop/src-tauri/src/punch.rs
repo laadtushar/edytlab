@@ -19,7 +19,9 @@
 //! 3. Renders the head over `[start - pre-roll, end + post-roll)` twice, on
 //!    the engine: the mix as it is, and the same state with the target
 //!    track muted, which is a clone in memory and never a node. The engine's
-//!    lock is held for the two renders and let go.
+//!    lock is held for the two renders and let go. Cancel is checked at
+//!    render-block boundaries under that lock, then once more after it is
+//!    released and before either monitor file is read.
 //! 4. Plays them to the performer (as-is outside the region, muted inside)
 //!    while recording the microphone, and cuts the take out at the pair's
 //!    latency (`recorder::punch`). Neither lock is held: this is the long
@@ -217,7 +219,8 @@ fn render_pair(
     req: &Request,
     dir: &std::path::Path,
     range: audio_engine::TimeRange,
-) -> Result<(Rendered, Rendered), String> {
+    cancel: &dyn Fn() -> bool,
+) -> Result<Option<(Rendered, Rendered)>, String> {
     let as_is_path = dir.join("as-is.wav");
     let muted_path = dir.join("muted.wav");
     // A clone with the track out of the mix: muted, and not soloed, because
@@ -229,13 +232,34 @@ fn render_pair(
     muted.tracks[req.track].soloed = false;
     let could_not =
         |e: audio_engine::Error| format!("could not render the mix for the monitor: {e}");
-    let muted_render = {
-        let engine = lock(&state.engine, "engine")?;
-        engine
-            .render_to_wav(&snap.state, &as_is_path, Some(range))
-            .map_err(could_not)?;
-        engine.render_to_wav(&muted, &muted_path, Some(range))
+    if cancel() {
+        return Ok(None);
+    }
+    let engine = lock(&state.engine, "engine")?;
+    if cancel() {
+        return Ok(None);
+    }
+    match engine
+        .render_range_to_wav_cancellable(&snap.state, &as_is_path, range, cancel)
+        .map_err(could_not)?
+    {
+        audio_engine::RenderOutcome::Complete(_) => {}
+        audio_engine::RenderOutcome::Cancelled => return Ok(None),
+    }
+    if cancel() {
+        return Ok(None);
+    }
+    let muted_render = engine.render_range_to_wav_cancellable(&muted, &muted_path, range, cancel);
+    let muted_render = match muted_render {
+        Ok(audio_engine::RenderOutcome::Complete(_)) => Ok(()),
+        Ok(audio_engine::RenderOutcome::Cancelled) => return Ok(None),
+        Err(audio_engine::Error::InvalidRange) => Err(audio_engine::Error::InvalidRange),
+        Err(e) => return Err(could_not(e)),
     };
+    drop(engine);
+    if cancel() {
+        return Ok(None);
+    }
     let read = |p: &PathBuf| punch::read_wav(p).map_err(|e| e.to_string());
     let as_is = read(&as_is_path)?;
     let muted = match muted_render {
@@ -252,7 +276,7 @@ fn render_pair(
         },
         Err(e) => return Err(could_not(e)),
     };
-    Ok((as_is, muted))
+    Ok(Some((as_is, muted)))
 }
 
 /// What `run` ends with besides an error.
@@ -273,8 +297,9 @@ fn region_frames(start_sec: f64, end_sec: f64, rate: u32) -> (u64, u64) {
     )
 }
 
-/// Punch in. See the module docs. `cancel` is polled while the take is
-/// recorded and between the steps; `report` gets the progress events.
+/// Punch in. See the module docs. `cancel` is polled at monitor-render block
+/// boundaries, while the take is recorded and between the steps; `report`
+/// gets the progress events.
 pub fn run(
     state: &AppState,
     audio: &dyn Audio,
@@ -316,7 +341,7 @@ pub fn run(
         .prefix("edytlab-punch-")
         .tempdir()
         .map_err(|e| format!("could not make a folder for the renders: {e}"))?;
-    let (as_is, muted) = render_pair(
+    let rendered = render_pair(
         state,
         &snap,
         req,
@@ -325,7 +350,12 @@ pub fn run(
             start_frame,
             end_frame,
         },
+        cancel,
     )?;
+    let (as_is, muted) = match rendered {
+        Some(rendered) => rendered,
+        None => return Ok(cancelled()),
+    };
     let monitor = punch::build_monitor(&as_is, &muted, region, pair.out_sr, pair.out_ch)
         .map_err(|e| e.to_string())?;
     drop((as_is, muted));
@@ -683,6 +713,20 @@ mod tests {
         }
     }
 
+    fn take_blob_inventory(project: &Project) -> Vec<std::ffi::OsString> {
+        let dir = tools::provenance::clipboard_dir(&project._dir.path().join("project"));
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+            Err(e) => panic!("could not inspect take blobs: {e}"),
+        };
+        let mut files: Vec<_> = entries
+            .map(|entry| entry.expect("read take blob entry").file_name())
+            .collect();
+        files.sort();
+        files
+    }
+
     fn req() -> Request {
         Request::new(0, 1.0, 2.0, Some(0.5), Some(0.25)).unwrap()
     }
@@ -839,6 +883,159 @@ mod tests {
         let out = run(&p.state, &fake, &store, &req(), &|| true, &|_| {}).unwrap();
         assert_eq!(out, json!({ "cancelled": true }));
         assert_eq!(fake.calls.get(), 0);
+    }
+
+    #[test]
+    fn a_cancel_while_preparing_the_monitor_plays_nothing() {
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let before_head = p.head();
+        let before_nodes = p.nodes();
+        let blobs_before = take_blob_inventory(&p);
+        let fake = Fake::new();
+
+        let out = run(
+            &p.state,
+            &fake,
+            &store,
+            &req(),
+            &|| {
+                matches!(
+                    p.state.engine.try_lock(),
+                    Err(std::sync::TryLockError::WouldBlock)
+                )
+            },
+            &|_| {},
+        )
+        .expect("render-time cancel is not an error");
+
+        assert_eq!(out, json!({ "cancelled": true }));
+        assert_eq!(fake.calls.get(), 0, "the monitor was not played");
+        assert_eq!(p.head(), before_head);
+        assert_eq!(p.nodes(), before_nodes);
+        assert_eq!(take_blob_inventory(&p), blobs_before);
+        assert!(
+            p.state.engine.try_lock().is_ok(),
+            "engine lock was released"
+        );
+        let store_handle = p.state.store_handle().unwrap();
+        assert!(store_handle.try_lock().is_ok(), "store lock was released");
+    }
+
+    #[test]
+    fn cancelling_the_first_render_skips_the_muted_render() {
+        let p = project();
+        let request = req();
+        let snap = snapshot(&p.state, &request).unwrap();
+        let before_head = p.head();
+        let before_nodes = p.nodes();
+        let blobs_before = take_blob_inventory(&p);
+        let dir = tempfile::tempdir().unwrap();
+        let as_is_path = dir.path().join("as-is.wav");
+        let muted_path = dir.path().join("muted.wav");
+        let saw_cancel = Cell::new(false);
+        let store_handle = p.state.store_handle().unwrap();
+        let cancel = || {
+            let during_render = matches!(
+                p.state.engine.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            );
+            if during_render {
+                assert!(store_handle.try_lock().is_ok(), "store lock stays separate");
+            }
+            let should_cancel = during_render && as_is_path.exists();
+            saw_cancel.set(saw_cancel.get() || should_cancel);
+            should_cancel
+        };
+
+        let result = render_pair(
+            &p.state,
+            &snap,
+            &request,
+            dir.path(),
+            audio_engine::TimeRange {
+                start_frame: 0,
+                end_frame: SESSION_SR as u64,
+            },
+            &cancel,
+        )
+        .unwrap();
+
+        assert!(result.is_none(), "the cancelled render produced no pair");
+        assert!(
+            saw_cancel.get(),
+            "cancel was observed during the first render"
+        );
+        assert!(as_is_path.is_file(), "the first render had started");
+        assert!(
+            punch::read_wav(&as_is_path).unwrap().samples.is_empty(),
+            "cancellation reached the first renderer before it wrote output"
+        );
+        assert!(!muted_path.exists(), "the muted render was never started");
+        assert_eq!(p.head(), before_head);
+        assert_eq!(p.nodes(), before_nodes);
+        assert_eq!(take_blob_inventory(&p), blobs_before);
+        assert!(
+            p.state.engine.try_lock().is_ok(),
+            "engine lock was released"
+        );
+        assert!(store_handle.try_lock().is_ok(), "store lock was released");
+    }
+
+    #[test]
+    fn cancelling_the_muted_render_returns_no_pair_or_project_changes() {
+        let p = project();
+        let request = req();
+        let snap = snapshot(&p.state, &request).unwrap();
+        let before_head = p.head();
+        let before_nodes = p.nodes();
+        let blobs_before = take_blob_inventory(&p);
+        let dir = tempfile::tempdir().unwrap();
+        let as_is_path = dir.path().join("as-is.wav");
+        let muted_path = dir.path().join("muted.wav");
+        let saw_cancel = Cell::new(false);
+        let store_handle = p.state.store_handle().unwrap();
+        let cancel = || {
+            let during_render = matches!(
+                p.state.engine.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            );
+            if during_render {
+                assert!(store_handle.try_lock().is_ok(), "store lock stays separate");
+            }
+            let should_cancel = during_render && muted_path.exists();
+            saw_cancel.set(saw_cancel.get() || should_cancel);
+            should_cancel
+        };
+
+        let result = render_pair(
+            &p.state,
+            &snap,
+            &request,
+            dir.path(),
+            audio_engine::TimeRange {
+                start_frame: 0,
+                end_frame: SESSION_SR as u64,
+            },
+            &cancel,
+        )
+        .unwrap();
+
+        assert!(result.is_none(), "the cancelled render produced no pair");
+        assert!(
+            saw_cancel.get(),
+            "cancel was observed during the muted render"
+        );
+        assert!(as_is_path.is_file(), "the first render completed");
+        assert!(muted_path.is_file(), "the muted render had started");
+        assert_eq!(p.head(), before_head);
+        assert_eq!(p.nodes(), before_nodes);
+        assert_eq!(take_blob_inventory(&p), blobs_before);
+        assert!(
+            p.state.engine.try_lock().is_ok(),
+            "engine lock was released"
+        );
+        assert!(store_handle.try_lock().is_ok(), "store lock was released");
     }
 
     #[test]
@@ -1147,23 +1344,25 @@ mod tests {
         let p = project();
         let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
         let nodes = p.nodes();
-        let polls = Cell::new(0);
-        // Not cancelled before or during the recording (the fake never
-        // polls); cancelled the third time it is asked: the one after the
-        // take is cut.
+        let applying = Cell::new(false);
+        let fake = Fake::new();
+        // Cancel becomes available only after the recording is over, as
+        // signalled by the phase report rather than a brittle poll count.
         let out = run(
             &p.state,
-            &Fake::new(),
+            &fake,
             &store,
             &req(),
-            &|| {
-                polls.set(polls.get() + 1);
-                polls.get() >= 3
+            &|| applying.get(),
+            &|event| {
+                if event["phase"] == APPLYING {
+                    applying.set(true);
+                }
             },
-            &|_| {},
         )
         .unwrap();
         assert_eq!(out, json!({ "cancelled": true }));
+        assert_eq!(fake.calls.get(), 1, "recording finished before cancel");
         assert_eq!(p.nodes(), nodes);
     }
 
