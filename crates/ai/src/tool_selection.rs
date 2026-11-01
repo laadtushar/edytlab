@@ -811,8 +811,14 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// The room the built-in names must leave in the names line for MCP
-    /// names: about sixteen tools of an ordinary server.
-    const MCP_ROOM_BYTES: usize = 400;
+    /// names: about fourteen tools of an ordinary server. It was 400 B
+    /// (about sixteen) until `find_markers`, `add_markers`, `edit_markers`
+    /// and `delete_markers` (#766) added 57 B of built-in names. The budget
+    /// ([`SLIM_NAMES_BUDGET_BYTES`]) was not raised with them, because the
+    /// request with 60 MCP tools registered is the budget's size, and
+    /// `tests/request_size.rs` holds that 500 B under the bound, which 57 B
+    /// more would break: so the room is what is left, 343 B.
+    const MCP_ROOM_BYTES: usize = 340;
 
     fn all_tools() -> Value {
         ToolDispatcher::default_dispatcher().tool_schemas()

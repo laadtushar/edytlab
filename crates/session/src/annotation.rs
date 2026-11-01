@@ -69,6 +69,114 @@ impl AnnotationKind {
     }
 }
 
+/// The most characters a label's name may hold when the agent sets it. The
+/// window's box has no limit; a name goes into the session block and every
+/// listing, so a tool refuses one that would fill them.
+pub const MAX_NAME_CHARS: usize = 200;
+
+/// A marker's time must be a place on the timeline: finite and not before
+/// its start. A label at a negative time cannot be seen, sought to or
+/// deleted. There is deliberately no upper bound: the session's length is
+/// not known to every caller, and a label past the end stays addressable.
+///
+/// The one rule the window's `add_marker` and `update_marker` and the
+/// agent's marker tools share, so they cannot disagree about what a label
+/// may be. The text is what the person or the model reads.
+pub fn check_marker_time(time_sec: f64) -> Result<(), String> {
+    if !time_sec.is_finite() || time_sec < 0.0 {
+        return Err(format!("time must be finite and >= 0; got {time_sec}"));
+    }
+    Ok(())
+}
+
+/// A region must be finite with its end after its start, which is not
+/// before the timeline's start.
+pub fn check_region(start_sec: f64, end_sec: f64) -> Result<(), String> {
+    if !start_sec.is_finite() || !end_sec.is_finite() || start_sec < 0.0 || end_sec <= start_sec {
+        return Err(format!(
+            "region must be finite with end > start >= 0; got {start_sec}..{end_sec}"
+        ));
+    }
+    Ok(())
+}
+
+/// A change to one label, as the window's `update_marker` and the agent's
+/// `edit_markers` both ask for it. Every field is optional and a field left
+/// out is left alone.
+///
+/// `time` moves the label to that time: a marker sits there, a region
+/// starts there and keeps its length ([`AnnotationKind::starting_at`]).
+/// `start` and `end` set a region's edges. The two are not mixed in one
+/// edit.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AnnotationEdit {
+    pub name: Option<String>,
+    pub time: Option<f64>,
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+}
+
+impl AnnotationEdit {
+    /// The checks that need no stored label: a marker and a region are
+    /// different shapes, and accepting both in one edit means silently
+    /// picking one. That hides a caller bug (a UI sending `time` beside a
+    /// stale `start`), so a mixed edit is refused. A time must be a place
+    /// on the timeline, and edges given together must make a region.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.time.is_some() && (self.start.is_some() || self.end.is_some()) {
+            return Err(
+                "pass either `time` (a marker) or `start` and `end` (a region), not both".into(),
+            );
+        }
+        if let Some(t) = self.time {
+            check_marker_time(t)?;
+        }
+        if let (Some(s), Some(e)) = (self.start, self.end) {
+            check_region(s, e)?;
+        }
+        Ok(())
+    }
+
+    /// The kind `existing` becomes, or `None` when the edit does not touch
+    /// its shape or place (a rename alone).
+    ///
+    /// Both edges make the label a region, whatever it was. One edge
+    /// resizes a region and keeps the other; a point marker has no other
+    /// edge to keep, so it is refused rather than guessed at.
+    pub fn resolve(&self, existing: &AnnotationKind) -> Result<Option<AnnotationKind>, String> {
+        self.validate()?;
+        if let Some(t) = self.time {
+            return Ok(Some(existing.starting_at(t)));
+        }
+        match (self.start, self.end) {
+            (None, None) => Ok(None),
+            (Some(start_sec), Some(end_sec)) => {
+                Ok(Some(AnnotationKind::Region { start_sec, end_sec }))
+            }
+            (start, end) => match *existing {
+                AnnotationKind::Region {
+                    start_sec: s,
+                    end_sec: e,
+                } => {
+                    let (start_sec, end_sec) = (start.unwrap_or(s), end.unwrap_or(e));
+                    check_region(start_sec, end_sec)?;
+                    Ok(Some(AnnotationKind::Region { start_sec, end_sec }))
+                }
+                AnnotationKind::Marker { .. } => Err(
+                    "a point marker has no start or end to change by itself; give `start` and \
+                     `end` to make it a region, or `time` to move it"
+                        .into(),
+                ),
+            },
+        }
+    }
+
+    /// Whether the edit names nothing to change.
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none() && self.time.is_none() && self.start.is_none() && self.end.is_none()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: AnnotationId,
@@ -137,6 +245,60 @@ mod tests {
             end_sec: 0.3,
         };
         assert_eq!(k.starting_at(0.1), k);
+    }
+
+    #[test]
+    fn an_edit_is_read_the_same_for_every_caller() {
+        let marker = AnnotationKind::Marker { time_sec: 4.0 };
+        let region = AnnotationKind::Region {
+            start_sec: 10.0,
+            end_sec: 14.0,
+        };
+        let edit = |time, start, end| AnnotationEdit {
+            name: None,
+            time,
+            start,
+            end,
+        };
+        // A rename alone leaves the shape.
+        assert_eq!(edit(None, None, None).resolve(&marker), Ok(None));
+        // `time` moves, keeping a region's length.
+        assert_eq!(
+            edit(Some(1.0), None, None).resolve(&region),
+            Ok(Some(AnnotationKind::Region {
+                start_sec: 1.0,
+                end_sec: 5.0
+            }))
+        );
+        // One edge resizes a region; a point marker has none to keep.
+        assert_eq!(
+            edit(None, None, Some(20.0)).resolve(&region),
+            Ok(Some(AnnotationKind::Region {
+                start_sec: 10.0,
+                end_sec: 20.0
+            }))
+        );
+        assert!(edit(None, None, Some(20.0)).resolve(&marker).is_err());
+        // Both edges make a region of anything.
+        assert_eq!(
+            edit(None, Some(1.0), Some(2.0)).resolve(&marker),
+            Ok(Some(AnnotationKind::Region {
+                start_sec: 1.0,
+                end_sec: 2.0
+            }))
+        );
+        // Mixed, backwards and negative are refused.
+        assert!(edit(Some(1.0), Some(1.0), Some(2.0)).validate().is_err());
+        assert!(edit(None, Some(2.0), Some(2.0)).validate().is_err());
+        assert!(edit(Some(-0.5), None, None).validate().is_err());
+        assert!(edit(None, Some(12.0), None)
+            .resolve(&AnnotationKind::Region {
+                start_sec: 10.0,
+                end_sec: 11.0
+            })
+            .is_err());
+        assert!(check_marker_time(f64::NAN).is_err());
+        assert!(check_marker_time(0.0).is_ok());
     }
 
     #[test]

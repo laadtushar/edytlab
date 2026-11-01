@@ -717,8 +717,8 @@ export const toolAreas: ToolArea[] = [
   },
   {
     slug: "history-and-session",
-    title: "History, Markers and Session",
-    summary: "Fork, revert and compare session states, name them, manage markers and labels, and keep the session lean.",
+    title: "History and Session",
+    summary: "Fork, revert and compare session states, name them, list the session a page at a time, and keep it lean.",
     sections: [
       {
         title: "DAG Operations",
@@ -756,36 +756,6 @@ export const toolAreas: ToolArea[] = [
         ],
       },
       {
-        title: "Annotations",
-        tools: [
-          {
-            name: "label",
-            prompt: 'mark the chorus at 1:05',
-            what: "Add a named point marker or region annotation to the timeline.",
-            output: "annotation_id",
-          },
-          {
-            name: "import_labels",
-            prompt: "import these Audacity labels",
-            what: "Import Audacity-format label text into the session as annotations. Format: each line is 'start_sec TAB end_sec TAB name'.",
-            output: "node_id",
-          },
-          {
-            name: "export_labels",
-            prompt: "export the markers as labels",
-            what: "Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).",
-            output: "label text",
-          },
-          {
-            name: "transcript_to_markers",
-            prompt: "add a marker at each transcript sentence",
-            what: "Add point markers at the starts of the stored transcript's segments (default) or sentences (mode). A file or unknown-source transcript needs an explicit offset_sec, even 0. Each label is the first six words, at most 80 characters.",
-            output: "node_id, marker_count, skipped_count, time_basis, time_note, source, applied_offset_sec, summary",
-            note: "Run transcribe first. Times are as transcribed, not re-timed: moving the clip afterwards makes them stale. A marker with the same name and time (within 1 ms) is skipped, and a run that adds none appends no node. One undoable step; no audio changes.",
-          },
-        ],
-      },
-      {
         title: "Session Management",
         tools: [
           {
@@ -808,6 +778,71 @@ export const toolAreas: ToolArea[] = [
             what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file; audio nothing references goes when the project opens, and past 2 GiB the oldest audio only undo history holds is swept, once a replay has rebuilt it. Reads only — it deletes nothing.",
             output: "total_bytes, live, history, unreferenced, preview_cache, clipboard_blobs",
             note: "Pair it with compact_session, which does the reclaiming — this is the before-and-after measurement.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "markers",
+    title: "Markers and Labels",
+    summary: "Place, find, rename, move, resize and delete markers and regions, add them in batches or at regular intervals, and move them in and out as Audacity labels.",
+    sections: [
+      {
+        title: "Markers and Regions",
+        tools: [
+          {
+            name: "label",
+            prompt: 'mark the chorus at 1:05',
+            what: "Add a named point marker or region annotation to the timeline.",
+            output: "annotation_id",
+          },
+          {
+            name: "import_labels",
+            prompt: "import these Audacity labels",
+            what: "Import Audacity-format label text into the session as annotations. Format: each line is 'start_sec TAB end_sec TAB name'.",
+            output: "node_id",
+          },
+          {
+            name: "export_labels",
+            prompt: "export the markers as labels",
+            what: "Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).",
+            output: "label text",
+          },
+          {
+            name: "find_markers",
+            prompt: "list the markers named chorus",
+            what: "Find markers and regions by name (any case, part of it) and/or time range, in time order, with the ids edit_markers and delete_markers take. Regions that overlap the range count.",
+            output: "text, summary, next_offset",
+            note: "Read-only, so Plan first never holds it. Pages like list_session: at most 4 KB or 100 lines a call, with next_offset for the rest.",
+          },
+          {
+            name: "add_markers",
+            prompt: "put a chapter marker every 5 minutes",
+            what: "Add several markers or regions in one step: a list of {name, time} or {name, start, end}, or a marker every N seconds from a start to an end (default the session's end), named from a template such as \"Chapter {n}\".",
+            output: "node_id, added, summary",
+            note: "At most 500 a call; an interval that would place more is refused before any is. One undoable step.",
+          },
+          {
+            name: "edit_markers",
+            prompt: "rename the second marker and move it to 1:30",
+            what: "Rename, move or resize markers by id. time moves one (a region keeps its length); start and/or end set a region's edges.",
+            output: "node_id, edited, summary",
+            note: "All or nothing: an unknown id or an impossible region changes nothing. One undoable step. The label lane uses the same rules.",
+          },
+          {
+            name: "delete_markers",
+            prompt: "delete the markers between 2:00 and 3:00",
+            what: "Delete markers by id, or every marker matching a filter (name, from, to). A filter needs at least one field; ids and a filter together are refused.",
+            output: "node_id, deleted, summary",
+            note: "One undoable step; undo brings them back.",
+          },
+          {
+            name: "transcript_to_markers",
+            prompt: "add a marker at each transcript sentence",
+            what: "Add point markers at the starts of the stored transcript's segments (default) or sentences (mode). A file or unknown-source transcript needs an explicit offset_sec, even 0. Each label is the first six words, at most 80 characters.",
+            output: "node_id, marker_count, skipped_count, time_basis, time_note, source, applied_offset_sec, summary",
+            note: "Run transcribe first. Times are as transcribed, not re-timed: moving the clip afterwards makes them stale. A marker with the same name and time (within 1 ms) is skipped, and a run that adds none appends no node. One undoable step; no audio changes.",
           },
         ],
       },

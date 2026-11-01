@@ -48,7 +48,7 @@ description: "Workspace layout, the AI subsystem, tool dispatch, the session gra
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
      │  crates/│  │ crates/ │  │    crates/   │  │   crates/   │
      │  ai     │  │ tools   │  │    session   │  │   audio-*   │
-     │  agent  │  │101 tools│  │    DAG store │  │   ml-*      │
+     │  agent  │  │105 tools│  │    DAG store │  │   ml-*      │
      └──────┬──┘  └────┬────┘  └──────────┬───┘  └──────┬──────┘
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
@@ -102,7 +102,7 @@ edytlab/
     ├── recorder/                 # Microphone capture to WAV; recording-latency measurement; the punch-in's monitor and take (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # 101 deterministic audio-editing tools
+    └── tools/                    # 105 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -747,7 +747,7 @@ pub struct ToolContext<'a> {
 
 impl ToolDispatcher {
     pub fn new() -> Self                    // empty
-    pub fn default_dispatcher() -> Self     // registers all 101 built-in tools
+    pub fn default_dispatcher() -> Self     // registers all 105 built-in tools
     pub fn register(&mut self, tool: Box<dyn Tool>)
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
@@ -784,7 +784,7 @@ There are four ways to open a store. `Store::open_shared` is the project the win
 
 ### The Tools
 
-There are 101, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
+There are 105, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
 One of them is a stub: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) returns an error in this build. `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) runs the speech model on this computer once the user has downloaded it in Settings → Account (see "Whisper (Transcription)" below), and `cut_words`, `remove_fillers` and the `text` mode of `select_region` work from the transcript it makes. `duck_under_speech` and `select_region`'s `speech_passage` do not need one: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
@@ -944,7 +944,7 @@ That is also why nothing that frees disk deletes outside `derived/`. The history
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
 
-The label lane (`LabelLane`, below the tracks) edits them directly: double-click the lane to add a label, typing its name in a box where it will sit (a click on the ruler opens the same box at that point); double-click a label to rename it; drag it to move it, and a region moves whole, keeping its length; right-click to delete it. The app asks for text in the page and never with `window.prompt`, which a macOS webview answers with `null` (`noWindowPrompt.test.ts` guards it). Each gesture goes through the session's line (`inOrder`) as `add_marker`, `update_marker` or `remove_marker`: one node each, and a gesture that changes nothing (a label dragged back to where it was) appends none. Labels, and the transcript's words, stay with the audio across the tools that shift time: `remap_after_cut`, `remap_after_insert` and `remap_after_scale` (`crates/tools/src/tool/util.rs`) are called by `cut_range`, `insert_silence`, `paste_region`, `trim`, `change_speed`, `time_stretch`, `truncate_silence`, `cut_words` and `remove_fillers` (`labels_follow_edits.rs`); `repeat_selection` appends at the end and moves nothing. `export_labels` writes them as Audacity label text and `import_labels` reads that back.
+The label lane (`LabelLane`, below the tracks) edits them directly: double-click the lane to add a label, typing its name in a box where it will sit (a click on the ruler opens the same box at that point); double-click a label to rename it; drag it to move it, and a region moves whole, keeping its length; right-click to delete it. The app asks for text in the page and never with `window.prompt`, which a macOS webview answers with `null` (`noWindowPrompt.test.ts` guards it). Each gesture goes through the session's line (`inOrder`) as `add_marker`, `update_marker` or `remove_marker`: one node each, and a gesture that changes nothing (a label dragged back to where it was) appends none. Labels, and the transcript's words, stay with the audio across the tools that shift time: `remap_after_cut`, `remap_after_insert` and `remap_after_scale` (`crates/tools/src/tool/util.rs`) are called by `cut_range`, `insert_silence`, `paste_region`, `trim`, `change_speed`, `time_stretch`, `truncate_silence`, `cut_words` and `remove_fillers` (`labels_follow_edits.rs`); `repeat_selection` appends at the end and moves nothing. `export_labels` writes them as Audacity label text and `import_labels` reads that back. The agent reaches the same edits through `find_markers` (read-only, paged, with the ids), `add_markers` (a list, or one every N seconds), `edit_markers` and `delete_markers` (by id or by a name and time filter) (#766): each call is one node, and the rules for what a label may be and how an edit is read are `session::check_marker_time`, `check_region` and `AnnotationEdit`, the ones `add_marker` and `update_marker` call too.
 
 ### Save As
 
@@ -1172,7 +1172,7 @@ Memory fragments are injected into the system prompt on every turn:
 </edytlab-memory>
 ```
 
-The agent sees memory on every turn but has no tool to write it: none of the 101 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
+The agent sees memory on every turn but has no tool to write it: none of the 105 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
 
 ### Skills System
 

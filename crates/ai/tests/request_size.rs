@@ -173,8 +173,12 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // #767 then added `export_transcript` and `transcript_to_markers`: 1,752 B
 // (69,789 B to 71,541 B). The ratchet rises by exactly that, keeping the
 // remaining headroom of the main branch rather than loosening the guard.
+// #766 then added `find_markers`, `add_markers`, `edit_markers` and
+// `delete_markers` (find, batch add and interval add, rename/move/resize, delete
+// by id or filter; the editors were window-only): 1,869 B (71,541 B to
+// 73,410 B). The ratchet rises by exactly that, with the same 16 B headroom.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 71_557; // measured 71,541; main ratchet 69,805 + the 1,752 B of #767
+const FULL_TOOLS_MAX_BYTES: usize = 73_426; // measured 73,410; main ratchet 71,557 + the 1,869 B of #766
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -736,8 +740,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // #767's `export_transcript` and `transcript_to_markers` add 1,814 B
 // (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
 // the ratchet rises by that, keeping the main branch's remaining headroom.
+// #766's four marker tools add 1,993 B here (74,733 B to 76,726 B; 1,869 B in the
+// Anthropic layout above, where the wrapper is lighter); the ratchet rises by that and
+// no more.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_749; // measured 74,733; main ratchet 72,935 + the 1,814 B of #767
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 76_742; // measured 76,726; main ratchet 74,749 + the 1,993 B of #766
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
