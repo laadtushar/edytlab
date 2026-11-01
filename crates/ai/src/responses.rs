@@ -180,7 +180,7 @@ pub struct RequestOptions {
 ///   The items are kept in the history as `redacted_thinking` blocks holding
 ///   the item's JSON, so the agent loop's rule for thinking applies to them
 ///   as it is: they are replayed within the turn they were produced in and
-///   dropped by [`crate::agent_loop::strip_thinking`] at the start of the next,
+///   dropped by [`crate::conversation::Conversation::invalidate_thinking`] at the start of the next,
 ///   because the encrypted content is tied to the `system` and `tools` it was
 ///   produced under (CLAUDE.md, the thinking rule).
 /// * Tools are grouped as `grouping` says, each with `strict: false`: the

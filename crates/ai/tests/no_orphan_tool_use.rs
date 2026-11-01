@@ -641,6 +641,53 @@ async fn two_invalid_calls(wire: Wire) {
 }
 on_both_wires!(two_invalid_calls);
 
+/// Unknown tools must be answered too, including after a completed edit and
+/// before calls that the validation limit prevents from ever running.
+async fn unknown_tools_leave_the_next_turn_usable(wire: Wire) {
+    let mut fx = Fixture::new(
+        wire,
+        vec![
+            wire.classifier(),
+            wire.calls(&[
+                ("fine", "edit", FINE),
+                ("unknown1", "not_a_tool", "{}"),
+                ("unknown2", "not_a_tool", "{}"),
+                ("unreached", "edit", r#"{"track":3}"#),
+            ]),
+            wire.classifier(),
+            wire.text("Ready again."),
+        ],
+    )
+    .await;
+    let (result, events) = fx.turn("tidy the vocals").await;
+    assert!(
+        matches!(result, Err(ai::Error::ToolValidation(_))),
+        "{result:?}"
+    );
+    assert_eq!(fx.edits_run(), vec![json!({"track": 0})]);
+    assert_history_is_valid(fx.agent.conversation());
+    let results = last_results(fx.agent.conversation());
+    assert_eq!(
+        results
+            .iter()
+            .map(|(id, _, error)| (*id, *error))
+            .collect::<Vec<_>>(),
+        [
+            ("fine", None),
+            ("unknown1", Some(true)),
+            ("unknown2", Some(true)),
+            ("unreached", Some(true))
+        ]
+    );
+    assert!(results[0].1.contains("true"));
+    assert!(results[1].1.contains("not_a_tool"));
+    assert!(results[2].1.contains("not_a_tool") && results[2].1.contains("stopped"));
+    assert!(results[3].1.starts_with("Not run"));
+    assert_every_badge_resolves(&events);
+    fx.the_next_message_works(2, "Ready again.").await;
+}
+on_both_wires!(unknown_tools_leave_the_next_turn_usable);
+
 // ---------------------------------------------------------------------
 // Giving up in the middle of a step
 // ---------------------------------------------------------------------
