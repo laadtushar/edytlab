@@ -526,20 +526,38 @@ fn system_text(body: &Value) -> String {
 /// How the line that names the tools a small model was not sent begins.
 const NAMES_LINE_START: &str = "More tools you can call by exact name";
 
-/// The words of the system prompt's names line, or none if it has none.
-/// Only that line: a tool name that happens to be an ordinary word
-/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it.
+/// The tool names the system prompt's names line lists, or none if it has
+/// none. Only that line: a tool name that happens to be an ordinary word
+/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it. A run
+/// the line writes as `generate_{chirp,tone}` is expanded to the names a
+/// model would call (`generate_chirp`, `generate_tone`).
 fn names_line_words(system: &str) -> BTreeSet<String> {
-    system
+    let Some(line) = system
         .split("\n\n")
         .find(|paragraph| paragraph.starts_with(NAMES_LINE_START))
-        .map(|line| {
-            line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|w| !w.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    else {
+        return BTreeSet::new();
+    };
+    // The list follows the "): " that ends the wording; "and N more" ends it.
+    let list = line.split_once("): ").map_or(line, |(_, list)| list);
+    let mut out = BTreeSet::new();
+    for token in list.split_whitespace() {
+        match token.split_once("_{") {
+            Some((prefix, first)) => {
+                // `prefix_{a,b,c}` is one token: it holds no space.
+                for member in first.trim_end_matches(['}', '.']).split(',') {
+                    out.insert(format!("{prefix}_{member}"));
+                }
+            }
+            None => {
+                let word = token.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+                if !word.is_empty() {
+                    out.insert(word.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The system prompt up to the names line: all of it but the part that
