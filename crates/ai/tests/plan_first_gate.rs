@@ -210,6 +210,95 @@ fn approve(_: usize, _: &[Value]) -> Answer {
     Answer::Approve
 }
 
+#[tokio::test]
+async fn dropping_a_held_turn_keeps_the_agent_ready_for_the_next_request() {
+    let mut responses = without_a_plan(vec![
+        sse_tool_step(&[("read", "peek", r#"{"track":0}"#)]),
+        sse_tool_step(&[
+            ("held-1", "edit", r#"{"track":0}"#),
+            ("held-2", "edit", r#"{"track":1}"#),
+        ]),
+    ]);
+    responses.extend([ok(classifier_json("general")), ok(sse_text("Okay."))]);
+    let mut fx = Fixture::new(true, None, responses).await;
+    let (shown, card) = tokio::sync::oneshot::channel();
+    {
+        let mut shown = Some(shown);
+        let turn = fx.agent.turn("make it louder".into(), |event| {
+            if let AgentEvent::Plan { steps } = event {
+                shown.take().expect("one held card").send(steps).unwrap();
+            }
+        });
+        tokio::pin!(turn);
+        tokio::select! {
+            steps = card => assert_eq!(steps.expect("held card").len(), 2),
+            result = &mut turn => panic!("turn ended before waiting for approval: {result:?}"),
+        }
+        assert!(
+            fx.gate.is_waiting(),
+            "the future reached the actual approval wait"
+        );
+        // Drop only the in-flight future. The Agent, store and provider survive.
+    }
+    assert!(!fx.gate.is_waiting(), "dropping the wait closes its gate");
+    assert!(fx.edits_run().is_empty(), "held edits must never run");
+    assert_eq!(fx.peeks.load(Ordering::SeqCst), 1);
+    let history = fx.agent.conversation();
+    assert_eq!(
+        history.len(),
+        5,
+        "keep the user, completed read and held step: {history:?}"
+    );
+    assert!(matches!(
+        history[2].content.as_slice(),
+        [ContentBlock::ToolResult { tool_use_id, is_error: None, .. }] if tool_use_id == "read"
+    ));
+    assert_eq!(history[3].role, Role::Assistant);
+    for (block, expected) in history[4].content.iter().zip(["held-1", "held-2"]) {
+        assert!(
+            matches!(
+                block,
+                ContentBlock::ToolResult { tool_use_id, content, is_error: Some(true) }
+                    if tool_use_id == expected && content.contains("interrupted")
+            ),
+            "{block:?}"
+        );
+    }
+    assert_eq!(history[4].content.len(), 2);
+
+    fx.agent.set_plan_first(false);
+    fx.turn("next request", approve).await.0.expect("next turn");
+    let requests = fx.requests().await;
+    let messages = requests.last().unwrap()["messages"].as_array().unwrap();
+    for pair in messages.windows(2) {
+        assert_ne!(pair[0]["role"], pair[1]["role"], "{messages:#?}");
+        let calls: Vec<_> = pair[0]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|block| block["type"] == "tool_use")
+            .map(|block| block["id"].clone())
+            .collect();
+        if !calls.is_empty() {
+            let answers: Vec<_> = pair[1]["content"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|block| block["type"] == "tool_result")
+                .map(|block| block["tool_use_id"].clone())
+                .collect();
+            assert_eq!(
+                answers, calls,
+                "every retained call is answered once in order"
+            );
+        }
+    }
+    assert_eq!(
+        messages.last().unwrap()["content"][2]["text"],
+        "next request"
+    );
+}
+
 // ---------------------------------------------------------------------
 // The path that was already there
 // ---------------------------------------------------------------------

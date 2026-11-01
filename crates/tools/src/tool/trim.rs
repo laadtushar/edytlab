@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
-    append_state, check_sample_range, check_track_index, keep_timeline, load_head_state,
-    remap_after_cut, set_session_length, timeline_end, track_clip_rate,
+    append_state, check_sample_range, keep_timeline, load_track_state_and_rate, remap_after_cut,
+    set_session_length, timeline_end,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -46,19 +46,8 @@ impl Tool for TrimTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
-        };
-
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(msg));
-        }
-
-        // The window is in the frames of the track's own clips (#234); the
-        // labels and words it discards are in seconds.
-        let rate = match track_clip_rate(&state.tracks[args.track], state.sample_rate) {
-            Ok(r) => r,
+        let (mut state, rate) = match load_track_state_and_rate(ctx, args.track) {
+            Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
         let track = &mut state.tracks[args.track];
