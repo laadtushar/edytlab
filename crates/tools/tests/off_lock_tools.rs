@@ -36,8 +36,7 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 ///   `progress`; they would need a commit per step.
 /// * `compact_session`, `storage_report`, `fork_node`, `revert_to`,
 ///   `name_node` and `apply_diff` read or rewrite the history itself.
-/// * `separate_stems` and `split_by_speaker` need models that are not
-///   shipped.
+/// * `split_by_speaker` needs the speaker model's turns and appends nodes.
 /// * Metadata tools (`set_track_gain`, `mute_track`, ...), `generate_tone` and `generate_noise`,
 ///   `export_*`, `import_labels`, `label`, `cut_range`, `trim`, `gain` and
 ///   MCP tools are fast, or have not been reviewed for a re-run on a newer
@@ -57,6 +56,15 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// race changes nothing it answered, and the re-run hits the inference cache
 /// the first run filled. It reports `progress` and reads the cancel switch;
 /// see [`ALLOWED`].
+///
+/// `separate_stems` is on it (#385). A run takes about half the audio's length
+/// and writes the four stems to `stem-cache/` (an entry made beside its name and
+/// renamed only when whole). It reads only the head, for one track's audio (the
+/// `track` argument, which the re-run guard reads) or one file, and it appends
+/// no node, so `Store::commit` publishes its one run whatever the head did and
+/// it is never run again. It reports `progress` and reads the cancel switch; see
+/// [`ALLOWED`]. It is *not* read-only (`READ_ONLY` in `read_only_tools.rs`): it
+/// writes hundreds of megabytes, so Plan first holds it.
 ///
 /// `measure` is on it (#763). It renders the head to a temporary file and
 /// reads it back, which takes as long as the audio is long, and it reads only
@@ -78,7 +86,7 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// read only the head, write content-addressed files and append one node; a
 /// re-run has no external side effect. The click source is named `track`, so
 /// the existing re-run guard refuses a changed source after a concurrent edit.
-const OFF_LOCK: [&str; 48] = [
+const OFF_LOCK: [&str; 49] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
@@ -118,6 +126,7 @@ const OFF_LOCK: [&str; 48] = [
     "reverb",
     "reverse",
     "select_region",
+    "separate_stems",
     "silence_finder",
     "silence_region",
     "stereo_to_mono",
@@ -278,6 +287,7 @@ const FORBIDDEN: &[(&str, &str)] = &[
 const REACHABLE: &[&str] = &[
     "tool::util",
     "tool::speech_detect",
+    "tool::local_model",
     "tool::ducking",
     "tool::generated_audio",
     "util::range_resolver",
@@ -314,12 +324,16 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          reported once. `report` hands the event to the process-wide sink and takes no lock.",
     ),
     (
-        "diarize.rs",
+        "local_model.rs",
         "crate::progress::report(",
-        "`report` takes no lock. A diarization that loses the race is run again on the new \
-         head, and the re-run is a hit in the inference cache the first run filled, so the \
-         steps are not reported twice; a hit reports nothing. The closing `done` comes from a \
-         guard that exists only if a step was shown, so a strip is never left up.",
+        "the progress strip `diarize` and `separate_stems` share. `report` takes no lock. A \
+         diarization that loses the race is run again on the new head, and the re-run is a hit \
+         in the inference cache the first run filled, so the steps are not reported twice; \
+         `separate_stems` appends no node, so a lost race changes nothing it answered and it \
+         is never run again, and a second call for the same audio is a hit in the stem cache \
+         the first run filled. A hit reports nothing. The closing `done` comes from a guard \
+         that exists only if a step was shown, so a strip is never left up. `begin` and \
+         `cancelled` stay in the two tools, listed below.",
     ),
     (
         "diarize.rs",
@@ -332,6 +346,19 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "crate::progress::cancelled(",
         "read before every window and every voiceprint to stop the run, which then appends \
          nothing. It only reads the switch, and the one the window's Cancel button sets.",
+    ),
+    (
+        "separate_stems.rs",
+        "crate::progress::begin(",
+        "clears a Cancel pressed before this run began, once, at the start of the model run \
+         (a cache hit never reaches it), as `transcribe` does.",
+    ),
+    (
+        "separate_stems.rs",
+        "crate::progress::cancelled(",
+        "read before every segment of the network to stop the run, which then leaves no cache \
+         entry and appends nothing. It only reads the switch, and the one the window's Cancel \
+         button sets.",
     ),
     (
         "transcribe.rs",
@@ -396,6 +423,7 @@ const SHARED_FILES: &[&str] = &[
     "speech_detect.rs",
     "ducking.rs",
     "generated_audio.rs",
+    "local_model.rs",
 ];
 
 fn source_of(file: &str) -> String {

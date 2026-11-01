@@ -129,7 +129,8 @@ pub fn write_view(project_dir: &Path, view: &ViewState) -> std::io::Result<()> {
 ///
 /// What does not: the caches, the folders directly under `.audiograph/`
 /// named in [`tools::preview_cache::CACHE_DIRS`] (`previews/` and
-/// `auditions/`). Every entry in them re-derives byte-identically on
+/// `auditions/`) or [`tools::preview_cache::MODEL_CACHE_DIRS`]
+/// (`stem-cache/`, up to 1 GiB, and `inference-cache/`). Every entry in them re-derives byte-identically on
 /// demand, and they are the largest things in the directory, so copying
 /// them would make Save As slow in exchange for nothing. The list is the
 /// cache code's, so a cache added there is left behind here with no
@@ -218,7 +219,7 @@ pub(crate) fn copy_project_with(
 pub struct CopyReport {
     pub files: usize,
     pub bytes: u64,
-    /// Files in the project's caches (cached previews and auditions)
+    /// Files in the project's caches (previews, auditions, stems, inference)
     /// deliberately left behind. They rebuild on demand.
     pub skipped_cache_files: usize,
 }
@@ -241,7 +242,7 @@ fn part_of(rel: &Path, is_dir: bool) -> Part {
         if !is_dir || name == session::store::NODES_DIR {
             return Part::State;
         }
-        if tools::preview_cache::CACHE_DIRS.contains(&name) {
+        if tools::preview_cache::is_save_as_skipped(name) {
             return Part::Cache;
         }
     }

@@ -18,7 +18,8 @@
 //! `load` copies in), `.audiograph/clipboard/` (the blobs a paste
 //! depends on) and `generated/` at the project's root (`generate_tone`,
 //! `generate_noise`, `mix_to_new_track`). Since #620 every writer but one
-//! names a file by `tools::provenance::audio_hash`, the blake3 of the
+//! names a file by `audio_store::audio_hash` (re-exported as
+//! `tools::provenance::audio_hash`), the blake3 of the
 //! samples *with their rate and channel count*; the exception, a
 //! mixed-down track, is named by the blake3 of its WAV file, header
 //! included, which holds the layout too. So a file of the same name holds
@@ -128,37 +129,15 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use crate::audio_store::AudioFolder;
 use crate::state::SessionState;
 use crate::store::STORE_DIR;
 
-/// Directory under `.audiograph/` holding derived audio.
-pub const DERIVED_DIR: &str = "derived";
-
-/// Directory under `.audiograph/` where clipboard blobs are kept.
-pub const CLIPBOARD_DIR: &str = "clipboard";
-
-/// Directory at a project's root, beside `.audiograph/`, where
-/// `generate_tone`, `generate_noise` and `mix_to_new_track` write.
-pub const GENERATED_DIR: &str = "generated";
-
-/// Where derived audio lives: `<project>/.audiograph/derived/`.
-///
-/// Inside the project rather than beside the source the user opened, so
-/// that a project folder is something you can copy, move or back up
-/// (#190).
-pub fn derived_dir(project_dir: &Path) -> PathBuf {
-    project_dir.join(STORE_DIR).join(DERIVED_DIR)
-}
-
-/// Where clipboard blobs live for a project.
-pub fn clipboard_dir(project_dir: &Path) -> PathBuf {
-    project_dir.join(STORE_DIR).join(CLIPBOARD_DIR)
-}
-
-/// Where generated audio lives for a project: `<project>/generated/`.
-pub fn generated_dir(project_dir: &Path) -> PathBuf {
-    project_dir.join(GENERATED_DIR)
-}
+// Where the content-named folders are is `audio_store`'s to say (#719); they
+// stay reachable from here, where they have always been.
+pub use crate::audio_store::{
+    clipboard_dir, derived_dir, generated_dir, CLIPBOARD_DIR, DERIVED_DIR, GENERATED_DIR,
+};
 
 /// Point each clip that names another project's audio, or a missing file,
 /// at this project's own file of the same name, by the rules in the module
@@ -177,39 +156,19 @@ pub fn counterpart(project_dir: &Path, path: &Path) -> Option<PathBuf> {
     Rebinder::new(project_dir).counterpart(path)
 }
 
-/// One of the folders whose files are named by their content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kept {
-    Derived,
-    Clipboard,
-    Generated,
-}
-
-impl Kept {
-    const ALL: [Kept; 3] = [Kept::Derived, Kept::Clipboard, Kept::Generated];
-
-    fn dir(self, project_dir: &Path) -> PathBuf {
-        match self {
-            Kept::Derived => derived_dir(project_dir),
-            Kept::Clipboard => clipboard_dir(project_dir),
-            Kept::Generated => generated_dir(project_dir),
-        }
-    }
-}
-
 /// Which content-named folder `path` is a file directly in, and the
 /// project that folder belongs to, by how the path is written. Whether a
 /// `generated/` is a project's at all is left to the caller to ask.
-fn kept_folder(path: &Path) -> Option<(Kept, &Path)> {
+fn kept_folder(path: &Path) -> Option<(AudioFolder, &Path)> {
     let folder = path.parent()?;
     let name = folder.file_name()?;
     if name == OsStr::new(GENERATED_DIR) {
-        return Some((Kept::Generated, folder.parent()?));
+        return Some((AudioFolder::Generated, folder.parent()?));
     }
     let kept = if name == OsStr::new(DERIVED_DIR) {
-        Kept::Derived
+        AudioFolder::Derived
     } else if name == OsStr::new(CLIPBOARD_DIR) {
-        Kept::Clipboard
+        AudioFolder::Clipboard
     } else {
         return None;
     };
@@ -296,7 +255,7 @@ impl Rebinder {
         if local == path || path.parent().is_some_and(|f| self.is_own(f, kept)) {
             return Place::Own;
         }
-        if kept == Kept::Generated && !project.join(STORE_DIR).is_dir() {
+        if kept == AudioFolder::Generated && !project.join(STORE_DIR).is_dir() {
             return Place::Elsewhere;
         }
         Place::Theirs(local)
@@ -324,7 +283,7 @@ impl Rebinder {
     /// This project's file called `name`, in `derived/`, `clipboard/` or
     /// `generated/`.
     fn by_name(&self, name: &OsStr) -> Option<PathBuf> {
-        Kept::ALL
+        AudioFolder::ALL
             .into_iter()
             .map(|kept| kept.dir(&self.project_dir).join(name))
             .find(|p| p.is_file())
@@ -333,7 +292,7 @@ impl Rebinder {
     /// Whether `folder`, a content-named folder of kind `kept`, is this
     /// project's own: the same folder, resolved. A folder that cannot be
     /// resolved (gone) is another project's.
-    fn is_own(&self, folder: &Path, kept: Kept) -> bool {
+    fn is_own(&self, folder: &Path, kept: AudioFolder) -> bool {
         let lock = || self.own.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(&own) = lock().get(folder) {
             return own;
