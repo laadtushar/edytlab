@@ -63,13 +63,13 @@ describe("isDerivedAudioPath", () => {
   });
 
   /**
-   * Built the way `session::relocate::derived_dir` builds it, from the
+   * Built the way `session::audio_store::derived_dir` builds it, from the
    * Rust constants themselves, so renaming either directory there
    * cannot quietly bring the hash back on screen.
    */
   it("matches the directory the backend writes derived audio to", () => {
     const store = rustConst("crates/session/src/store.rs", "STORE_DIR");
-    const derived = rustConst("crates/session/src/relocate.rs", "DERIVED_DIR");
+    const derived = rustConst("crates/session/src/audio_store.rs", "DERIVED_DIR");
     expect(isDerivedAudioPath(["/proj", store, derived, `${HASH}.wav`].join("/"))).toBe(
       true,
     );
