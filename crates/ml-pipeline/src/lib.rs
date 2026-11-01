@@ -109,8 +109,8 @@ pub enum Error {
     /// that show it do not forward it as it is (it lists paths): the
     /// `transcribe` tool says what the user does, which for a build from
     /// source is to point `ORT_DYLIB_PATH` at a copy of ONNX Runtime 1.23.2
-    /// (docs/development-guide.md). Installing the library does not make
-    /// stem separation work (#385).
+    /// (docs/development-guide.md). The library is not a model: each tool that
+    /// runs one still needs the user to have downloaded it (#385).
     #[error(
         "ONNX Runtime library not found; looked in: {}. The release installers include it (#383); a build from source does not",
         list_paths(.searched)

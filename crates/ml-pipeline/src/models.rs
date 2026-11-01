@@ -73,6 +73,12 @@ pub const WHISPER_BASE_ID: &str = "whisper-base";
 /// embedding networks `diarize` runs, pinned as one download.
 pub const SPEAKER_DIARIZATION_ID: &str = "speaker-diarization";
 
+/// The id of the stem model (#385): the htdemucs graph and its weights, which
+/// `separate_stems` runs, pinned as one download. Named for the model, not
+/// for the feature, as `whisper-base` is; the Settings row calls it the stem
+/// model.
+pub const HTDEMUCS_ID: &str = "htdemucs";
+
 /// At most one progress report per this long, so a fast connection does
 /// not turn every 256 KiB into an event for the window to draw.
 const REPORT_EVERY: Duration = Duration::from_millis(100);
@@ -337,6 +343,16 @@ pub fn speaker_diarization() -> &'static ModelArtifact {
     &Catalog::built_in()
         .get(SPEAKER_DIARIZATION_ID)
         .expect("models.json pins speaker-diarization (tests/model_manifest.rs checks it)")
+        .artifact
+}
+
+/// The stem model's files, as pinned in `models.json`: what `separate_stems`
+/// reads (#385). Found with [`cached`]`(HTDEMUCS_ID)`, never fetched by the
+/// tool.
+pub fn htdemucs() -> &'static ModelArtifact {
+    &Catalog::built_in()
+        .get(HTDEMUCS_ID)
+        .expect("models.json pins htdemucs (tests/model_manifest.rs checks it)")
         .artifact
 }
 
