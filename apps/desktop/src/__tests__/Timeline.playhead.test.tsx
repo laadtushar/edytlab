@@ -15,33 +15,15 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn((event: string, cb: () => void) => {
-        if (event === "decode") cb();
-      }),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-      // The lane draws at the timeline's density and scrolls to its
-      // window through these (#344).
-      getWrapper: () => document.createElement("div"),
-      setScroll: vi.fn(),
-      getScroll: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferWith, onDecode, laneMembers } = await import("./wavesurferStub");
+  return wavesurferWith(() => ({
+    on: onDecode(),
+    // The lane draws at the timeline's density and scrolls to its
+    // window through these (#344).
+    ...laneMembers(),
+  }));
+});
 
 import { Timeline } from "../components/Timeline";
 

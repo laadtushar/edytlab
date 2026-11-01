@@ -38,54 +38,49 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => {
-      const entry = {
-        url: null as string | null,
-        currentTime: 0,
-        playing: false,
-        play: vi.fn(() => {
-          entry.playing = true;
-          return Promise.resolve();
-        }),
-        setTime: vi.fn((t: number) => {
-          entry.currentTime = t;
-        }),
-        loadResult: () => Promise.resolve(),
-      };
-      instances.push(entry);
-      return {
-        on: vi.fn((event: string, cb: () => void) => {
-          if (event === "decode") cb();
-        }),
-        un: vi.fn(),
-        // Mirrors the real thing: loading a new source zeroes the
-        // position and stops playback. If the component does not put
-        // them back, they stay lost.
-        load: vi.fn((url: string) => {
-          entry.url = url;
-          entry.currentTime = 0;
-          entry.playing = false;
-          return entry.loadResult();
-        }),
-        zoom: vi.fn(),
-        play: entry.play,
-        pause: vi.fn(() => {
-          entry.playing = false;
-        }),
-        seekTo: vi.fn(),
-        setTime: entry.setTime,
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: () => entry.playing,
-        destroy: vi.fn(),
-        getDuration: () => (entry.url ? 60 : 0),
-        getCurrentTime: () => entry.currentTime,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance, onDecode } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: () => {
+        const entry = {
+          url: null as string | null,
+          currentTime: 0,
+          playing: false,
+          play: vi.fn(() => {
+            entry.playing = true;
+            return Promise.resolve();
+          }),
+          setTime: vi.fn((t: number) => {
+            entry.currentTime = t;
+          }),
+          loadResult: () => Promise.resolve(),
+        };
+        instances.push(entry);
+        return wavesurferInstance({
+          on: onDecode(),
+          // Mirrors the real thing: loading a new source zeroes the
+          // position and stops playback. If the component does not put
+          // them back, they stay lost.
+          load: vi.fn((url: string) => {
+            entry.url = url;
+            entry.currentTime = 0;
+            entry.playing = false;
+            return entry.loadResult();
+          }),
+          play: entry.play,
+          pause: vi.fn(() => {
+            entry.playing = false;
+          }),
+          setTime: entry.setTime,
+          isPlaying: () => entry.playing,
+          getDuration: () => (entry.url ? 60 : 0),
+          getCurrentTime: () => entry.currentTime,
+        });
+      },
     },
-  },
-}));
+  };
+});
 
 import { Timeline, type TimelineHandle } from "../components/Timeline";
 

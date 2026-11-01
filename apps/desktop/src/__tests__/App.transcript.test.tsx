@@ -14,36 +14,15 @@
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
+import { type Args, appAnswer, bootIpc, node, settle } from "./appHarness";
 import App from "../App";
 
-type Args = Record<string, unknown>;
-
-const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
 /** Before the transcription, and the node the assistant's transcription made. */
 const BEFORE = node(1);
 const TRANSCRIBED = node(2);
@@ -109,44 +88,20 @@ class Backend {
           ],
           head: this.head,
         };
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-      case "list_markers":
-        return [];
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
-      case "save_view_state":
       case "save_head_trail":
-      case "set_selection_context":
         return null;
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 }
 
 const at = (n: number) => `2026-10-22T00:0${n}:00Z`;
 
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
 async function start(source: Source): Promise<Backend> {
   const backend = new Backend();
   backend.source = source;
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   render(<App />);
   await screen.findAllByTestId("timeline-lane-gain");
   await waitFor(() =>

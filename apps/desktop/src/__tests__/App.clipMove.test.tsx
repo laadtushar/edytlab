@@ -11,15 +11,14 @@
  * position. The real `App` runs here with only the IPC boundary replaced.
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
+import { type Args, appAnswer, bootIpc, quiet, voiceTrack } from "./appHarness";
 import App from "../App";
-
-type Args = Record<string, unknown>;
 
 const HEAD = "0000001".padEnd(64, "0");
 
@@ -35,18 +34,11 @@ class Backend {
         return Promise.reject("clip would overlap another clip");
       case "list_tracks":
         return [
-          {
-            id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-            name: "Voice",
-            gain_db: 0,
-            pan: 0,
-            muted: false,
-            soloed: false,
-            audio_path: "/tmp/voice.wav",
+          voiceTrack({
             clips: [
               { start_sec: 2, length_sec: 3, source_path: "/tmp/voice.wav", volume_envelope: [] },
             ],
-          },
+          }),
         ];
       case "get_session_head":
         return HEAD;
@@ -65,45 +57,12 @@ class Backend {
           ],
           head: HEAD,
         };
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-      case "list_markers":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
-      case "save_view_state":
       case "save_head_trail":
-      case "set_selection_context":
         return null;
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
-}
-
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-async function quiet(backend: Backend): Promise<void> {
-  for (let guard = 0; guard < 20; guard++) {
-    const before = backend.calls;
-    await settle();
-    if (backend.calls === before) return;
-  }
-  throw new Error("the app never stopped asking");
 }
 
 beforeEach(() => {
@@ -118,9 +77,7 @@ afterEach(() => {
 
 it("returns the clip chip to the session's position after a refused move", async () => {
   const backend = new Backend();
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   render(<App />);
   const chip = await screen.findByTestId("clip-chip-0");
   await quiet(backend);

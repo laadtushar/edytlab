@@ -22,36 +22,19 @@ import { describe, expect, it, vi } from "vitest";
 // `decode` fires as soon as it is subscribed to, which is what a real
 // wavesurfer does once the file is in — the lane needs it to learn its
 // own duration at all.
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn((event: string, cb: () => void) => {
-        if (event === "decode") cb();
-      }),
-      un: vi.fn(),
-      // Returns a promise because the real one does. Returning
-      // undefined made `load(url).catch(...)` throw synchronously on
-      // every mount, which the lane now treats as a failed load.
-      load: vi.fn(() => Promise.resolve()),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-      // The lane draws at the timeline's density and scrolls to its
-      // window through these (#344).
-      getWrapper: () => document.createElement("div"),
-      setScroll: vi.fn(),
-      getScroll: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferWith, onDecode, laneMembers } = await import("./wavesurferStub");
+  return wavesurferWith(() => ({
+    on: onDecode(),
+    // Returns a promise because the real one does. Returning
+    // undefined made `load(url).catch(...)` throw synchronously on
+    // every mount, which the lane now treats as a failed load.
+    load: vi.fn(() => Promise.resolve()),
+    // The lane draws at the timeline's density and scrolls to its
+    // window through these (#344).
+    ...laneMembers(),
+  }));
+});
 
 import { Timeline } from "../components/Timeline";
 
