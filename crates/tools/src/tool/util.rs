@@ -2378,3 +2378,165 @@ mod timeline_stream_tests {
         assert_eq!(std::fs::metadata(&out).unwrap().len(), 0, "nothing written");
     }
 }
+
+#[cfg(test)]
+mod effect_edit_order_tests {
+    //! The order `EffectEdit` checks things in, and what `window` clamps to.
+    //! Each refusal is a different message, so a reordering shows up here.
+
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use serde_json::json;
+
+    use super::{window, EffectEdit};
+    use crate::dispatcher::ToolDispatcher;
+    use crate::{ToolContext, ToolResult};
+
+    const RATE: u32 = 8_000;
+
+    fn wav(dir: &std::path::Path, name: &str, channels: u16) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let spec = WavSpec {
+            channels,
+            sample_rate: RATE,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&path, spec).unwrap();
+        for _ in 0..RATE * u32::from(channels) {
+            w.write_sample(1_000i16).unwrap();
+        }
+        w.finalize().unwrap();
+        path
+    }
+
+    fn error(result: ToolResult) -> String {
+        match result {
+            ToolResult::Error(m) => m,
+            ToolResult::Ok(v) => panic!("expected an error, got {v}"),
+        }
+    }
+
+    /// Track 0 mono with a clip, track 1 stereo with a clip, track 2 empty.
+    macro_rules! session {
+        ($tmp:ident, $ctx:ident) => {
+            let $tmp = tempfile::TempDir::new().unwrap();
+            let mono = wav($tmp.path(), "mono.wav", 1);
+            let stereo = wav($tmp.path(), "stereo.wav", 2);
+            let mut store = session::Store::open($tmp.path()).unwrap();
+            let mut engine = audio_engine::Engine::new();
+            let mut clipboard: Option<crate::Clipboard> = None;
+            let mut $ctx = ToolContext {
+                store: &mut store,
+                engine: &mut engine,
+                user_message: "",
+                clipboard: &mut clipboard,
+                allowed_tools: None,
+            };
+            let dispatcher = ToolDispatcher::default_dispatcher();
+            for (name, args) in [
+                ("load", json!({ "path": mono.to_string_lossy() })),
+                ("load", json!({ "path": stereo.to_string_lossy() })),
+                ("add_track", json!({})),
+            ] {
+                if let ToolResult::Error(m) = dispatcher.invoke(name, args, &mut $ctx).unwrap() {
+                    panic!("setup `{name}` failed: {m}");
+                }
+            }
+        };
+    }
+
+    #[test]
+    fn a_reversed_window_is_refused_before_the_track_is_looked_up() {
+        session!(_tmp, ctx);
+        // Track 99 does not exist, but the window is checked first.
+        let msg = error(EffectEdit::on(99).run_in_window(
+            &mut ctx,
+            Some(5.0),
+            Some(1.0),
+            "x",
+            |_, _, _| panic!("effect ran"),
+        ));
+        assert!(msg.starts_with("invalid range"), "{msg}");
+        assert!(!msg.contains("out of range"), "{msg}");
+
+        // Control: a valid window on that track reaches the track error.
+        let msg = error(EffectEdit::on(99).run_in_window(
+            &mut ctx,
+            Some(1.0),
+            Some(5.0),
+            "x",
+            |_, _, _| panic!("effect ran"),
+        ));
+        assert!(msg.contains("track index 99 out of range"), "{msg}");
+    }
+
+    #[test]
+    fn no_clips_is_reported_before_the_stereo_refusal() {
+        session!(_tmp, ctx);
+        let msg = error(
+            EffectEdit::on(2)
+                .stereo_only("widen")
+                .run(&mut ctx, "x", |_, _, _| panic!("effect ran")),
+        );
+        assert_eq!(msg, "track 2 has no clips");
+    }
+
+    #[test]
+    fn a_mono_track_with_clips_gets_the_stereo_refusal() {
+        session!(_tmp, ctx);
+        let msg = error(
+            EffectEdit::on(0)
+                .stereo_only("widen")
+                .run(&mut ctx, "x", |_, _, _| panic!("effect ran")),
+        );
+        assert_eq!(msg, "widen requires a stereo track");
+        // Control: the stereo track passes the same check and the effect runs.
+        let mut channels = 0;
+        let result = EffectEdit::on(1)
+            .stereo_only("widen")
+            .run(&mut ctx, "x", |_, _, c| channels = c);
+        assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+        assert_eq!(channels, 2);
+    }
+
+    #[test]
+    fn source_channels_reads_the_first_clip() {
+        session!(_tmp, ctx);
+        assert_eq!(super::source_channels(&ctx, 0), Ok(1));
+        assert_eq!(super::source_channels(&ctx, 1), Ok(2));
+        assert_eq!(
+            super::source_channels(&ctx, 2),
+            Err("track 2 has no clips".to_string())
+        );
+        assert!(super::source_channels(&ctx, 99)
+            .unwrap_err()
+            .contains("out of range"));
+    }
+
+    #[test]
+    fn the_window_clamps_to_the_buffer() {
+        // 4 stereo frames at 2 Hz: 8 samples.
+        let len = 8;
+        // Past the end clamps, in whole frames.
+        assert_eq!(window(len, 2, 2, Some(1.0), Some(100.0)), (4, 8));
+        assert_eq!(window(len, 2, 2, Some(100.0), Some(200.0)), (8, 8));
+        // Missing ends are the buffer's edges.
+        assert_eq!(window(len, 2, 2, None, None), (0, 8));
+        // NaN and negative starts are frame 0.
+        assert_eq!(window(len, 2, 2, Some(f64::NAN), Some(1.0)), (0, 4));
+        assert_eq!(window(len, 2, 2, Some(-3.0), Some(1.0)), (0, 4));
+        // A trailing partial frame is never cut into.
+        assert_eq!(window(9, 2, 2, None, None), (0, 8));
+        // Every result slices without panicking.
+        let buf = vec![0f32; len];
+        for (s, e) in [
+            (Some(f64::NAN), None),
+            (Some(-1.0), Some(1e9)),
+            (Some(1e9), None),
+        ] {
+            let (a, b) = window(len, 2, 2, s, e);
+            assert!(a <= b && b <= len);
+            let _ = &buf[a..b];
+        }
+    }
+}
