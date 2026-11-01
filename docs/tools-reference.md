@@ -47,7 +47,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
-- [`fade`](#fade) — Apply a linear fade-in or fade-out to a time range of a track.
+- [`fade`](#fade) — Apply a fade-in or fade-out to a time range of a track.
 - [`fork_node`](#fork_node) — Branch the session DAG at the given node id (defaults to the current head when `from` is omitted).
 - [`gain`](#gain) — Apply a constant gain in decibels to a track.
 - [`generate_chirp`](#generate_chirp) — Generate a linear or logarithmic frequency sweep and add it as a new track.
@@ -445,10 +445,11 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `fade`
 
-Apply a linear fade-in or fade-out to a time range of a track. Requires a range (start_sec, end_sec). Kind defaults to 'out'. Appends a new session node.
+Apply a fade-in or fade-out to a time range of a track. Requires a range (start_sec, end_sec). Kind defaults to 'out'; curve to 'linear'. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `curve` | one of `linear`, `exponential`, `logarithmic`, `s_curve` | no | Gain at t: linear t, exponential t*t, logarithmic sqrt(t), s_curve t*t*(3-2*t). Fade-out uses the same curve at 1-t. Defaults to linear. |
 | `kind` | one of `in`, `out` | no |  |
 | `range` | object | no |  |
 | `track` | integer | yes |  |

@@ -48,9 +48,13 @@ fn ok(result: ToolResult) -> Value {
 
 /// A mono linear ramp from -0.9 to +0.9 over the whole file.
 fn write_ramp_wav(dir: &Path) -> PathBuf {
+    write_ramp_channels(dir, 1)
+}
+
+fn write_ramp_channels(dir: &Path, channels: u16) -> PathBuf {
     let path = dir.join("ramp.wav");
     let spec = WavSpec {
-        channels: 1,
+        channels,
         sample_rate: SAMPLE_RATE,
         bits_per_sample: 16,
         sample_format: SampleFormat::Int,
@@ -62,7 +66,11 @@ fn write_ramp_wav(dir: &Path) -> PathBuf {
         let q = (s * 32_768.0)
             .round()
             .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
+        for ch in 0..channels {
+            writer
+                .write_sample(if ch == 0 { q } else { -q / 2 })
+                .unwrap();
+        }
     }
     writer.finalize().unwrap();
     path
@@ -93,11 +101,15 @@ fn assert_same(actual: &[i16], expected: &[i16], what: &str) {
 /// Each step is `(tool, args)`. The node id threads through automatically
 /// so callers don't have to unpick it from every result.
 fn run(steps: &[(&str, Value)]) -> Vec<i16> {
+    run_channels(steps, 1)
+}
+
+fn run_channels(steps: &[(&str, Value)], channels: u16) -> Vec<i16> {
     let tmp = TempDir::new().expect("tempdir");
     let mut store = session::Store::open(tmp.path()).expect("open store");
     let mut engine = audio_engine::Engine::new();
     let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_ramp_wav(tmp.path());
+    let src = write_ramp_channels(tmp.path(), channels);
     let out = tmp.path().join("out.wav");
 
     let mut clipboard: Option<tools::Clipboard> = None;
@@ -388,6 +400,313 @@ fn fade_spans_the_seam_of_a_split_track() {
         "the fade stopped at the clip boundary: frame {past_seam} is past \
          the seam and still inside the range, but came back at {ratio:.3}x"
     );
+}
+
+#[test]
+fn fade_exponential_argument_reaches_the_dsp() {
+    let plain = run(&[]);
+    let faded = run(&[(
+        "fade",
+        json!({
+            "track": 0,
+            "kind": "in",
+            "curve": "exponential",
+            "range": { "start_sec": 0.25, "end_sec": 0.75 }
+        }),
+    )]);
+    assert_eq!(faded.len(), plain.len());
+    assert_eq!(faded[2_000], 0);
+    assert_eq!(faded[3_000], (plain[3_000] as f32 * 0.0625).round() as i16);
+    assert_eq!(faded[5_000], (plain[5_000] as f32 * 0.5625).round() as i16);
+    assert_same(&faded[..2_000], &plain[..2_000], "prefix changed");
+    assert_same(&faded[6_000..], &plain[6_000..], "tail changed");
+}
+
+#[test]
+fn fade_curve_matrix_renders_exact_samples_on_mono_stereo_and_split_tracks() {
+    // Quartiles are literal mathematical gains; the final gains use the
+    // existing f32 grid at 3999/4000, rather than an N-1 endpoint.
+    let cases = [
+        (
+            "linear",
+            [0.0, 0.25, 0.5, 0.75, 1.0],
+            [0.99975, 0.00024998188],
+        ),
+        (
+            "exponential",
+            [0.0, 0.0625, 0.25, 0.5625, 1.0],
+            [0.9995001, 6.249094e-8],
+        ),
+        (
+            "logarithmic",
+            [0.0, 0.5, std::f32::consts::FRAC_1_SQRT_2, 0.8660254, 1.0],
+            [0.999875, 0.015810816],
+        ),
+        (
+            "s_curve",
+            [0.0, 0.15625, 0.5, 0.84375, 1.0],
+            [0.9999998, 1.8744157e-7],
+        ),
+    ];
+    for channels in [1, 2] {
+        for split in [false, true] {
+            let before = if split { vec![interior_cut()] } else { vec![] };
+            let plain = run_channels(&before, channels);
+            for (curve, gains, last_gains) in cases {
+                for (kind_index, kind) in ["in", "out"].into_iter().enumerate() {
+                    let mut steps = before.clone();
+                    steps.push((
+                        "fade",
+                        json!({"track": 0, "kind": kind, "curve": curve,
+                        "range": {"start_sec": 0.125, "end_sec": 0.625}}),
+                    ));
+                    let faded = run_channels(&steps, channels);
+                    let stride = channels as usize;
+                    assert_eq!(faded.len(), plain.len());
+                    assert_same(
+                        &faded[..1000 * stride],
+                        &plain[..1000 * stride],
+                        "curve prefix",
+                    );
+                    assert_same(
+                        &faded[5000 * stride..],
+                        &plain[5000 * stride..],
+                        "curve tail",
+                    );
+                    for (index, frame) in [1000, 2000, 3000, 4000, 4999].into_iter().enumerate() {
+                        let gain: f32 = if index == 4 {
+                            last_gains[kind_index]
+                        } else {
+                            gains[if kind == "in" { index } else { 4 - index }]
+                        };
+                        for ch in 0..stride {
+                            let i = frame * stride + ch;
+                            assert_eq!(
+                                faded[i],
+                                (plain[i] as f32 * gain).round() as i16,
+                                "{curve} {kind}, split={split}, frame {frame} channel {ch}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The basic render helper deliberately discards its store. These focused
+// checks retain it to inspect provenance, refusal effects and real rebuilds.
+struct FadeSession {
+    dir: TempDir,
+    store: session::Store,
+    engine: audio_engine::Engine,
+    dispatcher: ToolDispatcher,
+    clipboard: Option<tools::Clipboard>,
+}
+
+impl FadeSession {
+    fn new() -> Self {
+        let dir = TempDir::new().unwrap();
+        let store = session::Store::open(dir.path()).unwrap();
+        Self {
+            dir,
+            store,
+            engine: audio_engine::Engine::new(),
+            dispatcher: ToolDispatcher::default_dispatcher(),
+            clipboard: None,
+        }
+    }
+
+    fn call(&mut self, tool: &str, args: Value, message: &str) -> tools::Result<ToolResult> {
+        self.dispatcher.invoke(
+            tool,
+            args,
+            &mut ToolContext {
+                store: &mut self.store,
+                engine: &mut self.engine,
+                user_message: message,
+                clipboard: &mut self.clipboard,
+                allowed_tools: None,
+            },
+        )
+    }
+
+    fn load(&mut self, source: &Path) {
+        ok(self.call("load", json!({"path": source}), "").unwrap());
+    }
+
+    fn audio(&self) -> (PathBuf, Vec<u8>) {
+        let node = self.store.get(self.store.head().unwrap()).unwrap();
+        let path = node.state.tracks[0].clips[0].source_path.clone();
+        let bytes = std::fs::read(&path).unwrap();
+        (path, bytes)
+    }
+
+    fn derived(&self) -> Vec<(PathBuf, Vec<u8>)> {
+        let directory = match std::fs::read_dir(self.dir.path().join(".audiograph/derived")) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return vec![],
+            Err(error) => panic!("read derived directory: {error}"),
+        };
+        let mut files: Vec<_> = directory
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                let bytes = std::fs::read(&path).unwrap();
+                (path, bytes)
+            })
+            .collect();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        files
+    }
+}
+
+#[test]
+fn fade_default_and_explicit_linear_have_identical_wav_bytes_and_names() {
+    for channels in [1, 2] {
+        for kind in [None, Some("in"), Some("out")] {
+            let mut s = FadeSession::new();
+            let source = write_ramp_channels(s.dir.path(), channels);
+            s.load(&source);
+            let loaded = s.store.head().unwrap();
+            let mut args = json!({"track": 0, "range": {"start_sec": 0.125, "end_sec": 0.625}});
+            if let Some(kind) = kind {
+                args["kind"] = kind.into();
+            }
+            ok(s.call("fade", args.clone(), "").unwrap());
+            let (default_path, default_bytes) = s.audio();
+            s.store.set_head(loaded).unwrap();
+            args["curve"] = "linear".into();
+            ok(s.call("fade", args, "").unwrap());
+            assert_eq!(s.audio(), (default_path, default_bytes));
+        }
+    }
+}
+
+#[test]
+fn fade_refuses_invalid_curves_and_arguments_without_changing_history_or_files() {
+    let mut s = FadeSession::new();
+    let source = write_ramp_wav(s.dir.path());
+    s.load(&source);
+    ok(s.call(
+        "fade",
+        json!({"track": 0, "curve": "exponential",
+        "range": {"start_sec": 0.125, "end_sec": 0.625}}),
+        "",
+    )
+    .unwrap());
+    let head = s.store.head();
+    let nodes = s.store.list_nodes().unwrap();
+    let source_bytes = std::fs::read(&source).unwrap();
+    let files = s.derived();
+    assert!(
+        !files.is_empty(),
+        "refusals must preserve existing derived audio"
+    );
+    let range = json!({"start_sec": 0.125, "end_sec": 0.625});
+    let mut cases = Vec::new();
+    for curve in [
+        json!("unknown"),
+        json!("S_curve"),
+        json!(null),
+        json!(42),
+        json!({}),
+        json!([]),
+    ] {
+        cases.push(json!({"track": 0, "range": range, "curve": curve}));
+    }
+    cases.extend([
+        json!({"track": 0, "curve": "exponential"}),
+        json!({"track": 0, "curve": "s_curve", "range": {"start_sec": 0.75, "end_sec": 0.25}}),
+        json!({"curve": "logarithmic", "range": range}),
+        json!({"track": 99, "curve": "exponential", "range": range}),
+    ]);
+    for args in cases {
+        let result = s.call("fade", args.clone(), "");
+        assert!(
+            matches!(result, Err(_) | Ok(ToolResult::Error(_))),
+            "accepted {args}"
+        );
+        assert_eq!(s.store.head(), head);
+        assert_eq!(s.store.list_nodes().unwrap().len(), nodes.len());
+        assert_eq!(s.derived(), files);
+        assert_eq!(std::fs::read(&source).unwrap(), source_bytes);
+    }
+}
+
+#[test]
+fn fade_history_recipe_and_rebuild_preserve_curves_and_legacy_defaults() {
+    for curve in [
+        None,
+        Some("exponential"),
+        Some("logarithmic"),
+        Some("s_curve"),
+    ] {
+        let mut original = FadeSession::new();
+        let source = write_ramp_channels(original.dir.path(), 2);
+        original.load(&source);
+        let source_bytes = std::fs::read(&source).unwrap();
+        let mut args = json!({"track": 0, "kind": "out"});
+        if let Some(curve) = curve {
+            args["curve"] = curve.into();
+        }
+        ok(original
+            .call("fade", args, "fade [apply to 0:00.125-0:00.625]")
+            .unwrap());
+        let head = original.store.head().unwrap();
+        let node = original.store.get(head).unwrap();
+        let op = node.op.unwrap();
+        assert!(op.reproducible);
+        let expected_curve = curve.map(|curve| json!(curve));
+        assert_eq!(op.params.get("curve"), expected_curve.as_ref());
+        assert_eq!(
+            op.params["range"],
+            json!({"start_sec": 0.125, "end_sec": 0.625})
+        );
+        let (path, bytes) = original.audio();
+        let nodes = original.store.list_nodes().unwrap().len();
+        let replay = tools::rederive::replay(&original.store, head).unwrap();
+        assert!(replay.produced().contains(path.file_name().unwrap()));
+        assert_eq!(original.store.head(), Some(head));
+        assert_eq!(original.store.list_nodes().unwrap().len(), nodes);
+        assert_eq!(std::fs::read(&source).unwrap(), source_bytes);
+
+        let recipe = tools::recipe::export(&original.store, head).unwrap();
+        assert!(recipe.blockers().is_empty());
+        assert_eq!(recipe.steps.last().unwrap().params, op.params);
+        let recipe_path = original.dir.path().join("fade-recipe.json");
+        ok(original
+            .call("export_recipe", json!({"out_path": recipe_path}), "")
+            .unwrap());
+        let mut fresh = FadeSession::new();
+        ok(fresh
+            .call("apply_recipe", json!({"path": recipe_path}), "")
+            .unwrap());
+        let (fresh_path, fresh_bytes) = fresh.audio();
+        assert_eq!(fresh_path.file_name(), path.file_name());
+        assert_eq!(fresh_bytes, bytes);
+
+        // Advance the head so the real history sweep can remove this file.
+        ok(original
+            .call(
+                "silence_region",
+                json!({"track": 0, "start_sec": 0.0, "end_sec": 0.1}),
+                "",
+            )
+            .unwrap());
+        let current_head = original.store.head();
+        let current_nodes = original.store.list_nodes().unwrap().len();
+        let report = tools::reclaim::sweep(&original.store, 0).unwrap();
+        assert!(report.removed_files > 0);
+        assert!(
+            !path.exists(),
+            "the fade output must actually be swept before rebuild"
+        );
+        tools::rederive::ensure_present(&original.store, head, &path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(original.store.head(), current_head);
+        assert_eq!(original.store.list_nodes().unwrap().len(), current_nodes);
+        assert_eq!(std::fs::read(&source).unwrap(), source_bytes);
+    }
 }
 
 // ---------------------------------------------------------------------------
