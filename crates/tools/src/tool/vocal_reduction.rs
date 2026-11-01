@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_optional_seconds_order, destructive_edit};
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 
 /// L-R center cancellation. Effective on stereo tracks where vocals are panned center.
@@ -62,53 +62,15 @@ impl Tool for VocalReductionTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
-        // A reversed window would survive independent clamping and
-        // panic on the slice below.
-        if let Err(e) = check_optional_seconds_order(args.start_sec, args.end_sec) {
-            return Ok(ToolResult::Error(e));
-        }
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
-        if channels < 2 {
-            return Ok(ToolResult::Error(
-                "vocal_reduction requires a stereo track".into(),
-            ));
-        }
-        let (s, e) = (args.start_sec, args.end_sec);
-        Ok(destructive_edit(
-            ctx,
-            args.track,
-            move |samples, sr| {
-                let ch = channels;
-                let len_frames = samples.len() / ch;
-                let start = s
-                    .map(|sec| ((sec * sr as f64) as usize).min(len_frames))
-                    .unwrap_or(0);
-                let end = e
-                    .map(|sec| ((sec * sr as f64) as usize).min(len_frames))
-                    .unwrap_or(len_frames);
-                apply_vocal_reduction(&mut samples[start * ch..end * ch], sr, ch);
-            },
-            format!("vocal_reduction track {}", args.track),
-        ))
+        Ok(EffectEdit::on(args.track)
+            .stereo_only("vocal_reduction")
+            .run_in_window(
+                ctx,
+                args.start_sec,
+                args.end_sec,
+                format!("vocal_reduction track {}", args.track),
+                apply_vocal_reduction,
+            ))
     }
 }
 

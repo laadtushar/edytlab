@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -54,38 +54,13 @@ impl Tool for ReverbTool {
         let room = args.room_size.unwrap_or(0.5);
         let damp = args.damping.unwrap_or(0.5);
         let wet = args.wet.unwrap_or(0.3);
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
-        Ok(destructive_edit(
+        Ok(EffectEdit::on(args.track).run(
             ctx,
-            args.track,
-            move |samples, sr| {
-                let mut v = samples.to_vec();
-                apply_reverb(&mut v, sr, channels, room, damp, wet);
-                *samples = v;
-            },
             format!(
                 "reverb track {} room={:.2} wet={:.2}",
                 args.track, room, wet
             ),
+            move |samples, sr, channels| apply_reverb(samples, sr, channels, room, damp, wet),
         ))
     }
 }

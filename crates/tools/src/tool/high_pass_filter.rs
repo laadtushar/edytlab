@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, destructive_edit, load_head_state};
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -50,35 +50,14 @@ impl Tool for HighPassFilterTool {
         if args.cutoff_hz <= 0.0 {
             return Ok(ToolResult::Error("cutoff_hz must be positive".into()));
         }
-        let channels = {
-            let state = match load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
         let (cutoff, s, e) = (args.cutoff_hz, args.start_sec, args.end_sec);
-        Ok(destructive_edit(
+        Ok(EffectEdit::on(args.track).run(
             ctx,
-            args.track,
-            move |samples, sr| apply_high_pass(samples, sr, channels, cutoff, s, e),
             format!(
                 "high_pass_filter track {} cutoff={:.0}Hz",
                 args.track, cutoff
             ),
+            move |samples, sr, channels| apply_high_pass(samples, sr, channels, cutoff, s, e),
         ))
     }
 }

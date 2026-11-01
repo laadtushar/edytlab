@@ -5,9 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{
-    check_optional_seconds_order, check_track_index, destructive_edit, load_head_state,
-};
+use crate::tool::util::{check_optional_seconds_order, EffectEdit};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Negate every sample in `[start_sec, end_sec)` of `samples` (or all samples
@@ -93,38 +91,11 @@ impl Tool for InvertTool {
             return Ok(ToolResult::Error(e));
         }
 
-        // Pre-read channel count so the closure (which only receives sr)
-        // can compute the correct interleaved byte range.
-        let channels = {
-            let state = match load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = match state.tracks[args.track].clips.first().cloned() {
-                Some(c) => c,
-                None => {
-                    return Ok(ToolResult::Error(format!(
-                        "track {} has no clips",
-                        args.track
-                    )))
-                }
-            };
-            match audio_decoder::decode_file(&clip.source_path) {
-                Ok(d) => d.channels as usize,
-                Err(_) => 1,
-            }
-        };
-
         let (s, e) = (args.start_sec, args.end_sec);
-
-        Ok(destructive_edit(
+        Ok(EffectEdit::on(args.track).run(
             ctx,
-            args.track,
-            move |samples, sr| apply_invert(samples, sr, channels, s, e),
             format!("invert track {}", args.track),
+            move |samples, sr, channels| apply_invert(samples, sr, channels, s, e),
         ))
     }
 }
