@@ -5,91 +5,21 @@
 //! that the tool accepts a `metadata` argument — it is that the bytes
 //! come back out of the finished file.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
-
-fn write_sine(path: &Path) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let src = write_sine(&dir.path().join("in.wav"));
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": src.to_string_lossy() }));
-        s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
-    }
-}
 
 /// **MP3.** An ID3v2 tag is a prefix, so the test reads the head of the
 /// file and expects both the header and the text in it.
 #[test]
 fn an_mp3_export_carries_its_id3_tag() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     let out = s.dir.path().join("ep.mp3");
     let node = s.head();
 
@@ -129,7 +59,7 @@ fn an_mp3_export_carries_its_id3_tag() {
 /// here with the same decoder that wrote them.
 #[test]
 fn a_flac_export_carries_its_vorbis_comments() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     let out = s.dir.path().join("ep.flac");
     let node = s.head();
 
@@ -163,7 +93,7 @@ fn a_flac_export_carries_its_vorbis_comments() {
 /// file the tags silently fell off.
 #[test]
 fn tagging_a_wav_is_refused_with_a_reason() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     let out = s.dir.path().join("ep.wav");
     let node = s.head();
 
@@ -184,7 +114,7 @@ fn tagging_a_wav_is_refused_with_a_reason() {
 /// annotation and not every one is a chapter worth shipping.
 #[test]
 fn markers_become_chapters_only_on_request() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     let node = s.head();
     ok(s.call("label", json!({ "time": 0.0, "name": "Intro" })));
     ok(s.call("label", json!({ "time": 0.5, "name": "The interview" })));
@@ -228,7 +158,7 @@ fn markers_become_chapters_only_on_request() {
 /// what it always was.
 #[test]
 fn an_untagged_export_is_untouched() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     let out = s.dir.path().join("plain.mp3");
     let node = s.head();
 
@@ -274,7 +204,7 @@ fn flac_tag(out: &Path, key: &str) -> Option<String> {
 
 #[test]
 fn an_export_inherits_the_project_tags_without_being_told() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     set_project_tags(s.dir.path(), "Episode 12", "A Podcast", "Season 2", "2026");
     let out = s.dir.path().join("ep.flac");
     let node = s.head();
@@ -304,7 +234,7 @@ fn an_export_inherits_the_project_tags_without_being_told() {
 
 #[test]
 fn an_explicit_tag_overrides_the_project() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     set_project_tags(s.dir.path(), "Episode 12", "A Podcast", "Season 2", "2026");
     let out = s.dir.path().join("special.flac");
     let node = s.head();
@@ -335,7 +265,7 @@ fn a_project_with_no_tags_set_behaves_as_it_did_before() {
     // `ProjectMeta::from_dir` names a project after its folder, so
     // `name` is never empty and TITLE always has something to fall
     // back to. What must not appear is an artist or album nobody set.
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, 1);
     let out = s.dir.path().join("plain.flac");
     let node = s.head();
 

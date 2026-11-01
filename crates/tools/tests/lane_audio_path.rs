@@ -9,7 +9,9 @@
 use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::Clip;
+#[path = "support/harness.rs"]
+mod harness;
+use harness::clip;
 use tempfile::TempDir;
 use tools::lane_audio_path;
 
@@ -30,21 +32,6 @@ fn source(dir: &Path) -> PathBuf {
     }
     w.finalize().unwrap();
     path
-}
-
-fn clip(source: &Path, start_in_track: u64, source_offset: u64, length: u64) -> Clip {
-    Clip {
-        source_path: source.to_path_buf(),
-        start_in_track,
-        source_offset,
-        length,
-        content_hash: None,
-        time_stretch_factor: None,
-        pitch_shift_semitones: None,
-        beat_grid: None,
-        volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
-    }
 }
 
 fn samples(path: &Path) -> Vec<i16> {

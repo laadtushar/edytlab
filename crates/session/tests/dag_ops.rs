@@ -5,69 +5,26 @@
 
 use std::path::PathBuf;
 
-use chrono::Utc;
 use proptest::prelude::*;
-use session::{
-    BusGraph, Clip, EffectInstance, NodeId, SessionDiff, SessionNode, SessionState, Store,
-    TempoMap, Track, TrackId,
-};
+use session::{EffectInstance, NodeId, SessionDiff, SessionState, Store, Track, TrackId};
 use tempfile::TempDir;
 use uuid::Uuid;
+
+mod support;
+use support::{clip_of, empty_state, marker_at as marker, node_with, track_of};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn empty_state() -> SessionState {
-    SessionState {
-        tracks: Vec::new(),
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: 48_000,
-        length_samples: 0,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
-}
-
 fn track(name: &str) -> Track {
-    Track {
-        id: TrackId(Uuid::new_v4()),
-        name: name.into(),
-        clips: vec![Clip {
-            source_path: PathBuf::from(format!("media/{name}.wav")),
-            start_in_track: 0,
-            source_offset: 0,
-            length: 1_000,
-            content_hash: None,
-            time_stretch_factor: None,
-            pitch_shift_semitones: None,
-            beat_grid: None,
-            volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
-        }],
-        gain_db: 0.0,
-        pan: 0.0,
-        muted: false,
-        soloed: false,
-        effects: Vec::new(),
-        sends: Vec::new(),
-    }
+    let source = PathBuf::from(format!("media/{name}.wav"));
+    track_of(TrackId(Uuid::new_v4()), name, vec![clip_of(&source, 1_000)])
 }
 
 fn append(store: &mut Store, state: SessionState, label: &str) -> NodeId {
-    let node = SessionNode {
-        id: NodeId([0; 32]),
-        parent: None,
-        created_at: Utc::now(),
-        label: Some(label.into()),
-        reasoning: None,
-        state,
-        op: None,
-    };
+    let mut node = node_with(state);
+    node.label = Some(label.into());
     store.append(node).unwrap()
 }
 
@@ -440,14 +397,6 @@ fn session_diff_json_roundtrips() {
 // ---------------------------------------------------------------------------
 // The three fields the diff could not express (#244)
 // ---------------------------------------------------------------------------
-
-fn marker(name: &str, at: f64) -> session::Annotation {
-    session::Annotation {
-        id: session::AnnotationId::new(),
-        name: name.into(),
-        kind: session::AnnotationKind::Marker { time_sec: at },
-    }
-}
 
 /// `annotations`, `sync_lock` and `Track::sends` are hashed into the
 /// node id like every other field, so two nodes differing only in them

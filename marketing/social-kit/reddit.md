@@ -198,7 +198,7 @@ Where I'd love a hand:
 - Stem separation. It isn't built yet, which is issue 385, and it's the one I'd most like to see land.
 - New audio tools or new AI providers. docs/contributing.md walks through both.
 
-Five open issues are labelled "good first issue", #846 to #850: a wah-wah effect, a curve option for fade, a mute-all-tracks tool, and tests for mute, solo and pan. Each one says where in the code to start.
+Three open issues are labelled "good first issue", #846 to #848: a wah-wah effect, a curve option for fade and a mute-all-tracks tool. Each one says where in the code to start.
 
 Things this crowd will ask:
 
@@ -312,8 +312,8 @@ Facts to re-check on the day:
   v0.9.0). The r/opensource post now names only 385 for the ML pieces that are
   still missing. Re-checked on 2026-10-27: 464, 497, 389, 386, 385 and 474 are
   still open; 567 (the Mac checks, passed on v0.9.0 and v0.9.1) is closed.
-- The good first issue sentence names #846 to #850, which carried the label and
-  were open when checked on 2026-10-27. Re-check that they are still open (and
+- The good first issue sentence names #846 to #848, which carried the label and
+  were open when checked on 2026-11-01. Re-check that they are still open (and
   still labelled) before posting r/opensource; edit the sentence if one has been taken.
 - r/LocalLLaMA numbers: 15,157 tokens (posted as "about 15,000") and the 8,192
   context are v0.4.0's, from issue 395. The 8.7 KB / 67 KB figures are from

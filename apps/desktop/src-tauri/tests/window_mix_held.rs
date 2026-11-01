@@ -25,18 +25,16 @@
 
 #![cfg(not(target_os = "windows"))]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use edytlab_desktop_lib::commands;
-use edytlab_desktop_lib::state::AppState;
-use serde_json::{json, Value};
+use serde_json::json;
 use session::NodeId;
-use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-use tauri::webview::InvokeRequest;
-use tauri::WebviewWindowBuilder;
+
+#[macro_use]
+mod support;
+use support::MixBed;
 
 static ENV: Mutex<()> = Mutex::new(());
 
@@ -46,56 +44,19 @@ const CAP_VAR: &str = tools::preview_cache::CAP_ENV;
 /// filesystems: a gap between renders makes the order one the test chose.
 const TICK: Duration = Duration::from_millis(20);
 
-fn make_request(cmd: &str, body: Value) -> InvokeRequest {
-    InvokeRequest {
-        cmd: cmd.into(),
-        callback: CallbackFn(0),
-        error: CallbackFn(1),
-        url: "tauri://localhost".parse().unwrap(),
-        body: InvokeBody::Json(body),
-        headers: Default::default(),
-        invoke_key: INVOKE_KEY.to_string(),
-    }
-}
-
-/// A mono 16-bit WAV of `frames` frames at 8 kHz, every sample 1000.
-fn write_wav(path: &Path, frames: u32) {
-    let data_len = frames * 2;
-    let mut bytes = Vec::with_capacity(44 + data_len as usize);
-    bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
-    bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
-    bytes.extend_from_slice(&8_000u32.to_le_bytes());
-    bytes.extend_from_slice(&16_000u32.to_le_bytes()); // byte rate
-    bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
-    bytes.extend_from_slice(&16u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&data_len.to_le_bytes());
-    for _ in 0..frames {
-        bytes.extend_from_slice(&1_000i16.to_le_bytes());
-    }
-    std::fs::write(path, bytes).expect("write wav");
-}
-
 /// A project with a load and five edits after it, opened over IPC.
 ///
 /// Every node is the same length, so every whole-mix render is the same
 /// size, which lets a test set the cache's cap in renders.
 struct Sandbox {
     _lock: MutexGuard<'static, ()>,
-    _root: tempfile::TempDir,
-    project: PathBuf,
+    bed: MixBed,
     /// A second, empty project folder, for a test that changes project.
     other: PathBuf,
     saved_cap: Option<std::ffi::OsString>,
-    /// Oldest first: the load, then each edit.
-    nodes: Vec<NodeId>,
-    webview: tauri::WebviewWindow<MockRuntime>,
-    _app: tauri::App<MockRuntime>,
 }
+
+sandbox_derefs_to_bed!(Sandbox);
 
 impl Sandbox {
     fn new() -> Self {
@@ -109,115 +70,12 @@ impl Sandbox {
         let saved_cap = std::env::var_os(CAP_VAR);
         std::env::remove_var(CAP_VAR);
 
-        let take = project.join("take.wav");
-        write_wav(&take, 16_000);
-        let nodes = {
-            let mut store = session::Store::open(&project).expect("store");
-            let mut engine = audio_engine::Engine::new();
-            let mut clipboard = None;
-            let dispatcher = tools::ToolDispatcher::default_dispatcher();
-            let mut ctx = tools::ToolContext {
-                store: &mut store,
-                engine: &mut engine,
-                user_message: "",
-                clipboard: &mut clipboard,
-                allowed_tools: None,
-            };
-            let mut nodes = Vec::new();
-            let mut run = |tool: &str, args: Value, ctx: &mut tools::ToolContext| {
-                let result = dispatcher.invoke(tool, args, ctx).expect("invoke");
-                match result {
-                    tools::ToolResult::Ok(_) => nodes.push(ctx.store.head().expect("head")),
-                    tools::ToolResult::Error(m) => panic!("{tool} failed: {m}"),
-                }
-            };
-            run("load", json!({ "path": take }), &mut ctx);
-            for start in [0.0, 0.3, 0.6, 0.9, 1.2] {
-                run(
-                    "silence_region",
-                    json!({ "track": 0, "start_sec": start, "end_sec": start + 0.1 }),
-                    &mut ctx,
-                );
-            }
-            nodes
-        };
-
-        let app = mock_builder()
-            .manage(AppState::new())
-            .invoke_handler(tauri::generate_handler![
-                commands::open_project,
-                commands::render_preview,
-                commands::prepare_compare,
-                commands::end_compare,
-            ])
-            .build(mock_context(noop_assets()))
-            .expect("mock app");
-        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .expect("webview");
-        let s = Self {
+        Self {
             _lock: lock,
-            _root: root,
-            project,
+            bed: MixBed::open(root, project),
             other,
             saved_cap,
-            nodes,
-            webview,
-            _app: app,
-        };
-        s.call("open_project", json!({ "path": s.project }))
-            .expect("open_project");
-        s
-    }
-
-    fn call(&self, cmd: &str, body: Value) -> Result<Value, String> {
-        tauri::test::get_ipc_response(&self.webview, make_request(cmd, body))
-            .map(|r| r.deserialize::<Value>().expect("json"))
-            .map_err(|e| e.as_str().unwrap_or_default().to_string())
-    }
-
-    /// The window's render of `node`: what Play and Preview ask for.
-    fn window_render(&self, node: NodeId) -> Result<PathBuf, String> {
-        self.call("render_preview", json!({ "node": node.to_hex() }))
-            .map(|v| PathBuf::from(v.as_str().expect("a path")))
-    }
-
-    /// The agent's `render_preview` tool for `node`, as the dispatcher runs
-    /// it: into the same cache, by the tool and not by the window's command.
-    fn agent_render(&self, node: NodeId) -> PathBuf {
-        let mut store = session::Store::open(&self.project).expect("store");
-        let mut engine = audio_engine::Engine::new();
-        let mut clipboard = None;
-        let dispatcher = tools::ToolDispatcher::default_dispatcher();
-        let mut ctx = tools::ToolContext {
-            store: &mut store,
-            engine: &mut engine,
-            user_message: "",
-            clipboard: &mut clipboard,
-            allowed_tools: None,
-        };
-        let result = dispatcher
-            .invoke(
-                "render_preview",
-                json!({ "node_id": node.to_hex() }),
-                &mut ctx,
-            )
-            .expect("invoke");
-        match result {
-            tools::ToolResult::Ok(v) => {
-                PathBuf::from(v["path"].as_str().expect("the tool answers a path"))
-            }
-            tools::ToolResult::Error(m) => panic!("render_preview failed: {m}"),
         }
-    }
-
-    fn previews(&self) -> PathBuf {
-        self.project.join(".audiograph").join("previews")
-    }
-
-    /// Where the cache keeps the whole mix of `node`.
-    fn entry(&self, node: NodeId) -> PathBuf {
-        self.previews().join(format!("{}.wav", node.to_hex()))
     }
 
     /// The size of one whole-mix render, from a render the agent's tool
@@ -231,15 +89,6 @@ impl Sandbox {
 
     fn cap(&self, bytes: u64) {
         std::env::set_var(CAP_VAR, bytes.to_string());
-    }
-
-    /// Bytes on disk for the whole-mix entries of `nodes` that are there.
-    fn bytes_of(&self, nodes: &[NodeId]) -> u64 {
-        nodes
-            .iter()
-            .filter_map(|n| std::fs::metadata(self.entry(*n)).ok())
-            .map(|m| m.len())
-            .sum()
     }
 
     /// Anything in the cache folder that is not a finished entry.

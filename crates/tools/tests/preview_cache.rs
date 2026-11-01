@@ -10,85 +10,20 @@
 //! The other half is the miss: change the session and the node id
 //! changes, so there is no invalidation step that could be forgotten.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
 const SAMPLE_RATE: u32 = 48_000;
 
-fn write_sine(dir: &Path, name: &str) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
-struct Harness {
-    _tmp: TempDir,
-    project: PathBuf,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Harness {
-    fn new() -> Self {
-        let tmp = TempDir::new().expect("tempdir");
-        let project = tmp.path().to_path_buf();
-        let src = write_sine(&project, "in.wav");
-        let store = session::Store::open(&project).expect("open store");
-        let mut h = Self {
-            _tmp: tmp,
-            project,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        h.call("load", json!({ "path": src.to_string_lossy() }));
-        h
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        ok(self.dispatcher.invoke(tool, args, &mut ctx).unwrap())
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
-    }
-
+impl Session {
     fn preview(&mut self) -> Value {
-        let node = self.head();
-        self.call("render_preview", json!({ "node_id": node }))
+        let node = self.head_hex();
+        self.ok("render_preview", json!({ "node_id": node }))
     }
 }
 
@@ -97,7 +32,7 @@ impl Harness {
 /// with the same name.
 #[test]
 fn the_second_render_of_a_head_is_a_cache_hit() {
-    let mut h = Harness::new();
+    let mut h = Session::with_sine(SAMPLE_RATE, 1);
 
     let first = h.preview();
     assert_eq!(
@@ -128,12 +63,12 @@ fn the_second_render_of_a_head_is_a_cache_hit() {
 /// misses. There is no invalidation step to get wrong.
 #[test]
 fn an_edit_misses_and_leaves_the_old_entry_intact() {
-    let mut h = Harness::new();
+    let mut h = Session::with_sine(SAMPLE_RATE, 1);
 
     let before = h.preview();
     let before_path = PathBuf::from(before["path"].as_str().unwrap());
 
-    h.call(
+    h.ok(
         "silence_region",
         json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
     );
@@ -154,22 +89,22 @@ fn an_edit_misses_and_leaves_the_old_entry_intact() {
 /// before the edit is still a hit.
 #[test]
 fn undo_then_redo_hits_in_both_directions() {
-    let mut h = Harness::new();
+    let mut h = Session::with_sine(SAMPLE_RATE, 1);
 
-    let first_head = h.head();
+    let first_head = h.head_hex();
     h.preview();
 
-    h.call(
+    h.ok(
         "silence_region",
         json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
     );
-    let second_head = h.head();
+    let second_head = h.head_hex();
     h.preview();
 
-    let back = h.call("render_preview", json!({ "node_id": first_head }));
+    let back = h.ok("render_preview", json!({ "node_id": first_head }));
     assert_eq!(back["cached"], json!(true), "undo re-rendered");
 
-    let forward = h.call("render_preview", json!({ "node_id": second_head }));
+    let forward = h.ok("render_preview", json!({ "node_id": second_head }));
     assert_eq!(forward["cached"], json!(true), "redo re-rendered");
 }
 
@@ -179,15 +114,15 @@ fn undo_then_redo_hits_in_both_directions() {
 /// the same bounded cache, under a key that names its range.
 #[test]
 fn a_ranged_render_is_not_cached_as_the_whole_mix() {
-    let mut h = Harness::new();
-    let node = h.head();
+    let mut h = Session::with_sine(SAMPLE_RATE, 1);
+    let node = h.head_hex();
 
-    let excerpt = h.call(
+    let excerpt = h.ok(
         "render_preview",
         json!({ "node_id": node, "range": [0, 1000] }),
     );
     let excerpt_path = PathBuf::from(excerpt["path"].as_str().unwrap());
-    let cache_dir = h.project.join(".audiograph").join("previews");
+    let cache_dir = h.dir.path().join(".audiograph").join("previews");
     assert_eq!(
         excerpt_path.parent(),
         Some(cache_dir.as_path()),
@@ -221,14 +156,14 @@ fn a_ranged_render_is_not_cached_as_the_whole_mix() {
 /// is one nobody can observe working.
 #[test]
 fn storage_report_counts_the_preview_cache() {
-    let mut h = Harness::new();
+    let mut h = Session::with_sine(SAMPLE_RATE, 1);
 
-    let before = h.call("storage_report", json!({}));
+    let before = h.ok("storage_report", json!({}));
     assert_eq!(before["preview_cache"]["files"], json!(0));
 
     h.preview();
 
-    let after = h.call("storage_report", json!({}));
+    let after = h.ok("storage_report", json!({}));
     assert_eq!(after["preview_cache"]["files"], json!(1));
     assert!(after["preview_cache"]["bytes"].as_u64().unwrap() > 0);
     assert!(after["preview_cache"]["cap_bytes"].as_u64().unwrap() > 0);

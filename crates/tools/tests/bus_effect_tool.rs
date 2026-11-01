@@ -23,90 +23,27 @@
 //! * that every edit is an ordinary **undoable node** and a bus-scope
 //!   `DiffOp::Effect`, and that no chain reaches into another.
 
-use std::path::{Path, PathBuf};
-
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
 use session::{DiffOp, EffectInstance, EffectScope};
-use tempfile::TempDir;
-use tools::{DispatchError, ToolContext, ToolDispatcher, ToolResult};
+use tools::DispatchError;
+
+#[path = "support/effects.rs"]
+mod effects;
+#[path = "support/harness.rs"]
+mod harness;
+use effects::{NOT_YET_STREAMABLE, STREAMABLE};
+use harness::{err, ok, Session};
 
 const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: usize = 44_100;
 
-/// What the streaming renderer can run in a chain today.
-const STREAMABLE: [&str; 5] = [
-    "gain",
-    "limiter",
-    "low_pass_filter",
-    "high_pass_filter",
-    "notch_filter",
-];
-
-/// Effects that exist as destructive tools but cannot run in a chain yet.
-const NOT_YET_STREAMABLE: [&str; 11] = [
-    "tremolo",
-    "phaser",
-    "echo",
-    "reverb",
-    "noise_gate",
-    "leveler",
-    "de_esser",
-    "distortion",
-    "stereo_widener",
-    "eq",
-    "compressor",
-];
-
-/// A mono sine, `amp` of full scale.
-fn write_tone(dir: &Path, name: &str, freq: f32, amp: f32) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-/// A two-track session: 220 Hz and 330 Hz at 0.15 each. Quiet on purpose:
-/// a bus adds to the mix, so the room the tests need is the headroom to
-/// boost what a bus carries by 12 dB without the sum reaching full scale,
-/// where the render's clamp would hide the level the tests measure.
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-    renders: usize,
-}
-
 impl Session {
+    /// A two-track session: 220 Hz and 330 Hz at 0.15 each. Quiet on purpose:
+    /// a bus adds to the mix, so the room the tests need is the headroom to
+    /// boost what a bus carries by 12 dB without the sum reaching full scale,
+    /// where the render's clamp would hide the level the tests measure.
     fn two_quiet_tracks() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let a = write_tone(dir.path(), "a.wav", 220.0, 0.15);
-        let b = write_tone(dir.path(), "b.wav", 330.0, 0.15);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-            renders: 0,
-        };
-        ok(s.call("load", json!({ "path": a.to_string_lossy() })));
-        ok(s.call("load", json!({ "path": b.to_string_lossy() })));
-        s
+        Session::with_tones(SAMPLE_RATE, FRAMES, &[(220.0, 0.15), (330.0, 0.15)])
     }
 
     /// The same, with a bus called `name` that track 0 sends to at 0 dB.
@@ -115,53 +52,6 @@ impl Session {
         let id = s.create_bus(name);
         s.send(0, &id, 0.0);
         (s, id)
-    }
-
-    /// The dispatcher's whole answer, including a schema rejection.
-    fn try_call(&mut self, tool: &str, args: Value) -> Result<ToolResult, DispatchError> {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx)
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        self.try_call(tool, args)
-            .unwrap_or_else(|e| panic!("{tool} was rejected before it ran: {e}"))
-    }
-
-    fn head(&self) -> session::NodeId {
-        self.store.head().expect("a head")
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store.get(self.head()).expect("head node").state
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("list nodes").len()
-    }
-
-    /// Render the head the way the app does, and return its PCM.
-    fn render(&mut self) -> Vec<i16> {
-        self.renders += 1;
-        let out = self.dir.path().join(format!("out-{}.wav", self.renders));
-        audio_engine::render_state_to_wav(&self.state(), &out, None).expect("render");
-        WavReader::open(&out)
-            .expect("open render")
-            .samples::<i16>()
-            .map(|r| r.expect("sample"))
-            .collect()
-    }
-
-    /// Create a bus; returns its id.
-    fn create_bus(&mut self, name: &str) -> String {
-        let v = ok(self.call("create_bus", json!({ "name": name })));
-        v["bus_id"].as_str().expect("a bus id").to_string()
     }
 
     fn send(&mut self, track: usize, bus_id: &str, level_db: f64) {
@@ -204,20 +94,6 @@ impl Session {
             .effects
             .push(effect);
         self.store.append(node).expect("append");
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 
@@ -269,10 +145,10 @@ const DB6: f32 = 1.995_262_3;
 fn a_gain_added_to_a_bus_is_heard_at_that_level() {
     let (mut s, _) = Session::with_bus("Drums");
     // The same session with the send taken out: the dry mix.
-    let mut dry_session = Session::two_quiet_tracks();
-    let dry = dry_session.render();
+    let dry_session = Session::two_quiet_tracks();
+    let dry = dry_session.render_pcm(None);
 
-    let routed = s.render();
+    let routed = s.render_pcm(None);
     let carried = added_to(&routed, &dry);
     assert!(
         peak_f(&carried) > level(-20.0),
@@ -282,7 +158,7 @@ fn a_gain_added_to_a_bus_is_heard_at_that_level() {
 
     let v = s.add_bus("Drums", "gain", json!({ "db": 6.0 }));
     assert_eq!(v["effect_count"], 1, "{v}");
-    let boosted = s.render();
+    let boosted = s.render_pcm(None);
 
     assert_ne!(
         boosted, routed,
@@ -297,11 +173,11 @@ fn a_gain_added_to_a_bus_is_heard_at_that_level() {
 #[test]
 fn an_effect_on_a_bus_nothing_sends_to_is_not_heard() {
     let mut s = Session::two_quiet_tracks();
-    let dry = s.render();
+    let dry = s.render_pcm(None);
     s.create_bus("Idle");
     s.add_bus("Idle", "gain", json!({ "db": 12.0 }));
     assert_eq!(s.bus_chain("Idle").len(), 1);
-    assert_eq!(s.render(), dry, "an unfed bus changed the mix");
+    assert_eq!(s.render_pcm(None), dry, "an unfed bus changed the mix");
 }
 
 /// A bypassed effect renders as though it were absent, byte for byte, and
@@ -309,27 +185,39 @@ fn an_effect_on_a_bus_nothing_sends_to_is_not_heard() {
 #[test]
 fn bypassing_or_removing_a_bus_effect_renders_the_unprocessed_bus_exactly() {
     let (mut s, _) = Session::with_bus("Drums");
-    let routed = s.render();
+    let routed = s.render_pcm(None);
     s.add_bus("Drums", "gain", json!({ "db": 6.0 }));
-    assert_ne!(s.render(), routed);
+    assert_ne!(s.render_pcm(None), routed);
 
     ok(s.call(
         "set_effect_bypassed",
         json!({ "scope": "bus", "bus": "Drums", "effect_index": 0, "bypassed": true }),
     ));
-    assert_eq!(s.render(), routed, "a bypassed bus effect changed the mix");
+    assert_eq!(
+        s.render_pcm(None),
+        routed,
+        "a bypassed bus effect changed the mix"
+    );
 
     ok(s.call(
         "set_effect_bypassed",
         json!({ "scope": "bus", "bus": "Drums", "effect_index": 0, "bypassed": false }),
     ));
-    assert_ne!(s.render(), routed, "re-enabling it should bring it back");
+    assert_ne!(
+        s.render_pcm(None),
+        routed,
+        "re-enabling it should bring it back"
+    );
 
     ok(s.call(
         "remove_effect",
         json!({ "scope": "bus", "bus": "Drums", "effect_index": 0 }),
     ));
-    assert_eq!(s.render(), routed, "a removed bus effect changed the mix");
+    assert_eq!(
+        s.render_pcm(None),
+        routed,
+        "a removed bus effect changed the mix"
+    );
     assert!(s.bus_chain("Drums").is_empty());
 }
 
@@ -338,9 +226,9 @@ fn bypassing_or_removing_a_bus_effect_renders_the_unprocessed_bus_exactly() {
 #[test]
 fn bus_effect_params_are_editable_in_place() {
     let (mut s, _) = Session::with_bus("Drums");
-    let mut dry_session = Session::two_quiet_tracks();
-    let dry = dry_session.render();
-    let carried = added_to(&s.render(), &dry);
+    let dry_session = Session::two_quiet_tracks();
+    let dry = dry_session.render_pcm(None);
+    let carried = added_to(&s.render_pcm(None), &dry);
 
     // A limiter whose ceiling is below the signal it carries, so there is
     // a second parameter (release) for the merge to keep.
@@ -365,7 +253,7 @@ fn bus_effect_params_are_editable_in_place() {
 
     // Track 0 peaks near -16.5 dBFS, so a -12 dB ceiling leaves it alone
     // and a -20 dB one does not: the edit is heard.
-    let untouched = added_to(&s.render(), &dry);
+    let untouched = added_to(&s.render_pcm(None), &dry);
     assert_scaled(&untouched, &carried, 1.0, "a ceiling above the signal");
     ok(s.call(
         "set_effect_params",
@@ -374,7 +262,7 @@ fn bus_effect_params_are_editable_in_place() {
             "params": { "ceiling_db": -20.0 }
         }),
     ));
-    let limited = added_to(&s.render(), &dry);
+    let limited = added_to(&s.render_pcm(None), &dry);
     assert!(
         peak_f(&limited) <= level(-20.0) + 2.0 && peak_f(&limited) < peak_f(&carried) - 1_000.0,
         "lowering the ceiling to -20 dBFS should lower what the bus adds: {} -> {}",
@@ -398,12 +286,12 @@ fn bus_effect_params_are_editable_in_place() {
 #[test]
 fn reordering_a_bus_chain_changes_the_mix() {
     let (mut s, _) = Session::with_bus("Drums");
-    let mut dry_session = Session::two_quiet_tracks();
-    let dry = dry_session.render();
+    let dry_session = Session::two_quiet_tracks();
+    let dry = dry_session.render_pcm(None);
 
     s.add_bus("Drums", "gain", json!({ "db": 12.0 }));
     s.add_bus("Drums", "limiter", json!({ "ceiling_db": -6.0 }));
-    let gain_then_limit = added_to(&s.render(), &dry);
+    let gain_then_limit = added_to(&s.render_pcm(None), &dry);
     assert!(
         peak_f(&gain_then_limit) <= level(-6.0) + 2.0,
         "boost then limit should stay under the ceiling: {}",
@@ -414,7 +302,7 @@ fn reordering_a_bus_chain_changes_the_mix() {
         "reorder_effects",
         json!({ "scope": "bus", "bus": "Drums", "order": [1, 0] }),
     ));
-    let limit_then_gain = added_to(&s.render(), &dry);
+    let limit_then_gain = added_to(&s.render_pcm(None), &dry);
     assert!(
         peak_f(&limit_then_gain) > level(-6.0) + 1_000.0,
         "a gain after the limiter should push the bus back over its ceiling: {}",
@@ -815,7 +703,7 @@ fn add_effect_on_a_bus_refuses_each_kind_the_renderer_cannot_stream() {
     }
 
     // The session still renders.
-    s.render();
+    s.render_pcm(None);
 }
 
 #[test]
@@ -851,7 +739,7 @@ fn every_working_kind_is_accepted_on_a_bus_and_renders() {
         STREAMABLE.len(),
         "the renderer gained a kind this test does not know"
     );
-    s.render();
+    s.render_pcm(None);
 }
 
 /// A project from before the kind was checked can hold a bypassed effect
@@ -937,7 +825,7 @@ fn a_stored_unrunnable_bus_effect_is_named_by_the_render_and_removable() {
 fn a_bus_edit_is_an_undoable_node() {
     let (mut s, _) = Session::with_bus("Drums");
     let before = s.head();
-    let routed = s.render();
+    let routed = s.render_pcm(None);
 
     let v = s.add_bus("Drums", "gain", json!({ "db": 6.0 }));
     let after = s.head();
@@ -948,16 +836,20 @@ fn a_bus_edit_is_an_undoable_node() {
         Some(before),
         "the new node should hang off the head it was made from"
     );
-    let boosted = s.render();
+    let boosted = s.render_pcm(None);
     assert_ne!(boosted, routed);
 
     s.store.set_head(before).expect("undo");
     assert!(s.bus_chain("Drums").is_empty());
-    assert_eq!(s.render(), routed, "undo left the effect on the mix");
+    assert_eq!(
+        s.render_pcm(None),
+        routed,
+        "undo left the effect on the mix"
+    );
 
     s.store.set_head(after).expect("redo");
     assert_eq!(s.bus_chain("Drums").len(), 1);
-    assert_eq!(s.render(), boosted);
+    assert_eq!(s.render_pcm(None), boosted);
 
     ok(s.call("revert_to", json!({ "target": before.to_hex() })));
     assert_eq!(s.head(), before);

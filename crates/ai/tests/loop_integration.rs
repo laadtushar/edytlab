@@ -14,11 +14,13 @@
 //!    that the outgoing request body had `cache_control: ephemeral`
 //!    on the system prompt.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ---------------------------------------------------------------------
 // Helpers
@@ -122,7 +124,7 @@ fn first_response_sse() -> String {
         ),
         ("message_stop", json!({ "type": "message_stop" })),
     ];
-    encode_sse(events)
+    common::encode_sse(events)
 }
 
 /// SSE body for the SECOND turn-step (after we feed the tool result
@@ -175,7 +177,7 @@ fn second_response_sse() -> String {
         ),
         ("message_stop", json!({ "type": "message_stop" })),
     ];
-    encode_sse(events)
+    common::encode_sse(events)
 }
 
 /// A minimal non-streaming Anthropic response for the classifier call
@@ -192,52 +194,6 @@ fn classifier_response_json() -> String {
         "usage": {"input_tokens": 10, "output_tokens": 1}
     })
     .to_string()
-}
-
-fn encode_sse(events: &[(&str, Value)]) -> String {
-    let mut out = String::new();
-    for (name, data) in events {
-        out.push_str("event: ");
-        out.push_str(name);
-        out.push('\n');
-        out.push_str("data: ");
-        out.push_str(&serde_json::to_string(data).unwrap());
-        out.push_str("\n\n");
-    }
-    out
-}
-
-/// Sequenced responder: returns `responses[i]` on the i-th request,
-/// then 500s. Wiremock's built-in matchers don't have ordering, so we
-/// roll our own.
-///
-/// If a response body starts with `{` we assume it is a JSON
-/// (non-streaming) response and set `content-type: application/json`.
-/// Otherwise we use `text/event-stream` for SSE bodies.
-struct SeqResponder {
-    counter: Mutex<usize>,
-    responses: Vec<String>,
-}
-
-impl Respond for SeqResponder {
-    fn respond(&self, _req: &wiremock::Request) -> ResponseTemplate {
-        let mut c = self.counter.lock().unwrap();
-        let idx = *c;
-        *c += 1;
-        match self.responses.get(idx) {
-            Some(body) => {
-                let ct = if body.trim_start().starts_with('{') {
-                    "application/json"
-                } else {
-                    "text/event-stream"
-                };
-                ResponseTemplate::new(200)
-                    .insert_header("content-type", ct)
-                    .set_body_string(body.clone())
-            }
-            None => ResponseTemplate::new(500).set_body_string("no more responses"),
-        }
-    }
 }
 
 /// Write a 1s, 1ch, 44.1kHz WAV with a single 0.5-amplitude tone so
@@ -274,19 +230,12 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     // The first request is the M27 mode-classification call (non-streaming
     // JSON response); the subsequent two are the normal tool-calling loop
     // (SSE responses).
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/messages"))
-        .respond_with(SeqResponder {
-            counter: Mutex::new(0),
-            responses: vec![
-                classifier_response_json(),
-                first_response_sse(),
-                second_response_sse(),
-            ],
-        })
-        .mount(&server)
-        .await;
+    let server = common::serve_messages(vec![
+        common::ok(classifier_response_json()),
+        common::ok(first_response_sse()),
+        common::ok(second_response_sse()),
+    ])
+    .await;
 
     // Project + WAV.
     let project = tempfile::tempdir().expect("tempdir");
@@ -545,7 +494,7 @@ fn loop_response_sse(n: usize) -> String {
         }),
     ));
     events.push(("message_stop", json!({ "type": "message_stop" })));
-    encode_sse(&events)
+    common::encode_sse(&events)
 }
 
 #[tokio::test]

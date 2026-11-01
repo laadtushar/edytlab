@@ -39,11 +39,12 @@ All five WAVs at the same sample rate, channel count, and length as
 
 ## Test gating
 
-`crates/ml-demucs/tests/cache_smoke.rs` checks for
-`assets/models/htdemucs.onnx` first; when that file lands the
-sandbox-gating test (`separate_returns_not_implemented_in_phase2_sandbox`)
-flips from "expect ModelMissing" to a real RMS-correlation assertion
-against the four reference stems above.
+The model is the pinned `htdemucs` download (two files, `htdemucs_fwd.onnx`
+and `htdemucs_fwd.onnx.data`, in one folder; see `crates/ml-pipeline/models.json`),
+found through `DEMUCS_MODEL_PATH` (the folder) or the app's models folder.
+`crates/ml-demucs/tests/real_model.rs` (`#[ignore]`d, run by `ml.yml`) runs it
+on its own fixtures. When this fixture lands, an RMS-correlation assertion
+against the four reference stems above can be added there.
 
 The tool-side smoke
 (`crates/tools/tests/tools_integration.rs::separate_stems_returns_actionable_error_when_model_missing`)

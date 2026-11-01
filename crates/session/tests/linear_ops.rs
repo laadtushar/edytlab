@@ -5,39 +5,18 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use chrono::Utc;
 use proptest::prelude::*;
-use session::{BusGraph, NodeId, SessionNode, SessionState, Store, TempoMap};
+use session::Store;
 use tempfile::TempDir;
 
-fn make_node(length_samples: u64) -> SessionNode {
-    SessionNode {
-        id: NodeId([0u8; 32]),
-        parent: None,
-        created_at: Utc::now(),
-        label: None,
-        reasoning: None,
-        state: SessionState {
-            tracks: Vec::new(),
-            bus_routing: BusGraph::default(),
-            master_chain: Vec::new(),
-            tempo_map: TempoMap::default(),
-            key_map: None,
-            transcript: None,
-            sample_rate: 48_000,
-            length_samples,
-            annotations: Vec::new(),
-            sync_lock: false,
-        },
-        op: None,
-    }
-}
+mod support;
+use support::node;
 
 #[test]
 fn append_then_get_roundtrips() {
     let dir = TempDir::new().unwrap();
     let mut store = Store::open(dir.path()).unwrap();
-    let id = store.append(make_node(1_000)).unwrap();
+    let id = store.append(node(1_000)).unwrap();
     let fetched = store.get(id).unwrap();
     assert_eq!(fetched.id, id);
     assert_eq!(fetched.state.length_samples, 1_000);
@@ -49,7 +28,7 @@ fn reopen_recovers_head() {
     let dir = TempDir::new().unwrap();
     let id = {
         let mut store = Store::open(dir.path()).unwrap();
-        store.append(make_node(42)).unwrap()
+        store.append(node(42)).unwrap()
     };
     let store = Store::open(dir.path()).unwrap();
     assert_eq!(store.head(), Some(id));
@@ -61,9 +40,9 @@ fn reopen_recovers_head() {
 fn parent_chain_is_linear() {
     let dir = TempDir::new().unwrap();
     let mut store = Store::open(dir.path()).unwrap();
-    let a = store.append(make_node(1)).unwrap();
-    let b = store.append(make_node(2)).unwrap();
-    let c = store.append(make_node(3)).unwrap();
+    let a = store.append(node(1)).unwrap();
+    let b = store.append(node(2)).unwrap();
+    let c = store.append(node(3)).unwrap();
     assert_eq!(store.get(a).unwrap().parent, None);
     assert_eq!(store.get(b).unwrap().parent, Some(a));
     assert_eq!(store.get(c).unwrap().parent, Some(b));
@@ -85,11 +64,11 @@ fn parent_chain_is_linear() {
 fn a_state_reached_again_keeps_its_first_parent() {
     let dir = TempDir::new().unwrap();
     let mut store = Store::open(dir.path()).unwrap();
-    let loaded = store.append(make_node(1_000)).unwrap();
-    let second = store.append(make_node(2_000)).unwrap();
-    let muted = store.append(make_node(3_000)).unwrap();
+    let loaded = store.append(node(1_000)).unwrap();
+    let second = store.append(node(2_000)).unwrap();
+    let muted = store.append(node(3_000)).unwrap();
     // Unmute: the state the project was in before the mute.
-    let again = store.append(make_node(2_000)).unwrap();
+    let again = store.append(node(2_000)).unwrap();
 
     assert_eq!(again, second, "the same state is the same node");
     assert_eq!(store.head(), Some(second));
@@ -104,8 +83,8 @@ fn a_state_reached_again_keeps_its_first_parent() {
 fn set_head_to_known_node() {
     let dir = TempDir::new().unwrap();
     let mut store = Store::open(dir.path()).unwrap();
-    let a = store.append(make_node(1)).unwrap();
-    let b = store.append(make_node(2)).unwrap();
+    let a = store.append(node(1)).unwrap();
+    let b = store.append(node(2)).unwrap();
     assert_eq!(store.head(), Some(b));
     store.set_head(a).unwrap();
     assert_eq!(store.head(), Some(a));
@@ -130,9 +109,9 @@ fn list_nodes_empty_store_returns_empty_vec() {
 fn list_nodes_returns_every_appended_node() {
     let dir = TempDir::new().unwrap();
     let mut store = Store::open(dir.path()).unwrap();
-    let a = store.append(make_node(1)).unwrap();
-    let b = store.append(make_node(2)).unwrap();
-    let c = store.append(make_node(3)).unwrap();
+    let a = store.append(node(1)).unwrap();
+    let b = store.append(node(2)).unwrap();
+    let c = store.append(node(3)).unwrap();
 
     let mut ids: Vec<_> = store
         .list_nodes()
@@ -155,7 +134,7 @@ proptest! {
         let mut store = Store::open(dir.path()).unwrap();
         let mut ids = Vec::with_capacity(lengths.len());
         for len in &lengths {
-            let id = store.append(make_node(*len)).unwrap();
+            let id = store.append(node(*len)).unwrap();
             ids.push(id);
             // After every append, head must be the most recent id.
             prop_assert_eq!(store.head(), Some(id));

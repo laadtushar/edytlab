@@ -15,116 +15,48 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+use tools::{ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{ok, write_frames, write_tone, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
-fn write_sine(path: &Path, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SAMPLE_RATE as usize * seconds) {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
 /// `seconds` of a quiet sine at `rate` Hz with `channels` interleaved
 /// channels.
-fn write_tone(path: &Path, seconds: usize, rate: u32, channels: u16) -> PathBuf {
-    let spec = WavSpec {
-        channels,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(rate as usize * seconds) {
-        let t = n as f32 / rate as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        for _ in 0..channels {
-            w.write_sample((s * 32_767.0) as i16).unwrap();
-        }
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
+fn write_multichannel(path: &Path, seconds: usize, rate: u32, channels: u16) -> PathBuf {
+    write_frames(path, rate, channels, rate as usize * seconds, |n| {
+        (2.0 * std::f32::consts::PI * 440.0 * (n as f32 / rate as f32)).sin() * 0.25
+    })
 }
 
 impl Session {
     /// Two speakers, ten seconds each, recorded together.
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let a = write_sine(&dir.path().join("host.wav"), 10);
-        let b = write_sine(&dir.path().join("guest.wav"), 10);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": a.to_string_lossy() }));
-        s.call("load", json!({ "path": b.to_string_lossy() }));
+        let mut s = Session::empty();
+        let a = write_tone(&s.dir.path().join("host.wav"), SAMPLE_RATE, 10);
+        let b = write_tone(&s.dir.path().join("guest.wav"), SAMPLE_RATE, 10);
+        s.load(&a);
+        s.load(&b);
         s
     }
 
     /// One track per `(seconds, rate, channels)`, in order. The session's
     /// rate is the first one's.
     fn from_specs(specs: &[(usize, u32, u16)]) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
+        let mut s = Session::empty();
         for (i, (seconds, rate, channels)) in specs.iter().enumerate() {
-            let wav = write_tone(
-                &s._dir.path().join(format!("t{i}.wav")),
+            let wav = write_multichannel(
+                &s.dir.path().join(format!("t{i}.wav")),
                 *seconds,
                 *rate,
                 *channels,
             );
-            ok(s.call("load", json!({ "path": wav.to_string_lossy() })));
+            s.load(&wav);
         }
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
     }
 
     /// Where a track's timeline ends, in samples.
@@ -135,17 +67,6 @@ impl Session {
             .map(|c| c.start_in_track + c.length)
             .max()
             .unwrap_or(0)
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("nodes").len()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
     }
 }
 

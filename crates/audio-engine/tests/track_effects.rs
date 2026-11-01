@@ -17,9 +17,13 @@
 use std::path::{Path, PathBuf};
 
 use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use session::{EffectInstance, SessionState};
 use tempfile::TempDir;
+
+mod support;
+use support::{
+    bypassed, effect, pcm_trunc, render_i16, rms, sine_at, single_track_state, write_wav_i16,
+};
 
 const SAMPLE_RATE: u32 = 44_100;
 /// Three seconds, so the render crosses two chunk boundaries — the
@@ -27,95 +31,24 @@ const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: usize = SAMPLE_RATE as usize * 3;
 
 fn write_tone(dir: &Path) -> PathBuf {
-    let path = dir.join("tone.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
+    write_wav_i16(dir, "tone.wav", SAMPLE_RATE, 1, FRAMES, |n| {
         // Two partials, so a filter has something to remove.
-        let s = ((2.0 * std::f32::consts::PI * 300.0 * t).sin() * 0.4
-            + (2.0 * std::f32::consts::PI * 6_000.0 * t).sin() * 0.3)
-            * 0.8;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-fn effect(kind: &str, params: serde_json::Value) -> EffectInstance {
-    EffectInstance {
-        kind: kind.to_string(),
-        params,
-        bypassed: false,
-    }
-}
-
-fn bypassed(kind: &str, params: serde_json::Value) -> EffectInstance {
-    EffectInstance {
-        kind: kind.to_string(),
-        params,
-        bypassed: true,
-    }
+        pcm_trunc(
+            (sine_at(n, 300.0, 0.4, SAMPLE_RATE) + sine_at(n, 6_000.0, 0.3, SAMPLE_RATE)) * 0.8,
+        )
+    })
 }
 
 fn state_with_effects(source: &Path, effects: Vec<EffectInstance>) -> SessionState {
-    let decoded = audio_decoder::decode_file(source).expect("decode");
-    let frames = (decoded.samples.len() / decoded.channels as usize) as u64;
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "t1".into(),
-            clips: vec![Clip {
-                source_path: source.to_path_buf(),
-                start_in_track: 0,
-                source_offset: 0,
-                length: frames,
-                content_hash: None,
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: Vec::new(),
-                volume_envelope_frames: Default::default(),
-            }],
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects,
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: decoded.sample_rate,
-        length_samples: frames,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    let mut state = single_track_state(source);
+    state.tracks[0].effects = effects;
+    state
 }
 
 fn render(effects: Vec<EffectInstance>) -> Vec<i16> {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
-    let out = tmp.path().join("out.wav");
-    let state = state_with_effects(&src, effects);
-    render_state_to_wav(&state, &out, None).expect("render");
-    WavReader::open(&out)
-        .expect("open out")
-        .samples::<i16>()
-        .map(|r| r.expect("sample"))
-        .collect()
-}
-
-fn rms(x: &[i16]) -> f32 {
-    (x.iter().map(|v| (*v as f32).powi(2)).sum::<f32>() / x.len() as f32).sqrt()
+    render_i16(&state_with_effects(&src, effects))
 }
 
 /// A track effect is audible in the render, and — the point of a chain

@@ -9,40 +9,21 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use hound::WavReader;
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_exact, Session};
 
 const SAMPLE_RATE: u32 = 8_000;
 const SOURCE_FRAMES: usize = 8_000;
 
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
 fn write_tone_wav(dir: &Path) -> PathBuf {
-    let path = dir.join("in.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SOURCE_FRAMES {
+    write_exact(&dir.join("in.wav"), SAMPLE_RATE, SOURCE_FRAMES, |n| {
         let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.4;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
+        (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.4
+    })
 }
 
 /// Resampling a split track has to convert every clip, not just the head.
@@ -54,43 +35,23 @@ fn write_tone_wav(dir: &Path) -> PathBuf {
 /// that file's rate, and its length in frames.
 #[test]
 fn resample_covers_every_clip_of_a_split_track() {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_tone_wav(tmp.path());
+    let mut s = Session::empty();
+    let src = write_tone_wav(s.dir.path());
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
+    s.ok("load", json!({ "path": src.to_string_lossy() }));
     // Interior cut: 7000 frames left, in two clips.
-    ok(dispatcher
-        .invoke(
-            "cut_range",
-            json!({ "track": 0, "start_sample": 2000, "end_sample": 3000 }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok(
+        "cut_range",
+        json!({ "track": 0, "start_sample": 2000, "end_sample": 3000 }),
+    );
 
-    ok(dispatcher
-        .invoke(
-            "resample_track",
-            json!({ "track": 0, "target_sample_rate": SAMPLE_RATE / 2 }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok(
+        "resample_track",
+        json!({ "track": 0, "target_sample_rate": SAMPLE_RATE / 2 }),
+    );
 
-    let head = ctx.store.head().expect("head");
-    let node = ctx.store.get(head).expect("get head");
+    let head = s.store.head().expect("head");
+    let node = s.store.get(head).expect("get head");
     let clips = &node.state.tracks[0].clips;
 
     assert_eq!(
@@ -134,42 +95,25 @@ fn resample_covers_every_clip_of_a_split_track() {
 /// actually matters to a user, and the one a stale rate breaks.
 #[test]
 fn resampling_updates_the_sessions_sample_rate() {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_tone_wav(tmp.path());
+    let mut s = Session::empty();
+    let src = write_tone_wav(s.dir.path());
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
+    s.ok("load", json!({ "path": src.to_string_lossy() }));
 
     let before = {
-        let head = ctx.store.head().expect("head");
-        ctx.store.get(head).expect("get head").state.sample_rate
+        let head = s.store.head().expect("head");
+        s.store.get(head).expect("get head").state.sample_rate
     };
     assert_eq!(before, SAMPLE_RATE);
 
     let target = SAMPLE_RATE / 2;
-    ok(dispatcher
-        .invoke(
-            "resample_track",
-            json!({ "track": 0, "target_sample_rate": target }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok(
+        "resample_track",
+        json!({ "track": 0, "target_sample_rate": target }),
+    );
 
-    let head = ctx.store.head().expect("head");
-    let state = ctx.store.get(head).expect("get head").state;
+    let head = s.store.head().expect("head");
+    let state = s.store.get(head).expect("get head").state;
 
     assert_eq!(
         state.sample_rate, target,
@@ -196,29 +140,13 @@ fn resampling_updates_the_sessions_sample_rate() {
 /// one track would rewrite the session's declared rate to that track's.
 #[test]
 fn a_non_resampling_edit_leaves_the_sample_rate_alone() {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_tone_wav(tmp.path());
+    let mut s = Session::empty();
+    let src = write_tone_wav(s.dir.path());
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
+    s.ok("load", json!({ "path": src.to_string_lossy() }));
+    s.ok("gain", json!({ "track": 0, "db": -3.0 }));
 
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
-    ok(dispatcher
-        .invoke("gain", json!({ "track": 0, "db": -3.0 }), &mut ctx)
-        .unwrap());
-
-    let head = ctx.store.head().expect("head");
-    let state = ctx.store.get(head).expect("get head").state;
+    let head = s.store.head().expect("head");
+    let state = s.store.get(head).expect("get head").state;
     assert_eq!(state.sample_rate, SAMPLE_RATE);
 }

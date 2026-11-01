@@ -11,12 +11,19 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
+use hound::WavReader;
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_sine, Session};
 
 const VOICE_RATE: u32 = 16_000;
+
+/// `seconds` of a 440 Hz sine at half of full scale, mono, at `rate`.
+fn write_tone(path: &Path, rate: u32, seconds: usize) -> PathBuf {
+    write_sine(path, rate, 440.0, 0.5, rate as usize * seconds)
+}
 const VOICE_SECONDS: usize = 4;
 const BED_SECONDS: usize = 6;
 
@@ -24,85 +31,21 @@ const BED_SECONDS: usize = 6;
 /// ratio hides.
 const SESSION_RATES: [u32; 2] = [48_000, 44_100];
 
-fn write_tone(path: &Path, rate: u32, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(rate as usize * seconds) {
-        let t = n as f32 / rate as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-    rate: u32,
-}
-
 impl Session {
     /// Track 0 is a six-second bed at `rate` (so the session is at that
     /// rate); track 1 is a four-second 16 kHz voice.
     fn new(rate: u32) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let bed = write_tone(&dir.path().join("bed.wav"), rate, BED_SECONDS);
-        let voice = write_tone(&dir.path().join("voice.wav"), VOICE_RATE, VOICE_SECONDS);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-            rate,
-        };
-        s.ok("load", json!({ "path": bed.to_string_lossy() }));
-        s.ok("load", json!({ "path": voice.to_string_lossy() }));
+        let mut s = Session::empty();
+        let bed = write_tone(&s.dir.path().join("bed.wav"), rate, BED_SECONDS);
+        let voice = write_tone(&s.dir.path().join("voice.wav"), VOICE_RATE, VOICE_SECONDS);
+        s.load(&bed);
+        s.load(&voice);
         assert_eq!(s.state().sample_rate, rate, "the bed sets the rate");
         s
     }
 
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        match self.dispatcher.invoke(tool, args, &mut ctx).unwrap() {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("{tool}: expected Ok, got Error({m})"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
-    }
-
     fn append(&mut self, state: session::SessionState) {
-        self.store
-            .append(session::SessionNode {
-                id: session::NodeId([0u8; 32]),
-                parent: None,
-                created_at: chrono::Utc::now(),
-                label: Some("test edit".into()),
-                reasoning: None,
-                state,
-                op: None,
-            })
-            .expect("append");
+        self.append_state("test edit", state);
     }
 
     /// Set the voice's envelope, `(seconds from the clip start, dB)`.
@@ -146,7 +89,7 @@ impl Session {
         let out = self.dir.path().join(format!("{name}.wav"));
         audio_engine::render_state_to_wav(state, &out, None).expect("render");
         let mut r = WavReader::open(&out).expect("rendered wav");
-        assert_eq!(r.spec().sample_rate, self.rate);
+        assert_eq!(r.spec().sample_rate, state.sample_rate);
         let ch = r.spec().channels as usize;
         let all: Vec<f32> = r
             .samples::<i16>()

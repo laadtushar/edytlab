@@ -22,28 +22,17 @@
 use std::path::{Path, PathBuf};
 
 use audio_engine::render_state_to_wav;
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, SessionState, TempoMap, Track, TrackId};
+use hound::WavReader;
+use session::SessionState;
 use tempfile::TempDir;
+
+mod support;
+use support::{plain_track, session_of, unity_clip, write_sine_trunc};
 
 /// A full-scale-ish tone at `rate`, one second long, so "where does the
 /// audio start" is unambiguous.
 fn write_tone(dir: &Path, name: &str, rate: u32) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..rate {
-        let t = n as f32 / rate as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
+    write_sine_trunc(dir, name, rate, rate as usize, 440.0, 0.5)
 }
 
 fn state_with_clip(
@@ -52,40 +41,15 @@ fn state_with_clip(
     start_in_track: u64,
     length: u64,
 ) -> SessionState {
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "bed".into(),
-            clips: vec![Clip {
-                source_path: source,
-                start_in_track,
-                source_offset: 0,
-                length,
-                content_hash: None,
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: Vec::new(),
-                volume_envelope_frames: Default::default(),
-            }],
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: Vec::new(),
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph { buses: Vec::new() },
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: project_rate,
+    session_of(
+        vec![plain_track(
+            "bed",
+            vec![unity_clip(&source, start_in_track, 0, length)],
+        )],
+        project_rate,
         // The furthest point the clip reaches, in its own frames.
-        length_samples: start_in_track + length,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+        start_in_track + length,
+    )
 }
 
 /// First frame whose magnitude clears the noise floor, in seconds.

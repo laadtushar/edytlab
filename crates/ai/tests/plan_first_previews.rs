@@ -18,11 +18,10 @@ use std::sync::{Arc, Mutex};
 
 use ai::plan_gate::Answer;
 use ai::{Agent, AgentEvent, LlmConfig, PlanGate};
-use common::{classifier_json, ok, plan_json, sse_text, sse_tool_step, SeqResponder};
+use common::{classifier_json, ok, plan_json, sse_text, sse_tool_step};
 use serde_json::{json, Value};
 use tools::{ToolContext, ToolDispatcher, ToolResult};
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer};
+use wiremock::MockServer;
 
 /// The turn's events, reduced to what these tests compare.
 #[derive(Debug, Clone, PartialEq)]
@@ -89,12 +88,7 @@ impl Project {
 
         let mut responses = vec![ok(classifier_json("general")), ok(plan_json("Sure."))];
         responses.extend(steps(&head).into_iter().map(ok));
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/v1/messages"))
-            .respond_with(SeqResponder::new(responses))
-            .mount(&server)
-            .await;
+        let server = common::serve_messages(responses).await;
 
         let store = Arc::new(Mutex::new(store));
         let gate = PlanGate::new();

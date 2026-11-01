@@ -11,10 +11,17 @@
 // Each test binary uses a subset.
 #![allow(dead_code)]
 
-use std::sync::Mutex;
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
+use ai::{Agent, LlmConfig, PlanGate};
 use serde_json::{json, Value};
-use wiremock::{Respond, ResponseTemplate};
+use session::Store;
+use tools::schema::{anthropic_tool, object_schema};
+use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
 
 /// Server-sent-events framing for `(event name, data)` pairs.
 pub fn encode_sse(events: &[(&str, Value)]) -> String {
@@ -30,7 +37,7 @@ pub fn encode_sse(events: &[(&str, Value)]) -> String {
     out
 }
 
-fn message_start() -> (&'static str, Value) {
+pub fn message_start() -> (&'static str, Value) {
     (
         "message_start",
         json!({
@@ -49,7 +56,7 @@ fn message_start() -> (&'static str, Value) {
     )
 }
 
-fn text_block(index: usize, text: &str) -> Vec<(&'static str, Value)> {
+pub fn text_block(index: usize, text: &str) -> Vec<(&'static str, Value)> {
     vec![
         (
             "content_block_start",
@@ -74,7 +81,7 @@ fn text_block(index: usize, text: &str) -> Vec<(&'static str, Value)> {
     ]
 }
 
-fn finish(stop_reason: &str) -> Vec<(&'static str, Value)> {
+pub fn finish(stop_reason: &str) -> Vec<(&'static str, Value)> {
     vec![
         (
             "message_delta",
@@ -414,4 +421,210 @@ pub fn responses_text(text: &str) -> String {
         .iter()
         .map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap()))
         .collect()
+}
+
+// ---------------------------------------------------------------------
+// Agent, mock server and fixture tools
+// ---------------------------------------------------------------------
+
+/// A store on the folder `dir`, shared the way the agent holds it.
+pub fn store_in(dir: &Path) -> Arc<Mutex<Store>> {
+    Arc::new(Mutex::new(Store::open(dir).expect("open store")))
+}
+
+/// An agent over `cfg`, `dispatcher` and `store`, with an engine and a
+/// clipboard of its own and `gate` as its plan gate.
+pub fn agent_over(
+    cfg: LlmConfig,
+    dispatcher: ToolDispatcher,
+    store: Arc<Mutex<Store>>,
+    gate: PlanGate,
+) -> Agent {
+    Agent::new(
+        cfg,
+        Arc::new(Mutex::new(dispatcher)),
+        store,
+        Arc::new(Mutex::new(audio_engine::Engine::new())),
+        gate,
+        Arc::new(Mutex::new(None::<tools::Clipboard>)),
+    )
+}
+
+/// A mock server that answers `POST <endpoint>` with `responses`, in order.
+pub async fn serve(endpoint: &str, responses: Vec<Entry>) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(endpoint))
+        .respond_with(SeqResponder::new(responses))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// [`serve`] for Anthropic's Messages endpoint.
+pub async fn serve_messages(responses: Vec<Entry>) -> MockServer {
+    serve("/v1/messages", responses).await
+}
+
+/// The JSON bodies the server was sent, in order.
+pub async fn request_bodies(server: &MockServer) -> Vec<Value> {
+    server
+        .received_requests()
+        .await
+        .expect("recording is on")
+        .iter()
+        .map(|r| serde_json::from_slice(&r.body).expect("a JSON body"))
+        .collect()
+}
+
+/// A tool the model can call, so a turn has a tool round-trip.
+pub struct Echo;
+
+impl Tool for Echo {
+    fn name(&self) -> &'static str {
+        "echo"
+    }
+    fn schema(&self) -> Value {
+        anthropic_tool(
+            "echo",
+            "Reads the session.",
+            object_schema(&[("track", "integer", true)]),
+        )
+    }
+    fn mutates(&self) -> bool {
+        false
+    }
+    fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
+        Ok(ToolResult::Ok(json!({ "ok": true })))
+    }
+}
+
+/// Mutates, because it says nothing about it; needs an integer `track`.
+/// Records what it ran with.
+pub struct Edit {
+    pub log: Arc<Mutex<Vec<Value>>>,
+}
+
+impl Tool for Edit {
+    fn name(&self) -> &'static str {
+        "edit"
+    }
+    fn schema(&self) -> Value {
+        anthropic_tool(
+            "edit",
+            "Changes the session.",
+            object_schema(&[("track", "integer", true)]),
+        )
+    }
+    fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
+        self.log.lock().unwrap().push(args);
+        Ok(ToolResult::Ok(json!({ "ok": true })))
+    }
+}
+
+/// Reads only, and says so. Counts its calls.
+pub struct Peek {
+    pub calls: Arc<AtomicUsize>,
+}
+
+impl Tool for Peek {
+    fn name(&self) -> &'static str {
+        "peek"
+    }
+    fn schema(&self) -> Value {
+        anthropic_tool(
+            "peek",
+            "Reads the session.",
+            object_schema(&[("track", "integer", true)]),
+        )
+    }
+    fn mutates(&self) -> bool {
+        false
+    }
+    fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(ToolResult::Ok(json!({ "ok": true })))
+    }
+}
+
+/// A dispatcher holding [`Edit`] and [`Peek`], with what they record: the
+/// arguments `edit` ran with, and how many times `peek` ran.
+pub fn edit_and_peek() -> (ToolDispatcher, Arc<Mutex<Vec<Value>>>, Arc<AtomicUsize>) {
+    let edits = Arc::new(Mutex::new(Vec::new()));
+    let peeks = Arc::new(AtomicUsize::new(0));
+    let mut dispatcher = ToolDispatcher::new();
+    dispatcher.register(Box::new(Edit {
+        log: Arc::clone(&edits),
+    }));
+    dispatcher.register(Box::new(Peek {
+        calls: Arc::clone(&peeks),
+    }));
+    (dispatcher, edits, peeks)
+}
+
+/// A session with nothing in it, built through its JSON form so a test
+/// does not need a clock crate for `created_at`.
+pub fn base_node() -> session::SessionNode {
+    let state = session::SessionState {
+        tracks: Vec::new(),
+        bus_routing: session::BusGraph::default(),
+        master_chain: Vec::new(),
+        tempo_map: session::TempoMap::default(),
+        key_map: None,
+        transcript: None,
+        sample_rate: 48_000,
+        length_samples: 0,
+        annotations: Vec::new(),
+        sync_lock: false,
+    };
+    serde_json::from_value(json!({
+        "id": "00".repeat(32),
+        "parent": null,
+        "created_at": "2026-01-01T00:00:00Z",
+        "label": null,
+        "reasoning": null,
+        "state": serde_json::to_value(state).expect("state"),
+        "op": null,
+    }))
+    .expect("a node")
+}
+
+/// The stored history obeys the providers' rules: roles alternate, and
+/// every `tool_use` is answered by the `tool_result`s of the next message,
+/// the same calls in the same order. With `no_empty_message`, no message is
+/// empty either.
+pub fn assert_history_is_valid(history: &[ai::anthropic::Message], no_empty_message: bool) {
+    use ai::anthropic::ContentBlock;
+    for pair in history.windows(2) {
+        assert_ne!(pair[0].role, pair[1].role, "roles must alternate");
+    }
+    for (i, m) in history.iter().enumerate() {
+        if no_empty_message {
+            assert!(!m.content.is_empty(), "message {i} is empty");
+        }
+        let used: Vec<&str> = m
+            .content
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        let answered: Vec<&str> = history
+            .get(i + 1)
+            .map(|next| {
+                next.content
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert_eq!(
+            used, answered,
+            "message {i} used {used:?} and the next answered {answered:?}"
+        );
+    }
 }

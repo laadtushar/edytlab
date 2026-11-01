@@ -1,9 +1,9 @@
 //! `transcribe` and `separate_stems` without an ONNX Runtime library (#383).
 //!
 //! Point the model variables at any path that exists and the tool tries to
-//! load it (`WHISPER_MODEL_PATH` names a model folder and `DEMUCS_MODEL_PATH` a
-//! file; this test gives both a file, because the runtime is looked for before
-//! the path is looked at). With `ort`'s `load-dynamic`, that used to hang inside
+//! load it (`WHISPER_MODEL_PATH` names a model folder and `DEMUCS_MODEL_PATH` the
+//! folder of the htdemucs model; this test gives both a file, because the
+//! runtime is looked for before the path is looked at). With `ort`'s `load-dynamic`, that used to hang inside
 //! `ToolDispatcher::invoke` when the library was missing (`ort` 2.0.0-rc.12
 //! deadlocked on a library it cannot load; rc.13 panics instead), and the
 //! agent loop calls `invoke` holding the dispatcher, store and engine
@@ -19,29 +19,14 @@
 //! A single test in its own binary, because it edits the process
 //! environment and its watchdog ends the whole process.
 
-use std::io::Write;
-use std::path::Path;
-use std::time::Duration;
-
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::json;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use std::io::Write;
+use std::time::Duration;
+use tools::ToolResult;
 
-fn write_sine_wav(path: &Path) {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: 16_000,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..16_000u32 {
-        let t = n as f32 / 16_000.0;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        writer.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    writer.finalize().unwrap();
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_sine, Session};
 
 /// Fail the run, rather than stall it, if a tool never returns.
 ///
@@ -65,11 +50,11 @@ fn watchdog() {
 #[test]
 fn model_tools_report_a_missing_runtime_instead_of_hanging() {
     watchdog();
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let wav = tmp.path().join("in.wav");
-    write_sine_wav(&wav);
+    let mut s = Session::empty();
+    let wav = s.dir.path().join("in.wav");
+    write_sine(&wav, 16_000, 440.0, 0.25, 16_000);
     // Exists, so the tools get past "model not found" and reach the load.
-    let model = tmp.path().join("model.onnx");
+    let model = s.dir.path().join("model.onnx");
     std::fs::write(&model, b"not an onnx model").expect("write");
 
     // SAFETY: this is the only test in this binary, so no other thread
@@ -80,21 +65,9 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
         std::env::set_var("DEMUCS_MODEL_PATH", &model);
     }
 
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
     // `transcribe` needs a session to put its transcript in.
-    let loaded = dispatcher
-        .invoke("load", json!({ "path": wav.to_string_lossy() }), &mut ctx)
+    let loaded = s
+        .try_call("load", json!({ "path": wav.to_string_lossy() }))
         .expect("load dispatches");
     assert!(
         matches!(loaded, ToolResult::Ok(_)),
@@ -102,8 +75,8 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
     );
 
     // The marker is the tool's, not a string this file spells.
-    let result = dispatcher
-        .invoke("transcribe", json!({ "track": 0 }), &mut ctx)
+    let result = s
+        .try_call("transcribe", json!({ "track": 0 }))
         .expect("transcribe dispatches");
     let ToolResult::Error(msg) = result else {
         panic!("transcribe: expected an error, got a success");
@@ -122,7 +95,7 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
         "transcribe runs once the runtime is there: {msg}"
     );
     assert!(
-        !msg.contains(&tmp.path().to_string_lossy().to_string()),
+        !msg.contains(&s.dir.path().to_string_lossy().to_string()),
         "transcribe: the answer goes to the model provider, and names no local path: {msg}"
     );
 
@@ -134,8 +107,8 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
         ),
     ];
     for (name, args) in calls {
-        let result = dispatcher
-            .invoke(name, args.clone(), &mut ctx)
+        let result = s
+            .try_call(name, args.clone())
             .unwrap_or_else(|e| panic!("{name} {args}: dispatcher error {e}"));
         let ToolResult::Error(msg) = result else {
             panic!("{name} {args}: expected an error, got a success");

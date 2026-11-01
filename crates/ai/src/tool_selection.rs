@@ -217,7 +217,10 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`,
 /// 53 B of names with their separators: the built-in names are 1,318 B and
 /// the smallest budget that leaves 400 B for MCP names is 1,718 B.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_718;
+/// `export_transcript` and `transcript_to_markers` (#767) add 42 B with
+/// their separators, so the built-in names are 1,360 B and the budget
+/// rises by exactly 42 B to preserve the 400 B for MCP names.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still
@@ -304,6 +307,22 @@ const CUES: &[Cue] = &[
         tool: "export_multiple",
         any: &["separately", "individual", "each", "every"],
         with: &["export", "save", "bounce", "render"],
+    },
+    Cue {
+        tool: "export_transcript",
+        any: &["caption", "subtitle", "srt", "vtt", "txt", "plaintext"],
+        with: &[],
+    },
+    // The format "plain text", without treating "text" alone as a cue.
+    Cue {
+        tool: "export_transcript",
+        any: &["plain"],
+        with: &["text"],
+    },
+    Cue {
+        tool: "transcript_to_markers",
+        any: &["chapter", "sentence"],
+        with: &["cue", "timeline"],
     },
     // "remove the reverb from track 1", "turn the echo off".
     Cue {
@@ -654,8 +673,8 @@ impl SlimSelection {
             listed.push_str(&format!("and {more} more"));
         }
         Some(format!(
-            "More tools you can call by exact name, without schemas here (a \
-             call with wrong arguments is rejected and says what is wrong): {listed}."
+            "More tools you can call by exact name (schemas omitted; invalid calls \
+             return errors): {listed}."
         ))
     }
 }
@@ -1163,6 +1182,9 @@ mod tests {
             "apply a change to this part",
             "create a new session node",
             "what is the high range, the final time",
+            "this text is fine",
+            "this sentence is fine",
+            "this chapter is fine",
         ] {
             assert_eq!(sent_for(text), core(), "for {text:?}");
         }
@@ -1347,6 +1369,16 @@ mod tests {
             ("the s sounds are sibilant", "de_esser"),
             ("export each track separately", "export_multiple"),
             ("save every track as its own file", "export_multiple"),
+            ("save captions as SRT", "export_transcript"),
+            ("save subtitles as VTT", "export_transcript"),
+            ("save it as TXT", "export_transcript"),
+            ("save it as plaintext", "export_transcript"),
+            (
+                "turn spoken chapters into timeline cues",
+                "transcript_to_markers",
+            ),
+            ("put each sentence on the timeline", "transcript_to_markers"),
+            ("save it as plain text", "export_transcript"),
             ("remove the vocals", "vocal_reduction"),
             ("make a karaoke version", "vocal_reduction"),
             ("put a limiter on the master at -1 dB", "add_effect"),

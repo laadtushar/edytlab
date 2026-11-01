@@ -181,6 +181,36 @@ test("the strip counts the take down, and Cancel is the punch's own and changes 
   await expect(page.getByTestId("punch-notice")).toHaveCount(0);
 });
 
+test("Cancel while preparing the monitor uses the punch command and changes nothing", async ({
+  app,
+}) => {
+  const page = await bootProject(app, punchCommands("held"));
+  await dragSelect(app, 0.2, 0.5);
+  await page.getByTestId("punch-btn").click();
+  await page.getByTestId("punch-start").click();
+
+  await app.emit("tool-progress", { kind: "punch_record", phase: "preparing" });
+  await expect(page.getByTestId("tool-progress-count")).toHaveText(
+    "Preparing the monitor…",
+  );
+  await expect(page.getByTestId("tool-progress-cancel")).toBeVisible();
+  await expect(page.getByTestId("punch-btn")).toBeDisabled();
+  await expect(page.getByTestId("record-btn")).toBeDisabled();
+
+  await page.getByTestId("tool-progress-cancel").click();
+  await expect.poll(async () => (await app.requestsFor("cancel_punch_record")).length).toBe(1);
+  expect(await app.requestsFor("cancel_long_running_tool")).toEqual([]);
+
+  await app.release("punch", { cancelled: true });
+  await app.emit("tool-progress", { kind: "punch_record", done: true });
+  await expect(page.getByTestId("tool-progress")).toHaveCount(0);
+  await expect(page.getByTestId("punch-btn")).toBeEnabled();
+  await expect(page.getByTestId("record-btn")).toBeEnabled();
+  await expect(page.getByTestId("status-bar-head")).toContainText(A.slice(0, 7));
+  await expect(page.getByTestId("render-error")).toHaveCount(0);
+  await expect(page.getByTestId("punch-notice")).toHaveCount(0);
+});
+
 test("a typed delay is one call and is shown as entered by hand", async ({ app }) => {
   const page = await bootProject(app, {
     get_recording_latency: ok(recordingLatencyStatus(null)),

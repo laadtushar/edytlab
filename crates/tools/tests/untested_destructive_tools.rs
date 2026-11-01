@@ -33,25 +33,29 @@ use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{ok, write_exact, Session};
 
 const SAMPLE_RATE: u32 = 8_000;
 const SOURCE_FRAMES: usize = 8_000;
 
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
 /// A mono linear ramp from -0.9 to +0.9 over the whole file.
 fn write_ramp_wav(dir: &Path) -> PathBuf {
-    write_ramp_channels(dir, 1)
+    write_exact(&dir.join("ramp.wav"), SAMPLE_RATE, SOURCE_FRAMES, |n| {
+        let f = n as f32 / (SOURCE_FRAMES - 1) as f32;
+        -0.9 + 1.8 * f
+    })
 }
 
+// The shared exact writer is mono. Keep this signed, unequal stereo
+// fixture local so frame/channel mistakes cannot hide behind equal inputs.
 fn write_ramp_channels(dir: &Path, channels: u16) -> PathBuf {
+    if channels == 1 {
+        return write_ramp_wav(dir);
+    }
     let path = dir.join("ramp.wav");
     let spec = WavSpec {
         channels,
@@ -105,45 +109,28 @@ fn run(steps: &[(&str, Value)]) -> Vec<i16> {
 }
 
 fn run_channels(steps: &[(&str, Value)], channels: u16) -> Vec<i16> {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_ramp_channels(tmp.path(), channels);
-    let out = tmp.path().join("out.wav");
+    let mut s = Session::empty();
+    let src = write_ramp_channels(s.dir.path(), channels);
+    let out = s.dir.path().join("out.wav");
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
-    let loaded = ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
+    let loaded = s.ok("load", json!({ "path": src.to_string_lossy() }));
     let mut node_id = loaded["node_id"].as_str().unwrap().to_string();
 
     for (tool, args) in steps {
-        let res = ok(dispatcher.invoke(tool, args.clone(), &mut ctx).unwrap());
+        let res = s.ok(tool, args.clone());
         if let Some(id) = res["node_id"].as_str() {
             node_id = id.to_string();
         }
     }
 
-    ok(dispatcher
-        .invoke(
-            "render_final",
-            json!({
-                "node_id": node_id,
-                "format": "wav",
-                "out_path": out.to_string_lossy(),
-            }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok(
+        "render_final",
+        json!({
+            "node_id": node_id,
+            "format": "wav",
+            "out_path": out.to_string_lossy(),
+        }),
+    );
 
     let mut reader = WavReader::open(&out).expect("open out");
     reader
@@ -494,47 +481,8 @@ fn fade_curve_matrix_renders_exact_samples_on_mono_stereo_and_split_tracks() {
     }
 }
 
-// The basic render helper deliberately discards its store. These focused
-// checks retain it to inspect provenance, refusal effects and real rebuilds.
-struct FadeSession {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl FadeSession {
-    fn new() -> Self {
-        let dir = TempDir::new().unwrap();
-        let store = session::Store::open(dir.path()).unwrap();
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value, message: &str) -> tools::Result<ToolResult> {
-        self.dispatcher.invoke(
-            tool,
-            args,
-            &mut ToolContext {
-                store: &mut self.store,
-                engine: &mut self.engine,
-                user_message: message,
-                clipboard: &mut self.clipboard,
-                allowed_tools: None,
-            },
-        )
-    }
-
-    fn load(&mut self, source: &Path) {
-        ok(self.call("load", json!({"path": source}), "").unwrap());
-    }
-
+// Extend the shared session only with fade-specific byte snapshots.
+impl Session {
     fn audio(&self) -> (PathBuf, Vec<u8>) {
         let node = self.store.get(self.store.head().unwrap()).unwrap();
         let path = node.state.tracks[0].clips[0].source_path.clone();
@@ -564,7 +512,7 @@ impl FadeSession {
 fn fade_default_and_explicit_linear_have_identical_wav_bytes_and_names() {
     for channels in [1, 2] {
         for kind in [None, Some("in"), Some("out")] {
-            let mut s = FadeSession::new();
+            let mut s = Session::empty();
             let source = write_ramp_channels(s.dir.path(), channels);
             s.load(&source);
             let loaded = s.store.head().unwrap();
@@ -572,11 +520,11 @@ fn fade_default_and_explicit_linear_have_identical_wav_bytes_and_names() {
             if let Some(kind) = kind {
                 args["kind"] = kind.into();
             }
-            ok(s.call("fade", args.clone(), "").unwrap());
+            ok(s.try_call_saying("fade", args.clone(), "").unwrap());
             let (default_path, default_bytes) = s.audio();
             s.store.set_head(loaded).unwrap();
             args["curve"] = "linear".into();
-            ok(s.call("fade", args, "").unwrap());
+            ok(s.try_call_saying("fade", args, "").unwrap());
             assert_eq!(s.audio(), (default_path, default_bytes));
         }
     }
@@ -584,10 +532,10 @@ fn fade_default_and_explicit_linear_have_identical_wav_bytes_and_names() {
 
 #[test]
 fn fade_refuses_invalid_curves_and_arguments_without_changing_history_or_files() {
-    let mut s = FadeSession::new();
+    let mut s = Session::empty();
     let source = write_ramp_wav(s.dir.path());
     s.load(&source);
-    ok(s.call(
+    ok(s.try_call_saying(
         "fade",
         json!({"track": 0, "curve": "exponential",
         "range": {"start_sec": 0.125, "end_sec": 0.625}}),
@@ -621,7 +569,7 @@ fn fade_refuses_invalid_curves_and_arguments_without_changing_history_or_files()
         json!({"track": 99, "curve": "exponential", "range": range}),
     ]);
     for args in cases {
-        let result = s.call("fade", args.clone(), "");
+        let result = s.try_call_saying("fade", args.clone(), "");
         assert!(
             matches!(result, Err(_) | Ok(ToolResult::Error(_))),
             "accepted {args}"
@@ -641,7 +589,7 @@ fn fade_history_recipe_and_rebuild_preserve_curves_and_legacy_defaults() {
         Some("logarithmic"),
         Some("s_curve"),
     ] {
-        let mut original = FadeSession::new();
+        let mut original = Session::empty();
         let source = write_ramp_channels(original.dir.path(), 2);
         original.load(&source);
         let source_bytes = std::fs::read(&source).unwrap();
@@ -650,7 +598,7 @@ fn fade_history_recipe_and_rebuild_preserve_curves_and_legacy_defaults() {
             args["curve"] = curve.into();
         }
         ok(original
-            .call("fade", args, "fade [apply to 0:00.125-0:00.625]")
+            .try_call_saying("fade", args, "fade [apply to 0:00.125-0:00.625]")
             .unwrap());
         let head = original.store.head().unwrap();
         let node = original.store.get(head).unwrap();
@@ -675,11 +623,11 @@ fn fade_history_recipe_and_rebuild_preserve_curves_and_legacy_defaults() {
         assert_eq!(recipe.steps.last().unwrap().params, op.params);
         let recipe_path = original.dir.path().join("fade-recipe.json");
         ok(original
-            .call("export_recipe", json!({"out_path": recipe_path}), "")
+            .try_call_saying("export_recipe", json!({"out_path": recipe_path}), "")
             .unwrap());
-        let mut fresh = FadeSession::new();
+        let mut fresh = Session::empty();
         ok(fresh
-            .call("apply_recipe", json!({"path": recipe_path}), "")
+            .try_call_saying("apply_recipe", json!({"path": recipe_path}), "")
             .unwrap());
         let (fresh_path, fresh_bytes) = fresh.audio();
         assert_eq!(fresh_path.file_name(), path.file_name());
@@ -687,7 +635,7 @@ fn fade_history_recipe_and_rebuild_preserve_curves_and_legacy_defaults() {
 
         // Advance the head so the real history sweep can remove this file.
         ok(original
-            .call(
+            .try_call_saying(
                 "silence_region",
                 json!({"track": 0, "start_sec": 0.0, "end_sec": 0.1}),
                 "",
