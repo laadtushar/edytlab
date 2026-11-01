@@ -27,22 +27,11 @@ use std::time::{Duration, Instant};
 use edytlab_desktop_lib::commands::{self, ML_MODEL_PROGRESS_EVENT};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-use tauri::webview::InvokeRequest;
-use tauri::{Listener, Manager, WebviewWindow, WebviewWindowBuilder};
+use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+use tauri::{Listener, Manager, WebviewWindow};
 
-fn make_request(cmd: &str, body: Value) -> InvokeRequest {
-    InvokeRequest {
-        cmd: cmd.into(),
-        callback: CallbackFn(0),
-        error: CallbackFn(1),
-        url: "tauri://localhost".parse().unwrap(),
-        body: InvokeBody::Json(body),
-        headers: Default::default(),
-        invoke_key: INVOKE_KEY.to_string(),
-    }
-}
+mod support;
+use support::{make_request, open_window};
 
 /// A server that answers every GET with `body`, and counts them.
 fn serve(body: Vec<u8>) -> (String, Arc<AtomicUsize>) {
@@ -134,9 +123,7 @@ fn rig_offering(offered: Option<&[&str]>) -> Rig {
     app.listen(ML_MODEL_PROGRESS_EVENT, move |event| {
         let _ = tx.send(serde_json::from_str::<Value>(event.payload()).expect("a JSON payload"));
     });
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let webview = open_window(&app);
     Rig {
         _app: app,
         webview,
@@ -288,9 +275,7 @@ fn an_app_with_no_data_folder_says_so_instead_of_failing_to_find_a_state() {
         .build(mock_context(noop_assets()))
         .expect("mock app");
     app.manage(commands::ml_models_for_app(app.handle().clone(), None));
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let webview = open_window(&app);
     let err = tauri::test::get_ipc_response(
         &webview,
         make_request("ml_model_status", json!({ "model": "whisper-base" })),

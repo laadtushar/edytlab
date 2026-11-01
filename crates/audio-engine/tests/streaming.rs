@@ -27,123 +27,18 @@
 //! reports the offset of the first divergent byte plus the surrounding
 //! samples to make debugging fast.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use audio_engine::render_state_to_wav;
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use session::SessionState;
 use tempfile::TempDir;
 
+mod support;
+use support::{session_to_end as session_with, track_for, write_sine_wav, write_sine_wav_frames};
+
 const PROJECT_RATE: u32 = 48_000;
-
-// ---------------------------------------------------------------------------
-// Test fixtures and helpers.
-// ---------------------------------------------------------------------------
-
-fn write_sine_wav(dir: &Path, name: &str, freq: f32, sr: u32, secs: f32, amp: f32) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: sr,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    let frames = (sr as f32 * secs) as usize;
-    for n in 0..frames {
-        let t = n as f32 / sr as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
-}
-
-/// Like [`write_sine_wav`] but writes exactly `frames` samples (used to
-/// exercise off-by-one behaviour at chunk boundaries).
-fn write_sine_wav_frames(
-    dir: &Path,
-    name: &str,
-    freq: f32,
-    sr: u32,
-    frames: usize,
-    amp: f32,
-) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: sr,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..frames {
-        let t = n as f32 / sr as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
-}
-
-fn track_for(source: &Path, gain_db: f32, muted: bool, soloed: bool) -> Track {
-    let decoded = audio_decoder::decode_file(source).expect("decode source");
-    let frames = (decoded.samples.len() / decoded.channels as usize) as u64;
-    Track {
-        id: TrackId::new(),
-        name: source
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("t")
-            .to_string(),
-        clips: vec![Clip {
-            source_path: source.to_path_buf(),
-            start_in_track: 0,
-            source_offset: 0,
-            length: frames,
-            content_hash: None,
-            time_stretch_factor: None,
-            pitch_shift_semitones: None,
-            beat_grid: None,
-            volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
-        }],
-        gain_db,
-        pan: 0.0,
-        muted,
-        soloed,
-        effects: Vec::<EffectInstance>::new(),
-        sends: Vec::new(),
-    }
-}
-
-fn session_with(tracks: Vec<Track>, project_rate: u32) -> SessionState {
-    let length = tracks
-        .iter()
-        .flat_map(|t| t.clips.iter())
-        .map(|c| c.start_in_track + c.length)
-        .max()
-        .unwrap_or(0);
-    SessionState {
-        tracks,
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: project_rate,
-        length_samples: length,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Buffered reference render — verbatim port of M21's `render_processed` for
@@ -286,6 +181,27 @@ fn first_diff(a: &[u8], b: &[u8]) -> Option<usize> {
         })
 }
 
+/// Render `state` through the streaming path and through the buffered
+/// reference in `dir`, and panic with `what` and the first differing byte
+/// if the files differ.
+fn assert_streamed_equals_buffered(state: &SessionState, dir: &Path, what: &str) {
+    let streamed = dir.join("streamed.wav");
+    let buffered = dir.join("buffered.wav");
+    render_state_to_wav(state, &streamed, None).expect("stream render");
+    buffered_render_state_to_wav(state, &buffered);
+
+    let s = std::fs::read(&streamed).unwrap();
+    let b_bytes = std::fs::read(&buffered).unwrap();
+    if s != b_bytes {
+        let off = first_diff(&s, &b_bytes).unwrap_or(0);
+        panic!(
+            "{what}; first diff at byte {off}; streamed len={} buffered len={}",
+            s.len(),
+            b_bytes.len()
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // AC #2: streaming render output is byte-equal to buffered render output.
 // ---------------------------------------------------------------------------
@@ -304,22 +220,7 @@ fn streaming_render_byte_equal_to_buffered_render() {
         PROJECT_RATE,
     );
 
-    let streamed = tmp.path().join("streamed.wav");
-    let buffered = tmp.path().join("buffered.wav");
-    render_state_to_wav(&state, &streamed, None).expect("stream render");
-    buffered_render_state_to_wav(&state, &buffered);
-
-    let s = std::fs::read(&streamed).unwrap();
-    let b_bytes = std::fs::read(&buffered).unwrap();
-    if s != b_bytes {
-        let off = first_diff(&s, &b_bytes).unwrap_or(0);
-        panic!(
-            "streamed != buffered; first diff at byte {off}; \
-             streamed len={} buffered len={}",
-            s.len(),
-            b_bytes.len()
-        );
-    }
+    assert_streamed_equals_buffered(&state, tmp.path(), "streamed != buffered");
 }
 
 // ---------------------------------------------------------------------------
@@ -342,22 +243,7 @@ fn streaming_render_with_resample_byte_equal() {
         PROJECT_RATE,
     );
 
-    let streamed = tmp.path().join("streamed.wav");
-    let buffered = tmp.path().join("buffered.wav");
-    render_state_to_wav(&state, &streamed, None).expect("stream render");
-    buffered_render_state_to_wav(&state, &buffered);
-
-    let s = std::fs::read(&streamed).unwrap();
-    let b_bytes = std::fs::read(&buffered).unwrap();
-    if s != b_bytes {
-        let off = first_diff(&s, &b_bytes).unwrap_or(0);
-        panic!(
-            "streamed != buffered (resample case); first diff at byte {off}; \
-             streamed len={} buffered len={}",
-            s.len(),
-            b_bytes.len()
-        );
-    }
+    assert_streamed_equals_buffered(&state, tmp.path(), "streamed != buffered (resample case)");
 }
 
 // ---------------------------------------------------------------------------

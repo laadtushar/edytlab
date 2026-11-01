@@ -29,50 +29,10 @@ use edytlab_desktop_lib::commands;
 use edytlab_desktop_lib::state::AppState;
 use serde_json::{json, Value};
 use session::{Bus, EffectInstance, NodeId};
-use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
-use tauri::webview::InvokeRequest;
-use tauri::WebviewWindowBuilder;
 
-fn make_request(cmd: &str, body: Value) -> InvokeRequest {
-    InvokeRequest {
-        cmd: cmd.into(),
-        callback: CallbackFn(0),
-        error: CallbackFn(1),
-        url: if cfg!(any(windows, target_os = "android")) {
-            "http://tauri.localhost"
-        } else {
-            "tauri://localhost"
-        }
-        .parse()
-        .unwrap(),
-        body: InvokeBody::Json(body),
-        headers: Default::default(),
-        invoke_key: INVOKE_KEY.to_string(),
-    }
-}
-
-/// A mono 16-bit WAV of `frames` frames at 8 kHz, every sample 1000.
-fn write_wav(path: &std::path::Path, frames: u32) {
-    let data_len = frames * 2;
-    let mut bytes = Vec::with_capacity(44 + data_len as usize);
-    bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
-    bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
-    bytes.extend_from_slice(&8_000u32.to_le_bytes());
-    bytes.extend_from_slice(&16_000u32.to_le_bytes()); // byte rate
-    bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
-    bytes.extend_from_slice(&16u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&data_len.to_le_bytes());
-    for _ in 0..frames {
-        bytes.extend_from_slice(&1_000i16.to_le_bytes());
-    }
-    std::fs::write(path, bytes).expect("write wav");
-}
+#[macro_use]
+mod support;
+use support::{call, invoke_tool, write_wav};
 
 fn entry(kind: &str, bypassed: bool) -> EffectInstance {
     EffectInstance {
@@ -125,23 +85,7 @@ impl Project {
 
         let (nodes, track_name) = {
             let mut store = session::Store::open(dir.path()).expect("store");
-            let mut engine = audio_engine::Engine::new();
-            let mut clipboard = None;
-            let dispatcher = tools::ToolDispatcher::default_dispatcher();
-            let mut ctx = tools::ToolContext {
-                store: &mut store,
-                engine: &mut engine,
-                user_message: "",
-                clipboard: &mut clipboard,
-                allowed_tools: None,
-            };
-            match dispatcher
-                .invoke("load", json!({ "path": take }), &mut ctx)
-                .expect("invoke")
-            {
-                tools::ToolResult::Ok(_) => {}
-                tools::ToolResult::Error(m) => panic!("load failed: {m}"),
-            }
+            invoke_tool(&mut store, &mut None, "load", json!({ "path": take }));
             let clean = store.head().expect("head after load");
             let base = store.get(clean).expect("the loaded node");
             let track_name = base.state.tracks[0].name.clone();
@@ -185,20 +129,14 @@ impl Project {
             )
         };
 
-        let app = mock_builder()
-            .manage(AppState::new())
-            .invoke_handler(tauri::generate_handler![
-                commands::open_project,
-                commands::render_preview,
-                commands::prepare_compare,
-                commands::render_range,
-                commands::get_render_warnings,
-            ])
-            .build(mock_context(noop_assets()))
-            .expect("mock app");
-        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .expect("webview");
+        let (app, webview) = mock_window!(
+            AppState::new();
+            commands::open_project,
+            commands::render_preview,
+            commands::prepare_compare,
+            commands::render_range,
+            commands::get_render_warnings,
+        );
         let project = Self {
             dir,
             nodes,
@@ -213,9 +151,7 @@ impl Project {
     }
 
     fn call(&self, cmd: &str, body: Value) -> Result<Value, String> {
-        tauri::test::get_ipc_response(&self.webview, make_request(cmd, body))
-            .map(|r| r.deserialize::<Value>().expect("json"))
-            .map_err(|e| e.as_str().unwrap_or_default().to_string())
+        call(&self.webview, cmd, body)
     }
 
     fn warnings_of(&self, node: NodeId) -> Value {

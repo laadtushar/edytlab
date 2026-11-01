@@ -10,20 +10,15 @@
 
 use audio_decoder::{decode_bytes, supported_extensions, DecodeError};
 
+mod support;
+
 // Linux has no system AAC decoder, so these three refuse M4A. On macOS and
 // Windows the same files decode (tests/formats.rs).
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod without_an_os_decoder {
-    use std::path::{Path, PathBuf};
-
     use audio_decoder::{decode_bytes, decode_file, DecodeError};
 
-    fn fixture(name: &str) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("fixtures")
-            .join(name)
-    }
+    use crate::support::fixture;
 
     fn message(e: DecodeError) -> String {
         assert!(

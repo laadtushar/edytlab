@@ -28,22 +28,11 @@ use edytlab_desktop_lib::commands;
 use edytlab_desktop_lib::events::CHATGPT_STATUS;
 use edytlab_desktop_lib::state::AppState;
 use serde_json::{json, Value};
-use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-use tauri::webview::InvokeRequest;
-use tauri::{Emitter, Listener, WebviewWindow, WebviewWindowBuilder};
+use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+use tauri::{Emitter, Listener, WebviewWindow};
 
-fn make_request(cmd: &str, body: Value) -> InvokeRequest {
-    InvokeRequest {
-        cmd: cmd.into(),
-        callback: CallbackFn(0),
-        error: CallbackFn(1),
-        url: "tauri://localhost".parse().unwrap(),
-        body: InvokeBody::Json(body),
-        headers: Default::default(),
-        invoke_key: INVOKE_KEY.to_string(),
-    }
-}
+mod support;
+use support::{make_request, open_window};
 
 /// A refresh-token store in memory, shared with the test so it can take the
 /// token away, the way another window signing out does.
@@ -140,9 +129,7 @@ fn new_rig(signed_in: bool) -> Rig {
     app.listen(CHATGPT_STATUS, move |event| {
         let _ = tx.send(serde_json::from_str::<Value>(event.payload()).expect("a JSON payload"));
     });
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let webview = open_window(&app);
     Rig {
         app,
         webview,
@@ -212,9 +199,7 @@ fn a_build_with_no_session_says_unavailable_and_refuses_to_sign_in() {
         ])
         .build(mock_context(noop_assets()))
         .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let webview = open_window(&app);
     let call = |cmd: &str, body: Value| {
         tauri::test::get_ipc_response(&webview, make_request(cmd, body))
             .map(|r| r.deserialize::<Value>().expect("json"))

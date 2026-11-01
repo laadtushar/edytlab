@@ -17,40 +17,10 @@
 //! 0 (success-as-skip) so unattended `--ignored` runs on a fresh box
 //! don't fail mysteriously.
 
-use std::path::{Path, PathBuf};
-
 use assert_cmd::Command;
 
-const SAMPLE_RATE: u32 = 44_100;
-const TOTAL_SECONDS: u32 = 15;
-const SILENCE_SECONDS: u32 = 2;
-const SINE_HZ: f32 = 440.0;
-const SINE_AMPLITUDE: f32 = 0.501_187_2; // -6 dBFS linear
-
-fn write_fixture(dir: &Path) -> PathBuf {
-    let path = dir.join("raw_podcast_intro.wav");
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut writer = hound::WavWriter::create(&path, spec).expect("create wav");
-    let total_frames = SAMPLE_RATE * TOTAL_SECONDS;
-    let silence_frames = SAMPLE_RATE * SILENCE_SECONDS;
-    for i in 0..total_frames {
-        let s = if i < silence_frames {
-            0.0
-        } else {
-            let t = (i - silence_frames) as f32 / SAMPLE_RATE as f32;
-            (t * SINE_HZ * std::f32::consts::TAU).sin() * SINE_AMPLITUDE
-        };
-        let q = (s * i16::MAX as f32).clamp(i16::MIN as f32, i16::MAX as f32);
-        writer.write_sample(q as i16).expect("write sample");
-    }
-    writer.finalize().expect("finalize wav");
-    path
-}
+mod support;
+use support::{write_fixture, SAMPLE_RATE, SILENCE_SECONDS, TOTAL_SECONDS};
 
 #[test]
 #[ignore = "live Anthropic API; requires ANTHROPIC_API_KEY"]
@@ -67,7 +37,7 @@ fn ai_driven_podcast_cleanup() {
     };
 
     let project = tempfile::tempdir().expect("tempdir");
-    let input_path = write_fixture(project.path());
+    let (input_path, _) = write_fixture(project.path());
 
     // Prime the session by `load`-ing the fixture. The CLI runs ONE
     // turn, so we do the load up-front via a separate invocation; the

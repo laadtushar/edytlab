@@ -5,6 +5,8 @@ use std::path::Path;
 use ml_pipeline::onnx_session::{self, SessionOptions};
 use ml_pipeline::{Error, GraphOptimizationLevel};
 
+mod ort_support;
+
 #[test]
 fn missing_model_is_reported_before_runtime_lookup() {
     let err = onnx_session::build(
@@ -37,15 +39,8 @@ fn configured_builder_runs_the_identity_model() {
     .expect("build identity session");
 
     let input = [1.0f32, -2.5, 0.0];
-    let tensor =
-        ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");
-    let outputs = session
-        .run(ort::inputs!["X" => tensor])
-        .expect("run identity.onnx");
-    let (shape, data) = outputs["Y"]
-        .try_extract_tensor::<f32>()
-        .expect("Y is a float tensor");
+    let (shape, data) = ort_support::run_identity(&mut session, input);
 
-    assert_eq!(&shape[..], &[1, 3], "Identity keeps the shape");
-    assert_eq!(data, &input[..], "Identity must return its input");
+    assert_eq!(shape, [1, 3], "Identity keeps the shape");
+    assert_eq!(data, input, "Identity must return its input");
 }
