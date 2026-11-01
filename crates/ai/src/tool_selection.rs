@@ -220,10 +220,11 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// `export_transcript` and `transcript_to_markers` (#767) add 42 B with
 /// their separators, so the built-in names are 1,360 B and the budget
 /// rises by exactly 42 B to preserve the 400 B for MCP names.
-/// `noise_reduction`'s three profile arguments (#769) add about 80 B to its
-/// slim descriptor, which took the 60-MCP-tool request 77 B into the headroom;
-/// the budget comes down 80 B, leaving 320 B for MCP names, rather than the
-/// headroom going down.
+/// `noise_reduction`'s three profile arguments (#769) add 80 B to its slim
+/// descriptor, which took the 60-MCP-tool request to 77 B inside the
+/// headroom (it had 3 B to spare). The budget comes down 80 B and
+/// `MCP_ROOM_BYTES` in the tests with it (400 to 320), in preference to
+/// lowering the headroom or the tool budget (the core no longer fits).
 pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_680;
 
 /// A tool whose description begins with this does nothing in this build
@@ -815,8 +816,8 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// The room the built-in names must leave in the names line for MCP
-    /// names: about sixteen tools of an ordinary server.
-    const MCP_ROOM_BYTES: usize = 400;
+    /// names: about thirteen tools of an ordinary server (sixteen, 400 B, until #769).
+    const MCP_ROOM_BYTES: usize = 320;
 
     fn all_tools() -> Value {
         ToolDispatcher::default_dispatcher().tool_schemas()
