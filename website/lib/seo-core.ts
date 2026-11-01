@@ -20,7 +20,7 @@ import { siteConfig } from "./site";
  * `<lastmod>` only "if it's consistently and verifiably" accurate, and
  * one date on every page is not verifiable for any of them.
  */
-export const SITE_UPDATED = "2026-10-27";
+export const SITE_UPDATED = "2026-11-01";
 
 /**
  * The day each page's content last changed in substance, by path, for
@@ -51,7 +51,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/user-guide/effects-and-templates": "2026-10-26",
   "/docs/user-guide/chat": "2026-10-26",
   "/docs/user-guide/playback-and-compare": "2026-10-26",
-  "/docs/user-guide/speech": "2026-10-26",
+  "/docs/user-guide/speech": "2026-11-01",
   "/docs/user-guide/export-and-memory": "2026-10-26",
   "/docs/user-guide/skills-and-profiles": "2026-10-26",
   "/docs/user-guide/providers": "2026-10-27",
@@ -67,7 +67,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/tools/speech": "2026-10-27",
   "/docs/tools/rendering": "2026-10-27",
   "/docs/tools/history-and-session": "2026-10-27",
-  "/docs/developer-guide": "2026-10-27",
+  "/docs/developer-guide": "2026-11-01",
   "/docs/api-reference": "2026-10-27",
   "/docs/api-reference/project": "2026-10-26",
   "/docs/api-reference/session": "2026-10-26",
