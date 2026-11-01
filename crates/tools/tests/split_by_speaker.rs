@@ -15,72 +15,31 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, write_wav, Session};
 
 const SR: u32 = 48_000;
 
 /// A tone whose frequency climbs with time, so any misplacement of a
 /// span shows up as a different pitch rather than as more of the same.
 fn write_sweep(path: &Path, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
     let total = SR as usize * seconds;
-    for n in 0..total {
+    write_wav(path, SR, 1, total, |n| {
         let t = n as f32 / SR as f32;
         let freq = 200.0 + 600.0 * (n as f32 / total as f32);
-        w.write_sample(((2.0 * std::f32::consts::PI * freq * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
+        (2.0 * std::f32::consts::PI * freq * t).sin() * 8000.0 / 32_767.0
+    })
 }
 
 impl Session {
     fn new(seconds: usize) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let src = write_sweep(&dir.path().join("interview.wav"), seconds);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": src.to_string_lossy() }));
+        let mut s = Session::empty();
+        let src = write_sweep(&s.dir.path().join("interview.wav"), seconds);
+        s.load(&src);
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("head");
-        self.store.get(head).expect("node").state
     }
 
     /// Render the current head to a WAV and return its samples.
@@ -91,20 +50,6 @@ impl Session {
         r.samples::<i16>()
             .map(|s| s.expect("sample") as f32)
             .collect()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 

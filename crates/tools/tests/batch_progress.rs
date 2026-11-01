@@ -19,98 +19,14 @@
 //! gets its **own** session, a failure on one does not abandon the
 //! rest, and the report says which was which and why.
 
-use std::path::{Path, PathBuf};
-
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-const SAMPLE_RATE: u32 = 48_000;
-
-fn write_sine(path: &Path, freq: f32) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("open store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-/// A recipe that loads a file and quietens it, exported from a throwaway
-/// session — the same way a user would make one.
-fn make_recipe(s: &mut Session) -> PathBuf {
-    let src = write_sine(&s.dir.path().join("template.wav"), 440.0);
-    ok(s.call("load", json!({ "path": src.to_string_lossy() })));
-    ok(s.call("gain", json!({ "track": 0, "db": -6.0 })));
-    let recipe = s.dir.path().join("chain.json");
-    ok(s.call(
-        "export_recipe",
-        json!({ "out_path": recipe.to_string_lossy(), "name": "quieten" }),
-    ));
-    recipe
-}
-
-/// A folder of three takes.
-fn make_folder(root: &Path) -> PathBuf {
-    let dir = root.join("takes");
-    std::fs::create_dir_all(&dir).unwrap();
-    for (i, freq) in [220.0, 440.0, 880.0].into_iter().enumerate() {
-        write_sine(&dir.join(format!("take-{i}.wav")), freq);
-    }
-    // Something that is not audio, which must be ignored rather than
-    // reported as a failure.
-    std::fs::write(dir.join("notes.txt"), "not audio").unwrap();
-    dir
-}
+#[path = "support/batch.rs"]
+mod batch;
+#[path = "support/harness.rs"]
+mod harness;
+use batch::{make_folder, make_recipe};
+use harness::{ok, Session};
 
 /// The run says where it is, file by file, and stops when asked.
 ///
@@ -142,7 +58,7 @@ fn a_batch_reports_progress_and_stops_between_files_when_asked() {
         "this is the only registration in this process"
     );
 
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
 

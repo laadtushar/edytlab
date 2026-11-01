@@ -10,62 +10,27 @@
 use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, write_wav, Session};
 
 const SR: u32 = 48_000;
 
 /// A constant-amplitude tone, so "which take is this?" is answerable by
 /// reading one sample.
 fn write_tone(path: &Path, seconds: f64, amp: f32) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for _ in 0..((SR as f64 * seconds) as usize) {
-        w.write_sample((amp * 32_000.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
+    let frames = (SR as f64 * seconds) as usize;
+    write_wav(path, SR, 1, frames, |_| amp * 32_000.0 / 32_767.0)
 }
 
 impl Session {
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let original = write_tone(&dir.path().join("take.wav"), 10.0, 0.5);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": original.to_string_lossy() }));
+        let mut s = Session::empty();
+        let original = write_tone(&s.dir.path().join("take.wav"), 10.0, 0.5);
+        s.load(&original);
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
     }
 
     /// The rendered track, so assertions are about audio rather than
@@ -89,20 +54,6 @@ impl Session {
 
     fn len_sec(&self) -> f64 {
         self.samples().len() as f64 / SR as f64
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 
