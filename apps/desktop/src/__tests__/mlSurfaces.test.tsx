@@ -11,8 +11,9 @@
  * of which cover a UI affordance that offers a stub as available.
  *
  * Transcription runs now (#384), so the palette offers it and the
- * transcript tab says how to get one. Stem separation still does not, and
- * stays marked unavailable.
+ * transcript tab says how to get one. Stem separation runs as a tool (#385)
+ * but the app cannot download its model yet, so the palette still marks it
+ * unavailable, and says why.
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -60,7 +61,11 @@ describe("the command palette and unimplemented features (#233)", () => {
         cmd!.unavailable,
         `${label} is offered as though it works`,
       ).toBeTruthy();
-      expect(cmd!.description.toLowerCase()).toContain("not implemented");
+      // The tool runs (#385); what is missing is the model's download, and
+      // the palette says that rather than "not implemented".
+      expect(cmd!.description.toLowerCase()).toContain("cannot be downloaded");
+      expect(cmd!.description.toLowerCase()).not.toContain("not implemented");
+      expect(cmd!.unavailable).toContain("cannot download the stem model yet");
     });
   }
 

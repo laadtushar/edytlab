@@ -125,6 +125,8 @@ fn a_copy_leaves_the_caches_behind_and_its_head_renders() {
         (store_dir.join("previews"), "0123.wav"),
         (store_dir.join("previews"), "4567.wav"),
         (store_dir.join("auditions"), "89ab.wav"),
+        (store_dir.join("stem-cache").join("abcd"), "vocals.wav"),
+        (store_dir.join("inference-cache"), "ef01.json"),
         (src.join("previews"), "my-mixdown.wav"),
         (src.join("auditions"), "take-3.wav"),
         (store_dir.join("derived").join("previews"), "kept.wav"),
@@ -149,7 +151,7 @@ fn a_copy_leaves_the_caches_behind_and_its_head_renders() {
 
     let copied = files_under(&dest);
     let copy_store = Path::new(session::STORE_DIR);
-    for cache in ["previews", "auditions"] {
+    for cache in ["previews", "auditions", "stem-cache", "inference-cache"] {
         assert!(
             !dest.join(session::STORE_DIR).join(cache).exists(),
             "the copy took the cache {cache}/: {copied:?}"
@@ -171,7 +173,7 @@ fn a_copy_leaves_the_caches_behind_and_its_head_renders() {
     }
     assert_eq!(
         report["skipped_cache_files"],
-        json!(3),
+        json!(5),
         "the report counts the cache files it left: {report}"
     );
 

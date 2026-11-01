@@ -413,3 +413,53 @@ describe("the Using ChatGPT plan line above the composer", () => {
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
   });
 });
+
+async function send() {
+  const user = userEvent.setup();
+  const view = render(<Chat />);
+  await user.type(screen.getByLabelText("Message"), "hello");
+  await user.click(screen.getByRole("button", { name: /send/i }));
+  return { user, view };
+}
+
+describe("the ChatGPT plan's first-use notice", () => {
+  it("shows on the first send, still sends, and is gone after Got it", async () => {
+    const { user } = await send();
+    const dialog = await screen.findByTestId("chatgpt-first-use");
+    expect(dialog).toHaveTextContent("You're using your ChatGPT plan");
+    expect(m.send).toHaveBeenCalledTimes(1);
+    await user.click(within(dialog).getByRole("button", { name: "Got it" }));
+    await waitFor(() => expect(screen.queryByTestId("chatgpt-first-use")).toBeNull());
+  });
+
+  it("does not come back on the next send or after a relaunch", async () => {
+    const first = await send();
+    await first.user.click(
+      within(await screen.findByTestId("chatgpt-first-use")).getByRole("button", { name: "Got it" }),
+    );
+    first.view.unmount();
+    // A new mount stands for a relaunch: storage is what is left.
+    await send();
+    await waitFor(() => expect(m.send).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("chatgpt-first-use")).toBeNull();
+  });
+
+  it("Escape dismisses it and counts as seen", async () => {
+    const { user } = await send();
+    const dialog = await screen.findByTestId("chatgpt-first-use");
+    // Focus moves in the effect that also listens for Escape.
+    await waitFor(() => expect(within(dialog).getByRole("button")).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("chatgpt-first-use")).toBeNull());
+    expect(window.localStorage.getItem("edytlab.chatgpt.firstUseSeen")).toBe("1");
+  });
+
+  it("is not shown for another provider, and is not marked seen", async () => {
+    m.provider.mockResolvedValue("anthropic");
+    await send();
+    await waitFor(() => expect(m.send).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(m.provider).toHaveBeenCalled());
+    expect(screen.queryByTestId("chatgpt-first-use")).toBeNull();
+    expect(window.localStorage.getItem("edytlab.chatgpt.firstUseSeen")).toBeNull();
+  });
+});
