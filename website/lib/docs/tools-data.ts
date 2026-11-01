@@ -678,6 +678,13 @@ export const toolAreas: ToolArea[] = [
             what: "Export selected tracks as individual WAV files to a directory.",
             output: "list of exported paths, warnings (only when something was left out)",
           },
+          {
+            name: "export_transcript",
+            prompt: "export the transcript to captions.srt",
+            what: "Write the stored transcript to out_path (relative to the project, or absolute) as srt (default), vtt or txt. A new cue starts at sentence-ending punctuation and at a pause of pause_sec (default 0.75); max_cue_sec (default 6) and max_chars_per_line (1 to 200, default 42) bound a cue. Captions have at most two lines, except that one long stored word keeps its recorded times. UTF-8 with LF line endings.",
+            output: "out_path, format, word_count, cue_count, byte_count, time_basis, time_note, source, summary",
+            note: "Run transcribe first. Times are the transcript's as transcribed, not re-timed: moving or shifting the clip afterwards makes them stale (time_note says so). Written atomically; refuses project audio and the project's .audiograph folder. SRT keeps raw text, WebVTT escapes &, < and >. Changes no audio or history.",
+          },
         ],
       },
       {
@@ -768,6 +775,13 @@ export const toolAreas: ToolArea[] = [
             prompt: "export the markers as labels",
             what: "Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).",
             output: "label text",
+          },
+          {
+            name: "transcript_to_markers",
+            prompt: "add a marker at each transcript sentence",
+            what: "Add point markers at the starts of the stored transcript's segments (default) or sentences (mode). A file or unknown-source transcript needs an explicit offset_sec, even 0. Each label is the first six words, at most 80 characters.",
+            output: "node_id, marker_count, skipped_count, time_basis, time_note, source, applied_offset_sec, summary",
+            note: "Run transcribe first. Times are as transcribed, not re-timed: moving the clip afterwards makes them stale. A marker with the same name and time (within 1 ms) is skipped, and a run that adds none appends no node. One undoable step; no audio changes.",
           },
         ],
       },

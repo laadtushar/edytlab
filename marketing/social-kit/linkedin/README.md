@@ -34,6 +34,10 @@ other four files render to the same picture; a render on Linux sets the text a
 few pixels differently from the Windows render that made posts 2 and 5, so those
 two were left as committed.
 
+Posts 1, 2, 3 (the square), 5 and the carousel were re-rendered on 2026-10-26 to be evergreen (#843): no canvas names a version, a tool count or a provider count any more ("Open source" pill, "Any AI provider", "Dozens of tools"), so a release or a new tool no longer makes them stale. The files they replace are in [`../../archive/linkedin/2026-10-26-evergreen/`](../../archive/README.md).
+
+Post 5 was re-rendered on 2026-10-27 (v0.9.3): its machine-learning card said "Stems and transcripts: Not shipped yet", #383 to #385, but transcription works since v0.8.0 (#383 and #384 are closed), so the card now names stem separation alone (#385). The file it replaces is in [`../../archive/linkedin/2026-10-27-v0.9.3/`](../../archive/README.md).
+
 Post 1 and the carousel were re-rendered once more on 2026-10-26 for v0.9.2, which is being
 released that day (the version is again the only change: the pill and the carousel's last page
 say v0.9.2, and the file sizes are the same to the kilobyte). The render read the version from a
@@ -49,12 +53,12 @@ Settings and no message box, so they were not replaced. The files post 4 replace
 
 | File | Size | Goes with | What it shows |
 |---|---|---|---|
-| `out/post-1-launch.png` | 1200x1200, 576 KB | Post 1, launch | "An audio editor you talk to": a "v0.9.2 · open source" pill, the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 API providers, 94 tools) |
+| `out/post-1-launch.png` | 1200x1200, 576 KB | Post 1, launch | "An audio editor you talk to": an "Open source" pill, the app's chat panel with a scripted example conversation, and three stats with no number that a release changes (0 bytes of audio uploaded, any AI provider, dozens of tools) |
 | `out/post-2-before-after.png` | 1200x1200, 396 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same scripted example conversation in the app's chat panel |
-| `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 203 KB | Post 3, build story | The model reads text and answers with tool calls; the 94 tools and the audio are on your machine |
+| `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 203 KB | Post 3, build story | The model reads text and answers with tool calls; the deterministic tools and the audio are on your machine |
 | `out/post-4-privacy.png` | 1200x1200, 226 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected (the six API providers and the ChatGPT plan button) |
 | `out/post-5-help-wanted.png` | 1200x1200, 249 KB | Post 5, open source | Four places a contributor would make a difference, with issue numbers |
-| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, each an image (2x, JPEG), 2691 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline (94 tools), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, 6 API providers, 94 tools, and "v0.9.2 for macOS, Windows and Linux. The installers are unsigned") |
+| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, each an image (2x, JPEG), 2691 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline ("Deterministic tools"), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, any AI provider, dozens of tools, and "For macOS, Windows and Linux") |
 
 A square can also be the cover of the post's reel, if LinkedIn's uploader offers a
 custom thumbnail (not checked from here). The carousel is a native document post:
@@ -173,12 +177,12 @@ Chromium builds (the plan card wraps one word differently), so the files from
 ## What the slides claim, and where each claim comes from
 
 Under the rules in [`../../README.md`](../../README.md). No slide says anything
-about stem separation, transcription or text editing, and none carries a user
+about transcription or text editing; post 5 names stem separation only as not wired in yet (#385), and none carries a user
 count, a quote or a benchmark.
 
 | Claim on a slide | Source |
 |---|---|
-| 94 tools; fade / EQ / time-stretch / loudness / export are among them; they are Rust functions with no model in the audio path. The slides do not call the 94 "deterministic": two of them (`separate_stems`, `transcribe`) only return an error today, and tools an MCP server adds are not part of the 94 | `docs/tools-reference.md` (read at render time), `crates/tools/src/tool/` |
+| "Dozens of tools" and "Deterministic tools"; fade / EQ / time-stretch / loudness / export are among them; they are Rust functions with no model in the audio path. There are 99 (`docs/tools-reference.md`); the slides give no count, so a new tool changes none of them. `separate_stems` only returns an error today and `transcribe` and `diarize` run only on a model the user downloads; tools an MCP server adds are not counted | `docs/tools-reference.md`, `crates/tools/src/tool/` |
 | 6 API providers, one local, plus the ChatGPT plan (v0.9.0, a preview); 0 bytes of audio uploaded | `website/components/landing/stats-strip.tsx`, `website/app/privacy/page.tsx` |
 | The model reads text (tempo, key, loudness), never receives the audio; the DSP runs in Rust on your machine | marketing `README.md` accuracy table; `docs/architecture.md` |
 | Only the chat leaves; Ollama needs no key and runs on your machine | `website/app/privacy/page.tsx`; the dialog's own text in `shots/ollama.png` |
@@ -186,8 +190,8 @@ count, a quote or a benchmark.
 | Every edit is a node; fork, A/B, go back; undo follows the path you took | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, `apps/desktop/src/lib/headTrail.ts` |
 | Rubber Band was dropped for a pure-Rust phase vocoder; the cost is smearing on dense material at large changes | `crates/audio-time/src/vocoder.rs`, `README.md` |
 | Eleven effects cannot yet run on a master or bus chain | `NOT_YET_STREAMING` in `crates/audio-engine/src/effect_chain.rs` |
-| #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) | GitHub, checked 2026-10-22: #464, #497, #383, #384 and #385 are all open. The installers carry the ONNX Runtime from v0.7.0 (#615), but no model is downloaded and no inference runs, so "Not shipped yet: ONNX Runtime inference inside a Tauri app" on the post 5 square is still true |
-| v0.9.2 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.9.2 release notes. The last carousel page, the only canvas that mentions a download, says so; post 1's pill names the version. Both were re-rendered on 2026-10-26 and say v0.9.2. The version and the tool count are read at render time, so **run `node render.mjs` after the next release or the next new tool, before posting either** |
+| #464 (macOS microphone), #497 (Linux keyring), #385 (stem separation) on post 5 | GitHub, checked 2026-10-27: all three are open. The #385 card says the Demucs pipeline is ported and the model is not wired in, which is true of v0.9.3 (`separate_stems` answers "not implemented in this build"); re-render post 5 when a release ships stem separation |
+| For macOS, Windows and Linux; MIT | `tauri.conf.json` bundle targets, `LICENSE`. No canvas names a version or says whether the installers are signed, so a release changes none of them |
 
 ## Files
 

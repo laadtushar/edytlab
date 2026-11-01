@@ -1,10 +1,10 @@
-# X thread: v0.9.2 and the DJ demo
+# X thread: v0.9.3 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
 
 Attach the demo to post 1. Upload
-`website/public/demos/dj-beatmatched-transition.mp4` (2.6 MB, 2:45) directly
+`website/public/demos/dj-beatmatched-transition.mp4` directly
 as native video, rather than linking to it. Put links in post 8, not post 1.
 
 Each post is 280 characters or fewer (counted by script).
@@ -14,65 +14,75 @@ Each post is 280 characters or fewer (counted by script).
 **1/8**
 
 ```
-I built a desktop audio editor you drive by chatting.
+The night before a gig is all chores: matching tempos, counting bars, nudging levels.
 
-Here a DJ asks for two tracks' tempos, the incoming one is time-stretched to match, crossfaded in 8 bars before the first ends, and the mix is exported as a WAV at -14 LUFS.
+So I built an audio editor I could just tell what to do. Here it brings a 128 BPM track in under the last 8 bars of a 120 BPM one.
 
-(2:45, with sound. Free, open source.)
+Sound on.
 ```
 
 **2/8**
 
 ```
-How it works: an AI agent turns your request into calls to 99 audio tools. The tools do the DSP, in Rust, on your machine. The model only picks and orders them. It never touches the samples.
+It never hears your music.
+
+The AI reads a summary of your session and what the tools measure, like tempo and loudness, then picks from 99 editing tools. The tools do the work, on your computer.
+
+It decides. Your machine does the work. You stay the DJ.
 ```
 
 **3/8**
 
 ```
-Your audio is never uploaded. Only the chat goes to the AI provider you choose.
+So your files never get uploaded. Only the chat goes out, to the AI you choose: Claude, GPT, Gemini and others.
 
-Anthropic, OpenAI, OpenRouter, Groq, Gemini, your ChatGPT plan (a preview), or Ollama. With Ollama there's no key and the chat stays on your computer too.
+Or run a local model with Ollama, and the chat stays home too.
 ```
 
 **4/8**
 
 ```
-Every edit is a node in a graph. Fork a take, A/B it against the original, go back.
+Nothing you do is lost.
 
-There's also an optional "plan first" mode: the agent shows its steps and you approve before anything runs.
+Every edit is a step in a history you can branch. Try a louder master, compare it with the old one, keep the better one.
+
+Nervous? Turn on "plan first" and approve each step before it runs.
 ```
 
 **5/8**
 
 ```
-For the DJ job: it analyses BPM, key, beat grid and loudness, then time-stretches or pitch-shifts with a phase vocoder written for the project, in pure Rust.
+Where it shines today: the prep you'd rather not do by hand.
 
-It's for prep, not live use. And in the demo, the agent itself flags a spot where the bars land a beat apart.
+Beatmatching and transitions. Trimming long silences out of a podcast. Checking an audiobook against ACX loudness specs before you submit.
 ```
 
 **6/8**
 
 ```
-v0.9.2 is out. macOS asks for your password at most once per launch: keys and the ChatGPT sign-in share one keychain entry. Transcription (one-time model download, since v0.8.0) no longer skips stretches of speech. Sign in with ChatGPT is a preview; use v0.9.1 or later.
+New in v0.9.3: it can tell who's speaking when.
+
+A two-person interview becomes one track per voice, so each gets its own levels and cleanup. That runs on your computer too, after a one-time download in Settings.
 ```
 
 **7/8**
 
 ```
-What it can't do yet, so you don't have to find out: no stem separation. Transcription needs a one-time model download and was tested on English only (a clip, 16 min of audiobooks). Builds are unsigned, so macOS and Windows warn at first launch. Release notes have the steps.
+Not there yet: stem separation is still being built.
+
+And the installers aren't signed, so macOS and Windows will warn you the first time you open it. The release notes walk you through it.
 ```
 
 **8/8**
 
 ```
-Download for macOS (universal), Windows or Linux: https://github.com/laadtushar/edytlab/releases/latest
+Free, MIT-licensed, for macOS, Windows and Linux.
 
-Demo and docs: https://edytlab.com
+Download: https://github.com/laadtushar/edytlab/releases/latest
 
-MIT-licensed. Tell me which edit you'd ask for first.
+Demos: https://edytlab.com
 
-Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
+Which edit would you hand it first?
 ```
 
 ---
@@ -81,6 +91,6 @@ Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.9.2 release notes. Check them against
+- Post 6 repeats the v0.9.3 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.

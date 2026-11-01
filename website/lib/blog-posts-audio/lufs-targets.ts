@@ -8,13 +8,14 @@ export const lufsTargets: BlogPost = {
   slug: "lufs-for-spotify-youtube-apple-music-podcasts",
   title: "LUFS for Spotify, YouTube, Apple Music, Podcasts",
   date: "2026-10-22",
+  dateModified: "2026-10-27",
   description:
     "Spotify adjusts to -14 LUFS, Apple Podcasts recommends about -16, EBU R 128 is -23. None found for YouTube or Apple Music. Sources, and how to hit one.",
   coverAlt:
     "A waveform under a dashed horizontal line that marks a loudness target, with a solid ceiling line above it and one narrow peak that pokes through the ceiling",
   excerpt:
     "A loudness target is only worth using if you can point to who set it. These are the ones with a primary source, the ones without, what LUFS, dB and true peak mean, and how to reach a target in edytlab, including what its limiter cannot promise.",
-  readTime: 11,
+  readTime: 10,
   tags: ["LUFS", "loudness", "podcast loudness", "true peak"],
   body: [
     {
@@ -109,7 +110,7 @@ export const lufsTargets: BlogPost = {
     },
     {
       type: "p",
-      text: "The tool works on one track, measured as it sits on the timeline, before that track's effects, pan, sends and the master chain. For a mix, mix down to a new track with `mix_to_new_track` and normalize that. The [beatmatch demo](/videos/dj-beatmatched-transition) does it that way: it mixes the two tracks to a new one, compresses it, limits at -1 dB, raises it to about -14 LUFS and exports a 50-second WAV at -13.9 LUFS peaking at -1 dBFS. The [mini-mix demo](/videos/dj-mini-mix) brings each track to about -14 LUFS with a limiter at -1 dB on the master, and the assistant notes that the fades were counted in the measurement.",
+      text: "The tool works on one track, measured as it sits on the timeline, before that track's effects, pan, sends and the master chain. For a mix, mix down to a new track with `mix_to_new_track` and normalize that. The [beatmatch demo](/videos/dj-beatmatched-transition) ends in the same spirit: it masters the finished mix with a gentle compressor, a limiter at -1 dB and a normalize to -14 LUFS, then exports a WAV. The [mini-mix demo](/videos/dj-mini-mix) brings each track to about -14 LUFS and puts a limiter at -1 dB on the master.",
     },
     {
       type: "prompt",

@@ -1,0 +1,117 @@
+{
+  "video": "reel-extended-club-intro.mp4",
+  "duration": 39.4,
+  "fps": 30,
+  "size": "1080x1920",
+  "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). The narration lines for the earlier takes are in transcripts.md.",
+  "cues": [
+    {
+      "id": "E01",
+      "kind": "hook",
+      "start": 0.0,
+      "end": 2.5,
+      "onscreen": "Extend an intro. Just ask.",
+      "title": [
+        "Extend",
+        "an intro.",
+        "Just ask."
+      ],
+      "sub": "Solar Flare, 124 BPM"
+    },
+    {
+      "id": "E02",
+      "kind": "step",
+      "start": 2.5,
+      "end": 7.3,
+      "onscreen": "1 · Tempo and bar length",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI04",
+        "start": 27.4,
+        "end": 32.2
+      }
+    },
+    {
+      "id": "E03",
+      "kind": "step",
+      "start": 7.3,
+      "end": 12.1,
+      "onscreen": "2 · Extend the intro",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI05",
+        "start": 43.6,
+        "end": 48.4
+      }
+    },
+    {
+      "id": "E04",
+      "kind": "step",
+      "start": 12.1,
+      "end": 16.9,
+      "onscreen": "3 · A filter that opens into the drop",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI06",
+        "start": 58.2,
+        "end": 63.0
+      }
+    },
+    {
+      "id": "E05",
+      "kind": "step",
+      "start": 16.9,
+      "end": 21.7,
+      "onscreen": "4 · Fade in and export",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI07",
+        "start": 72.0,
+        "end": 76.8
+      }
+    },
+    {
+      "id": "E06",
+      "kind": "listen",
+      "start": 21.7,
+      "end": 32.3,
+      "onscreen": "Listen: the low end arrives at the drop (0:31)",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI09",
+        "start": 98.267,
+        "end": 108.867
+      },
+      "sound": [
+        21.913,
+        32.3
+      ]
+    },
+    {
+      "id": "E07",
+      "kind": "step",
+      "start": 32.3,
+      "end": 36.4,
+      "onscreen": "Done: solar-flare-extended-intro.wav, a 16-bar intro",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI10",
+        "start": 110.733,
+        "end": 114.833
+      }
+    },
+    {
+      "id": "E08",
+      "kind": "end",
+      "start": 36.4,
+      "end": 39.4,
+      "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux"
+    }
+  ]
+}

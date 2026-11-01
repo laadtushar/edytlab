@@ -71,13 +71,16 @@ describe("EmptyState", () => {
   });
 
   /**
-   * The landing screen advertises what `audio-decoder` opens: symphonia is
-   * built with mp3, wav, flac, ogg + vorbis and aiff, and `opus-decoder`
-   * covers Opus (#764). Nothing provides isomp4 or aac (a patent licence
-   * stands in the way), so an .m4a advertised here would fail on open. `crates/audio-decoder/tests/supported_extensions.rs` holds this
-   * line equal to the decoder's own list.
+   * The landing screen advertises what `audio-decoder` opens on this
+   * computer: symphonia is built with mp3, wav, flac, ogg + vorbis and aiff,
+   * `opus-decoder` covers Opus everywhere, and M4A/AAC goes to the operating
+   * system's own decoder on macOS and Windows only (#764). Linux has no system
+   * AAC decoder, so an .m4a advertised there would fail on open.
+   * `crates/audio-decoder/tests/supported_extensions.rs` holds
+   * `lib/importFormats.ts` equal to the decoder's own lists.
    */
   it("advertises only formats the decoder can actually open", () => {
+    vi.stubGlobal("navigator", { platform: "Linux x86_64", userAgent: "X11; Linux x86_64" });
     render(<EmptyState onOpen={() => {}} />);
     const formats = screen.getByText(/wav/i, { selector: "p" });
 
@@ -88,9 +91,20 @@ describe("EmptyState", () => {
     for (const name of ["m4a", "aac"]) {
       expect(
         formats.textContent,
-        `${name} has no decoder compiled in; loading one fails`,
+        `${name} has no decoder on this platform; loading one fails`,
       ).not.toContain(name);
     }
+  });
+
+  it.each([
+    ["macOS", { platform: "MacIntel", userAgent: "Macintosh" }],
+    ["Windows", { platform: "Win32", userAgent: "Windows NT" }],
+  ])("also advertises m4a on %s, where the system decodes it", (_name, nav) => {
+    vi.stubGlobal("navigator", nav);
+    render(<EmptyState onOpen={() => {}} />);
+    const formats = screen.getByText(/wav/i, { selector: "p" });
+    expect(formats.textContent).toContain("m4a");
+    expect(formats.textContent).not.toContain("aac");
   });
 
   /**

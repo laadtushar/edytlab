@@ -1,7 +1,7 @@
 # Decode fixtures
 
-A short synthetic sine tone in each format the decoder opens (and one it does
-not, M4A/AAC), plus Opus files of layouts it refuses. They are made here from `aevalsrc`, so there is no recording
+A short synthetic sine tone in each format the decoder opens (M4A/AAC only where
+the operating system decodes it), plus Opus files of layouts it refuses. They are made here from `aevalsrc`, so there is no recording
 and no third-party audio in them. They are the project's own work, dedicated
 to the public domain under CC0 1.0.
 
@@ -33,8 +33,16 @@ ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*550*t)|0.5*sin(2*PI*660*t)|0.5*sin(2*PI*770*t)|0.5*sin(2*PI*880*t)|0.5*sin(2*PI*990*t):s=48000:d=0.1:c=5.1" -c:a libopus -b:a 96k -mapping_family 1 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_surround_6ch_48000.opus
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.1:c=stereo" -c:a libopus -b:a 48k -mapping_family 255 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_discrete_2ch_48000.opus
 
-# Not supported (tests/unsupported.rs): AAC in M4A
+
+# AAC-LC in M4A (ffmpeg's native `aac` encoder), mono 44.1 kHz and stereo 48 kHz.
+# Decoded by the operating system on macOS and Windows (tests/formats.rs); refused
+# on Linux, which has no system decoder (tests/unsupported.rs). ffmpeg has no
+# HE-AAC encoder (`libfdk_aac` is not built into the Ubuntu package), so there is
+# no HE-AAC fixture. The stereo file uses `-aac_coder fast -aac_pns 0`: with the
+# default coder this two-tone signal decodes with peaks of 0.71 and 0.78 (ffmpeg's
+# own decoder and Media Foundation read it alike), past the 0.1 level tolerance.
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a aac -b:a 64k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.m4a
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.5:c=stereo" -c:a aac -b:a 96k -aac_coder fast -aac_pns 0 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_440_880_stereo_48000.m4a
 ```
 
 The encoded properties are what the tests assert (`tests/formats.rs`):
@@ -48,6 +56,8 @@ The encoded properties are what the tests assert (`tests/formats.rs`):
 | `tone_440_mono_44100.flac` | 44,100 | 1 | 440 Hz | exactly 22,050 frames, each sample within 1.5 LSB |
 | `tone_440_mono_48000.opus` | 48,000 | 1 | 440 Hz | exactly 24,000 frames (`ffprobe` `duration_ts` 24,312 less 312 pre-skip) |
 | `tones_440_880_stereo_48000.opus` | 48,000 | 2 | 440 / 880 Hz | exactly 46,560 frames (`duration_ts` 46,872 less 312), the last packet trimmed |
+| `tone_440_mono_44100.m4a` | 44,100 | 1 | 440 Hz | exactly 22,050 frames on macOS and Windows (the edit list: 1,024 frames of priming skipped, `ffprobe` `duration_ts` 22,050) |
+| `tones_440_880_stereo_48000.m4a` | 48,000 | 2 | 440 / 880 Hz | exactly 24,000 frames (`duration_ts` 24,000) |
 
 Measured: the mono Vorbis decodes to 22,080 frames (30 more than encoded,
 0.7 ms) and the stereo one to 24,256 (256 more, 5.3 ms); the tolerance is

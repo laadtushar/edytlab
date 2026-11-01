@@ -53,6 +53,7 @@ import { isUndoChord, isRedoChord, isTextEntry } from "./lib/undoRedo";
 import { isDerivedAudioPath } from "./lib/derivedAudio";
 import { mixIsCurrent, mixIsMissing, mixIsStale } from "./lib/mixState";
 import { scheduledTake, startTake, stopTake } from "./lib/recording";
+import { appliedText, isUncalibratedMessage, punchOutcome } from "./lib/punch";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -91,7 +92,7 @@ import {
   writeSessionOnlyDismissed,
 } from "./lib/keychainNotice";
 import { KeyringWaiting } from "./components/KeyringWaiting";
-import { listTemplates, applyTemplate, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
+import { listTemplates, applyTemplate, punchRecord, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
   listenToFileDrops,
@@ -211,7 +212,7 @@ function App() {
   }, [settingsOpen, keyConfigured]);
   // Which part of Settings' Account tab to scroll to on opening, for a caller
   // that sends the user to press a button there (the speech-setup card, #384).
-  const [settingsReveal, setSettingsReveal] = useState<"speech-model" | null>(null);
+  const [settingsReveal, setSettingsReveal] = useState<"speech-model" | "recording-latency" | null>(null);
   // Every other way in (the gear, an error's button) opens at the top, so a
   // request to reveal ends with the dialog it was for.
   useEffect(() => {
@@ -374,6 +375,13 @@ function App() {
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  // A punch-in is running (#203): the microphone and the speakers are its.
+  const [punching, setPunching] = useState(false);
+  // A scheduled recording is armed (waiting or recording), which `isRecording`
+  // also covers; named apart so the Punch control can say which it is.
+  const [timerArmed, setTimerArmed] = useState(false);
+  // What the last punch-in was placed with, said once.
+  const [punchNotice, setPunchNotice] = useState<string | null>(null);
   // Projects this machine has opened. Empty on a first launch, and the
   // empty state hides the list entirely rather than showing a heading
   // with nothing under it.
@@ -1523,11 +1531,13 @@ function App() {
     (schedule: { startAfterSec?: number; durationSec?: number }) => {
       setRenderError(null);
       setIsRecording(true);
+      setTimerArmed(true);
       void scheduledTake(
         () => timerRecord(`recording_${Date.now()}.wav`, schedule),
         loadInOrder,
       ).then((outcome) => {
         setIsRecording(false);
+        setTimerArmed(false);
         // Its head is adopted by `loadInOrder`, in its turn.
         if (outcome.kind === "loaded") {
           void refreshTracks().catch((err) => setRenderError(String(err)));
@@ -1538,6 +1548,51 @@ function App() {
       });
     },
     [loadInOrder],
+  );
+
+  /**
+   * Punch in (#203): replace the selected region of a track with a take
+   * recorded while the rest of the mix plays.
+   *
+   * The transport is paused first: the backend plays the mix itself, through
+   * the speakers, on a clock it shares with the microphone, and a second
+   * player from the webview would be in the take. `punch_record` resolves
+   * when the take is placed, tens of seconds later at most, and is not
+   * inside the edit line (`inOrder`): that would hold every other edit for
+   * its length. Only adopting the head is in the line, as for any command
+   * that changes the session. An edit made meanwhile makes the backend keep
+   * the take and refuse to apply it, so no older head is ever adopted.
+   */
+  const handlePunch = useCallback(
+    async ({ track, prerollSec }: { track: number; prerollSec: number }) => {
+      if (!selection || punching) return;
+      setRenderError(null);
+      setPunchNotice(null);
+      timelineRef.current?.pause();
+      setPunching(true);
+      try {
+        const outcome = await punchOutcome(() =>
+          punchRecord(track, selection.start, selection.end, prerollSec),
+        );
+        if (outcome.kind === "applied") {
+          await inOrder(async () => {
+            applyNewHead(outcome.head);
+          });
+          // The session moved by itself: let go of what the lanes hold, and
+          // read the tracks again (the region's audio is new).
+          owned.clear();
+          await refreshTracks().catch((err) => setRenderError(String(err)));
+          setPunchNotice(appliedText(outcome));
+        } else if (outcome.kind !== "cancelled") {
+          // A refusal or a failure says what to try; "not calibrated" also
+          // gets the button that goes there.
+          setRenderError(outcome.message);
+        }
+      } finally {
+        setPunching(false);
+      }
+    },
+    [selection, punching, inOrder, applyNewHead, owned, refreshTracks],
   );
 
   // Renders what is shown: the previewed node when the graph has one, else
@@ -1711,6 +1766,18 @@ function App() {
 
   const errorAction = useMemo(() => {
     if (!renderError) return undefined;
+    // A punch-in with no delay kept for the devices (#203): the way out is
+    // the Audio tab, where it is measured or typed.
+    if (isUncalibratedMessage(renderError)) {
+      return {
+        label: "Open Settings → Audio",
+        onClick: () => {
+          setRenderError(null);
+          setSettingsReveal("recording-latency");
+          setSettingsOpen(true);
+        },
+      };
+    }
     if (!isApiKeyError(renderError)) return undefined;
     return {
       label: "Open Settings",
@@ -1734,6 +1801,17 @@ function App() {
         isRecording={isRecording}
         onRecord={isRecording ? handleStopRecording : handleStartRecording}
         onTimerRecord={handleTimerRecord}
+        punch={{
+          tracks,
+          selection,
+          punching,
+          timerArmed,
+          onPunch: handlePunch,
+          onOpenAudioSettings: () => {
+            setSettingsReveal("recording-latency");
+            setSettingsOpen(true);
+          },
+        }}
         onSaveAs={handleSaveProjectAs}
         hasProject={Boolean(head)}
         onNewProject={handleNewProject}
@@ -1771,6 +1849,15 @@ function App() {
               message={renderError}
               action={errorAction}
               onDismiss={() => setRenderError(null)}
+            />
+          ) : null}
+          {punchNotice ? (
+            <ErrorBanner
+              tone="info"
+              testId="punch-notice"
+              message={punchNotice}
+              dismissLabel="Dismiss"
+              onDismiss={() => setPunchNotice(null)}
             />
           ) : null}
           <RenderWarningsNotice notice={mixNotice(renderWarnings)} />
