@@ -106,7 +106,7 @@ fn tagging_a_wav_is_refused_with_a_reason() {
             "metadata": { "title": "Episode 12" },
         }),
     ));
-    assert!(msg.contains("flac or mp3"), "should say what to do: {msg}");
+    assert!(msg.contains("flac, mp3"), "should say what to do: {msg}");
     assert!(!out.exists(), "and refuse before writing anything");
 }
 

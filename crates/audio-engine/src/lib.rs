@@ -1,18 +1,22 @@
-//! Offline rendering for edytlab: builds a render graph from a [`session::SessionState`] and renders it to WAV ([`render_state_to_wav`] / [`Engine`]), with WAV, FLAC and MP3 encoders and tag writers alongside.
+//! Offline rendering for edytlab: builds a render graph from a [`session::SessionState`] and renders it to WAV ([`render_state_to_wav`] / [`Engine`]), with WAV, AIFF, FLAC, MP3 and Ogg Opus encoders and tag writers alongside.
 //!
 //! There is no native playback. The app plays audio in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol — so this crate opens no output device and links no audio backend (#388; `tests/no_native_output.rs` holds that).
 
+pub mod aiff;
 pub mod effect_chain;
 pub mod encode;
 pub mod graph;
 pub mod metadata;
 pub mod mixer;
+pub mod ogg_opus;
 pub mod render;
 
+pub use aiff::write_aiff;
 pub use encode::{
     write_flac, write_mp3, write_wav, write_wav_f32, WavChunkWriter, MP3_DEFAULT_KBPS,
 };
 pub use metadata::{read_flac_tags, tag_flac, tag_mp3, Chapter, Tags};
+pub use ogg_opus::{write_ogg_opus, OPUS_DEFAULT_KBPS};
 pub use render::render_warnings;
 
 use std::path::Path;

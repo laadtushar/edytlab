@@ -223,7 +223,7 @@ Run an exported edit chain across every audio file in a folder. Each file become
 | `input_dir` | string | yes | Folder of audio to process |
 | `output_dir` | string | no | Where the per-file projects and renders go. Defaults to input_dir, beside the originals. |
 | `recipe_path` | string | yes | Recipe JSON from export_recipe |
-| `render_format` | one of `wav`, `flac`, `mp3` | no | Also render each result to this format, in output_dir under the input's name (take1.wav to take1.mp3). |
+| `render_format` | one of `wav`, `aiff`, `flac`, `mp3`, `ogg` | no | Also render each result to this format, in output_dir under the input's name (take1.wav to take1.mp3). |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -918,14 +918,14 @@ Rename a track. Appends a new session node.
 
 ## `render_final`
 
-Render a session node to a final audio file at the user's chosen path. format="wav" is uncompressed, "flac" is lossless at roughly half the size and identical audio, "mp3" is lossy but plays anywhere — prefer flac when the user wants to send a file somewhere and quality matters, mp3 when size or compatibility matters. bitrate_kbps applies to mp3 only and defaults to 192. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another.
+Render a session node to a final audio file at the user's chosen path. wav and aiff are uncompressed, flac is lossless at about half the size, mp3 and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `bitrate_kbps` | integer | no | MP3 CBR target; snapped to the nearest valid Layer III rate. Ignored for wav and flac. |
-| `format` | one of `wav`, `flac`, `mp3` | yes |  |
+| `bitrate_kbps` | integer | no | MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats. |
+| `format` | one of `wav`, `aiff`, `flac`, `mp3`, `ogg` | yes |  |
 | `markers_as_chapters` | boolean | no | Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping. |
-| `metadata` | object | no | Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export. |
+| `metadata` | object | no | Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export. |
 | `node_id` | string | yes |  |
 | `out_path` | string | yes |  |
 

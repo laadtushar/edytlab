@@ -653,7 +653,7 @@ export const toolAreas: ToolArea[] = [
   {
     slug: "rendering",
     title: "Rendering, Recipes and Batch",
-    summary: "Export the session to WAV, FLAC or MP3, render previews, and replay an edit chain on one file or a folder.",
+    summary: "Export the session to WAV, AIFF, FLAC, MP3 or OGG, render previews, and replay an edit chain on one file or a folder.",
     sections: [
       {
         title: "Rendering",
@@ -661,9 +661,9 @@ export const toolAreas: ToolArea[] = [
           {
             name: "render_final",
             prompt: 'export to /Users/me/Desktop/final.wav',
-            what: "Render the full session to WAV, FLAC or MP3. FLAC is lossless — identical audio, roughly half the size. MP3 is lossy but plays anywhere; bitrate defaults to 192 kbps. Takes title, artist, album, year and comment, written as Vorbis comments on FLAC and ID3v2 on MP3, and can carry the session's markers through as chapters.",
+            what: "Render the full session to WAV, AIFF, FLAC, MP3 or OGG. AIFF is uncompressed. FLAC is lossless, roughly half the size. MP3 is lossy but plays anywhere (192 kbps default). OGG is lossy Opus, smaller than MP3 (128 kbps default). Takes title, artist, album, year and comment, written as Vorbis comments on FLAC and OGG and ID3v2 on MP3, and can carry the session's markers through as chapters.",
             output: "path, duration_sec, peak_dbfs, sample_rate, tagged, chapters, warnings (only when something was left out)",
-            note: "A stored effect the renderer cannot run in a chain yet (a project from an older build can hold one) is left out and the render still succeeds; warnings names each one, and a line in summary says so. Tags are applied after encoding — FLAC blocks are rewritten in place and an ID3 tag is a prefix — so tagging never touches a sample. WAV has no standard tag container worth using and refuses metadata rather than dropping it silently. A path that is audio the project reads is refused, because the render would replace it: a file you loaded (even a lossy one the project plays a copy of), or any file an earlier step of the history plays, however the path is spelt. Choose another path; an earlier export, or a path nothing reads, is written as before.",
+            note: "A stored effect the renderer cannot run in a chain yet (a project from an older build can hold one) is left out and the render still succeeds; warnings names each one, and a line in summary says so. Tags are applied after encoding — FLAC blocks are rewritten in place and an ID3 tag is a prefix — so tagging never touches a sample. WAV and AIFF have no standard tag container worth using and refuse metadata rather than dropping it silently. A path that is audio the project reads is refused, because the render would replace it: a file you loaded (even a lossy one the project plays a copy of), or any file an earlier step of the history plays, however the path is spelt. Choose another path; an earlier export, or a path nothing reads, is written as before.",
           },
           {
             name: "render_preview",
