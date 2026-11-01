@@ -10,11 +10,15 @@
 //! is a different number of frames. Like `time_shift`, which it is made of, it
 //! moves only the tracks named. It does not consult sync-lock (that keeps
 //! tracks together through an edit that shifts time, and this is the edit
-//! that sets them apart), and labels and the transcript stay at the seconds
-//! they were at.
+//! that sets them apart), and labels stay at the seconds they were at. A
+//! transcript made from a moved track goes with it: its word times are
+//! seconds of that track as it sits on the timeline (#384), so they are moved
+//! by what the track moved, or `cut_words` would cut audio the words do not
+//! describe.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
+use session::TranscriptSource;
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
@@ -121,6 +125,17 @@ impl Tool for AlignEndToEndTool {
             for clip in clips.iter_mut() {
                 clip.start_in_track = (clip.start_in_track as i64 + delta).max(0) as u64;
             }
+            let id = state.tracks[t].id.clone();
+            if let Some(transcript) = state.transcript.as_mut() {
+                if transcript.source == Some(TranscriptSource::Track { track: id }) {
+                    let shift = delta as f64 / rate;
+                    for w in &mut transcript.words {
+                        w.start_s = (f64::from(w.start_s) + shift) as f32;
+                        w.end_s = (f64::from(w.end_s) + shift) as f32;
+                    }
+                }
+            }
+            let clips = &state.tracks[t].clips;
             end_sec = timeline_end(clips) as f64 / rate;
             moved.push(json!({ "track": t, "start_sec": target as f64 / rate }));
         }

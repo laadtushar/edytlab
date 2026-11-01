@@ -346,6 +346,208 @@ fn join_clips_on_a_16k_voice_under_a_bed_counts_in_the_voices_frames() {
     }
 }
 
+/// Splits a 2 s tone at 1 s for the envelope cases below.
+fn split_tone() -> Session {
+    let mut s = Session::one_track(48_000, 2);
+    s.ok(
+        "split_clip",
+        json!({ "track": 0, "clip_index": 0, "at_sec": 1.0 }),
+    );
+    s
+}
+
+fn envelope(s: &mut Session, clip: usize, points: serde_json::Value) {
+    s.ok(
+        "set_clip_envelope",
+        json!({ "track_index": 0, "clip_index": clip, "points": points }),
+    );
+}
+
+fn assert_same_render(before: &[i16], after: &[i16]) {
+    let d = max_diff(before, after);
+    assert!(d <= 1, "the join changed the render by {d} LSB");
+}
+
+/// A point past its clip's end belongs to no sound of that clip, but once
+/// the clips are one curve it would land in the next clip's span. The join
+/// closes each clip's curve at its own end and drops what lies beyond it.
+#[test]
+fn join_clips_does_not_let_an_envelope_point_past_a_clips_end_into_the_next() {
+    let mut s = split_tone();
+    envelope(
+        &mut s,
+        0,
+        json!([
+            { "time_sec": 0.0, "gain_db": 0.0 },
+            { "time_sec": 2.0, "gain_db": -60.0 }
+        ]),
+    );
+    let before = s.render_pcm(None);
+
+    s.ok("join_clips", json!({ "track": 0, "first_clip": 0 }));
+
+    assert_eq!(s.clips(0), vec![(0, 0, 96_000)]);
+    assert_same_render(&before, &s.render_pcm(None));
+}
+
+/// A point past the end of the last clip stays out of the joined curve.
+#[test]
+fn join_clips_drops_envelope_points_past_the_runs_end() {
+    let mut s = split_tone();
+    envelope(
+        &mut s,
+        1,
+        json!([
+            { "time_sec": 0.0, "gain_db": 0.0 },
+            { "time_sec": 3.0, "gain_db": -30.0 }
+        ]),
+    );
+    let before = s.render_pcm(None);
+    s.ok("join_clips", json!({ "track": 0, "first_clip": 0 }));
+    assert_same_render(&before, &s.render_pcm(None));
+    let env = &s.state().tracks[0].clips[0].volume_envelope;
+    assert!(env.iter().all(|p| p.time_samples <= 96_000), "{env:?}");
+}
+
+/// Overlapping clips are summed by the renderer after each has had its own
+/// envelope applied, so a rendered join must bake the envelopes in before it
+/// sums, and leave the joined clip with none of its own.
+#[test]
+fn join_clips_bakes_envelopes_into_an_overlapping_join() {
+    let mut s = split_tone();
+    s.ok(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 1, "start_sec": 0.5 }),
+    );
+    envelope(&mut s, 0, json!([{ "time_sec": 0.0, "gain_db": -40.0 }]));
+    let before = s.render_pcm(None);
+
+    let v = s.ok("join_clips", json!({ "track": 0, "first_clip": 0 }));
+
+    assert_eq!(v["rendered"], json!(true));
+    assert!(
+        s.state().tracks[0].clips[0].volume_envelope.is_empty(),
+        "the gain is in the audio, so the clip carries no curve"
+    );
+    assert_same_render(&before, &s.render_pcm(None));
+}
+
+/// Two envelopes, one per overlapping clip, each ramping.
+#[test]
+fn join_clips_bakes_two_ramps_in_an_overlap() {
+    let mut s = split_tone();
+    s.ok(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 1, "start_sec": 0.5 }),
+    );
+    envelope(
+        &mut s,
+        0,
+        json!([
+            { "time_sec": 0.0, "gain_db": 0.0 },
+            { "time_sec": 1.0, "gain_db": -20.0 }
+        ]),
+    );
+    envelope(
+        &mut s,
+        1,
+        json!([
+            { "time_sec": 0.0, "gain_db": -20.0 },
+            { "time_sec": 1.0, "gain_db": 0.0 }
+        ]),
+    );
+    let before = s.render_pcm(None);
+    s.ok("join_clips", json!({ "track": 0, "first_clip": 0 }));
+    assert_same_render(&before, &s.render_pcm(None));
+}
+
+/// Overlapping clips with no envelope sum, as they did.
+#[test]
+fn join_clips_sums_an_overlap_without_envelopes() {
+    let mut s = split_tone();
+    s.ok(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 1, "start_sec": 0.5 }),
+    );
+    let before = s.render_pcm(None);
+    let v = s.ok("join_clips", json!({ "track": 0, "first_clip": 0 }));
+    assert_eq!(v["rendered"], json!(true));
+    assert_same_render(&before, &s.render_pcm(None));
+    let summary = v["summary"].as_str().unwrap();
+    assert!(summary.contains("summed"), "{summary}");
+}
+
+/// A gap with an envelope on one side: the gain is baked in, not spread over
+/// the silence or the other clip.
+#[test]
+fn join_clips_bakes_an_envelope_across_a_gap() {
+    let mut s = split_tone();
+    s.ok(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 1, "start_sec": 2.0 }),
+    );
+    envelope(
+        &mut s,
+        1,
+        json!([
+            { "time_sec": 0.0, "gain_db": -12.0 },
+            { "time_sec": 1.0, "gain_db": -3.0 }
+        ]),
+    );
+    let before = s.render_pcm(None);
+    s.ok("join_clips", json!({ "track": 0, "first_clip": 0 }));
+    assert_same_render(&before, &s.render_pcm(None));
+}
+
+/// Clips of one track from files of different rates cannot be mixed into one
+/// file; the refusal names the tool and what it needs.
+#[test]
+fn join_clips_refuses_clips_of_different_rates_in_its_own_words() {
+    let mut s = Session::bed_and_voice(48_000, 2, 2);
+    let voice = s.state().tracks[1].clips[0].clone();
+    let mut state = s.state();
+    let mut second = voice.clone();
+    second.start_in_track = 96_000;
+    state.tracks[0].clips.push(second);
+    s.append_state("mixed rates on one track", state);
+    let (prior, count, state) = (s.head(), s.node_count(), s.state());
+
+    let m = s.err("join_clips", json!({ "track": 0, "first_clip": 0 }));
+
+    assert!(
+        m.starts_with("join_clips needs clips of one sample rate"),
+        "{m}"
+    );
+    assert!(!m.contains("render the track first"), "{m}");
+    s.assert_history_unchanged(prior, count, &state);
+}
+
+/// The rendered file is the audio, so the clip over it asks for no stretch,
+/// pitch change or beat grid of its own, whatever the first clip held.
+#[test]
+fn join_clips_rendered_clip_carries_no_stretch_pitch_or_grid() {
+    let mut s = split_tone();
+    s.ok(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 1, "start_sec": 2.0 }),
+    );
+    let mut state = s.state();
+    for c in &mut state.tracks[0].clips {
+        c.time_stretch_factor = Some(1.0);
+        c.pitch_shift_semitones = Some(0.0);
+        c.beat_grid = Some(vec![0.5, 1.0]);
+    }
+    s.append_state("recorded requests", state);
+
+    let v = s.ok("join_clips", json!({ "track": 0, "first_clip": 0 }));
+
+    assert_eq!(v["rendered"], json!(true));
+    let c = &s.state().tracks[0].clips[0];
+    assert_eq!(c.time_stretch_factor, None);
+    assert_eq!(c.pitch_shift_semitones, None);
+    assert_eq!(c.beat_grid, None);
+}
+
 // ---------------------------------------------------------------------------
 // align_end_to_end
 // ---------------------------------------------------------------------------
@@ -492,4 +694,46 @@ fn align_end_to_end_refuses_what_it_cannot_place() {
     .expect_err("a negative gap is rejected");
 
     s.assert_history_unchanged(prior, count, &state);
+}
+
+/// The words of a transcript made from a track are seconds of that track as
+/// it sits on the timeline, so moving the track moves the words, or a later
+/// `cut_words` would cut audio the words do not describe.
+#[test]
+fn align_end_to_end_moves_the_words_of_a_moved_tracks_transcript() {
+    let mut s = Session::tracks_of(&[4, 2]);
+    s.with_track_transcript(1, &[("a", 0.0, 0.5), ("hello", 0.5, 1.0), ("b", 1.0, 2.0)]);
+
+    s.ok("align_end_to_end", json!({ "tracks": [0, 1] }));
+
+    let words = s.state().transcript.unwrap().words;
+    let times: Vec<(f32, f32)> = words.iter().map(|w| (w.start_s, w.end_s)).collect();
+    assert_eq!(times, vec![(4.0, 4.5), (4.5, 5.0), (5.0, 6.0)]);
+
+    // And cutting "hello" now cuts it: one 0.5 s piece leaves the track.
+    s.ok(
+        "cut_words",
+        json!({ "from_word": 1, "to_word": 2, "track": 1 }),
+    );
+    let end: u64 = s.clips(1).iter().map(|c| c.0 + c.2).max().unwrap();
+    assert_eq!(
+        end,
+        6 * 48_000 - 24_000,
+        "half a second came out of track 1"
+    );
+    assert_eq!(s.clips(1)[0].0, 4 * 48_000);
+}
+
+/// A transcript of a track that stays, or of a file, is not touched.
+#[test]
+fn align_end_to_end_leaves_other_transcripts_alone() {
+    let mut s = Session::tracks_of(&[4, 2]);
+    s.with_track_transcript(0, &[("a", 0.5, 1.0)]);
+    s.ok("align_end_to_end", json!({ "tracks": [0, 1] }));
+    assert_eq!(s.state().transcript.unwrap().words[0].start_s, 0.5);
+
+    let mut s = Session::tracks_of(&[4, 2]);
+    s.with_transcript(&[("a", 0.5, 1.0)]);
+    s.ok("align_end_to_end", json!({ "tracks": [0, 1] }));
+    assert_eq!(s.state().transcript.unwrap().words[0].start_s, 0.5);
 }

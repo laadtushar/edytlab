@@ -7,13 +7,17 @@
 //! Anything else cannot be one clip over a file: a gap between the clips, a
 //! jump in the file (the middle was cut out), different files, or clips with
 //! different stretch or pitch requests. Those are rendered, once, into a new
-//! file under `derived/` (gaps are silence and overlaps sum, as the renderer
-//! mixes them), and the answer says that it happened, because the clip then
-//! points at new audio and the originals are no longer what it plays.
+//! file under `derived/` (gaps are silence and overlapping clips sum, each
+//! with its own volume envelope already applied, as the renderer mixes them),
+//! and the answer says that it happened, because the clip then points at new
+//! audio and the originals are no longer what it plays. That file is the
+//! audio as it sounds, so the clip over it carries no envelope, stretch,
+//! pitch or beat grid of its own.
 //!
 //! Positions are counted in the frames of the clips' own source file (#234),
 //! so nothing here turns seconds into frames. The seconds in the answer are
-//! the first clip's own rate. The envelope is merged through
+//! the first clip's own rate. In a merge the envelopes are closed at each
+//! clip's own ends ([`slice_envelope`]), merged through
 //! [`merge_clip_envelopes`] and set with [`Clip::set_envelope`] (#677).
 
 use serde::Deserialize;
@@ -22,8 +26,8 @@ use session::{Clip, EnvelopePoint};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_track_index, clip_frames_to_seconds, flatten_track, load_head_state,
-    merge_clip_envelopes, set_session_length, write_cas_wav,
+    append_state, check_track_index, clip_frames_to_seconds, flatten_clips, load_head_state,
+    merge_clip_envelopes, set_session_length, slice_envelope, write_cas_wav,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -47,6 +51,31 @@ fn continues(a: &Clip, b: &Clip) -> bool {
         && b.source_offset == a.source_offset.saturating_add(a.length)
 }
 
+/// One clip's curve, closed at both of its own ends: a clip with no curve
+/// is held at 0 dB, and points beyond the clip's length (which `set_clip_envelope`
+/// accepts, and the renderer never reaches) are dropped, with the gain the
+/// curve has at the clip's end written there.
+fn closed_curve(c: &Clip) -> Vec<EnvelopePoint> {
+    if c.length == 0 {
+        return Vec::new();
+    }
+    let mut points = slice_envelope(&c.volume_envelope, 0, c.length);
+    if points.is_empty() {
+        points.push(EnvelopePoint {
+            time_samples: 0,
+            gain_db: 0.0,
+        });
+    }
+    if points.len() == 1 {
+        // A flat curve is one point; it still has to be held to the end.
+        points.push(EnvelopePoint {
+            time_samples: c.length,
+            gain_db: points[0].gain_db,
+        });
+    }
+    points
+}
+
 /// The clips' automation as one curve for the joined clip, in its frames
 /// counted from `origin`, its start.
 ///
@@ -54,9 +83,10 @@ fn continues(a: &Clip, b: &Clip) -> bool {
 /// last value after its last, and a clip with no curve is at unity. Merging
 /// the points as they stand would therefore spread one clip's curve over the
 /// clips beside it: a half with no automation would take the other half's
-/// first value. So when any clip is automated, every clip is closed at both
-/// of its ends first (a clip with no curve is held at 0 dB), which leaves
-/// each stretch of the joined clip with the gain it had.
+/// first value, and a point past one clip's end would act inside the next.
+/// So when any clip is automated, every clip is closed at both of its own
+/// ends first ([`closed_curve`]), which leaves each stretch of the joined
+/// clip with the gain it had.
 fn joined_envelope(group: &[Clip], origin: u64, total: u64) -> Vec<EnvelopePoint> {
     if group.iter().all(|c| c.volume_envelope.is_empty()) {
         return Vec::new();
@@ -64,45 +94,11 @@ fn joined_envelope(group: &[Clip], origin: u64, total: u64) -> Vec<EnvelopePoint
     let closed: Vec<Clip> = group
         .iter()
         .map(|c| {
-            let mut points = c.volume_envelope.clone();
-            if points.is_empty() {
-                points = vec![
-                    EnvelopePoint {
-                        time_samples: 0,
-                        gain_db: 0.0,
-                    },
-                    EnvelopePoint {
-                        time_samples: c.length,
-                        gain_db: 0.0,
-                    },
-                ];
-            } else {
-                let (first_gain, last_gain) = (points[0].gain_db, points[points.len() - 1].gain_db);
-                let (first_at, last_at) = (
-                    points[0].time_samples,
-                    points[points.len() - 1].time_samples,
-                );
-                if first_at > 0 {
-                    points.insert(
-                        0,
-                        EnvelopePoint {
-                            time_samples: 0,
-                            gain_db: first_gain,
-                        },
-                    );
-                }
-                if last_at < c.length {
-                    points.push(EnvelopePoint {
-                        time_samples: c.length,
-                        gain_db: last_gain,
-                    });
-                }
-            }
             let mut clip = c.clone();
             // Counted from the joined clip's start, which is where
             // `merge_clip_envelopes` expects the collapsed clip to be.
             clip.start_in_track = c.start_in_track - origin;
-            clip.set_envelope(points);
+            clip.set_envelope(closed_curve(c));
             clip
         })
         .collect();
@@ -186,8 +182,14 @@ impl Tool for JoinClipsTool {
             .max()
             .unwrap_or(origin);
         let total = end - origin;
-        let envelope = joined_envelope(group, origin, total);
         let merge = group.windows(2).all(|w| continues(&w[0], &w[1]));
+        // A merge keeps the clips' curves as one. A render has them applied
+        // to the audio already, so its clip has none.
+        let envelope = if merge {
+            joined_envelope(group, origin, total)
+        } else {
+            Vec::new()
+        };
 
         let mut joined = if merge {
             let mut clip = group[0].clone();
@@ -204,7 +206,21 @@ impl Tool for JoinClipsTool {
                     c
                 })
                 .collect();
-            let audio = match flatten_track(&rebased) {
+            let audio = match flatten_clips(&rebased, true, &|m| {
+                format!(
+                    "join_clips needs clips of one sample rate and channel count; these differ \
+                     ({} Hz / {} ch and {} Hz / {} ch in {}). Bring the clips to one format \
+                     first, or leave them as separate clips",
+                    m.first.0,
+                    m.first.1,
+                    m.found.0,
+                    m.found.1,
+                    m.path.file_name().map_or_else(
+                        || m.path.display().to_string(),
+                        |n| n.to_string_lossy().into_owned()
+                    ),
+                )
+            }) {
                 Ok(a) => a,
                 Err(msg) => return Ok(ToolResult::Error(msg)),
             };
@@ -234,9 +250,13 @@ impl Tool for JoinClipsTool {
                 source_offset: 0,
                 length: frames,
                 content_hash: Some(crate::provenance::legacy_sample_hash(&audio.window)),
-                time_stretch_factor: group[0].time_stretch_factor,
-                pitch_shift_semitones: group[0].pitch_shift_semitones,
-                beat_grid: group[0].beat_grid.clone(),
+                // The file is the audio as the renderer plays it. It applies
+                // no stretch, pitch or grid itself, so these are recorded
+                // requests, and a copy of the first clip's would be a request
+                // the new audio never had.
+                time_stretch_factor: None,
+                pitch_shift_semitones: None,
+                beat_grid: None,
                 volume_envelope: Vec::new(),
                 volume_envelope_frames: Default::default(),
             }
@@ -256,7 +276,8 @@ impl Tool for JoinClipsTool {
                 .to_string()
         } else {
             "they were not contiguous in one source, so the join was rendered into a new file \
-             (gaps are silence, overlaps are summed)"
+             (gaps are silence, overlapping clips are summed, and each clip's volume envelope \
+             is applied to its audio)"
                 .to_string()
         };
         let label = format!("join_clips track {} clips {}..{}", args.track, first, last);
