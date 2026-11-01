@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde_json::Value;
+use session::audio_store::{AudioFolder, AudioStore};
 use session::{Clip, EnvelopePoint, NodeId, SessionNode, SessionState, Track};
 
 use crate::{ToolContext, ToolResult};
@@ -932,8 +933,8 @@ pub(crate) fn render_warnings_for_tracks(state: &SessionState, tracks: &[usize])
         .collect()
 }
 
-/// Write `samples` to the content-addressed WAV `path`, unless it is
-/// already there, so that the name is only ever on a whole file.
+/// Write `samples` to the content-addressed WAV `stem` in `folder`, unless it
+/// is already there, so that the name is only ever on a whole file.
 ///
 /// The name is trusted on sight: an existing file under it is reused
 /// without a look, and a node names it as audio that exists. So a write
@@ -947,26 +948,33 @@ pub(crate) fn render_warnings_for_tracks(state: &SessionState, tracks: &[usize])
 /// file an agent tool is writing, and an agent run that lost a race to a
 /// user edit writes it again on its retry.
 pub(crate) fn write_cas_wav(
+    store: &AudioStore,
+    folder: AudioFolder,
+    stem: &str,
     samples: &[f32],
     sample_rate: u32,
     channels: u16,
-    path: &Path,
-) -> Result<(), String> {
-    put_cas_file(path, |tmp| {
+) -> Result<PathBuf, String> {
+    store.put_with(folder, stem, |tmp| {
         audio_engine::write_wav(samples, sample_rate, channels, tmp).map_err(|e| e.to_string())
     })
 }
 
-/// Copy the WAV at `src` to the content-addressed `path`, unless it is
-/// already there, with the guarantees of [`write_cas_wav`].
+/// Copy the WAV at `src` to the content-addressed file `stem` in `folder`,
+/// unless it is already there, with the guarantees of [`write_cas_wav`].
 ///
 /// For a WAV the renderer can open as it is but that cannot stay where it
 /// is (#580). The bytes are kept rather than decoded and written again:
 /// [`write_cas_wav`] quantises to 16 bits, and a copy that sounded
 /// different, or stopped being the file a render of an untouched track
 /// reproduces byte for byte, would be a worse stand-in than the file.
-pub(crate) fn copy_cas_wav(src: &Path, path: &Path) -> Result<(), String> {
-    put_cas_file(path, |tmp| {
+pub(crate) fn copy_cas_wav(
+    store: &AudioStore,
+    folder: AudioFolder,
+    stem: &str,
+    src: &Path,
+) -> Result<PathBuf, String> {
+    store.put_with(folder, stem, |tmp| {
         let mut from = std::fs::File::open(src)
             .map_err(|e| format!("failed to read {}: {e}", src.display()))?;
         let mut to = std::fs::OpenOptions::new()
@@ -978,33 +986,6 @@ pub(crate) fn copy_cas_wav(src: &Path, path: &Path) -> Result<(), String> {
             .map(|_| ())
             .map_err(|e| e.to_string())
     })
-}
-
-/// Put the file `fill` writes at `path`, whole or not at all, unless
-/// `path` is already there.
-fn put_cas_file(path: &Path, fill: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
-    if path.exists() {
-        return Ok(());
-    }
-    let dir = path
-        .parent()
-        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
-    let tmp = tempfile::Builder::new()
-        .prefix(".cas-")
-        .suffix(".wav.part")
-        .tempfile_in(dir)
-        .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
-        .into_temp_path();
-    fill(&tmp)?;
-    match tmp.persist(path) {
-        Ok(()) => Ok(()),
-        // Another writer of the same name got there first. The name is the
-        // hash of the content, so what is there is what this would have
-        // put there, and on Windows replacing a file somebody has open
-        // fails.
-        Err(_) if path.is_file() => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
 }
 
 /// Run a destructive sample-buffer edit against the first clip of
@@ -1380,9 +1361,17 @@ where
     // which holds the samples as 16-bit PCM.
     let hash_hex = crate::provenance::audio_hash(&window, rate_out, channels_out);
     let content_hash = crate::provenance::legacy_sample_hash(&window);
-    let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
+    let audio_store = AudioStore::new(ctx.store.project_dir());
+    let cas_path = audio_store.path(AudioFolder::Derived, &hash_hex);
 
-    if let Err(e) = write_cas_wav(&window, rate_out, channels_out, &cas_path) {
+    if let Err(e) = write_cas_wav(
+        &audio_store,
+        AudioFolder::Derived,
+        &hash_hex,
+        &window,
+        rate_out,
+        channels_out,
+    ) {
         return ToolResult::Error(format!(
             "failed to write CAS wav {}: {e}",
             cas_path.display()

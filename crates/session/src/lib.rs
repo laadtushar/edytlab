@@ -7,6 +7,7 @@
 //! forward-compatible from day one.
 
 pub mod annotation;
+pub mod audio_store;
 pub mod diff;
 pub mod live;
 pub mod meta;
