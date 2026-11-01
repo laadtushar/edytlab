@@ -146,7 +146,15 @@ impl AnnotationEdit {
     pub fn resolve(&self, existing: &AnnotationKind) -> Result<Option<AnnotationKind>, String> {
         self.validate()?;
         if let Some(t) = self.time {
-            return Ok(Some(existing.starting_at(t)));
+            let moved = existing.starting_at(t);
+            // A region keeps its length by adding it to the new start. At
+            // a time large enough that the sum rounds back to the start (or
+            // overflows) the region has none left, so it is the same
+            // refusal as any other region that is not one.
+            if let AnnotationKind::Region { start_sec, end_sec } = moved {
+                check_region(start_sec, end_sec)?;
+            }
+            return Ok(Some(moved));
         }
         match (self.start, self.end) {
             (None, None) => Ok(None),
@@ -299,6 +307,30 @@ mod tests {
             .is_err());
         assert!(check_marker_time(f64::NAN).is_err());
         assert!(check_marker_time(0.0).is_ok());
+    }
+
+    #[test]
+    fn a_move_that_loses_the_regions_length_is_refused() {
+        let region = AnnotationKind::Region {
+            start_sec: 1.0,
+            end_sec: 3.0,
+        };
+        let edit = AnnotationEdit {
+            time: Some(1e17),
+            ..AnnotationEdit::default()
+        };
+        // 1e17 + 2 is 1e17 in floating point: a zero-length region.
+        assert!(edit.resolve(&region).is_err());
+        let huge = AnnotationEdit {
+            time: Some(1.7e308),
+            ..AnnotationEdit::default()
+        };
+        assert!(huge.resolve(&region).is_err());
+        // A point marker has no length to lose.
+        assert_eq!(
+            edit.resolve(&AnnotationKind::Marker { time_sec: 4.0 }),
+            Ok(Some(AnnotationKind::Marker { time_sec: 1e17 }))
+        );
     }
 
     #[test]

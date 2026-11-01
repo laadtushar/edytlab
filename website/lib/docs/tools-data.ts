@@ -819,9 +819,9 @@ export const toolAreas: ToolArea[] = [
           {
             name: "add_markers",
             prompt: "put a chapter marker every 5 minutes",
-            what: "Add several markers or regions in one step: a list of {name, time} or {name, start, end}, or a marker every N seconds from a start to an end (default the session's end), named from a template such as \"Chapter {n}\".",
+            what: "Add several markers or regions in one step: a list of {name, time} or {name, start, end}, or a marker every N seconds from a start up to and including an end (default the session's end), named from a template such as \"Chapter {n}\".",
             output: "node_id, added, summary",
-            note: "At most 500 a call; an interval that would place more is refused before any is. One undoable step.",
+            note: "At most 500 a call; an interval that would place more is refused before any is. The end gets a marker when it falls on a step (every 600 s to 3600 s is seven). A list takes no from, to or name: those belong to the interval form, and the call is refused rather than ignoring them. One undoable step.",
           },
           {
             name: "edit_markers",
@@ -835,7 +835,7 @@ export const toolAreas: ToolArea[] = [
             prompt: "delete the markers between 2:00 and 3:00",
             what: "Delete markers by id, or every marker matching a filter (name, from, to). A filter needs at least one field; ids and a filter together are refused.",
             output: "node_id, deleted, summary",
-            note: "One undoable step; undo brings them back.",
+            note: "A name is part of a name, any case (\"intro\" also takes \"Introduction\"). Unlike find_markers, a from/to range takes only labels wholly inside it, so a region that merely overlaps or spans the range stays. One undoable step; undo brings them back.",
           },
           {
             name: "transcript_to_markers",

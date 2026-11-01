@@ -220,6 +220,14 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// `export_transcript` and `transcript_to_markers` (#767) add 42 B with
 /// their separators, so the built-in names are 1,360 B and the budget
 /// rises by exactly 42 B to preserve the 400 B for MCP names.
+/// `find_markers`, `add_markers`, `edit_markers` and `delete_markers` (#766)
+/// add 57 B more, so the built-in names are 1,417 B and the room left for
+/// MCP names is 343 B, not 400 B. The budget is not raised with them: the
+/// request with 60 MCP tools registered is the budget's size, and
+/// `tests/request_size.rs` holds that 500 B under the bound. The names line
+/// is being made smaller on its own branch (`slim-names-compact`), which is
+/// what restores the 400 B; until that lands
+/// `all_the_builtin_names_fit_the_names_budget` fails.
 pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
 
 /// A tool whose description begins with this does nothing in this build
@@ -240,6 +248,11 @@ pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// tool, `vocal_reduction`, but they are what a message about the voice or
 /// about noise says, and the tool takes the vocals *out*. A message
 /// reaches it by a [`CUES`] entry ("remove the vocals", "karaoke").
+///
+/// "find", "edit" and "delete" are here because `find_markers`,
+/// `edit_markers` and `delete_markers` (#766) begin with them and every
+/// message uses them ("delete the first five seconds", "make an edit at
+/// 10 s", "find the loudest part"); only "marker" names those tools.
 const GENERIC_TOKENS: &[&str] = &[
     "track",
     "effect",
@@ -270,6 +283,9 @@ const GENERIC_TOKENS: &[&str] = &[
     "insert",
     "vocal",
     "reduction",
+    "find",
+    "edit",
+    "delete",
 ];
 
 /// Words that say a message is about an effect on a track: "effect", and
@@ -811,14 +827,8 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// The room the built-in names must leave in the names line for MCP
-    /// names: about fourteen tools of an ordinary server. It was 400 B
-    /// (about sixteen) until `find_markers`, `add_markers`, `edit_markers`
-    /// and `delete_markers` (#766) added 57 B of built-in names. The budget
-    /// ([`SLIM_NAMES_BUDGET_BYTES`]) was not raised with them, because the
-    /// request with 60 MCP tools registered is the budget's size, and
-    /// `tests/request_size.rs` holds that 500 B under the bound, which 57 B
-    /// more would break: so the room is what is left, 343 B.
-    const MCP_ROOM_BYTES: usize = 340;
+    /// names: about sixteen tools of an ordinary server.
+    const MCP_ROOM_BYTES: usize = 400;
 
     fn all_tools() -> Value {
         ToolDispatcher::default_dispatcher().tool_schemas()
@@ -1399,6 +1409,48 @@ mod tests {
                 sent.iter().any(|n| n == wanted),
                 "{text:?} should send {wanted}: {sent:?}"
             );
+        }
+    }
+
+    /// `find_markers`, `edit_markers` and `delete_markers` (#766) begin
+    /// with verbs every message uses ("delete the first five seconds",
+    /// "make an edit at 10 s", "find the loudest part"). Only the word
+    /// "marker" names them, so the verbs alone send none of the four.
+    #[test]
+    fn a_plain_verb_does_not_send_the_marker_tools() {
+        let marker_tools = [
+            "find_markers",
+            "add_markers",
+            "edit_markers",
+            "delete_markers",
+        ];
+        for text in [
+            "delete the first five seconds of track 1",
+            "make an edit at 10 s",
+            "find the loudest part",
+        ] {
+            let sent = sent_for(text);
+            let wrongly: Vec<_> = marker_tools
+                .iter()
+                .filter(|t| sent.iter().any(|n| n == *t))
+                .collect();
+            assert!(
+                wrongly.is_empty(),
+                "{text:?} names no marker, yet sent {wrongly:?}"
+            );
+        }
+        for text in [
+            "find the marker called intro",
+            "rename my markers",
+            "mark the chorus",
+        ] {
+            let sent = sent_for(text);
+            for t in marker_tools {
+                assert!(
+                    sent.iter().any(|n| n == t),
+                    "{text:?} should send {t}: {sent:?}"
+                );
+            }
         }
     }
 

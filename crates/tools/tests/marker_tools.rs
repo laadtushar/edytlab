@@ -609,6 +609,104 @@ fn deleting_is_one_undo_step() {
     assert_eq!(f.store.annotations_for(before).unwrap().len(), 3);
 }
 
+/// Review fix 3: `find_markers` reads a range as "overlaps it", so a
+/// region that spans the whole piece is found by `from 60 to 120`. A
+/// deletion must not take it: only labels wholly inside the range go.
+#[test]
+fn delete_markers_by_range_takes_only_labels_wholly_inside_it() {
+    let mut f = Fixture::with(vec![
+        marker("before", 30.0),
+        marker("inside", 90.0),
+        marker("on the edge", 120.0),
+        region("inside region", 70.0, 100.0),
+        region("whole piece", 0.0, 3_600.0),
+        region("sticks out", 100.0, 130.0),
+        marker("after", 200.0),
+    ]);
+    // The overlap rule finds the big regions; that is find's rule.
+    let found = f.ok("find_markers", json!({ "from": 60.0, "to": 120.0 }));
+    assert!(found["text"].to_string().contains("whole piece"), "{found}");
+    let v = f.one_node(|f| f.ok("delete_markers", json!({ "from": 60.0, "to": 120.0 })));
+    assert_eq!(v["deleted"], 3, "{v}");
+    let mut names: Vec<String> = f.annotations().into_iter().map(|a| a.name).collect();
+    names.sort();
+    assert_eq!(names, ["after", "before", "sticks out", "whole piece"]);
+}
+
+#[test]
+fn delete_markers_by_one_open_ended_bound_is_wholly_inside_it() {
+    let mut f = Fixture::with(vec![
+        marker("early", 5.0),
+        region("spans 50", 40.0, 60.0),
+        region("late", 55.0, 70.0),
+    ]);
+    // `from` alone: starts at or after 50.
+    f.ok("delete_markers", json!({ "from": 50.0 }));
+    let mut names: Vec<String> = f.annotations().into_iter().map(|a| a.name).collect();
+    names.sort();
+    assert_eq!(names, ["early", "spans 50"]);
+    // `to` alone: ends at or before 10.
+    f.ok("delete_markers", json!({ "to": 10.0 }));
+    assert_eq!(f.annotations().len(), 1);
+    assert_eq!(f.annotations()[0].name, "spans 50");
+}
+
+#[test]
+fn delete_markers_name_is_part_of_a_name_and_the_schema_says_so() {
+    let mut f = Fixture::with(vec![marker("Intro", 1.0), marker("Introduction", 2.0)]);
+    let schema = ToolDispatcher::default_dispatcher().tool_schemas();
+    let tool = schema
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "delete_markers")
+        .expect("delete_markers");
+    let text = tool.to_string().to_lowercase();
+    assert!(
+        text.contains("part of a name"),
+        "the schema must say `name` is a substring match: {text}"
+    );
+    assert!(
+        text.contains("wholly inside"),
+        "the schema must say a range takes only what is inside it: {text}"
+    );
+    let v = f.ok("delete_markers", json!({ "name": "intro" }));
+    assert_eq!(v["deleted"], 2);
+}
+
+/// Review fix 2: a name the window stored has no length limit, so what a
+/// deletion repeats back must be cut, or ten 20 KB names are a 200 KB answer.
+#[test]
+fn delete_markers_result_stays_small_when_the_names_are_enormous() {
+    let big = |i: usize| marker(&format!("take {i} {}", "x".repeat(20_000)), i as f64);
+    let mut f = Fixture::with((0..12).map(big).collect());
+    let v = f.one_node(|f| f.ok("delete_markers", json!({ "name": "take" })));
+    assert_eq!(v["deleted"], 12);
+    let size = v.to_string().len();
+    assert!(size < 2_000, "the answer is {size} B");
+    let summary = v["summary"].as_str().unwrap();
+    assert!(summary.contains("and 2 more"), "{summary}");
+    assert!(
+        summary.contains('…'),
+        "a cut name ends in an ellipsis: {summary}"
+    );
+    assert!(
+        summary.contains("take 0 "),
+        "the start of each name is kept: {summary}"
+    );
+}
+
+#[test]
+fn add_markers_result_stays_small_with_the_longest_names_allowed() {
+    let mut f = Fixture::with(vec![]);
+    let list: Vec<Value> = (0..40)
+        .map(|i| json!({ "name": format!("{i} {}", "y".repeat(190)), "time": i as f64 }))
+        .collect();
+    let v = f.ok("add_markers", json!({ "markers": list }));
+    let size = v.to_string().len();
+    assert!(size < 2_000, "the answer is {size} B");
+}
+
 // ---------------------------------------------------------------------
 // add_markers
 // ---------------------------------------------------------------------
@@ -812,4 +910,137 @@ fn add_markers_every_refuses_absurd_counts_and_intervals() {
     ] {
         g.no_node(|g| g.refused("add_markers", bad));
     }
+}
+
+// ---------------------------------------------------------------------
+// Review fixes on #891
+// ---------------------------------------------------------------------
+
+/// Fix 4: a region moved to a time so large that its length is lost in
+/// floating point would be stored with its end at its start.
+#[test]
+fn edit_markers_refuses_a_move_that_leaves_a_zero_length_region() {
+    let mut f = Fixture::with(vec![region("r", 1.0, 3.0), marker("m", 2.0)]);
+    let r = f.id_of("r");
+    let before = f.annotations();
+    let e = f.no_node(|f| {
+        f.refused(
+            "edit_markers",
+            json!({ "edits": [{ "id": r, "time": 1e17 }] }),
+        )
+    });
+    assert!(e.contains("end > start"), "{e}");
+    assert_eq!(f.annotations(), before);
+    // Past the largest float is no place either.
+    f.no_node(|f| {
+        f.refused(
+            "edit_markers",
+            json!({ "edits": [{ "id": r, "time": 1.7e308 }] }),
+        )
+    });
+    assert_eq!(f.annotations(), before);
+    // A marker at a huge time is still a marker.
+    let m = f.id_of("m");
+    f.ok(
+        "edit_markers",
+        json!({ "edits": [{ "id": m, "time": 1e17 }] }),
+    );
+}
+
+/// Fix 5: the refusal quotes what was wrong, and what was wrong may be a
+/// 20 KB name or id.
+#[test]
+fn refusals_do_not_echo_oversized_input() {
+    let huge = "z".repeat(20_000);
+    let mut f = Fixture::with(vec![marker("m", 1.0)]);
+    let m = f.id_of("m");
+    for (why, tool, args) in [
+        (
+            "a long name with a bad time",
+            "add_markers",
+            json!({ "markers": [{ "name": huge, "time": -1.0 }] }),
+        ),
+        (
+            "a long name that is too long",
+            "add_markers",
+            json!({ "markers": [{ "name": huge, "time": 1.0 }] }),
+        ),
+        (
+            "a long id that is not an id",
+            "edit_markers",
+            json!({ "edits": [{ "id": huge, "name": "x" }] }),
+        ),
+        (
+            "a long id twice",
+            "edit_markers",
+            json!({ "edits": [{ "id": m, "name": "a" }, { "id": m, "name": "b" }, { "id": huge }] }),
+        ),
+        (
+            "a long id to delete",
+            "delete_markers",
+            json!({ "ids": [huge] }),
+        ),
+        (
+            "a template whose name is too long",
+            "add_markers",
+            json!({ "every": 1.0, "to": 3.0, "name": huge }),
+        ),
+    ] {
+        let e = f.no_node(|f| f.refused(tool, args));
+        assert!(e.len() < 600, "{why}: the refusal is {} B", e.len());
+    }
+    // A well-formed id that is simply absent is quoted whole: it is short.
+    let missing = AnnotationId::new().0.to_string();
+    let e = f.refused("delete_markers", json!({ "ids": [missing] }));
+    assert!(e.contains(&missing), "{e}");
+}
+
+/// Fix 6: `from`, `to` and `name` belong to the interval form. Beside a
+/// list they were read and dropped.
+#[test]
+fn add_markers_refuses_interval_keys_beside_a_list() {
+    let mut f = Fixture::with(vec![]);
+    for (why, args) in [
+        (
+            "from",
+            json!({ "markers": [{ "name": "a", "time": 1.0 }], "from": 10.0 }),
+        ),
+        (
+            "to",
+            json!({ "markers": [{ "name": "a", "time": 1.0 }], "to": 60.0 }),
+        ),
+        (
+            "name",
+            json!({ "markers": [{ "name": "a", "time": 1.0 }], "name": "Chapter {n}" }),
+        ),
+        ("from alone", json!({ "from": 10.0, "to": 60.0 })),
+    ] {
+        let e = f.no_node(|f| f.refused("add_markers", args));
+        assert!(
+            e.contains("every") || e.contains("markers"),
+            "{why}: the refusal says which form: {e}"
+        );
+        assert!(f.annotations().is_empty(), "{why}");
+    }
+}
+
+/// Fix 8: the end of an interval is a step like any other when it falls on
+/// one, and the schema says so.
+#[test]
+fn add_markers_every_includes_the_end_and_the_schema_says_so() {
+    let mut f = Fixture::with(vec![]);
+    let v = f.ok(
+        "add_markers",
+        json!({ "every": 600.0, "from": 0.0, "to": 3_600.0 }),
+    );
+    assert_eq!(v["added"], 7, "0, 600, ... 3600");
+    let schema = ToolDispatcher::default_dispatcher().tool_schemas();
+    let text = schema
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "add_markers")
+        .expect("add_markers")
+        .to_string();
+    assert!(text.contains("including `to`"), "{text}");
 }

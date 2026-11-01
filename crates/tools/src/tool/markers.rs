@@ -11,11 +11,14 @@
 //! is stored in seconds, so no sample rate enters (CLAUDE.md's rate rules
 //! are about clip frames).
 //!
-//! **Both paths agree.** What a label may be and how an edit is read are
-//! `session::check_marker_time`, `check_region` and `AnnotationEdit`, which
-//! the window's `add_marker` and `update_marker` call too. A moved region
-//! keeps its length ([`session::AnnotationKind::starting_at`]), as it does
-//! when it is dragged.
+//! **The window and these tools agree** on what a label may be and how an
+//! edit is read: `session::check_marker_time`, `check_region` and
+//! `AnnotationEdit`, which the window's `add_marker` and `update_marker` call
+//! too. A moved region keeps its length
+//! ([`session::AnnotationKind::starting_at`]), as it does when it is dragged,
+//! and a move that would lose that length (a time so large the end rounds to
+//! the start) is refused. This covers the new tools only: `label` has its
+//! own, looser rule and still takes a negative time.
 //!
 //! **A call changes everything or nothing.** The writers check every item
 //! before they touch the state, so a call naming an id the head does not
@@ -26,7 +29,9 @@
 //! **Bounded.** `find_markers` pages like `list_session` (the same cap, in
 //! bytes and items). The writers take at most [`MAX_BATCH`] items; the
 //! interval form of `add_markers` computes its count first and refuses an
-//! absurd one before it places any.
+//! absurd one before it places any. A name or id a result or a refusal
+//! repeats is cut to [`ECHO_CHARS`] characters, because a name the window
+//! stored has no limit and one the caller sent may be enormous.
 
 use std::collections::HashSet;
 
@@ -53,6 +58,20 @@ pub const MAX_BATCH: usize = 500;
 /// checked without listing everything it took.
 const NAMES_SHOWN: usize = 10;
 
+/// The most characters of a name or an id a result or a refusal repeats.
+const ECHO_CHARS: usize = 60;
+
+/// `text` cut to [`ECHO_CHARS`] characters, with an ellipsis if it was cut.
+fn echo(text: &str) -> String {
+    let mut chars = text.chars();
+    let head: String = chars.by_ref().take(ECHO_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
+    }
+}
+
 fn refuse(message: impl Into<String>) -> crate::Result<ToolResult> {
     Ok(ToolResult::Error(message.into()))
 }
@@ -73,6 +92,16 @@ struct Selector {
     name: Option<String>,
     from: Option<f64>,
     to: Option<f64>,
+}
+
+/// How a label meets a `from`..`to` range. Finding wants everything that
+/// touches it; deleting wants only what lies inside it, because a region
+/// that spans the whole piece "overlaps" any range and is not what "delete
+/// the markers between 60 and 120" means.
+#[derive(Debug, Clone, Copy)]
+enum RangeRule {
+    Overlaps,
+    WhollyInside,
 }
 
 impl Selector {
@@ -103,9 +132,9 @@ impl Selector {
         Ok(())
     }
 
-    /// A marker matches when its time is in `[from, to]`; a region when it
-    /// overlaps that range. Either end may be left open.
-    fn matches(&self, a: &Annotation) -> bool {
+    /// The name must contain the needle (any case) and the label must meet
+    /// the range by `rule`. Either end of the range may be left open.
+    fn matches(&self, a: &Annotation, rule: RangeRule) -> bool {
         if let Some(needle) = self.needle() {
             if !a.name.to_lowercase().contains(&needle) {
                 return false;
@@ -115,14 +144,24 @@ impl Selector {
             AnnotationKind::Marker { time_sec } => (time_sec, time_sec),
             AnnotationKind::Region { start_sec, end_sec } => (start_sec, end_sec),
         };
-        self.from.is_none_or(|from| end >= from) && self.to.is_none_or(|to| start <= to)
+        match rule {
+            RangeRule::Overlaps => {
+                self.from.is_none_or(|from| end >= from) && self.to.is_none_or(|to| start <= to)
+            }
+            RangeRule::WhollyInside => {
+                self.from.is_none_or(|from| start >= from) && self.to.is_none_or(|to| end <= to)
+            }
+        }
     }
 }
 
 fn parse_id(id: &str) -> Result<AnnotationId, String> {
-    Uuid::parse_str(id)
-        .map(AnnotationId)
-        .map_err(|_| format!("{id:?} is not a marker id; `find_markers` lists them with their ids"))
+    Uuid::parse_str(id).map(AnnotationId).map_err(|_| {
+        format!(
+            "{:?} is not a marker id; `find_markers` lists them with their ids",
+            echo(id)
+        )
+    })
 }
 
 fn find_index(state: &SessionState, id: AnnotationId, text: &str) -> Result<usize, String> {
@@ -130,7 +169,12 @@ fn find_index(state: &SessionState, id: AnnotationId, text: &str) -> Result<usiz
         .annotations
         .iter()
         .position(|a| a.id == id)
-        .ok_or_else(|| format!("no marker has id {text}; `find_markers` lists the ids"))
+        .ok_or_else(|| {
+            format!(
+                "no marker has id {}; `find_markers` lists the ids",
+                echo(text)
+            )
+        })
 }
 
 fn check_name(name: &str) -> Result<(), String> {
@@ -143,10 +187,14 @@ fn check_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Up to [`NAMES_SHOWN`] names, quoted, and how many more there were.
+/// Up to [`NAMES_SHOWN`] names, each cut to [`ECHO_CHARS`], quoted, and how
+/// many more there were.
 fn names_text<'a>(names: impl ExactSizeIterator<Item = &'a str>) -> String {
     let total = names.len();
-    let shown: Vec<String> = names.take(NAMES_SHOWN).map(|n| format!("'{n}'")).collect();
+    let shown: Vec<String> = names
+        .take(NAMES_SHOWN)
+        .map(|n| format!("'{}'", echo(n)))
+        .collect();
     let mut text = shown.join(", ");
     if total > NAMES_SHOWN {
         text.push_str(&format!(", and {} more", total - NAMES_SHOWN));
@@ -218,7 +266,7 @@ impl Tool for FindMarkersTool {
         };
         let matched: Vec<&Annotation> = markers_by_time(&state.annotations)
             .into_iter()
-            .filter(|a| args.selector.matches(a))
+            .filter(|a| args.selector.matches(a, RangeRule::Overlaps))
             .collect();
         let limit = args
             .limit
@@ -278,7 +326,7 @@ impl AddMarkersTool {
         list.into_iter()
             .enumerate()
             .map(|(i, m)| {
-                let at = |e: String| format!("markers[{i}] ('{}'): {e}", m.name);
+                let at = |e: String| format!("markers[{i}] ('{}'): {e}", echo(&m.name));
                 check_name(&m.name).map_err(at)?;
                 let kind = match (m.time, m.start, m.end) {
                     (Some(t), None, None) => {
@@ -370,8 +418,8 @@ impl Tool for AddMarkersTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "add_markers",
-            "Add markers/regions: `markers`, or one every `every` s from `from` (0) to `to` \
-             (session end), named `name` with {n}=1,2,... Max 500.",
+            "Add markers/regions: `markers`, or one every `every` s from `from` (0) up to and \
+             including `to` (session end), named `name` with {n}=1,2,... Max 500.",
             json!({
                 "type": "object",
                 "properties": {
@@ -410,6 +458,12 @@ impl Tool for AddMarkersTool {
         let new = if args.markers.is_some() && args.every.is_some() {
             return refuse("give `markers` or `every`, not both");
         } else if let Some(list) = args.markers {
+            if args.from.is_some() || args.to.is_some() || args.name.is_some() {
+                return refuse(
+                    "`from`, `to` and `name` go with `every`, not with `markers`: a list names \
+                     each marker itself. Drop them, or drop `markers` and give `every`",
+                );
+            }
             Self::from_list(list)
         } else if args.every.is_some() {
             Self::at_intervals(&args, &state)
@@ -514,7 +568,7 @@ impl Tool for EditMarkersTool {
         let before = state.annotations.clone();
         let mut seen = HashSet::new();
         for (i, item) in args.edits.into_iter().enumerate() {
-            let at = |e: String| format!("edits[{i}] (id {}): {e}", item.id);
+            let at = |e: String| format!("edits[{i}] (id {}): {e}", echo(&item.id));
             let id = match parse_id(&item.id) {
                 Ok(id) => id,
                 Err(e) => return refuse(format!("edits[{i}]: {e}")),
@@ -602,8 +656,9 @@ impl Tool for DeleteMarkersTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "delete_markers",
-            "Delete markers by `ids` (find_markers) or by filter (`name`, `from`, `to` as in \
-             find_markers), not both. Undo restores them.",
+            "Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a \
+             name, any case; `from`/`to` take only labels wholly inside that range. Undo \
+             restores them.",
             json!({
                 "type": "object",
                 "properties": {
@@ -670,7 +725,7 @@ impl Tool for DeleteMarkersTool {
                 state
                     .annotations
                     .iter()
-                    .filter(|a| args.selector.matches(a))
+                    .filter(|a| args.selector.matches(a, RangeRule::WhollyInside))
                     .map(|a| a.id)
                     .collect()
             }

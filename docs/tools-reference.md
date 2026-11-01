@@ -21,7 +21,7 @@ With Plan first on and no plan from the model, the first step that would change 
 ## Index
 
 - [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain, to the master bus with scope "master", or to a bus with scope "bus" and its name.
-- [`add_markers`](#add_markers) — Add markers/regions: `markers`, or one every `every` s from `from` (0) to `to` (session end), named `name` with \{n\}=1,2,...
+- [`add_markers`](#add_markers) — Add markers/regions: `markers`, or one every `every` s from `from` (0) up to and including `to` (session end), named `name` with \{n\}=1,2,...
 - [`add_track`](#add_track) — Append a new empty track to the current session.
 - [`align_to_beat`](#align_to_beat) — Warp a track in time so the beats at source_beats land on beat_grid, without changing its pitch.
 - [`analyze_track`](#analyze_track) — Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
@@ -39,7 +39,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`cut_range`](#cut_range) — Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
-- [`delete_markers`](#delete_markers) — Delete markers by `ids` (find_markers) or by filter (`name`, `from`, `to` as in find_markers), not both.
+- [`delete_markers`](#delete_markers) — Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range.
 - [`diarize`](#diarize) — Find who spoke when, on this computer.
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
@@ -143,7 +143,7 @@ Add a non-destructive effect to a track's chain, to the master bus with scope "m
 
 ## `add_markers`
 
-Add markers/regions: `markers`, or one every `every` s from `from` (0) to `to` (session end), named `name` with \{n\}=1,2,... Max 500.
+Add markers/regions: `markers`, or one every `every` s from `from` (0) up to and including `to` (session end), named `name` with \{n\}=1,2,... Max 500.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -363,7 +363,7 @@ Reduce harsh sibilant 's' and 'sh' sounds. frequency_hz sets where sibilance det
 
 ## `delete_markers`
 
-Delete markers by `ids` (find_markers) or by filter (`name`, `from`, `to` as in find_markers), not both. Undo restores them.
+Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range. Undo restores them.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
