@@ -43,9 +43,9 @@
 //! The answers carry no local path and no loader reason (the reason is logged):
 //! tool results go to the model provider. They carry no setup marker either,
 //! because the setup card (`ai::ToolView::SpeechSetup`) speaks of the speech
-//! model; the answers tell the agent to tell the user and stop instead (this
-//! build cannot download the stem model yet: the Settings row that does comes in
-//! a later change).
+//! model; the answers tell the agent to tell the user and stop instead, and
+//! name the Stem model row in Settings → Account, where only the user's click
+//! downloads the model (as `diarize` names the Speaker model row).
 //! The paths in a *successful* answer are the point of it: the agent hands them
 //! to `load`.
 //!
@@ -235,18 +235,20 @@ impl StemModel for DemucsStems {
 pub fn answer(failure: &StemFailure) -> String {
     match failure {
         StemFailure::ModelNotDownloaded => format!(
-            "The stem model (about {} MB) is not on this computer, and this build cannot \
-             download it yet, so audio cannot be split into stems. Tell the user and stop. Do \
-             not try to download, install or configure anything yourself, and do not call \
-             separate_stems again.",
+            "The stem model (about {} MB) is not on this computer, so audio cannot be split into \
+             stems yet. Tell the user; only they can download it, with Download on the Stem \
+             model row in Settings → Account. Do not try to download, install or configure \
+             anything yourself, and do not call separate_stems again until the user says the \
+             model is there.",
             local_model::model_megabytes(ml_pipeline::models::HTDEMUCS_ID)
         ),
         StemFailure::RuntimeUnavailable(reason) => {
             local_model::runtime_unavailable_answer("Stem separation", reason)
         }
         StemFailure::ModelDamaged => "The stem model is on this computer but could not be \
-             loaded, so its files are damaged. Tell the user and stop. Do not try to repair or \
-             replace files yourself."
+             loaded, so the download is damaged. Tell the user to press Remove and then Download \
+             on the Stem model row in Settings → Account. Do not try to repair or replace files \
+             yourself."
             .to_string(),
         StemFailure::ModelPathInvalid => format!(
             "{MODEL_PATH_VAR} is set, and what it names is not the stem model: the folder has \
@@ -324,9 +326,9 @@ impl Tool for SeparateStemsTool {
             "Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, \
              on this computer. Writes four WAVs and returns their paths; the session is not \
              changed, so `load` a stem to put it on a track. Stems are estimates. Needs the stem \
-             model and the ONNX Runtime, which only the user can set up; if the call says either \
-             is missing, tell the user and stop, and do not try to download, install or \
-             configure anything. CPU, about half the audio's length; cancellable.",
+             model the user downloads once in Settings → Account, and the ONNX Runtime; if the \
+             call says either is missing, tell the user and stop, and do not try to download, \
+             install or configure anything. CPU, about half the audio's length; cancellable.",
             json!({
                 "type": "object",
                 "properties": {

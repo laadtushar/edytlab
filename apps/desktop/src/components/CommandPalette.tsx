@@ -29,7 +29,10 @@ export interface Command {
   tags?: string[];
   /**
    * Set when the feature exists as a tool but cannot run in this build,
-   * so the palette says so instead of offering it (#233).
+   * so the palette says so instead of offering it (#233). No entry sets it
+   * now: transcription (#384) and stem separation (#385) run once their
+   * models are downloaded in Settings → Account, and say so in their
+   * descriptions. The guard stays for the next stub.
    *
    * The entry stays searchable on purpose. Dropping it would leave
    * someone typing "transcribe" with no result and no explanation,
@@ -144,7 +147,7 @@ export const COMMANDS: Command[] = [
   // Analysis
   { category: "Analysis", label: "Analyze audio", prompt: "analyze this audio — give me the BPM, key, loudness, and sections", description: "BPM, key, LUFS, beat grid, sections", tags: ["analyze", "bpm", "key", "loudness", "lufs"] },
   { category: "Analysis", label: "Transcribe speech", prompt: "transcribe this audio", description: "Speech to text on this computer — needs the speech model (Settings → Account)", tags: ["transcribe", "speech", "text", "whisper", "transcript"] },
-  { category: "Analysis", label: "Separate stems", prompt: "separate this into vocals, drums, bass, and other stems", description: "Stem separation — the stem model cannot be downloaded from the app yet", tags: ["stems", "demucs", "vocals", "drums", "bass", "separate"], unavailable: "The assistant can split stems, but the app cannot download the stem model yet; that comes in a later update." },
+  { category: "Analysis", label: "Separate stems", prompt: "separate this into vocals, drums, bass, and other stems", description: "Split into vocals, drums, bass and other on this computer — needs the stem model (Settings → Account)", tags: ["stems", "demucs", "vocals", "drums", "bass", "separate"] },
 
   // Tracks
   // Tracks

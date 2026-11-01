@@ -44,8 +44,14 @@ under sync-lock, labels, words (ADR 0004).
 
 **Live store.** The one `Store` per project folder, found by the folder's identity (#566).
 
+**Audio store.** The project's own audio files: the three folders whose files are named by their
+content (`derived/` and `clipboard/` under `.audiograph/`, `generated/` at the project's root), the
+names (`audio_hash`) and the one way a file is put under a name, whole or not at all
+(`session::audio_store`, #719; ADR 0008, stage 1: names, folders and writes only, the sweeps and
+repair still live elsewhere).
+
 **Derived file.** Audio the project wrote under a name made from its samples, in
-`.audiograph/derived/` (#620; ADR 0008).
+`.audiograph/derived/` (#620; ADR 0008). See **Audio store**.
 
 **Turn.** One user message taken through the agent's loop: the model is called, its tool calls run,
 and it loops until the model stops asking for tools or the tool budget is spent (`Agent::turn`,

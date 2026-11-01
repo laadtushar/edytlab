@@ -296,5 +296,5 @@ Raised by this evaluation:
 
 - It adds no code, and changes no behaviour.
 - It changes no privacy policy, README or site copy.
-- It does not claim that stem separation is offered in the app: the tool runs (#385), but the app cannot download the stem model yet. Transcription runs once the speech model is downloaded (#383, #384).
+- It does not claim that stem separation is offered in a release: the tool and the Stem model row that downloads its model are on `main` (#385), and no release has them yet. Transcription runs once the speech model is downloaded (#383, #384).
 - It does not decide anything in [§10](#10-decisions-needed-from-the-owner).
