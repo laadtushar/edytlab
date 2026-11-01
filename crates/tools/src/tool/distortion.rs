@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 
 pub(crate) use audio_dsp::effects::distortion::apply_distortion;
@@ -50,37 +50,14 @@ impl Tool for DistortionTool {
         };
         let drive = args.drive.unwrap_or(3.0).max(1.0);
         let tone = args.tone.unwrap_or(0.5).clamp(0.0, 1.0);
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
         let (dr, tn) = (drive, tone);
-        Ok(destructive_edit(
+        Ok(EffectEdit::on(args.track).run(
             ctx,
-            args.track,
-            move |samples, sr| {
-                apply_distortion(samples, sr, channels, dr, tn);
-            },
             format!(
                 "distortion track {} drive={:.1} tone={:.2}",
                 args.track, drive, tone
             ),
+            move |samples, sr, channels| apply_distortion(samples, sr, channels, dr, tn),
         ))
     }
 }

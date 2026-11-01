@@ -41,6 +41,7 @@ pub mod anthropic;
 mod approval;
 pub mod chatgpt;
 mod context_window;
+mod conversation;
 mod credential;
 pub mod keychain;
 pub mod models;
@@ -512,7 +513,7 @@ pub struct Agent {
     pub(crate) clipboard: Arc<Mutex<Option<tools::Clipboard>>>,
     /// Per-agent conversation history. Phase 1 keeps this in memory;
     /// persistence comes later.
-    conversation: Vec<Message>,
+    conversation: conversation::Conversation,
     /// The plan gate (M27, ADR 0002): where a turn waits for the user to
     /// approve, revise or reject a plan. A clone of the handle the Tauri
     /// `AppState` holds, so `approve_plan` and `reject_plan` answer it
@@ -583,7 +584,7 @@ impl Agent {
             store,
             engine,
             clipboard,
-            conversation: Vec::new(),
+            conversation: conversation::Conversation::default(),
             plan_gate,
             plan_first: false,
             memory: None,
@@ -682,7 +683,7 @@ impl Agent {
         // (the model answered, tools ran) ends in something else and is
         // left alone.
         if result.is_err() {
-            approval::withdraw_user_text(&mut self.conversation, &sent);
+            self.conversation.withdraw_user_text(&sent);
         }
         result
     }
@@ -690,7 +691,7 @@ impl Agent {
     /// Read-only access to the running conversation, for the UI to
     /// re-render history after a reload.
     pub fn conversation(&self) -> &[Message] {
-        &self.conversation
+        self.conversation.messages()
     }
 
     /// The session store this agent's tool calls edit: the handle it was
@@ -718,13 +719,13 @@ impl Agent {
     /// copy onto the first. `false`, and nothing changed, when the end of the
     /// conversation is anything else (the model answered, or tools ran).
     pub fn withdraw_unanswered_text(&mut self, text: &str) -> bool {
-        approval::withdraw_user_text(&mut self.conversation, text)
+        self.conversation.withdraw_user_text(text)
     }
 
     /// Reset the conversation history. The next [`Agent::turn`] starts
     /// from a clean slate; the dispatcher / store / engine are
     /// untouched.
     pub fn reset(&mut self) {
-        self.conversation.clear();
+        self.conversation.reset();
     }
 }
