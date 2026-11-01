@@ -220,11 +220,19 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// `export_transcript` and `transcript_to_markers` (#767) add 42 B with
 /// their separators, so the built-in names are 1,360 B and the budget
 /// rises by exactly 42 B to preserve the 400 B for MCP names.
+/// The names are written more compactly now ([`compact_names`]: a space for
+/// ", ", and `generate_{…}`, `remove_{…}`, `set_{…}` for their runs of five),
+/// which took the worst case, every built-in name unsent, from 1,358 B to
+/// 1,177 B (1,176 B to 1,018 B for a plain request) with the budget as it
+/// was, so 582 B of it is free for MCP names (the test keeps 400 B) and
+/// about 180 B of new built-in names fit before it has to rise again.
 /// `noise_reduction`'s three profile arguments (#769) add 80 B to its slim
-/// descriptor, which took the 60-MCP-tool request to 77 B inside the
-/// headroom (it had 3 B to spare). The budget comes down 80 B and
-/// `MCP_ROOM_BYTES` in the tests with it (400 to 320), in preference to
-/// lowering the headroom or the tool budget (the core no longer fits).
+/// descriptor, which took the 60-MCP-tool request 64 B inside the headroom it
+/// must keep (it was at the limit before). The budget comes down 80 B, to
+/// 1,680 B, in preference to lowering the headroom or the tool budget (the
+/// core no longer fits). `MCP_ROOM_BYTES` stays 400 B: the built-in names are
+/// 1,178 B in the worst case, written as [`compact_names`] writes them, so
+/// 502 B of the line is still free for MCP names.
 pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_680;
 
 /// A tool whose description begins with this does nothing in this build
@@ -622,6 +630,64 @@ fn is_mcp_name(name: &str) -> bool {
     name.contains("__")
 }
 
+/// What stands between two names on the names line: one space. A tool name
+/// has no space in it, so the line is as exact as with a comma and a space,
+/// and every name costs a byte less. The tail of the line, ", and N more",
+/// keeps its comma.
+const NAME_SEPARATOR: char = ' ';
+
+/// The fewest names in a row, sorted, that share a first word
+/// (`generate_`) for the line to write them as `generate_{chirp,tone}`.
+/// Fewer saves too little to be worth a name the model has to put
+/// together.
+const GROUP_MIN_RUN: usize = 5;
+
+/// The names of the built-in tools as the line writes them: separated by
+/// [`NAME_SEPARATOR`], and a run of [`GROUP_MIN_RUN`] or more that share a
+/// first word, up to its first underscore, written once as
+/// `prefix_{rest,rest}` (`generate_{chirp,click_track,dtmf,noise,tone}`).
+/// `names` must be sorted, as [`SlimSelection::unsent`] is, so that a run
+/// is every name with that first word and a group expands to exactly the
+/// names it stands for: prefix, then each member. The model calls a tool by
+/// its exact name, and a group is only that name cut in two; the tests
+/// expand the line of the whole registry back to the registry.
+fn compact_names(names: &[&str]) -> String {
+    let first_word = |name: &str| name.split_once('_').map(|(word, _)| word.len());
+    let mut out = String::new();
+    let mut at = 0usize;
+    while at < names.len() {
+        let word = first_word(names[at]).map(|n| &names[at][..n]);
+        let run = match word {
+            Some(word) => names[at..]
+                .iter()
+                .take_while(|name| name.starts_with(word) && first_word(name) == Some(word.len()))
+                .count(),
+            None => 1,
+        };
+        if !out.is_empty() {
+            out.push(NAME_SEPARATOR);
+        }
+        match word {
+            Some(word) if run >= GROUP_MIN_RUN => {
+                out.push_str(word);
+                out.push_str("_{");
+                let members: Vec<&str> = names[at..at + run]
+                    .iter()
+                    .map(|name| &name[word.len() + 1..])
+                    .collect();
+                out.push_str(&members.join(","));
+                out.push('}');
+                at += run;
+            }
+            _ => {
+                out.push_str(names[at]);
+                at += 1;
+            }
+        }
+    }
+    out
+}
+
 /// What a [`crate::ToolSet::Slim`] provider is sent for one turn.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SlimSelection {
@@ -636,7 +702,9 @@ impl SlimSelection {
     /// The line to append to the system prompt so the model knows about the
     /// tools it was not sent, or `None` when it was sent all of them.
     ///
-    /// Names only. The built-in tools come first and are all listed; the
+    /// Names only, separated by a space, with a long run that shares a first
+    /// word written as `prefix_{a,b}` ([`compact_names`]). The built-in tools
+    /// come first and are all listed; the
     /// MCP tools follow, in name order, for as long as the line stays
     /// within [`SLIM_NAMES_BUDGET_BYTES`], and "and N more" counts the MCP
     /// tools left out. The built-ins go first because an MCP name can sort
@@ -657,15 +725,15 @@ impl SlimSelection {
             .iter()
             .map(String::as_str)
             .partition(|name| is_mcp_name(name));
-        let mut listed = builtin.join(", ");
+        let mut listed = compact_names(&builtin);
         let mut shown = 0usize;
         for name in &mcp {
-            let separator = if listed.is_empty() { 0 } else { 2 };
+            let separator = usize::from(!listed.is_empty());
             if listed.len() + separator + name.len() > SLIM_NAMES_BUDGET_BYTES {
                 break;
             }
             if separator > 0 {
-                listed.push_str(", ");
+                listed.push(NAME_SEPARATOR);
             }
             listed.push_str(name);
             shown += 1;
@@ -816,8 +884,8 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// The room the built-in names must leave in the names line for MCP
-    /// names: about thirteen tools of an ordinary server (sixteen, 400 B, until #769).
-    const MCP_ROOM_BYTES: usize = 320;
+    /// names: about sixteen tools of an ordinary server.
+    const MCP_ROOM_BYTES: usize = 400;
 
     fn all_tools() -> Value {
         ToolDispatcher::default_dispatcher().tool_schemas()
@@ -1118,8 +1186,9 @@ mod tests {
         );
         assert!(small_names.iter().any(|n| n == "reverb"), "{small_names:?}");
         let note = small.names_note().expect("some tools were left out");
+        let listed = line_words(&note);
         for dropped in full_names.iter().filter(|n| !small_names.contains(n)) {
-            assert!(note.contains(dropped.as_str()), "{dropped} not in {note}");
+            assert!(listed.contains(dropped.as_str()), "{dropped} not in {note}");
         }
     }
 
@@ -1736,15 +1805,13 @@ mod tests {
     fn the_names_line_lists_the_unsent_tools_and_is_the_same_each_time() {
         let selection = selection_for("Make track 0 louder by 6 dB.", &[]);
         let note = selection.names_note().expect("some tools were not sent");
-        for name in &selection.unsent {
-            assert!(note.contains(name.as_str()), "{name} missing from {note}");
-        }
+        // The line lists exactly the tools that were not sent, in name order.
+        assert_eq!(listed_names(&note), selection.unsent, "{note}");
         // Nothing the model was sent in full is repeated by name.
+        let listed = line_words(&note);
         for name in names(&selection.tools) {
             assert!(
-                !note
-                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                    .any(|word| word == name),
+                !listed.contains(&name),
                 "{name} was sent in full and is listed too"
             );
         }
@@ -1773,11 +1840,35 @@ mod tests {
         })
     }
 
-    /// The words of a names line.
-    fn line_words(note: &str) -> HashSet<&str> {
-        note.split(|c: char| !(c.is_alphanumeric() || c == '_'))
-            .filter(|w| !w.is_empty())
-            .collect()
+    /// The tool names a names line lists, groups expanded: what the model
+    /// reads as the names it may call. The words in front of the list and
+    /// the "and N more" behind it are not names.
+    fn listed_names(note: &str) -> Vec<String> {
+        let body = note
+            .split_once("): ")
+            .map_or(note, |(_, list)| list)
+            .trim_end_matches('.');
+        let body = match body.rfind(", and ") {
+            Some(at) if body.ends_with(" more") => &body[..at],
+            _ => body,
+        };
+        let mut out = Vec::new();
+        for token in body.split_whitespace() {
+            match token.split_once("_{") {
+                Some((prefix, rest)) => out.extend(
+                    rest.trim_end_matches('}')
+                        .split(',')
+                        .map(|member| format!("{prefix}_{member}")),
+                ),
+                None => out.push(token.to_string()),
+            }
+        }
+        out
+    }
+
+    /// The names a names line lists, as a set.
+    fn line_words(note: &str) -> HashSet<String> {
+        listed_names(note).into_iter().collect()
     }
 
     #[test]
@@ -1901,24 +1992,117 @@ mod tests {
         }
     }
 
+    /// The names of every tool a slim request can list, sorted: the whole
+    /// registry but what is not implemented in this build.
+    fn every_listable_name() -> Vec<String> {
+        let mut all: Vec<String> = all_tools()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| !is_not_implemented(t))
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        all.sort();
+        all
+    }
+
     #[test]
     fn all_the_builtin_names_fit_the_names_budget() {
         // The built-ins are listed whatever the cap, and only the MCP
         // tools are cut. So they have to leave the MCP tools some room, or
         // a registered MCP server is named by "and N more" and nothing else.
-        let registry = all_tools();
-        let total: usize = registry
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|t| !is_not_implemented(t))
-            .map(|t| t["name"].as_str().unwrap().len() + 2)
-            .sum();
+        // The worst case: every one of them unsent (a message that names
+        // many tools and a big session block can push core tools out too),
+        // written as the line writes them, and the separator before the
+        // first MCP name.
+        let all = every_listable_name();
+        let all: Vec<&str> = all.iter().map(String::as_str).collect();
+        let total = compact_names(&all).len() + 1;
+        println!(
+            "built-in names on the line, every one unsent: {} B; free for MCP names: {} B \
+             (MCP_ROOM_BYTES {MCP_ROOM_BYTES} B)",
+            total - 1,
+            SLIM_NAMES_BUDGET_BYTES.saturating_sub(total)
+        );
         assert!(
             total + MCP_ROOM_BYTES <= SLIM_NAMES_BUDGET_BYTES,
             "the built-in tool names add up to {total} B, which leaves under {MCP_ROOM_BYTES} B \
              of SLIM_NAMES_BUDGET_BYTES ({SLIM_NAMES_BUDGET_BYTES} B) for MCP tools. Raise the \
              budget, and check the headroom test in tests/request_size.rs still holds."
+        );
+    }
+
+    /// Writing the names compactly never changes which names the model can
+    /// call: the line of the whole registry reads back as the registry, every
+    /// group expands to real tools only, and it is shorter than the plain list.
+    #[test]
+    fn the_compact_line_expands_to_exactly_the_registry() {
+        let all = every_listable_name();
+        let refs: Vec<&str> = all.iter().map(String::as_str).collect();
+        let line = compact_names(&refs);
+        let note = format!("More tools you can call by exact name (x): {line}.");
+        assert_eq!(listed_names(&note), all, "{line}");
+        assert!(
+            line.contains("_{"),
+            "no run was grouped, so this proves little: {line}"
+        );
+        assert!(
+            line.len() < all.join(" ").len(),
+            "{} B is not under the ungrouped list of {} B",
+            line.len(),
+            all.join(" ").len()
+        );
+        // A group is `prefix_{members}`, and prefix + `_` + each member is a
+        // tool of the registry (the equality above) and nothing else.
+        let real: HashSet<&str> = refs.iter().copied().collect();
+        for group in line.split(' ').filter(|t| t.contains("_{")) {
+            let (prefix, rest) = group.split_once("_{").unwrap();
+            let members: Vec<&str> = rest.trim_end_matches('}').split(',').collect();
+            assert!(members.len() >= GROUP_MIN_RUN, "{group}");
+            for member in members {
+                let name = format!("{prefix}_{member}");
+                assert!(
+                    real.contains(name.as_str()),
+                    "{group} names {name}, not a tool"
+                );
+            }
+        }
+        // No tool name holds a character the line uses to group or separate.
+        for name in &all {
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "{name} has a character the names line gives a meaning"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_names_groups_only_long_runs_of_one_first_word() {
+        assert_eq!(compact_names(&[]), "");
+        assert_eq!(compact_names(&["echo"]), "echo");
+        assert_eq!(
+            compact_names(&["echo", "gain", "limiter"]),
+            "echo gain limiter"
+        );
+        // Four are not enough, five are.
+        assert_eq!(
+            compact_names(&["set_a", "set_b", "set_c", "set_d"]),
+            "set_a set_b set_c set_d"
+        );
+        assert_eq!(
+            compact_names(&["set_a", "set_b", "set_c", "set_d", "set_e"]),
+            "set_{a,b,c,d,e}"
+        );
+        // A first word is the text up to the first underscore: `settle` is
+        // not `set`, a name without one is not a member, members keep
+        // their own underscores, and what follows a group is written plain.
+        assert_eq!(
+            compact_names(&[
+                "echo", "set", "set_a_b", "set_c", "set_d", "set_e", "set_f", "setup", "settle_x",
+                "zoom",
+            ]),
+            "echo set set_{a_b,c,d,e,f} setup settle_x zoom"
         );
     }
 
