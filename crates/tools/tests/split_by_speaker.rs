@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 
 #[path = "support/harness.rs"]
 mod harness;
-use harness::{err, ok, write_wav, Session};
+use harness::{err, ok, write_frames, Session};
 
 const SR: u32 = 48_000;
 
@@ -27,7 +27,7 @@ const SR: u32 = 48_000;
 /// span shows up as a different pitch rather than as more of the same.
 fn write_sweep(path: &Path, seconds: usize) -> PathBuf {
     let total = SR as usize * seconds;
-    write_wav(path, SR, 1, total, |n| {
+    write_frames(path, SR, 1, total, |n| {
         let t = n as f32 / SR as f32;
         let freq = 200.0 + 600.0 * (n as f32 / total as f32);
         (2.0 * std::f32::consts::PI * freq * t).sin() * 8000.0 / 32_767.0

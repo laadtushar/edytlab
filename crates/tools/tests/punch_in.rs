@@ -14,7 +14,7 @@ use serde_json::json;
 
 #[path = "support/harness.rs"]
 mod harness;
-use harness::{err, ok, write_wav, Session};
+use harness::{err, ok, write_frames, Session};
 
 const SR: u32 = 48_000;
 
@@ -22,7 +22,7 @@ const SR: u32 = 48_000;
 /// reading one sample.
 fn write_tone(path: &Path, seconds: f64, amp: f32) -> PathBuf {
     let frames = (SR as f64 * seconds) as usize;
-    write_wav(path, SR, 1, frames, |_| amp * 32_000.0 / 32_767.0)
+    write_frames(path, SR, 1, frames, |_| amp * 32_000.0 / 32_767.0)
 }
 
 impl Session {

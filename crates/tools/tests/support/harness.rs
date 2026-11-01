@@ -18,7 +18,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
 use session::{
-    EffectInstance, NodeId, SessionNode, SessionState, Store, Transcript, TranscriptWord,
+    EffectInstance, NodeId, SessionNode, SessionState, Store, Transcript, TranscriptSource,
+    TranscriptWord,
 };
 use tempfile::TempDir;
 use tools::{Clipboard, ToolContext, ToolDispatcher, ToolResult};
@@ -67,7 +68,7 @@ impl Session {
         let mut s = Self::empty();
         for (i, (rate, samples)) in tracks.iter().enumerate() {
             let path = s.dir.path().join(format!("track{i}.wav"));
-            write_wav(&path, *rate, 1, samples.len(), |n| samples[n]);
+            write_frames(&path, *rate, 1, samples.len(), |n| samples[n]);
             s.load(&path);
         }
         assert_eq!(s.state().tracks.len(), tracks.len(), "one track each");
@@ -91,18 +92,28 @@ impl Session {
         s
     }
 
+    /// A project with one track: `take.wav`, `seconds` of a 440 Hz sine at
+    /// 8000/32767 of full scale, at 48 kHz, loaded.
+    pub fn with_take(seconds: f64) -> Self {
+        let mut s = Self::empty();
+        let frames = (48_000.0 * seconds) as usize;
+        let take = write_sine(
+            &s.dir.path().join("take.wav"),
+            48_000,
+            440.0,
+            8_000.0 / 32_767.0,
+            frames,
+        );
+        s.load(&take);
+        s
+    }
+
     /// A project with one track: `seconds` of a 440 Hz sine at a quarter of
     /// full scale, at `rate`, written as `in.wav` in the project folder and
     /// loaded.
     pub fn with_sine(rate: u32, seconds: usize) -> Self {
         let mut s = Self::empty();
-        let src = write_sine(
-            &s.dir.path().join("in.wav"),
-            rate,
-            440.0,
-            0.25,
-            rate as usize * seconds,
-        );
+        let src = write_tone(&s.dir.path().join("in.wav"), rate, seconds);
         s.load(&src);
         s
     }
@@ -110,10 +121,21 @@ impl Session {
     /// Run a tool as the agent would. The dispatcher's own error (an unknown
     /// tool, a refused argument) is returned, not unwrapped.
     pub fn try_call(&mut self, tool: &str, args: Value) -> tools::Result<ToolResult> {
+        self.try_call_saying(tool, args, "")
+    }
+
+    /// As `try_call`, from a chat message, which some tools read their
+    /// range from (`[apply to 0:01-0:02]`, as the app adds for a selection).
+    pub fn try_call_saying(
+        &mut self,
+        tool: &str,
+        args: Value,
+        message: &str,
+    ) -> tools::Result<ToolResult> {
         let mut ctx = ToolContext {
             store: &mut self.store,
             engine: &mut self.engine,
-            user_message: "",
+            user_message: message,
             clipboard: &mut self.clipboard,
             allowed_tools: None,
         };
@@ -123,7 +145,11 @@ impl Session {
     /// Run a tool and unwrap the dispatcher's answer: the tool's own `Ok`
     /// or `Error` is the result.
     pub fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        self.try_call(tool, args)
+        self.call_saying(tool, args, "")
+    }
+
+    pub fn call_saying(&mut self, tool: &str, args: Value, message: &str) -> ToolResult {
+        self.try_call_saying(tool, args, message)
             .unwrap_or_else(|e| panic!("{tool} was rejected before it ran: {e}"))
     }
 
@@ -197,11 +223,23 @@ impl Session {
     }
 
     /// `transcribe` needs a model a test cannot rely on, so the transcript
-    /// is written directly, in the shape it produces.
+    /// is written directly, in the shape it produces. This one is of no
+    /// particular source.
     pub fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
+        self.set_transcript(None, words);
+    }
+
+    /// The same, as `transcribe` leaves it for track `track`: words in
+    /// session seconds.
+    pub fn with_track_transcript(&mut self, track: usize, words: &[(&str, f32, f32)]) {
+        let id = self.state().tracks[track].id.clone();
+        self.set_transcript(Some(TranscriptSource::Track { track: id }), words);
+    }
+
+    fn set_transcript(&mut self, source: Option<TranscriptSource>, words: &[(&str, f32, f32)]) {
         let mut state = self.state();
         state.transcript = Some(Transcript {
-            source: None,
+            source,
             words: words
                 .iter()
                 .map(|(text, start, end)| TranscriptWord {
@@ -290,7 +328,7 @@ pub fn err(r: ToolResult) -> String {
 
 /// A 16-bit WAV of `frames` frames, `channels` wide, where `sample(n)` is
 /// the value (-1.0 to 1.0) of frame `n` in every channel.
-pub fn write_wav(
+pub fn write_frames(
     path: &Path,
     rate: u32,
     channels: u16,
@@ -314,9 +352,14 @@ pub fn write_wav(
     path.to_path_buf()
 }
 
+/// `seconds` of a 440 Hz sine at a quarter of full scale, mono, at `rate`.
+pub fn write_tone(path: &Path, rate: u32, seconds: usize) -> PathBuf {
+    write_sine(path, rate, 440.0, 0.25, rate as usize * seconds)
+}
+
 /// A mono 16-bit sine of `freq` Hz at `amp` of full scale, `frames` long.
 pub fn write_sine(path: &Path, rate: u32, freq: f32, amp: f32, frames: usize) -> PathBuf {
-    write_wav(path, rate, 1, frames, |n| {
+    write_frames(path, rate, 1, frames, |n| {
         let t = n as f32 / rate as f32;
         (2.0 * std::f32::consts::PI * freq * t).sin() * amp
     })

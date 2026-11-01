@@ -10,56 +10,21 @@
 //! real sweep at cap 0, and then targets the head's parent, whose audio
 //! the sweep removed.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
+use serde_json::json;
 use session::NodeId;
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
 
-const SR: u32 = 48_000;
-
-fn write_tone(path: &Path, seconds: f64) {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..((SR as f64 * seconds) as usize) {
-        let t = n as f32 / SR as f32;
-        w.write_sample(((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{ok, Session};
 
 impl Session {
     /// A take and four destructive edits to it, so the history names
     /// derived audio the head does not.
     fn with_history() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let take = dir.path().join("take.wav");
-        write_tone(&take, 4.0);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        ok(s.call("load", json!({ "path": take })));
+        let mut s = Session::with_take(4.0);
         for start in [0.0, 1.0, 2.0, 3.0] {
             ok(s.call(
                 "silence_region",
@@ -67,23 +32,6 @@ impl Session {
             ));
         }
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher
-            .invoke(tool, args, &mut ctx)
-            .expect("invoke")
-    }
-
-    fn head(&self) -> NodeId {
-        self.store.head().expect("head")
     }
 
     /// The head's parent: history, whose derived audio the head does not
@@ -146,13 +94,6 @@ impl Session {
                 .unwrap_or_else(|_| panic!("{} was not put back", path.display()));
             assert!(&now == bytes, "{} came back different", path.display());
         }
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
     }
 }
 

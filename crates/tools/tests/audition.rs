@@ -13,14 +13,14 @@ use serde_json::json;
 
 #[path = "support/harness.rs"]
 mod harness;
-use harness::{err, ok, write_wav, Session};
+use harness::{err, ok, write_frames, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
 /// Two seconds of two tones, so a filter has something to remove.
 fn session() -> Session {
     let mut s = Session::empty();
-    let src = write_wav(
+    let src = write_frames(
         &s.dir.path().join("in.wav"),
         SAMPLE_RATE,
         1,

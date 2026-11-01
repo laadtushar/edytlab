@@ -21,23 +21,14 @@ use tools::{ToolContext, ToolResult};
 mod harness;
 #[path = "support/signals.rs"]
 mod signals;
-use harness::{err, ok, write_sine, Session};
+use harness::{err, ok, Session};
 use signals::{noise_burst, track_with, voice_burst};
 
 const SR: u32 = 48_000;
 
 impl Session {
     fn new() -> Self {
-        let mut s = Session::empty();
-        let src = write_sine(
-            &s.dir.path().join("take.wav"),
-            SR,
-            440.0,
-            8_000.0 / 32_767.0,
-            SR as usize * 30,
-        );
-        s.load(&src);
-        s
+        Session::with_take(30.0)
     }
 }
 

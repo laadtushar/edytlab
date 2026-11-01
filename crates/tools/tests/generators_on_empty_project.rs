@@ -3,51 +3,12 @@
 //! is the first node.
 
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-struct Project {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
-impl Project {
-    fn empty() -> Self {
-        let dir = TempDir::new().unwrap();
-        let store = session::Store::open(dir.path()).unwrap();
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        match self.dispatcher.invoke(tool, args, &mut ctx).unwrap() {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("{tool}: expected Ok, got Error({m})"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store
-            .get(self.store.head().expect("a head"))
-            .unwrap()
-            .state
-    }
-}
+impl Session {}
 
 fn tone() -> (&'static str, Value) {
     (
@@ -63,7 +24,7 @@ fn noise() -> (&'static str, Value) {
 #[test]
 fn each_generator_on_an_empty_project_makes_the_first_node() {
     for (name, args) in [tone(), noise()] {
-        let mut p = Project::empty();
+        let mut p = Session::empty();
         assert!(p.store.head().is_none());
         let out = p.ok(name, args);
         assert_eq!(out["track_index"], 0, "{name}");
@@ -86,7 +47,7 @@ fn each_generator_on_an_empty_project_makes_the_first_node() {
 
 #[test]
 fn both_generators_still_append_to_a_project_with_a_head() {
-    let mut p = Project::empty();
+    let mut p = Session::empty();
     let (n, a) = tone();
     p.ok(n, a);
     let before = p.store.head().unwrap();

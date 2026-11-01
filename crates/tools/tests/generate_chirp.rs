@@ -1,51 +1,17 @@
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
 
-struct Project {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
-impl Project {
-    fn empty() -> Self {
-        let dir = TempDir::new().unwrap();
-        let store = session::Store::open(dir.path()).unwrap();
-        Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
+impl Session {
+    fn try_chirp(&mut self, args: Value) -> Result<ToolResult, tools::DispatchError> {
+        self.try_call("generate_chirp", args)
     }
 
-    fn invoke(&mut self, args: Value) -> Result<ToolResult, tools::DispatchError> {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke("generate_chirp", args, &mut ctx)
-    }
-
-    fn ok(&mut self, args: Value) -> Value {
-        match self.invoke(args).unwrap() {
-            ToolResult::Ok(value) => value,
-            ToolResult::Error(message) => panic!("generate_chirp: {message}"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store
-            .get(self.store.head().expect("a head"))
-            .unwrap()
-            .state
+    fn chirp(&mut self, args: Value) -> Value {
+        self.ok("generate_chirp", args)
     }
 
     fn samples(&self) -> (u32, Vec<f32>) {
@@ -97,8 +63,8 @@ fn linear_and_logarithmic_wavs_follow_the_requested_frequency_curve() {
     let end = 1_600.0;
     let duration = 2.0;
     for method in ["linear", "logarithmic"] {
-        let mut project = Project::empty();
-        project.ok(json!({
+        let mut project = Session::empty();
+        project.chirp(json!({
             "start_frequency_hz": start,
             "end_frequency_hz": end,
             "duration_sec": duration,
@@ -123,8 +89,8 @@ fn linear_and_logarithmic_wavs_follow_the_requested_frequency_curve() {
 
 #[test]
 fn equal_endpoints_make_a_constant_frequency_tone_and_defaults_apply() {
-    let mut project = Project::empty();
-    project.ok(json!({
+    let mut project = Session::empty();
+    project.chirp(json!({
         "start_frequency_hz": 440.0,
         "end_frequency_hz": 440.0,
         "duration_sec": 0.5,
@@ -145,8 +111,8 @@ fn equal_endpoints_make_a_constant_frequency_tone_and_defaults_apply() {
 #[test]
 fn extreme_positive_logarithmic_sweeps_stay_finite_in_both_directions() {
     for (start, end) in [(1e-300, 1_000.0), (1_000.0, 1e-300)] {
-        let mut project = Project::empty();
-        project.ok(json!({
+        let mut project = Session::empty();
+        project.chirp(json!({
             "start_frequency_hz": start,
             "end_frequency_hz": end,
             "duration_sec": 0.01,
@@ -159,8 +125,8 @@ fn extreme_positive_logarithmic_sweeps_stay_finite_in_both_directions() {
 
 #[test]
 fn explicit_amplitude_controls_peak_and_sessions_append_at_the_existing_rate() {
-    let mut project = Project::empty();
-    let first = project.ok(json!({
+    let mut project = Session::empty();
+    let first = project.chirp(json!({
         "start_frequency_hz": 100.0,
         "end_frequency_hz": 100.0,
         "duration_sec": 0.25,
@@ -169,7 +135,7 @@ fn explicit_amplitude_controls_peak_and_sessions_append_at_the_existing_rate() {
     assert_eq!(first["track_index"], 0);
     let original_rate = project.state().sample_rate;
     let first_head = project.store.head().unwrap();
-    let second = project.ok(json!({
+    let second = project.chirp(json!({
         "start_frequency_hz": 200.0,
         "end_frequency_hz": 800.0,
         "duration_sec": 0.5,
@@ -209,8 +175,8 @@ fn invalid_values_are_rejected_without_creating_a_session_head() {
         json!({"start_frequency_hz":440.0,"end_frequency_hz":880.0,"duration_sec":1.0,"method":"quadratic"}),
     ];
     for args in invalid {
-        let mut project = Project::empty();
-        let outcome = project.invoke(args);
+        let mut project = Session::empty();
+        let outcome = project.try_chirp(args);
         assert!(matches!(
             outcome,
             Ok(ToolResult::Error(_)) | Err(tools::DispatchError::SchemaValidation(_))
@@ -226,8 +192,8 @@ fn non_finite_and_unrepresentable_lengths_fail_before_generation() {
         json!({"start_frequency_hz":1e308,"end_frequency_hz":880.0,"duration_sec":1.0}),
         json!({"start_frequency_hz":440.0,"end_frequency_hz":880.0,"duration_sec":1.0,"amplitude":1e308}),
     ] {
-        let mut project = Project::empty();
-        let outcome = project.invoke(args);
+        let mut project = Session::empty();
+        let outcome = project.try_chirp(args);
         assert!(matches!(
             outcome,
             Ok(ToolResult::Error(_)) | Err(tools::DispatchError::SchemaValidation(_))
