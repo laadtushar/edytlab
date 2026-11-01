@@ -5,13 +5,13 @@
 //! escape cue text so words cannot become WebVTT markup or a timing arrow.
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::transcript_cues::{cues, source_info, BoundaryMode, Grouping};
+use crate::tool::transcript_cues::{cues, source_info, BoundaryMode, Grouping, TIME_NOTE};
 use crate::{Tool, ToolContext, ToolResult};
 
 const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -95,7 +95,9 @@ impl Tool for ExportTranscriptTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "export_transcript",
-            "Export the stored transcript as SRT, WebVTT, or plain text. Word times retain their recorded session/file time basis, including after later audio edits. Writes a file without changing session history; call transcribe first.",
+            "Export the stored transcript as SRT, WebVTT, or plain text. Times are as transcribed \
+             (session seconds for a track); moving the clip afterwards makes them stale. Writes a \
+             file, never inside .audiograph; call transcribe first.",
             json!({
                 "type": "object",
                 "properties": {
@@ -124,6 +126,63 @@ impl Tool for ExportTranscriptTool {
             Err(error) => ToolResult::Error(error),
         })
     }
+}
+
+/// Where the export goes, refused if it would replace audio the project plays
+/// or anything inside its own `.audiograph` folder. Errors name the caller's
+/// `out_path` as written, never the project's location on disk.
+fn destination(ctx: &ToolContext, out_path: &str) -> Result<PathBuf, String> {
+    let raw_path = Path::new(out_path);
+    let path = if raw_path.is_absolute() {
+        raw_path.to_path_buf()
+    } else {
+        ctx.store.project_dir().join(raw_path)
+    };
+    let refused = |what: &str| format!("not written: `{out_path}` {what}. Choose another path.");
+    let name = path
+        .file_name()
+        .ok_or_else(|| format!("out_path `{out_path}` has no file name"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "out_path has no parent directory".to_string())?;
+    // A path that does not exist yet is checked by its parent, which must exist.
+    let parent = parent.canonicalize().map_err(|error| {
+        format!(
+            "out_path `{out_path}`: its folder cannot be used: {}",
+            error.kind()
+        )
+    })?;
+    let store_dir = ctx.store.project_dir().join(session::STORE_DIR);
+    let store_dir = store_dir.canonicalize().unwrap_or_else(|_| {
+        ctx.store
+            .project_dir()
+            .canonicalize()
+            .map(|dir| dir.join(session::STORE_DIR))
+            .unwrap_or(store_dir)
+    });
+    if parent.join(name).starts_with(&store_dir) {
+        return Err(refused("is inside the project's own .audiograph folder"));
+    }
+    crate::destination::refuse_project_audio(ctx.store, [&path]).map_err(|_| {
+        refused("is audio the project plays, or the project's history could not be read to check")
+    })?;
+    Ok(path)
+}
+
+/// `tempfile` creates 0600; an export should be readable like any file the
+/// user saves, and an overwritten file keeps the mode it had.
+#[cfg(unix)]
+fn set_export_mode(file: &std::fs::File, path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path)
+        .map(|metadata| metadata.permissions().mode() & 0o7777)
+        .unwrap_or(0o644);
+    file.set_permissions(std::fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn set_export_mode(_file: &std::fs::File, _path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn export(args: Args, ctx: &ToolContext) -> Result<Value, String> {
@@ -183,27 +242,45 @@ fn export(args: Args, ctx: &ToolContext) -> Result<Value, String> {
             append(&mut output, "\n")?;
         }
     }
-    let raw_path = Path::new(&args.out_path);
-    let path = if raw_path.is_absolute() {
-        raw_path.to_path_buf()
-    } else {
-        ctx.store.project_dir().join(raw_path)
-    };
-    crate::destination::refuse_project_audio(ctx.store, [&path])?;
+    let path = destination(ctx, &args.out_path)?;
     let parent = path
         .parent()
         .ok_or_else(|| "out_path has no parent directory".to_string())?;
+    // The io errors of `tempfile` name the full path, which must not reach the model.
     let mut temporary = tempfile::Builder::new()
         .prefix(".transcript-")
         .tempfile_in(parent)
-        .map_err(|error| format!("failed to create transcript export: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "failed to create transcript export for `{}`: {}",
+                args.out_path,
+                error.kind()
+            )
+        })?;
     temporary
         .write_all(output.as_bytes())
         .and_then(|()| temporary.flush())
-        .map_err(|error| format!("failed to write transcript export: {error}"))?;
-    temporary
-        .persist(&path)
-        .map_err(|error| format!("failed to publish transcript export: {}", error.error))?;
+        .map_err(|error| {
+            format!(
+                "failed to write transcript export for `{}`: {}",
+                args.out_path,
+                error.kind()
+            )
+        })?;
+    set_export_mode(temporary.as_file(), &path).map_err(|error| {
+        format!(
+            "failed to set permissions for `{}`: {}",
+            args.out_path,
+            error.kind()
+        )
+    })?;
+    temporary.persist(&path).map_err(|error| {
+        format!(
+            "failed to publish transcript export to `{}`: {}",
+            args.out_path,
+            error.error.kind()
+        )
+    })?;
 
     let source = source_info(state, transcript);
     let time_basis = source["time_basis"].clone();
@@ -214,6 +291,7 @@ fn export(args: Args, ctx: &ToolContext) -> Result<Value, String> {
         "cue_count": grouped.len(),
         "byte_count": output.len(),
         "time_basis": time_basis,
+        "time_note": TIME_NOTE,
         "source": source,
         "summary": format!("Exported {} transcript cue(s) as {}", grouped.len(), args.format.name()),
     }))

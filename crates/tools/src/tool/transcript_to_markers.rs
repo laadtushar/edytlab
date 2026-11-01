@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use session::{Annotation, AnnotationId, AnnotationKind, TranscriptSource};
 
 use crate::schema::anthropic_tool;
-use crate::tool::transcript_cues::{cues, source_info, BoundaryMode, Grouping};
+use crate::tool::transcript_cues::{cues, source_info, BoundaryMode, Grouping, TIME_NOTE};
 use crate::tool::util::append_state;
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -35,11 +35,10 @@ impl Tool for TranscriptToMarkersTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             self.name(),
-            "Add point markers from the stored transcript's segment or sentence starts, using recorded \
-             source times. Appends one session node and preserves existing annotations and audio. \
-             File transcripts and transcripts with an unknown source require an explicit \
-             offset_sec (zero is allowed) to align source times with the timeline. \
-             Run transcribe first if the session has no transcript.",
+            "Add point markers at the stored transcript's segment or sentence starts, at the \
+             times it had when transcribed (stale once the clip is moved). Appends one node, keeps \
+             annotations and audio, skips markers that already exist. File or unknown-source \
+             transcripts require an explicit offset_sec (zero is allowed). Run transcribe first.",
             json!({
                 "type": "object",
                 "properties": {
@@ -118,11 +117,11 @@ impl Tool for TranscriptToMarkersTool {
             Mode::Segment => BoundaryMode::Segment,
             Mode::Sentence => BoundaryMode::Sentence,
         };
+        let existing = state.annotations.len();
         let cues = match cues(&transcript.words, Grouping::default(), mode) {
             Ok(cues) => cues,
             Err(error) => return Ok(ToolResult::Error(error)),
         };
-        let marker_count = cues.len();
         let applied_offset_sec = args.offset_sec.unwrap_or(0.0);
         if cues.iter().any(|cue| {
             let time_sec = cue.start_sec + applied_offset_sec;
@@ -132,23 +131,44 @@ impl Tool for TranscriptToMarkersTool {
                 "offset_sec must place every marker at a finite, nonnegative time".into(),
             ));
         }
-        state.annotations.extend(cues.into_iter().map(|cue| {
-            Annotation {
-                id: AnnotationId::new(),
-                name: cue
-                    .text
-                    .split_whitespace()
-                    .take(6)
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .chars()
-                    .take(80)
-                    .collect(),
-                kind: AnnotationKind::Marker {
-                    time_sec: cue.start_sec + applied_offset_sec,
-                },
+        let total = cues.len();
+        for cue in cues {
+            let name: String = cue
+                .text
+                .split_whitespace()
+                .take(6)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(80)
+                .collect();
+            let time_sec = cue.start_sec + applied_offset_sec;
+            if has_marker(&state.annotations, &name, time_sec) {
+                continue;
             }
-        }));
+            state.annotations.push(Annotation {
+                id: AnnotationId::new(),
+                name,
+                kind: AnnotationKind::Marker { time_sec },
+            });
+        }
+        let marker_count = state.annotations.len() - existing;
+        let skipped_count = total - marker_count;
+        let mut result = json!({
+            "marker_count": marker_count,
+            "skipped_count": skipped_count,
+            "time_basis": source["time_basis"],
+            "time_note": TIME_NOTE,
+            "source": source,
+            "applied_offset_sec": applied_offset_sec,
+        });
+        if marker_count == 0 {
+            result["node_id"] = Value::Null;
+            result["summary"] = json!(format!(
+                "Added no markers: all {skipped_count} already exist with the same name and time."
+            ));
+            return Ok(ToolResult::Ok(result));
+        }
         let node_id = match append_state(
             ctx,
             state,
@@ -157,13 +177,22 @@ impl Tool for TranscriptToMarkersTool {
             Ok(node_id) => node_id,
             Err(error) => return Ok(ToolResult::Error(error)),
         };
-        Ok(ToolResult::Ok(json!({
-            "node_id": node_id.to_hex(),
-            "marker_count": marker_count,
-            "time_basis": source["time_basis"],
-            "source": source,
-            "applied_offset_sec": applied_offset_sec,
-            "summary": format!("Added {marker_count} transcript markers at recorded source times."),
-        })))
+        result["node_id"] = json!(node_id.to_hex());
+        result["summary"] = json!(format!(
+            "Added {marker_count} transcript markers at the times recorded when transcribed \
+             ({skipped_count} already existed)."
+        ));
+        Ok(ToolResult::Ok(result))
     }
+}
+
+/// Markers within a millisecond of each other with one name are the same marker.
+fn has_marker(annotations: &[Annotation], name: &str, time_sec: f64) -> bool {
+    annotations.iter().any(|annotation| {
+        annotation.name == name
+            && matches!(
+                annotation.kind,
+                AnnotationKind::Marker { time_sec: existing } if (existing - time_sec).abs() <= 0.001
+            )
+    })
 }

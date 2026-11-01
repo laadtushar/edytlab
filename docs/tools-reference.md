@@ -116,7 +116,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`time_shift`](#time_shift) — Move a track's clips forward or backward in time.
 - [`time_stretch`](#time_stretch) — Stretch or compress a track in time without changing its pitch.
 - [`transcribe`](#transcribe) — Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript that cut_words, remove_fillers and select_region's `text` work from.
-- [`transcript_to_markers`](#transcript_to_markers) — Add point markers from the stored transcript's segment or sentence starts, using recorded source times.
+- [`transcript_to_markers`](#transcript_to_markers) — Add point markers at the stored transcript's segment or sentence starts, at the times it had when transcribed (stale once the clip is moved).
 - [`tremolo`](#tremolo) — Apply tremolo (LFO amplitude modulation).
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
@@ -447,7 +447,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `export_transcript`
 
-Export the stored transcript as SRT, WebVTT, or plain text. Word times retain their recorded session/file time basis, including after later audio edits. Writes a file without changing session history; call transcribe first.
+Export the stored transcript as SRT, WebVTT, or plain text. Times are as transcribed (session seconds for a track); moving the clip afterwards makes them stale. Writes a file, never inside .audiograph; call transcribe first.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1232,7 +1232,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `transcript_to_markers`
 
-Add point markers from the stored transcript's segment or sentence starts, using recorded source times. Appends one session node and preserves existing annotations and audio. File transcripts and transcripts with an unknown source require an explicit offset_sec (zero is allowed) to align source times with the timeline. Run transcribe first if the session has no transcript.
+Add point markers at the stored transcript's segment or sentence starts, at the times it had when transcribed (stale once the clip is moved). Appends one node, keeps annotations and audio, skips markers that already exist. File or unknown-source transcripts require an explicit offset_sec (zero is allowed). Run transcribe first.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

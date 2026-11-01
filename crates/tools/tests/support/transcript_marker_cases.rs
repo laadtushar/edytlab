@@ -168,7 +168,7 @@ fn markers_refuse_a_removed_source_track_even_with_an_explicit_offset() {
 }
 
 #[test]
-fn markers_follow_stable_source_identity_without_retiming_recorded_words() {
+fn markers_keep_transcribed_times_and_flag_them_stale_after_time_shift() {
     let mut project = track_project(vec![word("Recorded time.", 0.125, 1.0)]);
     let source_id = project.state().tracks[0].id.clone();
     project.load("other.wav", &super::speech::tone(1.0, 330.0));
@@ -183,6 +183,11 @@ fn markers_follow_stable_source_identity_without_retiming_recorded_words() {
 
     let after = project.state();
     assert_eq!(result["time_basis"], "session");
+    let note = result["time_note"].as_str().unwrap();
+    assert!(
+        note.contains("as transcribed") && note.contains("stale"),
+        "{note}"
+    );
     assert_eq!(result["applied_offset_sec"], 0.0);
     assert_eq!(
         result["source"],
@@ -309,4 +314,61 @@ fn marker_offsets_use_recorded_submillisecond_times_not_caption_rounding() {
     };
     // JSON persistence can round a double by one ULP, not by a millisecond.
     assert!((time_sec - expected).abs() <= f64::EPSILON * expected.abs());
+}
+
+#[test]
+fn a_repeat_run_adds_no_duplicate_markers_and_no_node() {
+    let mut project = track_project(vec![
+        word("Hello,", 0.125, 0.5),
+        word("world.", 0.75, 1.25),
+        word("Second", 3.0, 3.25),
+        word("cue.", 3.5, 4.0),
+    ]);
+    let nodes_before = project.node_count();
+
+    let first = project.ok("transcript_to_markers", json!({}));
+    assert_eq!(first["marker_count"], 2);
+    assert_eq!(first["skipped_count"], 0);
+    assert_eq!(project.node_count(), nodes_before + 1);
+    let after_first = project.state();
+    let head = project.store.head();
+
+    let second = project.ok("transcript_to_markers", json!({}));
+
+    assert_eq!(second["marker_count"], 0);
+    assert_eq!(second["skipped_count"], 2);
+    assert!(second["node_id"].is_null());
+    assert!(second["summary"].as_str().unwrap().contains("no markers"));
+    assert_eq!(project.node_count(), nodes_before + 1);
+    assert_eq!(project.store.head(), head);
+    assert_eq!(project.state().annotations, after_first.annotations);
+    assert_eq!(project.state().annotations.len(), 2);
+}
+
+#[test]
+fn only_cues_without_a_marker_of_that_name_and_time_are_added() {
+    let mut project = track_project(vec![
+        word("Hello,", 0.125, 0.5),
+        word("world.", 0.75, 1.25),
+        word("Second", 3.0, 3.25),
+        word("cue.", 3.5, 4.0),
+    ]);
+    // Within 1 ms of the first cue's start, same name: a duplicate. The same
+    // time under another name is not.
+    project.ok("label", json!({ "name": "Hello, world.", "time": 0.1255 }));
+    project.ok("label", json!({ "name": "Other", "time": 3.0 }));
+    let nodes_before = project.node_count();
+
+    let result = project.ok("transcript_to_markers", json!({}));
+
+    assert_eq!(result["marker_count"], 1);
+    assert_eq!(result["skipped_count"], 1);
+    assert_eq!(project.node_count(), nodes_before + 1);
+    let names: Vec<_> = project
+        .state()
+        .annotations
+        .iter()
+        .map(|annotation| annotation.name.clone())
+        .collect();
+    assert_eq!(names, ["Hello, world.", "Other", "Second cue."]);
 }

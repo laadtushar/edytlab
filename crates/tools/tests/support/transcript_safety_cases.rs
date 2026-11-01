@@ -246,3 +246,83 @@ fn failed_export_publication_leaves_no_temporary_files_or_history_edits() {
             .starts_with(".transcript-"));
     }
 }
+
+#[test]
+fn export_refuses_the_projects_own_metadata_folder() {
+    let mut project = track_project(vec![word("Metadata.", 0.125, 1.0)]);
+    let head_file = project
+        .dir
+        .path()
+        .join(".audiograph")
+        .join(session::store::HEAD_FILE);
+    let before = std::fs::read(&head_file).unwrap();
+    let head = project.store.head();
+    let count = project.node_count();
+    let inside = project.dir.path().join(".audiograph");
+    let paths = [
+        head_file.to_string_lossy().into_owned(),
+        inside.join("new-file.srt").to_string_lossy().into_owned(),
+        format!(".audiograph/{}", session::store::HEAD_FILE),
+        ".audiograph/nodes/../new-file.srt".to_string(),
+        "sub/../.audiograph/new-file.srt".to_string(),
+    ];
+    std::fs::create_dir(project.dir.path().join("sub")).unwrap();
+
+    for out_path in paths {
+        let error = project.err("export_transcript", json!({ "out_path": out_path }));
+        assert!(error.contains(".audiograph"), "{out_path}: {error}");
+        assert!(error.contains("not written"), "{out_path}: {error}");
+    }
+
+    assert_eq!(std::fs::read(&head_file).unwrap(), before);
+    assert!(!inside.join("new-file.srt").exists());
+    assert_eq!(project.store.head(), head);
+    assert_eq!(project.node_count(), count);
+}
+
+#[test]
+fn export_errors_name_the_callers_out_path_and_no_absolute_project_path() {
+    let mut project = track_project(vec![word("Private.", 0.125, 1.0)]);
+    std::fs::create_dir(project.dir.path().join("a-directory.srt")).unwrap();
+    let project_dir = project.dir.path().to_string_lossy().into_owned();
+
+    for (out_path, expected) in [
+        // The recording the project plays, named by a relative path.
+        ("speech.wav", "not written"),
+        (".audiograph/head.srt", "not written"),
+        ("a-directory.srt", "failed to publish"),
+        ("missing-folder/out.srt", "missing-folder/out.srt"),
+    ] {
+        let error = project.err("export_transcript", json!({ "out_path": out_path }));
+        assert!(error.contains(out_path), "{out_path}: {error}");
+        assert!(error.contains(expected), "{out_path}: {error}");
+        assert!(!error.contains(&project_dir), "{out_path}: {error}");
+        assert!(!error.contains("/tmp"), "{out_path}: {error}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn exported_files_are_world_readable_and_an_overwrite_keeps_its_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut project = track_project(vec![word("Readable.", 0.125, 1.0)]);
+    let created = project.dir.path().join("created.srt");
+
+    project.ok("export_transcript", json!({ "out_path": "created.srt" }));
+
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&created), 0o644);
+
+    let existing = project.dir.path().join("existing.srt");
+    std::fs::write(&existing, "old").unwrap();
+    std::fs::set_permissions(&existing, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+    project.ok("export_transcript", json!({ "out_path": "existing.srt" }));
+
+    assert_eq!(mode(&existing), 0o640);
+    assert!(std::fs::read_to_string(&existing)
+        .unwrap()
+        .contains("Readable."));
+}
