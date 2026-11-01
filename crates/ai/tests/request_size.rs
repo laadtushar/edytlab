@@ -191,12 +191,11 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // `transcribe`'s says): +17 B, measured 71,816 B to 71,833 B. The ratchet
 // rises by exactly that, so the headroom is still 34 B.
 //
-// #765 (shelf `type` on `eq`, `taps`/`feedback` on `echo`) adds 50 B on top of
-// main's 71,833 B (71 B, less the 21 B of `echo`'s description written
-// shorter to keep the slim request 500 B under its bound with MCP tools):
-// measured 71,883 B; the ratchet is main's 71,867 B + 50 B, the same 34 B
-// margin.
-const FULL_TOOLS_MAX_BYTES: usize = 71_917; // main ratchet 71,867 + 50 B of #765
+// #765 (shelf `type` on `eq`, `taps`/`feedback` on `echo`) adds 24 B on top of
+// main's 71,833 B, with `echo`'s description and `taps` schema written shorter
+// to keep the slim request 500 B under its bound with MCP tools: measured
+// 71,857 B; the ratchet is main's 71,867 B + 24 B, the same 34 B margin.
+const FULL_TOOLS_MAX_BYTES: usize = 71_891; // main ratchet 71,867 + 24 B of #765
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -788,9 +787,9 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #385 part 3's 17 B (the Settings pointer in `separate_stems`'s description)
 // come on top: measured 75,008 B to 75,025 B, the same 34 B of headroom.
 //
-// #765 adds the same 50 B on top of main's 75,025 B: measured 75,075 B, the
-// same 34 B margin over main's 75,059 B + 50 B.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_109; // main ratchet 75,059 + 50 B of #765
+// #765 adds the same 24 B on top of main's 75,025 B: measured 75,049 B, the
+// same 34 B margin over main's 75,059 B + 24 B.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_083; // main ratchet 75,059 + 24 B of #765
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

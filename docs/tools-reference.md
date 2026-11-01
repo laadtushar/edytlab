@@ -404,7 +404,7 @@ Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0.
 | `end_sec` | number | no |  |
 | `feedback` | number | no |  |
 | `start_sec` | number | no |  |
-| `taps` | array of array of number | no |  |
+| `taps` | array of array | no |  |
 | `track` | integer | yes |  |
 
 ## `eq`

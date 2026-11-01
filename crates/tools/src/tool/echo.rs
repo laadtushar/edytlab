@@ -35,7 +35,7 @@ impl Tool for EchoTool {
                 "properties": {
                     "track": { "type": "integer" },
                     "delay_ms": { "type": "number" },
-                    "taps": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+                    "taps": { "type": "array", "items": { "type": "array" } },
                     "feedback": { "type": "number" },
                     "decay": { "type": "number", "default": 0.5 },
                     "start_sec": { "type": "number" },
