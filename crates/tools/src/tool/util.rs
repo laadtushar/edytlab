@@ -1060,6 +1060,44 @@ pub(crate) struct TrackAudio {
 /// split it contains only the part the first clip happens to point at.
 /// What the user asked about is the timeline.
 pub(crate) fn flatten_track(clips: &[session::Clip]) -> Result<TrackAudio, String> {
+    flatten_clips(clips, false, &|m| {
+        format!(
+            "track mixes formats across clips ({} Hz / {} ch vs {} Hz / {} ch in {}); split the \
+             edit per clip or render the track first",
+            m.first.0,
+            m.first.1,
+            m.found.0,
+            m.found.1,
+            m.path.display()
+        )
+    })
+}
+
+/// The first clip's format, and the format of the clip that disagreed with
+/// it, for [`flatten_clips`]'s caller to word.
+pub(crate) struct FormatMismatch<'a> {
+    /// (sample rate, channels) of the first clip.
+    pub first: (u32, u16),
+    /// (sample rate, channels) of the clip that differs.
+    pub found: (u32, u16),
+    pub path: &'a std::path::Path,
+}
+
+/// [`flatten_track`] with two choices a caller can make.
+///
+/// `bake_envelopes` applies each clip's own volume envelope to its samples
+/// before they are summed, as the renderer does for each clip before it
+/// mixes them (same interpolation, same `10^(dB/20)` factor, in the clip's
+/// own frames, where [`load_head_state`] has put the points). A caller that
+/// puts the result into a new clip and gives it no envelope needs this: the
+/// sum of two overlapping clips with one curve laid over it is not the sum
+/// of two clips each with its own. `on_mismatch` words the refusal when the
+/// clips are not of one format, so a tool can say it in its own terms.
+pub(crate) fn flatten_clips(
+    clips: &[session::Clip],
+    bake_envelopes: bool,
+    on_mismatch: &dyn Fn(&FormatMismatch) -> String,
+) -> Result<TrackAudio, String> {
     let mut decoded_clips: Vec<(&session::Clip, audio_decoder::DecodedAudio)> =
         Vec::with_capacity(clips.len());
     let mut sample_rate = 0u32;
@@ -1078,13 +1116,11 @@ pub(crate) fn flatten_track(clips: &[session::Clip]) -> Result<TrackAudio, Strin
             sample_rate = decoded.sample_rate;
             channels = decoded.channels;
         } else if decoded.sample_rate != sample_rate || decoded.channels != channels {
-            return Err(format!(
-                "track mixes formats across clips ({sample_rate} Hz / {channels} ch vs \
-                 {} Hz / {} ch in {}); split the edit per clip or render the track first",
-                decoded.sample_rate,
-                decoded.channels,
-                clip.source_path.display()
-            ));
+            return Err(on_mismatch(&FormatMismatch {
+                first: (sample_rate, channels),
+                found: (decoded.sample_rate, decoded.channels),
+                path: &clip.source_path,
+            }));
         }
         decoded_clips.push((clip, decoded));
     }
@@ -1118,8 +1154,22 @@ pub(crate) fn flatten_track(clips: &[session::Clip]) -> Result<TrackAudio, Strin
         let copied = dst_end.saturating_sub(dst_start);
         // Overlapping clips sum, matching how the render engine mixes
         // them; a plain copy would silently drop whichever came first.
-        for (d, s) in window[dst_start..dst_end].iter_mut().zip(&src[..copied]) {
-            *d += *s;
+        if bake_envelopes && !clip.volume_envelope.is_empty() {
+            for (f, (d, s)) in window[dst_start..dst_end]
+                .chunks_mut(stride)
+                .zip(src[..copied].chunks(stride))
+                .enumerate()
+            {
+                let db = envelope_gain_db_at(&clip.volume_envelope, f as u64);
+                let linear = 10.0_f32.powf(db / 20.0);
+                for (d, s) in d.iter_mut().zip(s) {
+                    *d += *s * linear;
+                }
+            }
+        } else {
+            for (d, s) in window[dst_start..dst_end].iter_mut().zip(&src[..copied]) {
+                *d += *s;
+            }
         }
     }
 

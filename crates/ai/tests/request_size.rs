@@ -191,7 +191,9 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // #766 then added `find_markers`, `add_markers`, `edit_markers` and
 // `delete_markers`: +1,953 B, measured 73,786 B. The ratchet rises by both deltas,
 // keeping main's 34 B of headroom.
-const FULL_TOOLS_MAX_BYTES: usize = 73_820; // main ratchet 71,867 + the 1,953 B of #766
+// #771's `join_clips` and `align_end_to_end` add 1,129 B: measured 74,915 B over
+// main's 73,786 B. The ratchet rises by that delta, keeping main's 34 B of headroom.
+const FULL_TOOLS_MAX_BYTES: usize = 74_949; // main ratchet 73,820 + the 1,129 B of #771
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -784,7 +786,9 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // measured 75,008 B to 75,025 B.
 // #766's four marker tools add 2,077 B here: measured 77,102 B. The ratchet rises
 // by that delta, keeping main's 34 B of headroom.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 77_136; // main ratchet 75,059 + the 2,077 B of #766
+// #771's two tools add 1,191 B here: measured 78,293 B over main's 77,102 B; the
+// ratchet rises by that delta, keeping main's 34 B of headroom.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 78_327; // main ratchet 77,136 + the 1,191 B of #771
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

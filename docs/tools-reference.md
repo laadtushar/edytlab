@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 105 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 107 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -23,6 +23,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain, to the master bus with scope "master", or to a bus with scope "bus" and its name.
 - [`add_markers`](#add_markers) — Add markers/regions: `markers`, or one every `every` s from `from` (0) up to and including `to` (session end), named `name` with \{n\}=1,2,...
 - [`add_track`](#add_track) — Append a new empty track to the current session.
+- [`align_end_to_end`](#align_end_to_end) — Place tracks one after another in the order given: the first stays put, and each next track moves, clips and spacing together, to start where the previous one ends.
 - [`align_to_beat`](#align_to_beat) — Warp a track in time so the beats at source_beats land on beat_grid, without changing its pitch.
 - [`analyze_track`](#analyze_track) — Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
 - [`apply_diff`](#apply_diff) — Apply one or more SessionDiff specs to a parent node, producing one new sibling node per spec.
@@ -64,6 +65,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`import_labels`](#import_labels) — Import Audacity-format label text into the session as annotations.
 - [`insert_silence`](#insert_silence) — Insert a region of silence at a time offset in a track.
 - [`invert`](#invert) — Invert (negate) audio polarity on a track, optionally within a time range.
+- [`join_clips`](#join_clips) — Join adjacent clips of one track into one clip.
 - [`label`](#label) — Place a named marker or region label in the session at the current head.
 - [`leveler`](#leveler) — Apply dynamic leveling: normalise each short window to a target RMS level.
 - [`limiter`](#limiter) — Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms.
@@ -162,6 +164,17 @@ Append a new empty track to the current session. Returns the new session node id
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `name` | string | no |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `align_end_to_end`
+
+Place tracks one after another in the order given: the first stays put, and each next track moves, clips and spacing together, to start where the previous one ends. Other tracks stay. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `gap_sec` | number | no | Silence between tracks. Default 0. |
+| `tracks` | array of integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -654,6 +667,18 @@ Invert (negate) audio polarity on a track, optionally within a time range. Appen
 | `end_sec` | number | no | End of invert region in seconds (exclusive). Omit to invert to end of track. |
 | `start_sec` | number | no | Start of invert region in seconds (inclusive). Omit to start at 0. |
 | `track` | integer | yes | Zero-based track index |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `join_clips`
+
+Join adjacent clips of one track into one clip. Back-to-back clips of the same source file merge with nothing rendered; any other join (a gap, a jump in the file) is rendered into a new file, and the result says so. Joins first_clip and the next clip, or the run to last_clip. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `first_clip` | integer | yes |  |
+| `last_clip` | integer | no | Last clip of the run, inclusive. Default first_clip + 1. |
+| `track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
