@@ -55,19 +55,22 @@
 //! tool against a fake that runs the real pipeline around a network that is
 //! not one. [`DemucsStems`] is the real one.
 
-use std::cell::Cell;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use audio_decoder::DecodedAudio;
 use ml_demucs::{Control, DemucsError, DemucsModel, Separated, STEM_NAMES};
-use ml_pipeline::ContentHash;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::tool::util::{check_track_index, flattened_track_wav, lane_audio_path, load_head_state};
+use crate::tool::local_model::{
+    self, cache_key, decode_input, into_result, parse_args, resolve_audio_source, round2,
+    LoadedSlot, ModelLookup, ProgressStrip,
+};
 use crate::{Tool, ToolContext, ToolResult};
+
+pub use crate::tool::local_model::ModelRef;
 
 /// Bumped when a change to the pipeline would give different stems for the same
 /// audio and model, so an entry written before it is not read after it.
@@ -99,14 +102,14 @@ pub enum StemFailure {
     Failed(String),
 }
 
-/// A model found and identified, not yet loaded.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelRef {
-    /// The folder holding the graph and its weights.
-    pub folder: PathBuf,
-    /// What the cache key folds in: changes when the model does. Never a path.
-    pub fingerprint: String,
-    pub downloaded: bool,
+impl From<ModelLookup> for StemFailure {
+    fn from(lookup: ModelLookup) -> Self {
+        match lookup {
+            ModelLookup::RuntimeUnavailable(reason) => Self::RuntimeUnavailable(reason),
+            ModelLookup::NotDownloaded => Self::ModelNotDownloaded,
+            ModelLookup::PathInvalid => Self::ModelPathInvalid,
+        }
+    }
 }
 
 /// Stem separation, as the tool needs it. [`DemucsStems`] is the real one;
@@ -140,59 +143,7 @@ pub fn resolve_model(
     env: Option<OsString>,
     downloaded: impl FnOnce() -> Option<PathBuf>,
 ) -> Result<ModelRef, StemFailure> {
-    let pinned = ml_pipeline::models::htdemucs();
-    if let Some(value) = env.filter(|v| !v.is_empty()) {
-        let folder = PathBuf::from(value);
-        if !folder.is_dir() {
-            return Err(StemFailure::ModelPathInvalid);
-        }
-        let mut identity = String::from("override");
-        for file in &pinned.files {
-            let stat = std::fs::metadata(folder.join(&file.path)).ok();
-            let nanos = stat
-                .as_ref()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_nanos());
-            identity.push_str(&format!(
-                "|{}:{}:{}",
-                file.path,
-                stat.as_ref().map_or(0, |m| m.len()),
-                nanos
-            ));
-        }
-        return Ok(ModelRef {
-            folder,
-            fingerprint: ContentHash::from_bytes(identity.as_bytes()).to_hex(),
-            downloaded: false,
-        });
-    }
-    let folder = downloaded().ok_or(StemFailure::ModelNotDownloaded)?;
-    // The pinned hashes are what `cached` just verified the files against.
-    let mut identity = String::from("pinned");
-    for file in &pinned.files {
-        identity.push_str(&format!("|{}:{}", file.path, file.sha256));
-    }
-    Ok(ModelRef {
-        folder,
-        fingerprint: ContentHash::from_bytes(identity.as_bytes()).to_hex(),
-        downloaded: true,
-    })
-}
-
-/// A short reason for a runtime that cannot be used, with no path in it.
-fn runtime_reason(error: &ml_pipeline::Error) -> String {
-    use ml_pipeline::Error as E;
-    match error {
-        E::MissingRuntime { .. } => "no ONNX Runtime library was found".to_string(),
-        E::RuntimeUnsupported { needs, running } => format!(
-            "ONNX Runtime needs macOS {needs} or newer, and this Mac is running macOS {running}"
-        ),
-        other => {
-            tracing::warn!(error = %other, "the ONNX Runtime library could not be loaded");
-            "the ONNX Runtime library could not be loaded".to_string()
-        }
-    }
+    local_model::resolve(ml_pipeline::models::htdemucs(), env, downloaded).map_err(Into::into)
 }
 
 /// The real thing: the pinned htdemucs on ONNX Runtime.
@@ -200,31 +151,20 @@ fn runtime_reason(error: &ml_pipeline::Error) -> String {
 pub struct DemucsStems;
 
 /// The loaded model, kept for the next call. One slot.
-static LOADED: Mutex<Option<(String, Arc<DemucsModel>)>> = Mutex::new(None);
+static LOADED: LoadedSlot<DemucsModel> = LoadedSlot::new();
 
 impl DemucsStems {
     fn load(model: &ModelRef) -> Result<Arc<DemucsModel>, StemFailure> {
-        let key = format!("{}|{}", model.folder.display(), model.fingerprint);
-        let mut slot = LOADED.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((held, loaded)) = slot.as_ref() {
-            if *held == key {
-                return Ok(Arc::clone(loaded));
-            }
-        }
-        match DemucsModel::load(ml_demucs::DEFAULT_MODEL_ID, &model.folder) {
-            Ok(loaded) => {
-                let loaded = Arc::new(loaded);
-                *slot = Some((key, Arc::clone(&loaded)));
-                Ok(loaded)
-            }
-            Err(DemucsError::RuntimeUnavailable(reason)) => {
-                tracing::warn!(%reason, "the ONNX Runtime library could not be used");
-                Err(StemFailure::RuntimeUnavailable(
-                    "the ONNX Runtime library could not be loaded".to_string(),
-                ))
-            }
-            Err(other) => Err(load_failure(&other, model.downloaded)),
-        }
+        LOADED
+            .get_or_load(model, |folder| {
+                DemucsModel::load(ml_demucs::DEFAULT_MODEL_ID, folder)
+            })
+            .map_err(|e| match e {
+                DemucsError::RuntimeUnavailable(reason) => {
+                    StemFailure::RuntimeUnavailable(local_model::runtime_load_reason(&reason))
+                }
+                other => load_failure(&other, model.downloaded),
+            })
     }
 }
 
@@ -259,13 +199,13 @@ fn public_reason(error: &DemucsError) -> String {
 
 impl StemModel for DemucsStems {
     fn locate(&self) -> Result<ModelRef, StemFailure> {
-        // The runtime first: a build that has none cannot run any model, and
-        // sending its user to download one first is the worse trap.
-        ml_pipeline::runtime::ensure()
-            .map_err(|e| StemFailure::RuntimeUnavailable(runtime_reason(&e)))?;
-        resolve_model(std::env::var_os(MODEL_PATH_VAR), || {
-            ml_pipeline::models::cached(ml_pipeline::models::HTDEMUCS_ID)
-        })
+        // The runtime first: see `local_model::locate`.
+        local_model::locate(
+            ml_pipeline::models::htdemucs(),
+            MODEL_PATH_VAR,
+            ml_pipeline::models::HTDEMUCS_ID,
+        )
+        .map_err(Into::into)
     }
 
     fn separate(
@@ -290,12 +230,6 @@ impl StemModel for DemucsStems {
 // What the model is told
 // ---------------------------------------------------------------------
 
-fn model_megabytes() -> u64 {
-    ml_pipeline::Catalog::built_in()
-        .get(ml_pipeline::models::HTDEMUCS_ID)
-        .map_or(0, |m| (m.size() + 500_000) / 1_000_000)
-}
-
 /// The answer for stems that could not be made: the text of the
 /// `ToolResult::Error`. None starts with a setup marker (see the module docs).
 pub fn answer(failure: &StemFailure) -> String {
@@ -305,15 +239,11 @@ pub fn answer(failure: &StemFailure) -> String {
              download it yet, so audio cannot be split into stems. Tell the user and stop. Do \
              not try to download, install or configure anything yourself, and do not call \
              separate_stems again.",
-            model_megabytes()
+            local_model::model_megabytes(ml_pipeline::models::HTDEMUCS_ID)
         ),
-        StemFailure::RuntimeUnavailable(reason) => format!(
-            "Stem separation needs the ONNX Runtime library, and {reason}. The release \
-             installers include it; a build from source does not. Tell the user: for a build \
-             from source, set ORT_DYLIB_PATH to a copy of ONNX Runtime 1.23.2 \
-             (docs/development-guide.md, \"ML Model Files\"). Do not try to install anything \
-             yourself."
-        ),
+        StemFailure::RuntimeUnavailable(reason) => {
+            local_model::runtime_unavailable_answer("Stem separation", reason)
+        }
         StemFailure::ModelDamaged => "The stem model is on this computer but could not be \
              loaded, so its files are damaged. Tell the user and stop. Do not try to repair or \
              replace files yourself."
@@ -383,56 +313,6 @@ impl Default for SeparateStemsTool {
     }
 }
 
-/// What the progress strip is told while a run goes, and the closing `done`
-/// that clears it. Nothing is said, and nothing cleared, for a cache hit.
-struct Strip {
-    file: String,
-    started: Cell<bool>,
-    total: Cell<usize>,
-    cancelled: Cell<bool>,
-}
-
-impl Strip {
-    fn new(file: String) -> Self {
-        Self {
-            file,
-            started: Cell::new(false),
-            total: Cell::new(0),
-            cancelled: Cell::new(false),
-        }
-    }
-
-    fn step(&self, done: usize, total: usize) {
-        self.started.set(true);
-        self.total.set(total);
-        crate::progress::report(json!({
-            "kind": "separate_stems",
-            "index": done.min(total.saturating_sub(1)),
-            "total": total,
-            "file": self.file,
-        }));
-    }
-}
-
-impl Drop for Strip {
-    /// However the run ends, a strip that was shown is cleared.
-    fn drop(&mut self) {
-        if self.started.get() {
-            crate::progress::report(json!({
-                "kind": "separate_stems",
-                "done": true,
-                "cancelled": self.cancelled.get(),
-                "total": self.total.get(),
-                "file": self.file,
-            }));
-        }
-    }
-}
-
-fn round2(x: f64) -> f64 {
-    (x * 100.0).round() / 100.0
-}
-
 impl Tool for SeparateStemsTool {
     fn name(&self) -> &'static str {
         "separate_stems"
@@ -472,96 +352,43 @@ impl Tool for SeparateStemsTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
-        };
+        Ok(into_result(self.run(args, ctx)))
+    }
+}
+
+impl SeparateStemsTool {
+    /// The call, ending at the first thing it must refuse (`Err` is the
+    /// `ToolResult::Error`'s message).
+    fn run(&self, args: Value, ctx: &ToolContext) -> Result<Value, String> {
+        let args: Args = parse_args(args)?;
         let model_id = args.model.as_deref().unwrap_or(ml_demucs::DEFAULT_MODEL_ID);
         if !ml_demucs::SUPPORTED_MODEL_IDS.contains(&model_id) {
-            return Ok(ToolResult::Error(format!(
+            return Err(format!(
                 "unsupported model {model_id:?}; expected one of {:?}",
                 ml_demucs::SUPPORTED_MODEL_IDS
-            )));
+            ));
         }
 
         // 1. Which audio.
-        let (path, what) = match (args.track, &args.path) {
-            (Some(track), None) => {
-                let state = match load_head_state(ctx) {
-                    Ok(s) => s,
-                    Err(msg) => return Ok(ToolResult::Error(msg)),
-                };
-                if let Err(e) = check_track_index(&state.tracks, track) {
-                    return Ok(ToolResult::Error(e));
-                }
-                let clips = &state.tracks[track].clips;
-                let path = match lane_audio_path(ctx.store.project_dir(), clips) {
-                    Some(p) => p,
-                    None => match flattened_track_wav(ctx.store.project_dir(), clips) {
-                        Ok(p) => p,
-                        Err(e) => return Ok(ToolResult::Error(format!("track {track}: {e}"))),
-                    },
-                };
-                (path, format!("track {track}"))
-            }
-            (None, Some(path)) => {
-                let path = PathBuf::from(path);
-                if !path.exists() {
-                    return Ok(ToolResult::Error(format!(
-                        "file not found: {}",
-                        path.display()
-                    )));
-                }
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("audio")
-                    .to_string();
-                (path, name)
-            }
-            (Some(_), Some(_)) => {
-                return Ok(ToolResult::Error(
-                    "give `track` or `path`, not both".to_string(),
-                ))
-            }
-            (None, None) => {
-                return Ok(ToolResult::Error(
-                    "give `track` (a track's index in the session) or `path` (a file)".to_string(),
-                ))
-            }
-        };
+        let source = resolve_audio_source(ctx, args.track, args.path.as_deref())?;
+        let what = source.label;
 
         // 2. Which model. Nothing is loaded and nothing fetched.
-        let model = match self.model.locate() {
-            Ok(m) => m,
-            Err(e) => return Ok(ToolResult::Error(answer(&e))),
-        };
+        let model = self.model.locate().map_err(|e| answer(&e))?;
 
         // 3. The audio.
-        let decoded = match audio_decoder::decode_file(&path) {
-            Ok(d) => d,
-            Err(e) => return Ok(ToolResult::Error(format!("decode failed: {e}"))),
-        };
-        let frames = decoded.samples.len() / usize::from(decoded.channels.max(1));
+        let (decoded, duration_sec) = decode_input(&source.path)?;
         let (rate, channels) = (
             decoded.sample_rate,
             if decoded.channels == 1 { 1 } else { 2 },
         );
-        let duration_sec = frames as f64 / f64::from(rate.max(1));
 
         // 4. The cache: the audio, the model, the format.
-        let key = ContentHash::combine(&[
-            ContentHash::from_bytes(
-                crate::provenance::audio_hash(
-                    &decoded.samples,
-                    decoded.sample_rate,
-                    decoded.channels,
-                )
-                .as_bytes(),
-            ),
-            ContentHash::from_bytes(model.fingerprint.as_bytes()),
-            ContentHash::from_bytes(format!("stems-format:{STEMS_FORMAT}").as_bytes()),
-        ]);
+        let key = cache_key(
+            &decoded,
+            &model.fingerprint,
+            &format!("stems-format:{STEMS_FORMAT}"),
+        );
         let root = ctx
             .store
             .project_dir()
@@ -576,14 +403,14 @@ impl Tool for SeparateStemsTool {
             } else {
                 // Clears a Cancel pressed before this run began.
                 crate::progress::begin();
-                let strip = Strip::new(what.clone());
+                let strip = ProgressStrip::new("separate_stems", what.clone());
                 let result = self.model.separate(
                     &model,
                     decoded,
                     &dest,
                     &Control {
                         cancel: &|| crate::progress::cancelled(),
-                        progress: &|done, total| strip.step(done, total),
+                        progress: &|done, total| strip.step(done, total, None),
                     },
                 );
                 match result {
@@ -592,8 +419,8 @@ impl Tool for SeparateStemsTool {
                         (done.paths, false, done.clipped, removed)
                     }
                     Err(e) => {
-                        strip.cancelled.set(e == StemFailure::Cancelled);
-                        return Ok(ToolResult::Error(answer(&e)));
+                        strip.set_cancelled(e == StemFailure::Cancelled);
+                        return Err(answer(&e));
                     }
                 }
             };
@@ -640,7 +467,7 @@ impl Tool for SeparateStemsTool {
             ));
         }
 
-        Ok(ToolResult::Ok(json!({
+        Ok(json!({
             "model": model_id,
             "cached": from_cache,
             "duration_sec": round2(duration_sec),
@@ -648,7 +475,7 @@ impl Tool for SeparateStemsTool {
             "channels": channels,
             "stems": stems,
             "summary": summary,
-        })))
+        }))
     }
 }
 
