@@ -20,17 +20,15 @@
 
 mod common;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ai::anthropic::{MessagesRequest, StreamEvent};
 use ai::provider::{ProviderError, WireFormat};
 use ai::responses::{ResponsesCodec, ToolGrouping};
-use ai::{Agent, AgentEvent, Error, LlmConfig, LlmProvider};
-use common::{ok, Entry, SeqResponder};
+use ai::{AgentEvent, Error, LlmConfig, LlmProvider};
+use common::{ok, Entry};
 use serde_json::{json, Value};
 use tools::ToolDispatcher;
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer};
 
 const NAMESPACE: &str = "edytlab";
 
@@ -211,37 +209,22 @@ struct Run {
 /// One turn against a server that answers `/v1/responses` with `responses`,
 /// in order. The classifier is the first request.
 async fn run(responses: Vec<Entry>) -> Run {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/responses"))
-        .respond_with(SeqResponder::new(responses))
-        .mount(&server)
-        .await;
+    let server = common::serve("/v1/responses", responses).await;
 
     let dir = tempfile::tempdir().expect("tempdir");
     let cfg =
         LlmConfig::new(Arc::new(ResponsesProvider::new()), "token").with_base_url(server.uri());
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         cfg,
-        Arc::new(Mutex::new(ToolDispatcher::default_dispatcher())),
-        Arc::new(Mutex::new(
-            session::Store::open(dir.path()).expect("open store"),
-        )),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
+        ToolDispatcher::default_dispatcher(),
+        common::store_in(dir.path()),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let mut events = Vec::new();
     let result = agent
         .turn("make the drums louder".to_string(), |e| events.push(e))
         .await;
-    let requests = server
-        .received_requests()
-        .await
-        .expect("recording")
-        .iter()
-        .map(|r| serde_json::from_slice(&r.body).expect("a JSON body"))
-        .collect();
+    let requests = common::request_bodies(&server).await;
     Run {
         result,
         events,

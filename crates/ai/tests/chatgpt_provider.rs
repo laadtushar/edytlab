@@ -29,10 +29,9 @@ use ai::chatgpt::{PlanUsageError, PlanUsageKind};
 use ai::responses::UNSUPPORTED_FIELDS;
 use ai::{Agent, AgentEvent, ChatGptProvider, Error, LlmConfig, ToolSet};
 use chatgpt_support::{Fake, MemoryStore};
-use common::{ok, Entry, SeqResponder};
+use common::{ok, Echo, Entry, SeqResponder};
 use serde_json::{json, Value};
-use tools::schema::{anthropic_tool, object_schema};
-use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolDispatcher;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, ResponseTemplate};
 
@@ -81,13 +80,11 @@ impl Rig {
 
     fn agent_with(&self, cfg: LlmConfig, dispatcher: ToolDispatcher) -> Agent {
         let store = session::Store::open(self.dir.path()).expect("open store");
-        Agent::new(
+        common::agent_over(
             cfg,
-            Arc::new(Mutex::new(dispatcher)),
+            dispatcher,
             Arc::new(Mutex::new(store)),
-            Arc::new(Mutex::new(audio_engine::Engine::new())),
             self.gate.clone(),
-            Arc::new(Mutex::new(None::<tools::Clipboard>)),
         )
     }
 
@@ -126,28 +123,6 @@ impl Rig {
                     .unwrap_or_default()
             })
             .collect()
-    }
-}
-
-/// A tool the model can call, so a turn has a tool round trip.
-struct Echo;
-
-impl Tool for Echo {
-    fn name(&self) -> &'static str {
-        "echo"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "echo",
-            "Reads the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn mutates(&self) -> bool {
-        false
-    }
-    fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        Ok(ToolResult::Ok(json!({ "ok": true })))
     }
 }
 

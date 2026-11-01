@@ -12,30 +12,10 @@
 //! It passes on a tree where both name the same model, whichever that is,
 //! and fails when one side is changed without the other.
 
-use std::path::PathBuf;
+mod settings_support;
 
 use ai::provider::provider_from_id;
-use std::sync::LazyLock;
-
-/// Providers in the registry that Settings does not offer yet. None now: the
-/// ChatGPT plan's card landed in #474 PR 6, so this test checks its row too.
-/// The site copy has its own list (`website_provider_claims.rs`, PR 7).
-const NOT_OFFERED_YET: &[&str] = &[];
-
-/// The registry's ids, less those not offered yet.
-static SUPPORTED_PROVIDER_IDS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
-    ai::SUPPORTED_PROVIDER_IDS
-        .iter()
-        .copied()
-        .filter(|id| !NOT_OFFERED_YET.contains(id))
-        .collect()
-});
-
-fn settings_source() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/desktop/src/components/Settings.tsx");
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
-}
+use settings_support::{settings_source, SUPPORTED_PROVIDER_IDS};
 
 /// The `id: "model"` pairs of the `DEFAULT_MODEL_BY_PROVIDER` object literal.
 ///

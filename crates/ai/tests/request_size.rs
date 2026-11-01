@@ -84,7 +84,7 @@ use std::sync::{Arc, Mutex};
 
 use ai::provider::provider_from_id;
 use ai::session_context::SESSION_BLOCK_MAX_BYTES;
-use ai::{Agent, AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
+use ai::{AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
 use common::{
     chat_reply_json, chat_sse_text, chat_sse_tool_call, classifier_json, ok, sse_text, Entry,
     SeqResponder,
@@ -355,13 +355,11 @@ async fn run_conversation(
     if let Some(state) = &options.state {
         store.append(node_of(state)).expect("append the head");
     }
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         config_for(provider_id, server.uri()),
-        Arc::new(Mutex::new(dispatcher_with_mcp(options.mcp_tools))),
+        dispatcher_with_mcp(options.mcp_tools),
         Arc::new(Mutex::new(store)),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         gate.clone(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(options.plan_first);
     if let Some(whitelist) = options.whitelist {
@@ -683,13 +681,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
     let cfg = LlmConfig::new_chatgpt_with(provider, Arc::new(session));
 
     let store = session::Store::open(dir.path()).expect("open store");
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         cfg,
-        Arc::new(Mutex::new(dispatcher_with_mcp(0))),
+        dispatcher_with_mcp(0),
         Arc::new(Mutex::new(store)),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let ctx = native_run_context();
     agent
