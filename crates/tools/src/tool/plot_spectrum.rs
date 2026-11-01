@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, flatten_track, load_head_state};
+use crate::tool::util::load_track_audio;
 use crate::{Tool, ToolContext, ToolResult};
 
 const FFT_SIZE: usize = 4096;
@@ -225,25 +225,11 @@ impl Tool for PlotSpectrumTool {
         if args.start_sec >= args.end_sec {
             return Ok(ToolResult::Error("start_sec must be < end_sec".into()));
         }
-        let state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let clips = &state.tracks[args.track].clips;
-        if clips.is_empty() {
-            return Ok(ToolResult::Error(format!(
-                "track {} has no clips",
-                args.track
-            )));
-        }
         // Seconds are positions on the track, so the buffer has to be the
         // track. Indexing `clips[0]`'s source file put the window at the
         // wrong place the moment anything had been cut, and never saw the
         // second clip of a split track at all.
-        let audio = match flatten_track(clips) {
+        let audio = match load_track_audio(ctx, args.track) {
             Ok(a) => a,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };

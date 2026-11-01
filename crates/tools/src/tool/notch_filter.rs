@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, destructive_edit, load_head_state};
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -55,35 +55,14 @@ impl Tool for NotchFilterTool {
         if args.q <= 0.0 {
             return Ok(ToolResult::Error("q must be positive".into()));
         }
-        let channels = {
-            let state = match load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
         let (center, q, s, e) = (args.center_hz, args.q, args.start_sec, args.end_sec);
-        Ok(destructive_edit(
+        Ok(EffectEdit::on(args.track).run(
             ctx,
-            args.track,
-            move |samples, sr| apply_notch(samples, sr, channels, center, q, s, e),
             format!(
                 "notch_filter track {} center={:.0}Hz q={:.1}",
                 args.track, center, q
             ),
+            move |samples, sr, channels| apply_notch(samples, sr, channels, center, q, s, e),
         ))
     }
 }

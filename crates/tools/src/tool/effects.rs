@@ -86,7 +86,7 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use session::{Bus, EffectInstance, SessionState};
+use session::{Bus, EffectInstance, NodeId, SessionState};
 use uuid::Uuid;
 
 use crate::schema::anthropic_tool;
@@ -210,6 +210,24 @@ impl Target {
                 Ok(&mut state.bus_routing.buses[at].effects)
             }
         }
+    }
+
+    /// Edit this target's chain at the head and append the result as one
+    /// node: load the head, find the chain (the errors of a missing track or
+    /// bus), let `edit` change it, and append.
+    ///
+    /// `edit` answers with the node's label and whatever the caller reports.
+    /// An error from it appends nothing. The label is made after the edit, so
+    /// it can say what the edit did.
+    fn edit_chain<R>(
+        &self,
+        ctx: &mut ToolContext,
+        edit: impl FnOnce(&mut Vec<EffectInstance>) -> Result<(String, R), String>,
+    ) -> Result<(NodeId, R), String> {
+        let mut state = load_head_state(ctx)?;
+        let (label, report) = edit(self.chain(&mut state)?)?;
+        let id = append_state(ctx, state, label)?;
+        Ok((id, report))
     }
 }
 
@@ -400,31 +418,20 @@ impl Tool for AddEffectTool {
                 return Ok(ToolResult::Error(e));
             }
         }
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        let chain = match target.chain(&mut state) {
-            Ok(c) => c,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        let at = args.position.unwrap_or(chain.len()).min(chain.len());
-        chain.insert(
-            at,
-            EffectInstance {
-                kind: args.kind.clone(),
-                params: args.params.unwrap_or_else(|| json!({})),
-                bypassed: false,
-            },
-        );
-        let total = chain.len();
-
-        let new_id = match append_state(
-            ctx,
-            state,
-            format!("add_effect {} {} at {at}", target.label(), args.kind),
-        ) {
-            Ok(id) => id,
+        let (new_id, (at, total)) = match target.edit_chain(ctx, |chain| {
+            let at = args.position.unwrap_or(chain.len()).min(chain.len());
+            chain.insert(
+                at,
+                EffectInstance {
+                    kind: args.kind.clone(),
+                    params: args.params.unwrap_or_else(|| json!({})),
+                    bypassed: false,
+                },
+            );
+            let label = format!("add_effect {} {} at {at}", target.label(), args.kind);
+            Ok((label, (at, chain.len())))
+        }) {
+            Ok(done) => done,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
         Ok(ToolResult::Ok(json!({
@@ -487,30 +494,17 @@ impl Tool for RemoveEffectTool {
             Ok(t) => t,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        let chain = match target.chain(&mut state) {
-            Ok(c) => c,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        if let Err(e) = check_effect_index(chain.len(), args.effect_index, &target) {
-            return Ok(ToolResult::Error(e));
-        }
-        let removed = chain.remove(args.effect_index).kind;
-        let total = chain.len();
-
-        let new_id = match append_state(
-            ctx,
-            state,
-            format!(
+        let (new_id, (removed, total)) = match target.edit_chain(ctx, |chain| {
+            check_effect_index(chain.len(), args.effect_index, &target)?;
+            let removed = chain.remove(args.effect_index).kind;
+            let label = format!(
                 "remove_effect {} index {} ({removed})",
                 target.label(),
                 args.effect_index
-            ),
-        ) {
-            Ok(id) => id,
+            );
+            Ok((label, (removed, chain.len())))
+        }) {
+            Ok(done) => done,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
         Ok(ToolResult::Ok(json!({
@@ -578,55 +572,47 @@ impl Tool for ReorderEffectsTool {
             Ok(t) => t,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        let chain = match target.chain(&mut state) {
-            Ok(c) => c,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-
-        // A permutation, checked as one. Accepting a partial list would
-        // silently drop effects, and accepting a repeat would silently
-        // duplicate one — both are the class of bug this codebase keeps
-        // finding, so the whole order is validated before anything moves.
-        if args.order.len() != chain.len() {
-            return Ok(ToolResult::Error(format!(
-                "order must list all {} effect{} exactly once; got {} entries",
-                chain.len(),
-                if chain.len() == 1 { "" } else { "s" },
-                args.order.len()
-            )));
-        }
-        let mut seen = vec![false; chain.len()];
-        for &i in &args.order {
-            match seen.get_mut(i) {
-                None => {
-                    return Ok(ToolResult::Error(format!(
-                        "order contains index {i}, which is out of range for {} effect{}",
-                        chain.len(),
-                        if chain.len() == 1 { "" } else { "s" }
-                    )))
-                }
-                Some(true) => {
-                    return Ok(ToolResult::Error(format!(
-                        "order lists index {i} more than once; it must be a permutation"
-                    )))
-                }
-                Some(slot) => *slot = true,
+        let (new_id, ()) = match target.edit_chain(ctx, |chain| {
+            // A permutation, checked as one. Accepting a partial list would
+            // silently drop effects, and accepting a repeat would silently
+            // duplicate one — both are the class of bug this codebase keeps
+            // finding, so the whole order is validated before anything moves.
+            if args.order.len() != chain.len() {
+                return Err(format!(
+                    "order must list all {} effect{} exactly once; got {} entries",
+                    chain.len(),
+                    if chain.len() == 1 { "" } else { "s" },
+                    args.order.len()
+                ));
             }
-        }
+            let mut seen = vec![false; chain.len()];
+            for &i in &args.order {
+                match seen.get_mut(i) {
+                    None => {
+                        return Err(format!(
+                            "order contains index {i}, which is out of range for {} effect{}",
+                            chain.len(),
+                            if chain.len() == 1 { "" } else { "s" }
+                        ))
+                    }
+                    Some(true) => {
+                        return Err(format!(
+                            "order lists index {i} more than once; it must be a permutation"
+                        ))
+                    }
+                    Some(slot) => *slot = true,
+                }
+            }
 
-        let reordered: Vec<EffectInstance> = args.order.iter().map(|&i| chain[i].clone()).collect();
-        *chain = reordered;
-
-        let new_id = match append_state(
-            ctx,
-            state,
-            format!("reorder_effects {} {:?}", target.label(), args.order),
-        ) {
-            Ok(id) => id,
+            let reordered: Vec<EffectInstance> =
+                args.order.iter().map(|&i| chain[i].clone()).collect();
+            *chain = reordered;
+            Ok((
+                format!("reorder_effects {} {:?}", target.label(), args.order),
+                (),
+            ))
+        }) {
+            Ok(done) => done,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
         Ok(ToolResult::Ok(json!({
@@ -707,55 +693,41 @@ impl Tool for SetEffectParamsTool {
                 "params must be an object of parameter names to values".into(),
             ));
         }
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        let chain = match target.chain(&mut state) {
-            Ok(c) => c,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        if let Err(e) = check_effect_index(chain.len(), args.effect_index, &target) {
-            return Ok(ToolResult::Error(e));
-        }
-        let effect = &mut chain[args.effect_index];
-        // The keys of this call, against the effect's own kind. What is
-        // already stored is not looked at (#579): an older project can hold
-        // a name that is not a parameter, and merging a good key into it,
-        // or replacing the lot, must still work.
-        if let Err(e) = check_effect_params(&effect.kind, &args.params) {
-            return Ok(ToolResult::Error(e));
-        }
-        if args.replace {
-            effect.params = args.params.clone();
-        } else {
-            // Merge, so "make the cutoff 500" does not silently clear
-            // every other parameter back to its default.
-            let base = effect.params.as_object_mut();
-            match (base, args.params.as_object()) {
-                (Some(base), Some(patch)) => {
-                    for (k, v) in patch {
-                        base.insert(k.clone(), v.clone());
+        let (new_id, (kind, params)) = match target.edit_chain(ctx, |chain| {
+            check_effect_index(chain.len(), args.effect_index, &target)?;
+            let effect = &mut chain[args.effect_index];
+            // The keys of this call, against the effect's own kind. What is
+            // already stored is not looked at (#579): an older project can hold
+            // a name that is not a parameter, and merging a good key into it,
+            // or replacing the lot, must still work.
+            check_effect_params(&effect.kind, &args.params)?;
+            if args.replace {
+                effect.params = args.params.clone();
+            } else {
+                // Merge, so "make the cutoff 500" does not silently clear
+                // every other parameter back to its default.
+                let base = effect.params.as_object_mut();
+                match (base, args.params.as_object()) {
+                    (Some(base), Some(patch)) => {
+                        for (k, v) in patch {
+                            base.insert(k.clone(), v.clone());
+                        }
                     }
+                    // The stored params were not an object (an older node, or
+                    // hand-edited). Replacing is the only coherent merge.
+                    _ => effect.params = args.params.clone(),
                 }
-                // The stored params were not an object (an older node, or
-                // hand-edited). Replacing is the only coherent merge.
-                _ => effect.params = args.params.clone(),
             }
-        }
-        let kind = effect.kind.clone();
-        let params = effect.params.clone();
-
-        let new_id = match append_state(
-            ctx,
-            state,
-            format!(
+            let kind = effect.kind.clone();
+            let params = effect.params.clone();
+            let label = format!(
                 "set_effect_params {} index {} ({kind})",
                 target.label(),
                 args.effect_index
-            ),
-        ) {
-            Ok(id) => id,
+            );
+            Ok((label, (kind, params)))
+        }) {
+            Ok(done) => done,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
         Ok(ToolResult::Ok(json!({
@@ -821,44 +793,32 @@ impl Tool for SetEffectBypassedTool {
             Ok(t) => t,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        let chain = match target.chain(&mut state) {
-            Ok(c) => c,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        if let Err(e) = check_effect_index(chain.len(), args.effect_index, &target) {
-            return Ok(ToolResult::Error(e));
-        }
-        let kind = chain[args.effect_index].kind.clone();
-        // Switching an effect on is a way into the chain, like adding one.
-        // A project saved before `add_effect` checked its kind can hold a
-        // bypassed effect the renderer cannot stream; it is skipped without
-        // comment because it is bypassed, and switched back on it would be
-        // skipped with a warning and do nothing.
-        if !args.bypassed {
-            if let Err(e) = check_effect_kind(&kind) {
-                return Ok(ToolResult::Error(format!(
-                    "effect {} ({kind}) stays bypassed: {e}",
-                    args.effect_index
-                )));
+        let (new_id, kind) = match target.edit_chain(ctx, |chain| {
+            check_effect_index(chain.len(), args.effect_index, &target)?;
+            let kind = chain[args.effect_index].kind.clone();
+            // Switching an effect on is a way into the chain, like adding one.
+            // A project saved before `add_effect` checked its kind can hold a
+            // bypassed effect the renderer cannot stream; it is skipped without
+            // comment because it is bypassed, and switched back on it would be
+            // skipped with a warning and do nothing.
+            if !args.bypassed {
+                if let Err(e) = check_effect_kind(&kind) {
+                    return Err(format!(
+                        "effect {} ({kind}) stays bypassed: {e}",
+                        args.effect_index
+                    ));
+                }
             }
-        }
-        chain[args.effect_index].bypassed = args.bypassed;
-
-        let new_id = match append_state(
-            ctx,
-            state,
-            format!(
+            chain[args.effect_index].bypassed = args.bypassed;
+            let label = format!(
                 "set_effect_bypassed {} index {} -> {}",
                 target.label(),
                 args.effect_index,
                 args.bypassed
-            ),
-        ) {
-            Ok(id) => id,
+            );
+            Ok((label, kind))
+        }) {
+            Ok(done) => done,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
         Ok(ToolResult::Ok(json!({

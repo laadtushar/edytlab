@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 
 pub(crate) use audio_dsp::effects::stereo_widener::apply_stereo_widener;
@@ -47,39 +47,13 @@ impl Tool for StereoWidenerTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
         let width = args.width.unwrap_or(1.5).max(0.0);
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
-        if channels < 2 {
-            return Ok(ToolResult::Error(
-                "stereo_widener requires a stereo track".into(),
-            ));
-        }
         let w = width;
-        Ok(destructive_edit(
-            ctx,
-            args.track,
-            move |samples, sr| {
-                apply_stereo_widener(samples, sr, channels, w);
-            },
-            format!("stereo_widener track {} width={:.2}", args.track, width),
-        ))
+        Ok(EffectEdit::on(args.track)
+            .stereo_only("stereo_widener")
+            .run(
+                ctx,
+                format!("stereo_widener track {} width={:.2}", args.track, width),
+                move |samples, sr, channels| apply_stereo_widener(samples, sr, channels, w),
+            ))
     }
 }

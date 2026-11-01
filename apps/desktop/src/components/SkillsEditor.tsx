@@ -7,11 +7,9 @@
  * trigger, keywords / pattern, enabled) plus a body textarea. Save
  * goes through `upsertSkill`; Delete confirms then `deleteSkill`s.
  * "New" creates a stub draft that becomes a real skill on first Save.
+ * The list / save / delete state lives in `useRecordEditor`.
  */
 
-import { useEffect, useState } from "react";
-
-import { confirmAction } from "../lib/confirmAction";
 import {
   deleteSkill,
   listSkills,
@@ -21,6 +19,16 @@ import {
   type SkillSummary,
 } from "../lib/tauri-bridge";
 import { IDENTIFIER_INPUT } from "../lib/identifierInput";
+import { useRecordEditor } from "../lib/useRecordEditor";
+import {
+  EditorBody,
+  EditorFooter,
+  BodyRow,
+  DescriptionRow,
+  EditorLayout,
+  NameRow,
+  Row,
+} from "./RecordEditorParts";
 
 const DRAFT_DEFAULT: SkillContent = {
   name: "",
@@ -32,179 +40,66 @@ const DRAFT_DEFAULT: SkillContent = {
   body: "",
 };
 
-/**
- * `isNew` is `true` for drafts created via the "New" button — the
- * file doesn't exist on disk yet, so Delete is hidden. `dirty` flips
- * to `true` on the first form change after load / save and clears
- * when the save round-trip succeeds. Tracking it explicitly avoids
- * a deep-compare against a baseline copy on every render.
- */
-type EditorState =
-  | { kind: "empty" }
-  | { kind: "loading"; name: string }
-  | { kind: "draft"; content: SkillContent; isNew: boolean; dirty: boolean };
-
 export function SkillsEditor() {
-  const [list, setList] = useState<SkillSummary[]>([]);
-  const [listError, setListError] = useState<string | null>(null);
-  const [editor, setEditor] = useState<EditorState>({ kind: "empty" });
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<{
-    kind: "idle" | "ok" | "err";
-    message: string;
-  }>({ kind: "idle", message: "" });
-
-  const refresh = async () => {
-    try {
-      const s = await listSkills();
-      setList(s);
-      setListError(null);
-    } catch (err) {
-      setListError(String(err));
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const open = async (name: string) => {
-    setEditor({ kind: "loading", name });
-    setStatus({ kind: "idle", message: "" });
-    try {
-      const content = await readSkill(name);
-      setEditor({ kind: "draft", content, isNew: false, dirty: false });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-      setEditor({ kind: "empty" });
-    }
-  };
-
-  const newSkill = () => {
-    setEditor({
-      kind: "draft",
-      content: { ...DRAFT_DEFAULT },
-      isNew: true,
-      // A brand-new draft is dirty by default — Save is enabled the
-      // moment the user types a name (the empty-name guard still
-      // blocks the actual save).
-      dirty: true,
-    });
-    setStatus({ kind: "idle", message: "" });
-  };
-
-  const handleSave = async () => {
-    if (editor.kind !== "draft") return;
-    setSaving(true);
-    setStatus({ kind: "idle", message: "" });
-    try {
-      await upsertSkill(editor.content.name, editor.content);
-      await refresh();
-      setEditor({
-        kind: "draft",
-        content: editor.content,
-        // After a successful save the file exists on disk; the draft
-        // is no longer "new" and matches what's persisted.
-        isNew: false,
-        dirty: false,
-      });
-      setStatus({ kind: "ok", message: "Saved." });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (editor.kind !== "draft" || editor.isNew) return;
-    try {
-      if (
-        !(await confirmAction(
-          `Delete skill "${editor.content.name}"? This cannot be undone.`,
-        ))
-      )
-        return;
-      await deleteSkill(editor.content.name);
-      setEditor({ kind: "empty" });
-      await refresh();
-      setStatus({ kind: "ok", message: "Deleted." });
-    } catch (err) {
-      setStatus({ kind: "err", message: String(err) });
-    }
-  };
-
-  const dirty = editor.kind === "draft" && editor.dirty;
+  const ed = useRecordEditor<SkillContent, SkillSummary>({
+    fetchList: listSkills,
+    read: readSkill,
+    upsert: upsertSkill,
+    remove: deleteSkill,
+    newDraft: () => ({ ...DRAFT_DEFAULT }),
+    nameOf: (c) => c.name,
+    noun: "skill",
+  });
+  const { editor, list } = ed;
 
   return (
-    <div data-testid="skills-editor" className="flex h-[28rem] gap-3">
-      {/* List */}
-      <aside className="w-44 flex-shrink-0 overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
-            Skills
-          </span>
-          <button
-            type="button"
-            data-testid="skills-new"
-            onClick={newSkill}
-            className="btn-secondary rounded px-2 py-0.5 text-[10px] uppercase tracking-wider transition"
-          >
-            New
-          </button>
-        </div>
-        {listError ? (
-          <p
-            data-testid="skills-list-error"
-            className="px-2 py-1 text-[11px] text-[var(--danger)]"
-          >
-            {listError}
-          </p>
-        ) : list.length === 0 ? (
-          <p
-            data-testid="skills-list-empty"
-            className="px-2 py-2 text-[11px] italic text-[var(--text-faint)]"
-          >
-            No skills yet. Click "New" or drop a .md file in ~/.edytlab/skills/.
-          </p>
-        ) : (
-          <ul>
-            {list.map((s) => {
-              const active =
-                editor.kind === "draft" && editor.content.name === s.name;
-              return (
-                <li key={s.name}>
-                  <button
-                    type="button"
-                    data-testid={`skills-row-${s.name}`}
-                    onClick={() => void open(s.name)}
-                    className={
-                      "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
-                      (active
-                        ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                        : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]")
-                    }
-                  >
-                    <div className="truncate font-mono text-[11px]">{s.name}</div>
-                    <div className="truncate text-[10px] text-[var(--text-faint)]">
-                      {s.trigger}
-                      {!s.enabled ? " · off" : ""}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </aside>
-
-      {/* Editor */}
-      <section className="flex flex-1 flex-col gap-2">
-        {editor.kind === "empty" ? (
-          <div
-            data-testid="skills-editor-empty"
-            className="flex h-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[var(--border)] px-4 text-center text-xs text-[var(--text-faint)]"
-          >
+    <EditorLayout
+      testId="skills-editor"
+      asideWidth="w-44"
+      title="Skills"
+      newTestId="skills-new"
+      onNew={ed.startNew}
+      listError={ed.listError}
+      listErrorTestId="skills-list-error"
+      isEmpty={list.length === 0}
+      emptyTestId="skills-list-empty"
+      emptyText='No skills yet. Click "New" or drop a .md file in ~/.edytlab/skills/.'
+      list={
+        <ul>
+          {list.map((s) => {
+            const active =
+              editor.kind === "draft" && editor.content.name === s.name;
+            return (
+              <li key={s.name}>
+                <button
+                  type="button"
+                  data-testid={`skills-row-${s.name}`}
+                  onClick={() => void ed.open(s.name)}
+                  className={
+                    "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
+                    (active
+                      ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                      : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]")
+                  }
+                >
+                  <div className="truncate font-mono text-[11px]">{s.name}</div>
+                  <div className="truncate text-[10px] text-[var(--text-faint)]">
+                    {s.trigger}
+                    {!s.enabled ? " · off" : ""}
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      }
+    >
+      <EditorBody
+        editor={editor}
+        emptyTestId="skills-editor-empty"
+        emptyClassName="flex h-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[var(--border)] px-4 text-center text-xs text-[var(--text-faint)]"
+        empty={
+          <>
             <span>Select a skill or click "New" to create one.</span>
             <span
               data-testid="skills-bundled-note"
@@ -213,64 +108,22 @@ export function SkillsEditor() {
               Skills that come with edytlab are updated when a release changes
               them, unless you have edited them.
             </span>
-          </div>
-        ) : editor.kind === "loading" ? (
-          <div className="flex h-full items-center justify-center text-xs text-[var(--text-faint)]">
-            Loading {editor.name}…
-          </div>
-        ) : (
-          <SkillForm
-            content={editor.content}
-            isNew={editor.isNew}
-            onChange={(c) =>
-              setEditor({ ...editor, content: c, dirty: true })
-            }
-          />
+          </>
+        }
+        form={(d) => (
+          <SkillForm content={d.content} isNew={d.isNew} onChange={ed.change} />
         )}
-
-        <div className="flex items-center justify-between gap-2">
-          <span
-            data-testid="skills-status"
-            className={
-              "text-xs " +
-              (status.kind === "err"
-                ? "text-[var(--danger)]"
-                : status.kind === "ok"
-                ? "text-[var(--success)]"
-                : "text-[var(--text-faint)]")
-            }
-          >
-            {status.message}
-          </span>
-          <div className="flex items-center gap-2">
-            {editor.kind === "draft" && !editor.isNew ? (
-              <button
-                type="button"
-                data-testid="skills-delete"
-                onClick={() => void handleDelete()}
-                className="btn-danger rounded-md px-3 py-1 text-xs transition"
-              >
-                Delete
-              </button>
-            ) : null}
-            <button
-              type="button"
-              data-testid="skills-save"
-              disabled={
-                editor.kind !== "draft" ||
-                saving ||
-                !dirty ||
-                editor.content.name.trim() === ""
-              }
-              onClick={() => void handleSave()}
-              className="btn-primary px-3 py-1 text-xs transition"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
+      />
+      <EditorFooter
+        prefix="skills"
+        editor={editor}
+        status={ed.status}
+        saving={ed.saving}
+        nameOf={(c) => c.name}
+        onDelete={() => void ed.remove()}
+        onSave={() => void ed.save()}
+      />
+    </EditorLayout>
   );
 }
 
@@ -283,29 +136,18 @@ interface SkillFormProps {
 function SkillForm({ content, isNew, onChange }: SkillFormProps) {
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
-      <Row label="Name">
-        <input
-          {...IDENTIFIER_INPUT}
-          type="text"
-          data-testid="skills-name"
-          value={content.name}
-          disabled={!isNew}
-          onChange={(e) => onChange({ ...content, name: e.target.value })}
-          placeholder="mixing-glossary"
-          className="field w-full px-2 py-1 font-mono text-xs outline-none transition disabled:cursor-not-allowed disabled:opacity-60"
-        />
-      </Row>
-      <Row label="Description">
-        <input
-          type="text"
-          data-testid="skills-description"
-          value={content.description}
-          onChange={(e) =>
-            onChange({ ...content, description: e.target.value })
-          }
-          className="field w-full px-2 py-1 text-xs outline-none transition"
-        />
-      </Row>
+      <NameRow
+        prefix="skills"
+        value={content.name}
+        locked={!isNew}
+        placeholder="mixing-glossary"
+        onChange={(name) => onChange({ ...content, name })}
+      />
+      <DescriptionRow
+        prefix="skills"
+        value={content.description}
+        onChange={(description) => onChange({ ...content, description })}
+      />
       <Row label="Trigger">
         <select
           data-testid="skills-trigger"
@@ -372,32 +214,12 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
           on
         </label>
       </Row>
-      <Row label="Body">
-        <textarea
-          data-testid="skills-body"
-          value={content.body}
-          onChange={(e) => onChange({ ...content, body: e.target.value })}
-          rows={10}
-          className="field w-full resize-y px-2 py-1 font-mono text-xs outline-none transition"
-        />
-      </Row>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <span className="block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
-        {label}
-      </span>
-      {children}
+      <BodyRow
+        label="Body"
+        prefix="skills"
+        value={content.body}
+        onChange={(body) => onChange({ ...content, body })}
+      />
     </div>
   );
 }

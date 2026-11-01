@@ -88,7 +88,7 @@ pub enum ReasoningReplay {
     /// Ask for `reasoning.encrypted_content`, keep the `reasoning` items of
     /// each response, and echo them back in `input` with the tool results that
     /// follow, as the function-calling guide says a reasoning model needs.
-    /// Only within the turn: [`crate::agent_loop::strip_thinking`] removes them
+    /// Only within the turn: [`crate::conversation::Conversation::invalidate_thinking`] removes them
     /// at the start of the next, and when the tool layout changes, because
     /// they are tied to the `system` and `tools` they were produced under, and
     /// to the model that issued them (`invalid_encrypted_content` otherwise).

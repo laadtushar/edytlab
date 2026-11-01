@@ -76,6 +76,55 @@ export function Speech() {
         </li>
       </ul>
       <p>The rest of the editor works without a transcript or the model.</p>
+
+      <h2 id="speakers">Who Speaks When</h2>
+      <p>
+        Ask the agent <code>who speaks when on track 1</code> and it runs the
+        speaker model on your computer (<code>diarize</code>) and answers with
+        the speaker turns: start and end times, numbered{" "}
+        <code>speaker_1</code>, <code>speaker_2</code> in the order they first
+        speak. It changes nothing in the session. To give each voice its own
+        track, ask it to split by speaker; that step (<code>split_by_speaker</code>)
+        is an edit like any other and waits for your approval.
+      </p>
+      <p>
+        The model is not installed with the app. Open Settings → Account and
+        press <strong>Download</strong> beside the Speaker model row (about 33
+        MB in two files; see{" "}
+        <Link href="/docs/user-guide/providers">LLM Provider and Model</Link>).
+        Nothing downloads unless you press it, and the agent cannot download
+        it. The files come from <code>huggingface.co</code>, which sees your IP
+        address and that edytlab is asking, and nothing about your audio.
+      </p>
+      <ul>
+        <li>
+          <strong>What it works on.</strong> A track as it sits on the timeline
+          (turn times are session seconds), or an audio file by path (times are
+          the file&rsquo;s). If you know how many people speak, say so; otherwise
+          the count is estimated.
+        </li>
+        <li>
+          <strong>Limits.</strong> Voices that sound alike can merge into one
+          speaker, and where people talk over each other the audio goes to one
+          of them. Check the turns before you split. A very long conversation
+          is listed only in part, and the result says so.
+        </li>
+        <li>
+          <strong>What reaches your AI provider.</strong> The audio never leaves
+          your computer. The turns (times and speaker numbers) come back as a
+          tool result, so they go to the provider you chose, and stay on your
+          computer with Ollama.
+        </li>
+        <li>
+          <strong>Speed and Cancel.</strong> A progress strip shows the work,
+          and Cancel stops it without changing the session.
+        </li>
+      </ul>
+      <p>
+        The segmentation network is pyannote&rsquo;s (MIT licence, &copy; CNRS)
+        and the voiceprint network is WeSpeaker&rsquo;s (CC BY 4.0); the
+        credits are on the <Link href="/terms">Terms page</Link>.
+      </p>
     </>
   );
 }
