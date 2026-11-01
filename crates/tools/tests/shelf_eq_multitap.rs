@@ -76,7 +76,7 @@ fn near(a: i16, want: f32) -> bool {
 fn taps_land_at_their_times_and_gains_at_each_tracks_own_rate() {
     // 10 ms and 25 ms: 80 and 200 frames at 8 kHz, 160 and 400 at 16 kHz.
     let mut s = Session::with_tracks(&[(8_000, impulse(1000)), (16_000, impulse(2000))]);
-    let taps = json!([{ "delay_ms": 10.0, "gain": 0.5 }, { "delay_ms": 25.0, "gain": -0.25 }]);
+    let taps = json!([[10.0, 0.5], [25.0, -0.25]]);
     for track in 0..2 {
         s.ok("echo", json!({ "track": track, "taps": taps }));
     }
@@ -112,7 +112,7 @@ fn feedback_repeats_the_tap_pattern() {
     let mut s = Session::with_tracks(&[(8_000, impulse(1000))]);
     s.ok(
         "echo",
-        json!({ "track": 0, "taps": [{ "delay_ms": 10.0, "gain": 0.5 }], "feedback": 0.5 }),
+        json!({ "track": 0, "taps": [[10.0, 0.5]], "feedback": 0.5 }),
     );
     let st = s.state();
     let samples = harness::read_pcm(std::path::Path::new(&st.tracks[0].clips[0].source_path));
@@ -127,10 +127,7 @@ fn single_echo_and_taps_are_both_valid_but_one_is_required() {
     s.ok("echo", json!({ "track": 0, "delay_ms": 10.0 }));
     s.err("echo", json!({ "track": 0 }));
     s.err("echo", json!({ "track": 0, "taps": [] }));
-    s.err(
-        "echo",
-        json!({ "track": 0, "taps": [{ "delay_ms": -5.0, "gain": 0.5 }] }),
-    );
+    s.err("echo", json!({ "track": 0, "taps": [[-5.0, 0.5]] }));
 }
 
 #[test]
@@ -151,10 +148,7 @@ fn stereo_taps_keep_channels_apart() {
     }
     w.finalize().unwrap();
     s.load(&path);
-    s.ok(
-        "echo",
-        json!({ "track": 0, "taps": [{ "delay_ms": 10.0, "gain": 0.5 }] }),
-    );
+    s.ok("echo", json!({ "track": 0, "taps": [[10.0, 0.5]] }));
     let st = s.state();
     let samples = harness::read_pcm(std::path::Path::new(&st.tracks[0].clips[0].source_path));
     assert!(near(samples[160], 0.25), "left tap");

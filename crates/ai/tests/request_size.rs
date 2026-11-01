@@ -119,7 +119,13 @@ const SLIM_FIRST_REQUEST_MAX_BYTES: usize = 4_096 * BYTES_PER_TOKEN;
 /// a margin the bound would hold today and break with the next tool. With
 /// the names budget at 2,000 B instead of 1,600 it was 194 B (40 MCP tools,
 /// found in review), which this fails.
-const MCP_HEADROOM_BYTES: usize = 500;
+///
+/// 375 since #765: `echo` gained `taps` and `feedback` (+122 B in this
+/// message's request, 11,785 -> 11,907 B), and neither SLIM_TOOLS_BUDGET_BYTES
+/// nor SLIM_NAMES_BUDGET_BYTES can come down (the core must still fit at the
+/// block's cap, and the built-in names must still fit), so the margin took
+/// it. A workaround, not a decision to keep: the next tool needs a real cut.
+const MCP_HEADROOM_BYTES: usize = 375;
 
 /// What the three buses of `mix_with_buses` (eight sends, four chain
 /// entries) may add to the system prompt (#552): measured 659 B, with the
@@ -174,7 +180,7 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // (69,789 B to 71,541 B). The ratchet rises by exactly that, keeping the
 // remaining headroom of the main branch rather than loosening the guard.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 71_557; // measured 71,541; main ratchet 69,805 + the 1,752 B of #767
+const FULL_TOOLS_MAX_BYTES: usize = 71_781; // measured 71,765; was 71,557 (71,541 measured) + the 224 B of #765 (eq shelf `type`, echo `taps`/`feedback`)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -737,7 +743,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
 // the ratchet rises by that, keeping the main branch's remaining headroom.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_749; // measured 74,733; main ratchet 72,935 + the 1,814 B of #767
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_973; // measured 74,957; was 74,749 (74,733 measured) + the 224 B of #765
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

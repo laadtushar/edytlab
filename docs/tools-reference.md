@@ -42,7 +42,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
-- [`echo`](#echo) — Add an echo.
+- [`echo`](#echo) — Add an echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95) repeating the pattern at the longest tap.
 - [`eq`](#eq) — Apply an equalizer (chain of biquad bands) to a track.
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
@@ -395,16 +395,16 @@ Create an exact copy of a track (same clips, gain, pan, effects). The duplicate 
 
 ## `echo`
 
-Add an echo. Single: delay_ms (milliseconds) and decay (0..1 amplitude). Multi-tap: taps [\{delay_ms, gain\}] (gain may be negative), plus optional feedback (0..0.95) that repeats the whole pattern at the longest tap. Give delay_ms or taps. Appends a new session node.
+Add an echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95) repeating the pattern at the longest tap. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `decay` | number | no | Echo amplitude 0..1 |
 | `delay_ms` | number | no | Echo delay in milliseconds |
 | `end_sec` | number | no |  |
-| `feedback` | number | no | 0..0.95, multi-tap only |
+| `feedback` | number | no |  |
 | `start_sec` | number | no |  |
-| `taps` | array of object | no |  |
+| `taps` | array of array of number | no |  |
 | `track` | integer | yes |  |
 
 ## `eq`

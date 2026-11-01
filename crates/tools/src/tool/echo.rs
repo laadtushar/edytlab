@@ -16,10 +16,7 @@ struct Args {
 }
 
 #[derive(Debug, Deserialize)]
-struct Tap {
-    delay_ms: f32,
-    gain: f32,
-}
+struct Tap(f32, f32);
 
 pub struct EchoTool;
 
@@ -31,21 +28,14 @@ impl Tool for EchoTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "echo",
-            "Add an echo. Single: delay_ms (milliseconds) and decay (0..1 amplitude). Multi-tap: taps [{delay_ms, gain}] (gain may be negative), plus optional feedback (0..0.95) that repeats the whole pattern at the longest tap. Give delay_ms or taps. Appends a new session node.",
+            "Add an echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95) repeating the pattern at the longest tap. Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "track": { "type": "integer" },
                     "delay_ms": { "type": "number", "description": "Echo delay in milliseconds" },
-                    "taps": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": { "delay_ms": { "type": "number" }, "gain": { "type": "number" } },
-                            "required": ["delay_ms", "gain"]
-                        }
-                    },
-                    "feedback": { "type": "number", "description": "0..0.95, multi-tap only" },
+                    "taps": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+                    "feedback": { "type": "number" },
                     "decay": { "type": "number", "default": 0.5, "description": "Echo amplitude 0..1" },
                     "start_sec": { "type": "number" },
                     "end_sec": { "type": "number" }
@@ -76,13 +66,13 @@ impl Tool for EchoTool {
                     return Ok(ToolResult::Error("taps must not be empty".into()));
                 }
                 if t.iter()
-                    .any(|x| !x.delay_ms.is_finite() || x.delay_ms <= 0.0 || !x.gain.is_finite())
+                    .any(|x| !x.0.is_finite() || x.0 <= 0.0 || !x.1.is_finite())
                 {
                     return Ok(ToolResult::Error(
                         "each tap needs delay_ms > 0 and a finite gain".into(),
                     ));
                 }
-                Some(t.iter().map(|x| (x.delay_ms, x.gain)).collect())
+                Some(t.iter().map(|x| (x.0, x.1)).collect())
             }
             (None, Some(d)) => {
                 if args.feedback.is_some() {
