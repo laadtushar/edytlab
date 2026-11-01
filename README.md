@@ -9,7 +9,7 @@
 
 A Tauri 2 desktop audio editor where producers, podcasters, and DJs edit audio by chatting with an AI agent. Load two tracks, ask it to bring one to the other's tempo and blend them with a crossfade, and export a WAV. Refine the result through conversation, with an audible A/B at each step.
 
-**What it does not do yet.** Stem separation runs as a tool (`separate_stems`, [#385](https://github.com/laadtushar/edytlab/issues/385)), but the app cannot download the stem model yet, so it needs the model put in place by hand (`DEMUCS_MODEL_PATH`); the Settings row that downloads it is still to come. Transcription runs on this computer from v0.8.0, once you download the speech model in Settings ([#383](https://github.com/laadtushar/edytlab/issues/383), [#384](https://github.com/laadtushar/edytlab/issues/384)). It edits files: no MIDI, no instruments, no plugin hosting. The installers are unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)).
+**What it does not do yet.** Stem separation is not shipped in a release yet: the `separate_stems` tool runs on `main`, but the app cannot download the stem model yet, so it needs the model put in place by hand (`DEMUCS_MODEL_PATH`) until the Settings row that downloads it lands ([#385](https://github.com/laadtushar/edytlab/issues/385)). Transcription runs on this computer from v0.8.0, once you download the speech model in Settings ([#383](https://github.com/laadtushar/edytlab/issues/383), [#384](https://github.com/laadtushar/edytlab/issues/384)). It edits files: no MIDI, no instruments, no plugin hosting. The installers are unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)).
 
 Local-first, multi-provider, pure-Rust DSP. Builds for macOS (universal), Windows and Linux.
 
