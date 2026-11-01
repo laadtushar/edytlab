@@ -1,8 +1,10 @@
 use crate::schema::anthropic_tool;
+use crate::tool::util::{
+    destructive_edit_then, dropped_labels_field, remap_after_cut, source_channels,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::tool::util::{destructive_edit_then, dropped_labels_field, remap_after_cut};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -115,25 +117,9 @@ impl Tool for TruncateSilenceTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
         let min_ms = args.min_silence_ms.unwrap_or(500.0).max(1.0);
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
+        let channels = match source_channels(ctx, args.track) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
         let (thresh, min) = (args.threshold_db, min_ms);
 

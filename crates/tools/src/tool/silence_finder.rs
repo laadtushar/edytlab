@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, flatten_track, load_head_state};
+use crate::tool::util::load_track_audio;
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Returns (start_sec, end_sec) pairs for silent regions.
@@ -89,26 +89,12 @@ impl Tool for SilenceFinderTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
         let min_ms = args.min_silence_ms.unwrap_or(500.0).max(1.0);
-        let state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let clips = &state.tracks[args.track].clips;
-        if clips.is_empty() {
-            return Ok(ToolResult::Error(format!(
-                "track {} has no clips",
-                args.track
-            )));
-        }
         // The whole timeline, not `clips[0]`'s source file. Scanning the
         // file reported silence at positions that exist in the file but
         // not in the track — after a cut the file still contains the
         // audio the cut removed, so every region past the cut was
         // reported at the wrong time.
-        let audio = match flatten_track(clips) {
+        let audio = match load_track_audio(ctx, args.track) {
             Ok(a) => a,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };

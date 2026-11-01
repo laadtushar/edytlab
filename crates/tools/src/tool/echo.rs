@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -85,26 +85,6 @@ impl Tool for EchoTool {
             }
         };
         let decay = args.decay.unwrap_or(0.5).clamp(0.0, 1.0);
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
         if let Some(taps) = taps {
             let feedback = args.feedback.unwrap_or(0.0);
             let label = format!(
@@ -113,27 +93,21 @@ impl Tool for EchoTool {
                 taps.len(),
                 feedback
             );
-            return Ok(destructive_edit(
-                ctx,
-                args.track,
-                move |samples, sr| apply_multitap(samples, sr, channels, &taps, feedback),
-                label,
-            ));
+            return Ok(
+                EffectEdit::on(args.track).run(ctx, label, move |samples, sr, channels| {
+                    apply_multitap(samples, sr, channels, &taps, feedback)
+                }),
+            );
         }
         let delay_ms = args.delay_ms.unwrap_or_default();
         let (delay, d) = (delay_ms, decay);
-        Ok(destructive_edit(
+        Ok(EffectEdit::on(args.track).run(
             ctx,
-            args.track,
-            move |samples, sr| {
-                let mut v = samples.to_vec();
-                apply_echo(&mut v, sr, channels, delay, d);
-                *samples = v;
-            },
             format!(
                 "echo track {} delay={}ms decay={:.2}",
                 args.track, delay_ms, decay
             ),
+            move |samples, sr, channels| apply_echo(samples, sr, channels, delay, d),
         ))
     }
 }
