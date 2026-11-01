@@ -465,7 +465,7 @@ Apply a fade-in or fade-out to a time range of a track. Requires a range (start_
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `curve` | one of `linear`, `exponential`, `logarithmic`, `s_curve` | no | Gain at t: linear t, exponential t*t, logarithmic sqrt(t), s_curve t*t*(3-2*t). Fade-out uses the same curve at 1-t. Defaults to linear. |
+| `curve` | one of `linear`, `exponential`, `logarithmic`, `s_curve` | no | Gain at t: linear t, exponential t*t, logarithmic sqrt(t), s_curve t*t*(3-2*t). Fade-out uses the same curve at 1-t. |
 | `kind` | one of `in`, `out` | no |  |
 | `range` | object | no |  |
 | `track` | integer | yes |  |

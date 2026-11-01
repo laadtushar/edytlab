@@ -33,6 +33,26 @@ impl Curve {
             Self::SCurve => position * position * (3.0 - 2.0 * position),
         }
     }
+
+    /// The curve's name in the arguments, shown in a node's label.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Linear => "linear",
+            Self::Exponential => "exponential",
+            Self::Logarithmic => "logarithmic",
+            Self::SCurve => "s_curve",
+        }
+    }
+}
+
+/// A node's label: a linear fade's is as it always was, a shaped one names its
+/// curve so two fades over the same range tell apart in History.
+pub fn fade_label(kind: Kind, curve: Curve, start_sec: f64, end_sec: f64, track: usize) -> String {
+    let shape = match curve {
+        Curve::Linear => String::new(),
+        c => format!(" ({})", c.name()),
+    };
+    format!("fade {kind:?}{shape} {start_sec:.2}s\u{2013}{end_sec:.2}s on track {track}")
 }
 
 /// Ramp `[range.start_sec, range.end_sec)` in or out.
@@ -176,7 +196,7 @@ impl Tool for FadeTool {
                         "type": "string",
                         "enum": ["linear", "exponential", "logarithmic", "s_curve"],
                         "default": "linear",
-                        "description": "Gain at t: linear t, exponential t*t, logarithmic sqrt(t), s_curve t*t*(3-2*t). Fade-out uses the same curve at 1-t. Defaults to linear."
+                        "description": "Gain at t: linear t, exponential t*t, logarithmic sqrt(t), s_curve t*t*(3-2*t). Fade-out uses the same curve at 1-t."
                     }
                 },
                 "required": ["track"],
@@ -226,17 +246,30 @@ impl Tool for FadeTool {
             move |samples, sample_rate| {
                 apply_fade_with_curve(samples, sample_rate, channels, range, kind, parsed.curve);
             },
-            format!(
-                "fade {:?} {:.2}s\u{2013}{:.2}s on track {}",
-                kind, range.start_sec, range.end_sec, track
-            ),
+            fade_label(kind, parsed.curve, range.start_sec, range.end_sec, track),
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Curve, Kind};
+    use super::{fade_label, Curve, Kind};
+
+    #[test]
+    fn labels_name_a_shaped_curve_and_leave_linear_unchanged() {
+        assert_eq!(
+            fade_label(Kind::Out, Curve::Linear, 0.0, 1.5, 2),
+            "fade Out 0.00s\u{2013}1.50s on track 2"
+        );
+        assert_eq!(
+            fade_label(Kind::Out, Curve::SCurve, 0.0, 1.5, 2),
+            "fade Out (s_curve) 0.00s\u{2013}1.50s on track 2"
+        );
+        assert_eq!(
+            fade_label(Kind::In, Curve::Exponential, 1.0, 2.0, 0),
+            "fade In (exponential) 1.00s\u{2013}2.00s on track 0"
+        );
+    }
 
     #[test]
     fn curve_gains_at_endpoints_and_quartiles_for_both_kinds() {

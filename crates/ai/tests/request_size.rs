@@ -175,10 +175,10 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // remaining headroom of the main branch rather than loosening the guard.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 
-// #847 adds 266 B for fade's optional curve enum, formulas and default.
-// On b170a210 the measured baseline is 71,523 B (18 B below the earlier
-// comment's 71,541 B): now 71,789 B, keeping its actual 34 B of headroom.
-const FULL_TOOLS_MAX_BYTES: usize = 71_823; // main ratchet 71,557 + 266 B
+// #847 adds 246 B for fade's optional curve enum, formulas and default (266 B
+// less the 20 B of a repeated "Defaults to linear."): measured 71,769 B, with
+// the same 34 B of headroom as before.
+const FULL_TOOLS_MAX_BYTES: usize = 71_803; // main ratchet 71,557 + 246 B
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -742,9 +742,8 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // the ratchet rises by that, keeping the main branch's remaining headroom.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 
-// #847 adds the same 266 B: measured b170a210 baseline 74,715 B to 74,981 B,
-// retaining the actual 34 B margin (the earlier comment measured 74,733 B).
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_015; // main ratchet 74,749 + 266 B
+// #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_995; // main ratchet 74,749 + 246 B
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
