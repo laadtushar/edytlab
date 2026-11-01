@@ -180,7 +180,13 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // (69,789 B to 71,541 B). The ratchet rises by exactly that, keeping the
 // remaining headroom of the main branch rather than loosening the guard.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 71_781; // measured 71,765; was 71,557 (71,541 measured) + the 224 B of #765 (eq shelf `type`, echo `taps`/`feedback`)
+
+// #847 adds 246 B for fade's optional curve enum, formulas and default (266 B
+// less the 20 B of a repeated "Defaults to linear."): measured 71,769 B, with
+// the same 34 B of headroom as before.
+//
+// #765 adds 224 B (eq shelf `type`, echo `taps`/`feedback`): 71,803 + 224.
+const FULL_TOOLS_MAX_BYTES: usize = 72_027; // measured 72,011 after the merge; main ratchet 71,803 + 224 B
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -532,20 +538,38 @@ fn system_text(body: &Value) -> String {
 /// How the line that names the tools a small model was not sent begins.
 const NAMES_LINE_START: &str = "More tools you can call by exact name";
 
-/// The words of the system prompt's names line, or none if it has none.
-/// Only that line: a tool name that happens to be an ordinary word
-/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it.
+/// The tool names the system prompt's names line lists, or none if it has
+/// none. Only that line: a tool name that happens to be an ordinary word
+/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it. A run
+/// the line writes as `generate_{chirp,tone}` is expanded to the names a
+/// model would call (`generate_chirp`, `generate_tone`).
 fn names_line_words(system: &str) -> BTreeSet<String> {
-    system
+    let Some(line) = system
         .split("\n\n")
         .find(|paragraph| paragraph.starts_with(NAMES_LINE_START))
-        .map(|line| {
-            line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|w| !w.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    else {
+        return BTreeSet::new();
+    };
+    // The list follows the "): " that ends the wording; "and N more" ends it.
+    let list = line.split_once("): ").map_or(line, |(_, list)| list);
+    let mut out = BTreeSet::new();
+    for token in list.split_whitespace() {
+        match token.split_once("_{") {
+            Some((prefix, first)) => {
+                // `prefix_{a,b,c}` is one token: it holds no space.
+                for member in first.trim_end_matches(['}', '.']).split(',') {
+                    out.insert(format!("{prefix}_{member}"));
+                }
+            }
+            None => {
+                let word = token.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+                if !word.is_empty() {
+                    out.insert(word.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The system prompt up to the names line: all of it but the part that
@@ -743,7 +767,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
 // the ratchet rises by that, keeping the main branch's remaining headroom.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_973; // measured 74,957; was 74,749 (74,733 measured) + the 224 B of #765
+
+// #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
+//
+// #765 adds the same 224 B.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_219; // measured 75,203 after the merge; main ratchet 74,995 + 224 B
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

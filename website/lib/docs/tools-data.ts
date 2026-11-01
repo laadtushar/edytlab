@@ -310,7 +310,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "fade",
             prompt: 'add a 3-second fade-out',
-            what: "Apply a fade-in or fade-out envelope. Curve options: linear, exponential, logarithmic.",
+            what: "Apply a linear fade-in or fade-out to a time range.",
             output: "node_id",
           },
           {
