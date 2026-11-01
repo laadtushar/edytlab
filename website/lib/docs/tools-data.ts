@@ -383,7 +383,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "noise_reduction",
             prompt: 'reduce background noise on track 1',
-            what: "Remove broadband noise via spectral subtraction (realFFT + overlap-add). Estimates the noise floor from a silent region and subtracts it from the signal.",
+            what: "Remove broadband noise via spectral subtraction (realFFT + overlap-add). Estimates the noise floor from the first noise_duration_sec seconds, or from any range (profile_start / profile_end, optionally on another track with profile_track), and subtracts it from the signal.",
             output: "node_id",
           },
           {

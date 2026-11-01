@@ -746,12 +746,15 @@ Apply a noise gate: audio below threshold_db is silenced. attack_ms and release_
 
 ## `noise_reduction`
 
-Apply spectral noise reduction (spectral subtraction, overlap-add) to a track. The first `noise_duration_sec` seconds of the clip are used as the noise profile. `strength` controls how aggressively noise is subtracted (default 0.85); `floor` sets the minimum fraction of the original magnitude retained to avoid musical-noise artefacts (default 0.05). Appends a new session node.
+Apply spectral noise reduction (spectral subtraction, overlap-add) to a track. The first `noise_duration_sec` seconds of the clip are used as the noise profile. `strength` controls how aggressively noise is subtracted (default 0.85); `floor` sets the minimum fraction of the original magnitude retained to avoid musical-noise artefacts (default 0.05). To learn the noise from somewhere else, pass `profile_start` and `profile_end` (seconds on the track's timeline, both together; `noise_duration_sec` is then not needed) and optionally `profile_track` (another track at the same sample rate, e.g. separately recorded room tone; default: the track itself). The range must be at least 2048 frames long. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `floor` | number | no |  |
-| `noise_duration_sec` | number | yes |  |
+| `noise_duration_sec` | number | no |  |
+| `profile_end` | number | no |  |
+| `profile_start` | number | no |  |
+| `profile_track` | integer | no |  |
 | `strength` | number | no |  |
 | `track` | integer | yes |  |
 

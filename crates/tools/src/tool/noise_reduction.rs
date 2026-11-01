@@ -7,7 +7,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit_rechannel;
+use crate::tool::util::{
+    check_track_index, destructive_edit_then, flatten_track, load_head_state, TrackAudio,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -37,6 +39,21 @@ pub(crate) fn process_channel(
     floor: f32,
     sample_rate: u32,
 ) -> Vec<f32> {
+    process_channel_with_profile(mono, noise_duration_sec, None, strength, floor, sample_rate)
+}
+
+/// [`process_channel`] with the noise profile optionally learned from
+/// `profile_range` (samples of `mono` or of another channel at the same
+/// rate) instead of the first `noise_duration_sec` seconds of `mono`.
+/// `None` is exactly [`process_channel`].
+pub(crate) fn process_channel_with_profile(
+    mono: &[f32],
+    noise_duration_sec: f32,
+    profile_range: Option<&[f32]>,
+    strength: f32,
+    floor: f32,
+    sample_rate: u32,
+) -> Vec<f32> {
     if mono.is_empty() {
         return Vec::new();
     }
@@ -55,37 +72,13 @@ pub(crate) fn process_channel(
     let num_bins = FFT_SIZE / 2 + 1;
 
     // --- Build noise profile ------------------------------------------------
-    let profile_samples = (noise_duration_sec * sample_rate as f32).round() as usize;
-    let profile_samples = profile_samples.min(n);
-
-    let mut noise_profile = vec![0.0f32; num_bins];
-    let mut profile_frame_count = 0usize;
+    let noise_profile = match profile_range {
+        Some(range) => profile_of(range, &window, &r2c),
+        None => leading_profile(mono, noise_duration_sec, sample_rate, &window, &r2c),
+    };
 
     let mut frame_buf = vec![0.0f32; FFT_SIZE];
     let mut spectrum = r2c.make_output_vec();
-
-    let mut pos = 0usize;
-    while pos + FFT_SIZE <= profile_samples.max(FFT_SIZE) && pos + FFT_SIZE <= n {
-        for (i, fb) in frame_buf.iter_mut().enumerate() {
-            *fb = if pos + i < n { mono[pos + i] } else { 0.0 } * window[i];
-        }
-        r2c.process(&mut frame_buf, &mut spectrum).unwrap();
-        for (bin, s) in spectrum.iter().enumerate() {
-            noise_profile[bin] += s.norm();
-        }
-        profile_frame_count += 1;
-        pos += HOP_SIZE;
-        if pos >= profile_samples {
-            break;
-        }
-    }
-
-    if profile_frame_count > 0 {
-        let count = profile_frame_count as f32;
-        for v in &mut noise_profile {
-            *v /= count;
-        }
-    }
 
     // --- Overlap-add output buffers -----------------------------------------
     //
@@ -108,7 +101,7 @@ pub(crate) fn process_channel(
     // --- STFT subtraction loop ----------------------------------------------
     let mut ifft_buf = vec![0.0f32; FFT_SIZE];
 
-    pos = 0;
+    let mut pos = 0usize;
     // A frame starting at or before the last real sample covers it; later
     // frames hold only the margin.
     while pos < FFT_SIZE + n {
@@ -155,6 +148,83 @@ pub(crate) fn process_channel(
         .collect()
 }
 
+/// The profile as it has always been built: frames from the start of `mono`
+/// up to `noise_duration_sec`. Kept verbatim so a call without a profile
+/// range gives the same bytes as before.
+fn leading_profile(
+    mono: &[f32],
+    noise_duration_sec: f32,
+    sample_rate: u32,
+    window: &[f32],
+    r2c: &std::sync::Arc<dyn realfft::RealToComplex<f32>>,
+) -> Vec<f32> {
+    let n = mono.len();
+    let num_bins = FFT_SIZE / 2 + 1;
+    let profile_samples = (noise_duration_sec * sample_rate as f32).round() as usize;
+    let profile_samples = profile_samples.min(n);
+
+    let mut noise_profile = vec![0.0f32; num_bins];
+    let mut profile_frame_count = 0usize;
+
+    let mut frame_buf = vec![0.0f32; FFT_SIZE];
+    let mut spectrum = r2c.make_output_vec();
+
+    let mut pos = 0usize;
+    while pos + FFT_SIZE <= profile_samples.max(FFT_SIZE) && pos + FFT_SIZE <= n {
+        for (i, fb) in frame_buf.iter_mut().enumerate() {
+            *fb = if pos + i < n { mono[pos + i] } else { 0.0 } * window[i];
+        }
+        r2c.process(&mut frame_buf, &mut spectrum).unwrap();
+        for (bin, s) in spectrum.iter().enumerate() {
+            noise_profile[bin] += s.norm();
+        }
+        profile_frame_count += 1;
+        pos += HOP_SIZE;
+        if pos >= profile_samples {
+            break;
+        }
+    }
+
+    if profile_frame_count > 0 {
+        let count = profile_frame_count as f32;
+        for v in &mut noise_profile {
+            *v /= count;
+        }
+    }
+    noise_profile
+}
+
+/// Mean magnitude spectrum of every whole frame (hop `HOP_SIZE`) in `range`.
+/// The caller guarantees `range.len() >= FFT_SIZE`.
+fn profile_of(
+    range: &[f32],
+    window: &[f32],
+    r2c: &std::sync::Arc<dyn realfft::RealToComplex<f32>>,
+) -> Vec<f32> {
+    let mut noise_profile = vec![0.0f32; FFT_SIZE / 2 + 1];
+    let mut frame_buf = vec![0.0f32; FFT_SIZE];
+    let mut spectrum = r2c.make_output_vec();
+    let mut frames = 0usize;
+    let mut pos = 0usize;
+    while pos + FFT_SIZE <= range.len() {
+        for (i, fb) in frame_buf.iter_mut().enumerate() {
+            *fb = range[pos + i] * window[i];
+        }
+        r2c.process(&mut frame_buf, &mut spectrum).unwrap();
+        for (bin, s) in spectrum.iter().enumerate() {
+            noise_profile[bin] += s.norm();
+        }
+        frames += 1;
+        pos += HOP_SIZE;
+    }
+    if frames > 0 {
+        for v in &mut noise_profile {
+            *v /= frames as f32;
+        }
+    }
+    noise_profile
+}
+
 /// `mono[i]`, with `i` outside the clip read as the clip reflected about its
 /// first and last samples (period `2 * (n - 1)`); a one-sample clip repeats.
 fn reflected(mono: &[f32], i: isize) -> f32 {
@@ -182,7 +252,14 @@ fn default_floor() -> f32 {
 #[derive(Debug, Deserialize)]
 struct Args {
     track: usize,
-    noise_duration_sec: f32,
+    #[serde(default)]
+    noise_duration_sec: Option<f32>,
+    #[serde(default)]
+    profile_start: Option<f32>,
+    #[serde(default)]
+    profile_end: Option<f32>,
+    #[serde(default)]
+    profile_track: Option<usize>,
     #[serde(default = "default_strength")]
     strength: f32,
     #[serde(default = "default_floor")]
@@ -207,14 +284,22 @@ impl Tool for NoiseReductionTool {
              The first `noise_duration_sec` seconds of the clip are used as the noise profile. \
              `strength` controls how aggressively noise is subtracted (default 0.85); \
              `floor` sets the minimum fraction of the original magnitude retained to avoid \
-             musical-noise artefacts (default 0.05). Appends a new session node.",
+             musical-noise artefacts (default 0.05). To learn the noise from somewhere else, pass \
+             `profile_start` and `profile_end` (seconds on the track's timeline, both together; \
+             `noise_duration_sec` is then not needed) and optionally `profile_track` (another \
+             track at the same sample rate, e.g. separately recorded room tone; default: the \
+             track itself). The range must be at least 2048 frames long. Appends a new \
+             session node.",
             json!({
                 "type": "object",
-                "required": ["track", "noise_duration_sec"],
+                "required": ["track"],
                 "additionalProperties": false,
                 "properties": {
                     "track": { "type": "integer" },
                     "noise_duration_sec": { "type": "number" },
+                    "profile_start": { "type": "number" },
+                    "profile_end": { "type": "number" },
+                    "profile_track": { "type": "integer" },
                     "strength": { "type": "number" },
                     "floor": { "type": "number" }
                 }
@@ -234,10 +319,41 @@ impl Tool for NoiseReductionTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
-        if !parsed.noise_duration_sec.is_finite() || parsed.noise_duration_sec <= 0.0 {
+        let range = match (parsed.profile_start, parsed.profile_end) {
+            (Some(a), Some(b)) => Some((a, b)),
+            (None, None) => None,
+            _ => {
+                return Ok(ToolResult::Error(
+                    "profile_start and profile_end must be given together".to_string(),
+                ))
+            }
+        };
+        if range.is_none() && parsed.profile_track.is_some() {
+            return Ok(ToolResult::Error(
+                "profile_track needs profile_start and profile_end".to_string(),
+            ));
+        }
+        let noise_duration_sec =
+            match (parsed.noise_duration_sec, range) {
+                (Some(d), _) => d,
+                // Unused when a range names the profile.
+                (None, Some(_)) => 0.0,
+                (None, None) => return Ok(ToolResult::Error(
+                    "noise_duration_sec is required unless profile_start and profile_end are given"
+                        .to_string(),
+                )),
+            };
+        if range.is_none() && (!noise_duration_sec.is_finite() || noise_duration_sec <= 0.0) {
             return Ok(ToolResult::Error(
                 "noise_duration_sec must be > 0 and finite".to_string(),
             ));
+        }
+        if let Some((a, b)) = range {
+            if !a.is_finite() || !b.is_finite() || a < 0.0 || b <= a {
+                return Ok(ToolResult::Error(format!(
+                    "profile range must be finite with 0 <= profile_start < profile_end (got {a} to {b})"
+                )));
+            }
         }
         if !(0.0..=1.0).contains(&parsed.strength) {
             return Ok(ToolResult::Error(format!(
@@ -255,7 +371,12 @@ impl Tool for NoiseReductionTool {
         Ok(invoke_noise_reduction(
             ctx,
             parsed.track,
-            parsed.noise_duration_sec,
+            noise_duration_sec,
+            range.map(|(a, b)| ProfileSpec {
+                start: a,
+                end: b,
+                track: parsed.profile_track,
+            }),
             parsed.strength,
             parsed.floor,
         ))
@@ -273,19 +394,89 @@ fn invoke_noise_reduction(
     ctx: &mut ToolContext,
     track_idx: usize,
     noise_duration_sec: f32,
+    profile: Option<ProfileSpec>,
     strength: f32,
     floor: f32,
 ) -> ToolResult {
-    let label = format!(
-        "noise_reduction (profile={noise_duration_sec:.2}s, strength={strength:.2}, floor={floor:.2}) on track {track_idx}"
-    );
+    let label = match &profile {
+        None => format!(
+            "noise_reduction (profile={noise_duration_sec:.2}s, strength={strength:.2}, floor={floor:.2}) on track {track_idx}"
+        ),
+        Some(p) => format!(
+            "noise_reduction (profile={:.2}s-{:.2}s of track {}, strength={strength:.2}, floor={floor:.2}) on track {track_idx}",
+            p.start,
+            p.end,
+            p.track.unwrap_or(track_idx)
+        ),
+    };
 
-    destructive_edit_rechannel(
+    // Audio of another track to learn the profile from, read before the edit
+    // so a bad track refuses with the session untouched.
+    let other: Option<TrackAudio> = match profile.as_ref().and_then(|p| p.track) {
+        Some(t) if t != track_idx => {
+            let state = match load_head_state(ctx) {
+                Ok(s) => s,
+                Err(m) => return ToolResult::Error(m),
+            };
+            if let Err(m) = check_track_index(&state.tracks, t) {
+                return ToolResult::Error(m);
+            }
+            if state.tracks[t].clips.is_empty() {
+                return ToolResult::Error(format!("profile track {t} has no clips"));
+            }
+            match flatten_track(&state.tracks[t].clips) {
+                Ok(a) => Some(a),
+                Err(m) => return ToolResult::Error(m),
+            }
+        }
+        _ => None,
+    };
+
+    destructive_edit_then(
         ctx,
         track_idx,
         move |samples, sample_rate, channels| {
             let channels = channels.max(1) as usize;
             let num_frames = samples.len() / channels;
+
+            // Per channel, the frames the profile is learned from.
+            let (pr_stride, pr_rate, pr_frames): (usize, u32, usize) = match (&profile, &other) {
+                (None, _) => (1, sample_rate, 0),
+                (Some(_), Some(o)) => (
+                    o.channels.max(1) as usize,
+                    o.sample_rate,
+                    o.window.len() / o.channels.max(1) as usize,
+                ),
+                (Some(_), None) => (channels, sample_rate, num_frames),
+            };
+            let mut bounds = None;
+            if let Some(p) = &profile {
+                if pr_rate != sample_rate {
+                    return Err(format!(
+                        "profile track is at {pr_rate} Hz but track {track_idx} is at {sample_rate} Hz; \
+                         resample one of them first"
+                    ));
+                }
+                let from = (p.start as f64 * sample_rate as f64).round() as usize;
+                let to = (p.end as f64 * sample_rate as f64).round() as usize;
+                if to > pr_frames {
+                    return Err(format!(
+                        "profile range {:.3}s-{:.3}s runs past the end of the track ({:.3}s)",
+                        p.start,
+                        p.end,
+                        pr_frames as f64 / sample_rate as f64
+                    ));
+                }
+                if to.saturating_sub(from) < FFT_SIZE {
+                    return Err(format!(
+                        "profile range is {} frames; it needs at least {FFT_SIZE} ({:.0} ms at {sample_rate} Hz)",
+                        to.saturating_sub(from),
+                        FFT_SIZE as f64 * 1000.0 / sample_rate as f64
+                    ));
+                }
+                bounds = Some((from, to));
+            }
+
             let mut result = vec![0.0f32; samples.len()];
             // Spectral subtraction runs per channel, so the interleaved
             // buffer is split apart and put back together around it.
@@ -293,8 +484,28 @@ fn invoke_noise_reduction(
                 let mono: Vec<f32> = (0..num_frames)
                     .map(|f| samples[f * channels + ch])
                     .collect();
-                let processed =
-                    process_channel(&mono, noise_duration_sec, strength, floor, sample_rate);
+                let processed = match bounds {
+                    None => {
+                        process_channel(&mono, noise_duration_sec, strength, floor, sample_rate)
+                    }
+                    Some((from, to)) => {
+                        // A profile track with fewer channels lends its last.
+                        let src: &[f32] = match &other {
+                            Some(o) => &o.window,
+                            None => samples,
+                        };
+                        let pch = ch.min(pr_stride - 1);
+                        let prof: Vec<f32> = (from..to).map(|f| src[f * pr_stride + pch]).collect();
+                        process_channel_with_profile(
+                            &mono,
+                            noise_duration_sec,
+                            Some(&prof),
+                            strength,
+                            floor,
+                            sample_rate,
+                        )
+                    }
+                };
                 for (f, &s) in processed.iter().enumerate() {
                     if f < num_frames {
                         result[f * channels + ch] = s;
@@ -302,10 +513,18 @@ fn invoke_noise_reduction(
                 }
             }
             *samples = result;
-            channels as u16
+            Ok((sample_rate, channels as u16))
         },
+        |_, _| Default::default(),
         label,
     )
+}
+
+/// Where the noise is learned from when it is not the start of the track.
+struct ProfileSpec {
+    start: f32,
+    end: f32,
+    track: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
