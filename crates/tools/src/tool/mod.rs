@@ -49,6 +49,7 @@ pub mod leveler;
 pub mod limiter;
 pub mod list_session;
 pub mod load;
+pub(crate) mod local_model;
 pub mod low_pass_filter;
 pub mod measure;
 pub mod mix_to_new_track;

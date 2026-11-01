@@ -273,7 +273,7 @@ impl ToolDispatcher {
         d.register(Box::new(TranscribeTool::new()));
         d.register(Box::new(ExportTranscriptTool));
         d.register(Box::new(TranscriptToMarkersTool));
-        d.register(Box::new(SeparateStemsTool));
+        d.register(Box::new(SeparateStemsTool::new()));
         d.register(Box::new(SplitBySpeakerTool));
         d.register(Box::new(DiarizeTool::new()));
         d.register(Box::new(AnalyzeTrackTool));
