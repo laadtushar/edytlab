@@ -2568,7 +2568,9 @@ fn category_for(name: &str) -> &'static str {
         "load" | "render_preview" | "render_final" | "add_track" | "remove_track" => "session",
         "transcribe" | "diarize" | "separate_stems" | "analyze_track" | "measure" => "analysis",
         "fork_node" | "apply_diff" | "compare_nodes" | "revert_to" | "name_node" => "history",
-        "label" => "annotation",
+        "label" | "find_markers" | "add_markers" | "edit_markers" | "delete_markers" => {
+            "annotation"
+        }
         _ => "audio",
     }
 }
@@ -4183,12 +4185,10 @@ fn add_marker_inner(state: &AppState, time: f64, name: String) -> CmdResult<Stri
     // removed — it is simply stuck in the session. The ruler used to
     // send negative times for a click on its sidebar spacer; that is
     // fixed, but the command should not have accepted them either.
-    if !time.is_finite() || time < 0.0 {
-        return Err(CommandError::InvalidMarker(format!(
-            "time must be finite and >= 0; got {time}"
-        ))
-        .into());
-    }
+    //
+    // The rule is `session::check_marker_time`, the one the agent's
+    // marker tools (#766) apply too.
+    session::check_marker_time(time).map_err(CommandError::InvalidMarker)?;
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let mut store = lock_std(&*store_arc, "store")?;
     let head = store.head().ok_or(CommandError::NoSession)?;
@@ -4291,72 +4291,44 @@ fn update_marker_inner(
         uuid::Uuid::parse_str(&id).map_err(|e| CommandError::InvalidNodeId(e.to_string()))?,
     );
 
-    // A marker and a region are different shapes, and accepting both in
-    // one call means silently picking one. That hides a caller bug —
-    // the UI sending `time` alongside a stale `start`/`end` would look
-    // like it worked — so a mixed request is refused instead.
-    if time.is_some() && (start.is_some() || end.is_some()) {
-        return Err(CommandError::InvalidMarker(
-            "pass either `time` (a marker) or `start` and `end` (a region), not both".into(),
-        )
-        .into());
-    }
+    // The shape rules (a marker or a region, not both; a time that is a
+    // place on the timeline; edges that make a region) are
+    // `session::AnnotationEdit`'s, shared with the agent's `edit_markers`
+    // (#766). The lane always sends both edges, so a lone one is a caller
+    // bug and is refused here, where the tool allows it to resize a region.
+    let edit = session::AnnotationEdit {
+        name,
+        time,
+        start,
+        end,
+    };
+    edit.validate().map_err(CommandError::InvalidMarker)?;
     if start.is_some() != end.is_some() {
         return Err(
             CommandError::InvalidMarker("a region needs both `start` and `end`".into()).into(),
         );
     }
 
-    // Same lower-bound guard as `add_marker`: a label at a negative
-    // time cannot be seen, seeked to or deleted, so it must not be
-    // reachable by dragging one there either. There is deliberately no
-    // upper bound — the session length is not known here, and a label
-    // past the end stays addressable and is pulled back by the next
-    // edit rather than being lost.
-    //
-    // `time` moves the label, whatever shape it is; it is resolved
-    // against the label itself below, once the store is locked.
-    let mut kind = match (time, start, end) {
-        (Some(t), _, _) => {
-            if !t.is_finite() || t < 0.0 {
-                return Err(CommandError::InvalidMarker(format!(
-                    "time must be finite and >= 0; got {t}"
-                ))
-                .into());
-            }
-            None
-        }
-        (None, Some(s), Some(e)) => {
-            if !s.is_finite() || !e.is_finite() || s < 0.0 || e <= s {
-                return Err(CommandError::InvalidMarker(format!(
-                    "region must be finite with end > start >= 0; got {s}..{e}"
-                ))
-                .into());
-            }
-            Some(session::AnnotationKind::Region {
-                start_sec: s,
-                end_sec: e,
-            })
-        }
-        _ => None,
-    };
-
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let mut store = lock_std(&*store_arc, "store")?;
     let head = store.head().ok_or(CommandError::NoSession)?;
-    if let Some(t) = time {
-        // A drag names one time. A marker goes there; a region goes
-        // there with its length, so its end is not dropped (it used to
-        // come back a point marker, and `export_labels` then wrote a
-        // label the user never made). A label that is not there is left
-        // for `update_annotation` to ignore, as before.
-        kind = store
-            .annotations_for(head)
-            .map_err(CommandError::from)?
-            .iter()
-            .find(|a| a.id == annotation_id)
-            .map(|a| a.kind.starting_at(t));
-    }
+    // A drag names one time. A marker goes there; a region goes there
+    // with its length, so its end is not dropped (it used to come back a
+    // point marker, and `export_labels` then wrote a label the user never
+    // made). A label that is not there is left for `update_annotation` to
+    // ignore, as before.
+    let kind = match store
+        .annotations_for(head)
+        .map_err(CommandError::from)?
+        .iter()
+        .find(|a| a.id == annotation_id)
+    {
+        Some(existing) => edit
+            .resolve(&existing.kind)
+            .map_err(CommandError::InvalidMarker)?,
+        None => None,
+    };
+    let session::AnnotationEdit { name, .. } = edit;
     let new_head = store
         .update_annotation(head, annotation_id, name, kind)
         .map_err(CommandError::from)?;
