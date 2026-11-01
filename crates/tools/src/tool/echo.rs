@@ -4,13 +4,21 @@ use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
 
-pub(crate) use audio_dsp::effects::echo::apply_echo;
+pub(crate) use audio_dsp::effects::echo::{apply_echo, apply_multitap};
 
 #[derive(Debug, Deserialize)]
 struct Args {
     track: usize,
-    delay_ms: f32,
+    delay_ms: Option<f32>,
     decay: Option<f32>,
+    taps: Option<Vec<Tap>>,
+    feedback: Option<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Tap {
+    delay_ms: f32,
+    gain: f32,
 }
 
 pub struct EchoTool;
@@ -23,17 +31,26 @@ impl Tool for EchoTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "echo",
-            "Add a single echo (delay + decay). delay_ms is the echo offset in milliseconds; decay (0..1) is the echo amplitude. Appends a new session node.",
+            "Add an echo. Single: delay_ms (milliseconds) and decay (0..1 amplitude). Multi-tap: taps [{delay_ms, gain}] (gain may be negative), plus optional feedback (0..0.95) that repeats the whole pattern at the longest tap. Give delay_ms or taps. Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "track": { "type": "integer" },
                     "delay_ms": { "type": "number", "description": "Echo delay in milliseconds" },
+                    "taps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": { "delay_ms": { "type": "number" }, "gain": { "type": "number" } },
+                            "required": ["delay_ms", "gain"]
+                        }
+                    },
+                    "feedback": { "type": "number", "description": "0..0.95, multi-tap only" },
                     "decay": { "type": "number", "default": 0.5, "description": "Echo amplitude 0..1" },
                     "start_sec": { "type": "number" },
                     "end_sec": { "type": "number" }
                 },
-                "required": ["track", "delay_ms"]
+                "required": ["track"]
             }),
         )
     }
@@ -49,9 +66,34 @@ impl Tool for EchoTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
-        if args.delay_ms <= 0.0 {
-            return Ok(ToolResult::Error("delay_ms must be positive".into()));
-        }
+        let taps: Option<Vec<(f32, f32)>> = match (&args.taps, args.delay_ms) {
+            (Some(_), Some(_)) => {
+                return Ok(ToolResult::Error("give delay_ms or taps, not both".into()))
+            }
+            (None, None) => return Ok(ToolResult::Error("give delay_ms or taps".into())),
+            (Some(t), None) => {
+                if t.is_empty() {
+                    return Ok(ToolResult::Error("taps must not be empty".into()));
+                }
+                if t.iter()
+                    .any(|x| !x.delay_ms.is_finite() || x.delay_ms <= 0.0 || !x.gain.is_finite())
+                {
+                    return Ok(ToolResult::Error(
+                        "each tap needs delay_ms > 0 and a finite gain".into(),
+                    ));
+                }
+                Some(t.iter().map(|x| (x.delay_ms, x.gain)).collect())
+            }
+            (None, Some(d)) => {
+                if args.feedback.is_some() {
+                    return Ok(ToolResult::Error("feedback applies to taps only".into()));
+                }
+                if !d.is_finite() || d <= 0.0 {
+                    return Ok(ToolResult::Error("delay_ms must be positive".into()));
+                }
+                None
+            }
+        };
         let decay = args.decay.unwrap_or(0.5).clamp(0.0, 1.0);
         let channels = {
             let state = match crate::tool::util::load_head_state(ctx) {
@@ -73,7 +115,23 @@ impl Tool for EchoTool {
                 )));
             }
         };
-        let (delay, d) = (args.delay_ms, decay);
+        if let Some(taps) = taps {
+            let feedback = args.feedback.unwrap_or(0.0);
+            let label = format!(
+                "echo track {} {} taps feedback={:.2}",
+                args.track,
+                taps.len(),
+                feedback
+            );
+            return Ok(destructive_edit(
+                ctx,
+                args.track,
+                move |samples, sr| apply_multitap(samples, sr, channels, &taps, feedback),
+                label,
+            ));
+        }
+        let delay_ms = args.delay_ms.unwrap_or_default();
+        let (delay, d) = (delay_ms, decay);
         Ok(destructive_edit(
             ctx,
             args.track,
@@ -84,7 +142,7 @@ impl Tool for EchoTool {
             },
             format!(
                 "echo track {} delay={}ms decay={:.2}",
-                args.track, args.delay_ms, decay
+                args.track, delay_ms, decay
             ),
         ))
     }
