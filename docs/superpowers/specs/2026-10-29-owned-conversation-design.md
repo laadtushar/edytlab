@@ -54,9 +54,11 @@ without leaking transport/policy into the module. A fully completed step must
 not get duplicate Drop answers. Explicit outcomes retain prior completed results.
 Arm interrupted-before-execution cleanup only while awaiting held approval:
 dispatch can return before event callbacks and result storage, so a missing
-recorded result is not proof that an edit never ran. Do not extend this cleanup
-to callback or dispatch panics. A broader guard would need explicit execution
-state and separate evidence; that recovery is outside this stage.
+recorded result is not proof that an edit never ran. The held question's Plan
+callback runs inside this pre-dispatch scope; its unwinding still describes
+unexecuted calls truthfully. Dispatch and result callbacks are outside cleanup.
+A broader guard would need explicit execution state and separate evidence;
+that recovery is outside this stage.
 
 ## Verification and compatibility
 
