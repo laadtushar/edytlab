@@ -12,30 +12,15 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 0,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferWith } = await import("./wavesurferStub");
+  return wavesurferWith(() => ({
+    getDuration: () => 0,
+  }));
+});
 
+import { type Args, appAnswer } from "./appHarness";
 import App from "../App";
-
-type Args = Record<string, unknown>;
 
 const HEAD = "0000001".padEnd(64, "0");
 
@@ -67,23 +52,6 @@ function backend(tracks: unknown[], sent: { cmd: string; args: Args }[] = []) {
           return HEAD;
         case "get_graph":
           return { nodes: [], head: HEAD };
-        case "has_api_key":
-          return true;
-        case "get_keychain_persistence":
-          return { persistent: true, reason: null };
-        case "install_bundled_skills":
-          return 0;
-        case "list_templates":
-        case "list_recent_projects":
-        case "list_markers":
-          return [];
-        case "get_transcript":
-          return { words: [], source: { kind: "unknown" } };
-        case "get_view_state":
-          return {};
-        case "get_plan_first":
-        case "get_sync_lock":
-          return false;
         case "set_track_muted":
         case "set_track_gain":
         case "set_track_pan":
@@ -91,7 +59,7 @@ function backend(tracks: unknown[], sent: { cmd: string; args: Args }[] = []) {
           sent.push({ cmd, args });
           return HEAD;
         default:
-          return undefined;
+          return appAnswer(cmd);
       }
     },
     { shouldMockEvents: true },

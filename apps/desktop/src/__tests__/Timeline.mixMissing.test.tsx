@@ -40,36 +40,27 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   convertFileSrc: (path: string) => `asset://localhost/${path}`,
 }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => {
-      let url: string | null = null;
-      return {
-        on: vi.fn(),
-        un: vi.fn(),
-        load: vi.fn((next: string) => {
-          url = next;
-          loads.urls.push(next);
-          return loads.answer(next);
-        }),
-        zoom: vi.fn(),
-        play: vi.fn(() => Promise.resolve()),
-        pause: vi.fn(),
-        seekTo: vi.fn(),
-        setTime: vi.fn(),
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: () => false,
-        destroy: vi.fn(),
-        getDuration: () => (url ? 60 : 0),
-        getCurrentTime: () => 0,
-        getWrapper: () => document.createElement("div"),
-        setScroll: vi.fn(),
-        getScroll: () => 0,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance, laneMembers } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: () => {
+        let url: string | null = null;
+        return wavesurferInstance({
+          load: vi.fn((next: string) => {
+            url = next;
+            loads.urls.push(next);
+            return loads.answer(next);
+          }),
+          play: vi.fn(() => Promise.resolve()),
+          isPlaying: () => false,
+          getDuration: () => (url ? 60 : 0),
+          ...laneMembers(),
+        });
+      },
     },
-  },
-}));
+  };
+});
 
 import { Timeline } from "../components/Timeline";
 import { isMissingFileError } from "../lib/mixState";
