@@ -15,7 +15,7 @@ Copy for launching edytlab v0.9.3. It was written from the repository and checke
 The videos the copy refers to are in [`../reels/`](../reels/README.md).
 
 **Decide before posting:**
-- The "good first issue" offer: #846 to #850 carry the label and were open on 2026-10-27; re-check before posting.
+- The "good first issue" offer: #846 to #848 carry the label and were open on 2026-11-01 (#849 and #850 were done on 2026-11-01); re-check before posting.
 - Mentioning Claude Code.
 - The hosted-option line in the r/opensource post.
 - The ElevenLabs licence, when the narrated reels are regenerated (the plain reels carry no ElevenLabs audio).
