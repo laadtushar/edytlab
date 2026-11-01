@@ -226,14 +226,19 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// 1,177 B (1,176 B to 1,018 B for a plain request) with the budget as it
 /// was, so 582 B of it is free for MCP names (the test keeps 400 B) and
 /// about 180 B of new built-in names fit before it has to rise again.
-/// `noise_reduction`'s three profile arguments (#769) add 80 B to its slim
-/// descriptor, which took the 60-MCP-tool request 64 B inside the headroom it
-/// must keep (it was at the limit before). The budget comes down 80 B, to
-/// 1,680 B, in preference to lowering the headroom or the tool budget (the
-/// core no longer fits). `MCP_ROOM_BYTES` stays 400 B: the built-in names are
-/// 1,178 B in the worst case, written as [`compact_names`] writes them, so
-/// 502 B of the line is still free for MCP names.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_680;
+/// `noise_reduction`'s three noise-range arguments (#769: `noise_from`,
+/// `noise_to`, `noise_track`) added 80 B to its slim descriptor, which took
+/// the 60-MCP-tool request inside the headroom it must keep (it had 16 B to
+/// spare, and the request that names twenty tools sends `noise_reduction`
+/// whatever else fits). The budget was lowered to 1,680 B for a moment; it is
+/// back at 1,760 B because the schema was shortened instead: the slim
+/// descriptor keeps a description's first sentence and every property name
+/// and type, so the first sentence is now "Denoise a track." (the method
+/// moved to the second sentence, which the full list still carries) and the
+/// properties are named for what they are. The descriptor is 10 B over what
+/// it was before the arguments. `MCP_ROOM_BYTES` stays 400 B and so does the
+/// 500 B headroom.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still

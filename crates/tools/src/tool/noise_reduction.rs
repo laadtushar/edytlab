@@ -255,11 +255,11 @@ struct Args {
     #[serde(default)]
     noise_duration_sec: Option<f32>,
     #[serde(default)]
-    profile_start: Option<f32>,
+    noise_from: Option<f32>,
     #[serde(default)]
-    profile_end: Option<f32>,
+    noise_to: Option<f32>,
     #[serde(default)]
-    profile_track: Option<usize>,
+    noise_track: Option<usize>,
     #[serde(default = "default_strength")]
     strength: f32,
     #[serde(default = "default_floor")]
@@ -280,13 +280,14 @@ impl Tool for NoiseReductionTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "noise_reduction",
-            "Apply spectral noise reduction (spectral subtraction, overlap-add) to a track. \
-             The first `noise_duration_sec` seconds of the clip are used as the noise profile. \
+            "Denoise a track. \
+             It uses spectral subtraction with overlap-add; the first `noise_duration_sec` \
+             seconds of the clip are used as the noise profile. \
              `strength` controls how aggressively noise is subtracted (default 0.85); \
              `floor` sets the minimum fraction of the original magnitude retained to avoid \
              musical-noise artefacts (default 0.05). To learn the noise from somewhere else, pass \
-             `profile_start` and `profile_end` (seconds on the track's timeline, both together; \
-             `noise_duration_sec` is then not needed) and optionally `profile_track` (another \
+             `noise_from` and `noise_to` (seconds on the track's timeline, both together; \
+             `noise_duration_sec` is then not needed) and optionally `noise_track` (another \
              track at the same sample rate, e.g. separately recorded room tone; default: the \
              track itself). The range must be at least 2048 frames long. Appends a new \
              session node.",
@@ -297,9 +298,9 @@ impl Tool for NoiseReductionTool {
                 "properties": {
                     "track": { "type": "integer" },
                     "noise_duration_sec": { "type": "number" },
-                    "profile_start": { "type": "number" },
-                    "profile_end": { "type": "number" },
-                    "profile_track": { "type": "integer" },
+                    "noise_from": { "type": "number" },
+                    "noise_to": { "type": "number" },
+                    "noise_track": { "type": "integer" },
                     "strength": { "type": "number" },
                     "floor": { "type": "number" }
                 }
@@ -319,30 +320,31 @@ impl Tool for NoiseReductionTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
-        let range = match (parsed.profile_start, parsed.profile_end) {
+        let range = match (parsed.noise_from, parsed.noise_to) {
             (Some(a), Some(b)) => Some((a, b)),
             (None, None) => None,
             _ => {
                 return Ok(ToolResult::Error(
-                    "profile_start and profile_end must be given together".to_string(),
+                    "noise_from and noise_to must be given together".to_string(),
                 ))
             }
         };
-        if range.is_none() && parsed.profile_track.is_some() {
+        if range.is_none() && parsed.noise_track.is_some() {
             return Ok(ToolResult::Error(
-                "profile_track needs profile_start and profile_end".to_string(),
+                "noise_track needs noise_from and noise_to".to_string(),
             ));
         }
-        let noise_duration_sec =
-            match (parsed.noise_duration_sec, range) {
-                (Some(d), _) => d,
-                // Unused when a range names the profile.
-                (None, Some(_)) => 0.0,
-                (None, None) => return Ok(ToolResult::Error(
-                    "noise_duration_sec is required unless profile_start and profile_end are given"
+        let noise_duration_sec = match (parsed.noise_duration_sec, range) {
+            (Some(d), _) => d,
+            // Unused when a range names the profile.
+            (None, Some(_)) => 0.0,
+            (None, None) => {
+                return Ok(ToolResult::Error(
+                    "noise_duration_sec is required unless noise_from and noise_to are given"
                         .to_string(),
-                )),
-            };
+                ))
+            }
+        };
         if range.is_none() && (!noise_duration_sec.is_finite() || noise_duration_sec <= 0.0) {
             return Ok(ToolResult::Error(
                 "noise_duration_sec must be > 0 and finite".to_string(),
@@ -351,7 +353,7 @@ impl Tool for NoiseReductionTool {
         if let Some((a, b)) = range {
             if !a.is_finite() || !b.is_finite() || a < 0.0 || b <= a {
                 return Ok(ToolResult::Error(format!(
-                    "profile range must be finite with 0 <= profile_start < profile_end (got {a} to {b})"
+                    "profile range must be finite with 0 <= noise_from < noise_to (got {a} to {b})"
                 )));
             }
         }
@@ -375,7 +377,7 @@ impl Tool for NoiseReductionTool {
             range.map(|(a, b)| ProfileSpec {
                 start: a,
                 end: b,
-                track: parsed.profile_track,
+                track: parsed.noise_track,
             }),
             parsed.strength,
             parsed.floor,

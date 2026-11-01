@@ -186,7 +186,7 @@ fn a_profile_from_the_middle_of_the_track_lowers_the_noise_floor() {
     rig.load("a.wav", &input, SR);
     rig.ok(
         "noise_reduction",
-        json!({ "track": 0, "noise_duration_sec": 1.0, "profile_start": 2.1, "profile_end": 2.9 }),
+        json!({ "track": 0, "noise_duration_sec": 1.0, "noise_from": 2.1, "noise_to": 2.9 }),
     );
     let out = rig.render_samples();
     let drop = db(rms(&input[tail.clone()]), rms(&out[tail.clone()]));
@@ -197,7 +197,7 @@ fn a_profile_from_the_middle_of_the_track_lowers_the_noise_floor() {
     rig.load("a.wav", &input, SR);
     rig.ok(
         "noise_reduction",
-        json!({ "track": 0, "profile_start": 2.1, "profile_end": 2.9 }),
+        json!({ "track": 0, "noise_from": 2.1, "noise_to": 2.9 }),
     );
 }
 
@@ -212,7 +212,7 @@ fn a_profile_from_another_track_lowers_the_noise_floor() {
     rig.load("room.wav", &room, SR);
     rig.ok(
         "noise_reduction",
-        json!({ "track": 0, "profile_start": 0.2, "profile_end": 1.8, "profile_track": 1 }),
+        json!({ "track": 0, "noise_from": 0.2, "noise_to": 1.8, "noise_track": 1 }),
     );
     // The room tone track is only the source of the profile.
     rig.ok("mute_track", json!({ "track": 1, "muted": true }));
@@ -241,36 +241,36 @@ fn bad_profiles_are_refused_and_add_no_node() {
     let head = rig.store.head();
     let cases = [
         (
-            json!({ "track": 0, "profile_start": 1.0, "profile_end": 0.5 }),
+            json!({ "track": 0, "noise_from": 1.0, "noise_to": 0.5 }),
             "profile range",
         ),
         (
-            json!({ "track": 0, "profile_start": 0.5, "profile_end": 0.5 }),
+            json!({ "track": 0, "noise_from": 0.5, "noise_to": 0.5 }),
             "profile range",
         ),
         (
-            json!({ "track": 0, "profile_start": -1.0, "profile_end": 0.5 }),
+            json!({ "track": 0, "noise_from": -1.0, "noise_to": 0.5 }),
             "profile range",
         ),
         (
-            json!({ "track": 0, "profile_start": 1.0, "profile_end": 5.0 }),
+            json!({ "track": 0, "noise_from": 1.0, "noise_to": 5.0 }),
             "past the end",
         ),
         (
-            json!({ "track": 0, "profile_start": 0.0, "profile_end": 0.01 }),
+            json!({ "track": 0, "noise_from": 0.0, "noise_to": 0.01 }),
             "needs at least",
         ),
-        (json!({ "track": 0, "profile_start": 0.0 }), "together"),
+        (json!({ "track": 0, "noise_from": 0.0 }), "together"),
         (
-            json!({ "track": 0, "profile_track": 1, "noise_duration_sec": 0.5 }),
-            "profile_start",
+            json!({ "track": 0, "noise_track": 1, "noise_duration_sec": 0.5 }),
+            "noise_from",
         ),
         (
-            json!({ "track": 0, "profile_start": 0.0, "profile_end": 0.5, "profile_track": 9 }),
+            json!({ "track": 0, "noise_from": 0.0, "noise_to": 0.5, "noise_track": 9 }),
             "track",
         ),
         (
-            json!({ "track": 0, "profile_start": 0.0, "profile_end": 0.5, "profile_track": 1 }),
+            json!({ "track": 0, "noise_from": 0.0, "noise_to": 0.5, "noise_track": 1 }),
             "Hz",
         ),
         (json!({ "track": 0 }), "noise_duration_sec"),

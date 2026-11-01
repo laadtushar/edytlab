@@ -73,7 +73,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`mute_track`](#mute_track) — Mute or unmute a track.
 - [`name_node`](#name_node) — Set or replace the human-readable label on a session node.
 - [`noise_gate`](#noise_gate) — Apply a noise gate: audio below threshold_db is silenced.
-- [`noise_reduction`](#noise_reduction) — Apply spectral noise reduction (spectral subtraction, overlap-add) to a track.
+- [`noise_reduction`](#noise_reduction) — Denoise a track.
 - [`normalize`](#normalize) — Scan a track for its peak amplitude and set its gain so the peak equals target_dbfs.
 - [`normalize_loudness`](#normalize_loudness) — Set a track's gain so its integrated loudness (EBU R128) reaches target_lufs.
 - [`notch_filter`](#notch_filter) — Apply a notch (band-reject) filter to a track, attenuating frequencies near center_hz.
@@ -747,15 +747,15 @@ Apply a noise gate: audio below threshold_db is silenced. attack_ms and release_
 
 ## `noise_reduction`
 
-Apply spectral noise reduction (spectral subtraction, overlap-add) to a track. The first `noise_duration_sec` seconds of the clip are used as the noise profile. `strength` controls how aggressively noise is subtracted (default 0.85); `floor` sets the minimum fraction of the original magnitude retained to avoid musical-noise artefacts (default 0.05). To learn the noise from somewhere else, pass `profile_start` and `profile_end` (seconds on the track's timeline, both together; `noise_duration_sec` is then not needed) and optionally `profile_track` (another track at the same sample rate, e.g. separately recorded room tone; default: the track itself). The range must be at least 2048 frames long. Appends a new session node.
+Denoise a track. It uses spectral subtraction with overlap-add; the first `noise_duration_sec` seconds of the clip are used as the noise profile. `strength` controls how aggressively noise is subtracted (default 0.85); `floor` sets the minimum fraction of the original magnitude retained to avoid musical-noise artefacts (default 0.05). To learn the noise from somewhere else, pass `noise_from` and `noise_to` (seconds on the track's timeline, both together; `noise_duration_sec` is then not needed) and optionally `noise_track` (another track at the same sample rate, e.g. separately recorded room tone; default: the track itself). The range must be at least 2048 frames long. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `floor` | number | no |  |
 | `noise_duration_sec` | number | no |  |
-| `profile_end` | number | no |  |
-| `profile_start` | number | no |  |
-| `profile_track` | integer | no |  |
+| `noise_from` | number | no |  |
+| `noise_to` | number | no |  |
+| `noise_track` | integer | no |  |
 | `strength` | number | no |  |
 | `track` | integer | yes |  |
 
