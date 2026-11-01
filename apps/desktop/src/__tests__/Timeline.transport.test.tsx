@@ -40,45 +40,39 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => {
-      const entry = {
-        url: null as string | null,
-        // WaveSurfer 7's play() returns a Promise; the mock must too,
-        // or it hides a rejected play() rather than exercising it.
-        play: vi.fn(() => Promise.resolve()),
-        pause: vi.fn(),
-        setTime: vi.fn(),
-        playing: false,
-      };
-      instances.push(entry);
-      return {
-        on: vi.fn((event: string, cb: () => void) => {
-          if (event === "decode") cb();
-        }),
-        un: vi.fn(),
-        load: vi.fn((url: string) => {
-          entry.url = url;
-          return Promise.resolve();
-        }),
-        zoom: vi.fn(),
-        play: entry.play,
-        pause: entry.pause,
-        seekTo: vi.fn(),
-        setTime: entry.setTime,
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: () => entry.playing,
-        destroy: vi.fn(),
-        // A player with nothing loaded has no duration, which is what
-        // makes a seek against a cold start a no-op in the real thing.
-        getDuration: () => (entry.url ? 60 : 0),
-        getCurrentTime: () => 0,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance, onDecode } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: () => {
+        const entry = {
+          url: null as string | null,
+          // WaveSurfer 7's play() returns a Promise; the mock must too,
+          // or it hides a rejected play() rather than exercising it.
+          play: vi.fn(() => Promise.resolve()),
+          pause: vi.fn(),
+          setTime: vi.fn(),
+          playing: false,
+        };
+        instances.push(entry);
+        return wavesurferInstance({
+          on: onDecode(),
+          load: vi.fn((url: string) => {
+            entry.url = url;
+            return Promise.resolve();
+          }),
+          play: entry.play,
+          pause: entry.pause,
+          setTime: entry.setTime,
+          isPlaying: () => entry.playing,
+          // A player with nothing loaded has no duration, which is what
+          // makes a seek against a cold start a no-op in the real thing.
+          getDuration: () => (entry.url ? 60 : 0),
+        });
+      },
     },
-  },
-}));
+  };
+});
 
 import { Timeline, type TimelineHandle } from "../components/Timeline";
 

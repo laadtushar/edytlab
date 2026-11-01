@@ -12,6 +12,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GraphSummary } from "../../lib/tauri-bridge";
+import { stubGraphGlobals } from "../../__tests__/appHarness";
 
 const getGraphMock = vi.fn();
 const renderPreviewMock = vi.fn();
@@ -47,23 +48,7 @@ beforeEach(() => {
       })),
     });
   }
-  // jsdom's ResizeObserver is missing — react-flow uses it.
-  if (!("ResizeObserver" in window)) {
-    class RO {
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
-    }
-    (window as unknown as { ResizeObserver: typeof RO }).ResizeObserver = RO;
-  }
-  if (!("DOMMatrixReadOnly" in window)) {
-    class M {
-      m22 = 1;
-      constructor(_init?: string | number[]) {}
-    }
-    (window as unknown as { DOMMatrixReadOnly: typeof M }).DOMMatrixReadOnly =
-      M;
-  }
+  stubGraphGlobals();
   getGraphMock.mockReset();
   renderPreviewMock.mockReset();
   setHeadToMock.mockReset();

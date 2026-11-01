@@ -16,36 +16,15 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { emit } from "@tauri-apps/api/event";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => ({
-      on: vi.fn(),
-      un: vi.fn(),
-      load: vi.fn(),
-      zoom: vi.fn(),
-      play: vi.fn(),
-      pause: vi.fn(),
-      seekTo: vi.fn(),
-      setTime: vi.fn(),
-      setVolume: vi.fn(),
-      setOptions: vi.fn(),
-      isPlaying: vi.fn(() => false),
-      destroy: vi.fn(),
-      getDuration: () => 10,
-      getCurrentTime: () => 0,
-    }),
-  },
-}));
+vi.mock("wavesurfer.js", async () => (await import("./wavesurferMock")).wavesurferModule());
 
+import { type Args, appAnswer, bootIpc, node, settle, voiceTrack } from "./appHarness";
 import App from "../App";
 import type { RenderWarning } from "../lib/tauri-bridge";
 
-type Args = Record<string, unknown>;
-
-const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
 const headLabel = (id: string): string => `head ${id.slice(0, 7)}`;
 
 /** The state an older build saved: a reverb on the track, and one on the master. */
@@ -95,42 +74,12 @@ class Backend {
         return this.head;
       case "render_preview":
         return `/tmp/edytlab-preview-${args.node as string}.wav`;
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-      case "list_markers":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
       case "get_head_trail":
         return { head: null, trail: [], redo: [] };
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
-        return false;
       case "list_tracks":
-        return [
-          {
-            id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-            name: "Voice",
-            muted: false,
-            gain_db: 0,
-            pan: 0,
-            soloed: false,
-            audio_path: "/tmp/voice.wav",
-            clips: [
-              { start_sec: 0, length_sec: 10, source_path: "/tmp/voice.wav", volume_envelope: [] },
-            ],
-          },
-        ];
+        return [voiceTrack()];
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 
@@ -140,15 +89,8 @@ class Backend {
   }
 }
 
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
 async function open(backend: Backend) {
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
-    shouldMockEvents: true,
-  });
+  bootIpc(backend);
   render(<App />);
   await screen.findByTestId("timeline-lane-mute");
   await waitFor(() =>
