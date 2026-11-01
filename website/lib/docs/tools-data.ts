@@ -310,8 +310,9 @@ export const toolAreas: ToolArea[] = [
           {
             name: "fade",
             prompt: 'add a 3-second fade-out',
-            what: "Apply a fade-in or fade-out envelope. Curve options: linear, exponential, logarithmic.",
+            what: "Apply a fade-in or fade-out envelope. The optional curve defaults to linear; exponential, logarithmic and s_curve provide other shapes. Fade-out reverses the position through the same curve.",
             output: "node_id",
+            note: "Nonlinear curves are unreleased. The current stable release supports linear fades only.",
           },
           {
             name: "set_clip_envelope",
