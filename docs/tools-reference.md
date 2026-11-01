@@ -1089,7 +1089,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `separate_stems`
 
-Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. Writes four WAVs and returns their paths; the session is not changed, so `load` a stem to put it on a track. Stems are estimates. Needs the stem model and the ONNX Runtime, which only the user can set up; if the call says either is missing, tell the user and stop, and do not try to download, install or configure anything. CPU, about half the audio's length; cancellable.
+Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. Writes four WAVs and returns their paths; the session is not changed, so `load` a stem to put it on a track. Stems are estimates. Needs the stem model the user downloads once in Settings → Account, and the ONNX Runtime; if the call says either is missing, tell the user and stop, and do not try to download, install or configure anything. CPU, about half the audio's length; cancellable.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

@@ -185,11 +185,13 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // the same 34 B of headroom as before. #385's `separate_stems` descriptor
 // (the 47 B above) comes on top of that: the ratchet is main's 71,803 B + 47 B,
 // so the headroom is still 34 B.
+//
+// #385 part 3 names where the user gets the stem model in `separate_stems`'s
+// description: +17 B, measured 71,816 B to 71,833 B.
 // #766 then added `find_markers`, `add_markers`, `edit_markers` and
-// `delete_markers` (find, batch add and interval add, rename/move/resize, delete
-// by id or filter): measured 73,769 B, 1,953 B over main's 71,816 B. The ratchet
-// rises by that delta, keeping main's 34 B of headroom.
-const FULL_TOOLS_MAX_BYTES: usize = 73_803; // main ratchet 71,850 + the 1,953 B of #766
+// `delete_markers`: +1,953 B, measured 73,786 B. The ratchet rises by both deltas,
+// keeping main's 34 B of headroom.
+const FULL_TOOLS_MAX_BYTES: usize = 73_820; // main ratchet 71,867 + the 1,953 B of #766
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -777,9 +779,12 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 
 // #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
 // #385's 47 B come on top: main's 74,995 B + 47 B, the same 34 B of headroom.
-// #766's four marker tools add 2,077 B here: measured 77,085 B over main's
-// 75,008 B; the ratchet rises by that delta, keeping main's 34 B of headroom.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 77_119; // main ratchet 75,042 + the 2,077 B of #766
+//
+// #385 part 3's 17 B (the Settings pointer in `separate_stems`'s description):
+// measured 75,008 B to 75,025 B.
+// #766's four marker tools add 2,077 B here: measured 77,102 B. The ratchet rises
+// by that delta, keeping main's 34 B of headroom.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 77_136; // main ratchet 75,059 + the 2,077 B of #766
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

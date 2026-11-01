@@ -12,12 +12,13 @@
  *
  * Transcription runs now (#384), so the palette offers it and the
  * transcript tab says how to get one. Stem separation runs as a tool (#385)
- * but the app cannot download its model yet, so the palette still marks it
- * unavailable, and says why.
+ * and Settings → Account has the row that downloads its model, so the
+ * palette offers it too, and says where the model comes from. The
+ * `unavailable` guard stays, tested with an entry made for the purpose.
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { COMMANDS, CommandPalette } from "../components/CommandPalette";
 import { ASSISTANT_EXAMPLES } from "../components/EmptyState";
@@ -40,45 +41,52 @@ describe("the command palette and unimplemented features (#233)", () => {
    * Whisper model" with an Enter affordance, while the decoder was a
    * stub. #317 corrected the errors, schemas and chat card; the
    * palette and the transcript tab were two more surfaces still
-   * promising the dead end, and its guard could not see either. Stem
-   * separation is still that.
+   * promising the dead end, and its guard could not see either. A command
+   * that cannot run is marked `unavailable`; one that runs once a model is
+   * downloaded says where the model comes from.
    */
-  const ML = ["Separate stems"];
+  const NEEDS_A_MODEL = ["Transcribe speech", "Separate stems"];
 
-  it("offers transcription now that it runs, and says what it needs", () => {
-    const cmd = COMMANDS.find((c) => c.label === "Transcribe speech");
-    expect(cmd, "Transcribe speech is missing from the palette").toBeTruthy();
-    expect(cmd!.unavailable).toBeUndefined();
-    expect(cmd!.description).toContain("Settings → Account");
-    expect(cmd!.description.toLowerCase()).not.toContain("not implemented");
+  afterEach(() => {
+    const at = COMMANDS.findIndex((c) => c.label === "Not built yet");
+    if (at >= 0) COMMANDS.splice(at, 1);
   });
 
-  for (const label of ML) {
-    it(`marks "${label}" unavailable rather than offering it`, () => {
+  for (const label of NEEDS_A_MODEL) {
+    it(`offers "${label}" now that it runs, and says what it needs`, () => {
       const cmd = COMMANDS.find((c) => c.label === label);
       expect(cmd, `${label} is missing from the palette`).toBeTruthy();
-      expect(
-        cmd!.unavailable,
-        `${label} is offered as though it works`,
-      ).toBeTruthy();
-      // The tool runs (#385); what is missing is the model's download, and
-      // the palette says that rather than "not implemented".
-      expect(cmd!.description.toLowerCase()).toContain("cannot be downloaded");
+      expect(cmd!.unavailable).toBeUndefined();
+      expect(cmd!.description).toContain("Settings → Account");
       expect(cmd!.description.toLowerCase()).not.toContain("not implemented");
-      expect(cmd!.unavailable).toContain("cannot download the stem model yet");
+      expect(cmd!.description.toLowerCase()).not.toContain("cannot be downloaded");
     });
   }
 
-  it("keeps them searchable — a missing entry answers a different question", () => {
-    // Removing them would leave someone typing "transcribe" with no
-    // result and no explanation. "It's here, it doesn't work yet" is
-    // the useful answer.
-    for (const label of ML) {
-      expect(COMMANDS.some((c) => c.label === label)).toBe(true);
-    }
+  it("does not fill the chat when an unavailable command is clicked", () => {
+    COMMANDS.push({
+      category: "Analysis",
+      label: "Not built yet",
+      prompt: "do the thing that does not exist",
+      description: "A stub",
+      tags: ["stub"],
+      unavailable: "This is not built yet.",
+    });
+    const onSelect = vi.fn();
+    render(
+      <CommandPalette open onClose={() => undefined} onSelect={onSelect} />,
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "stub" },
+    });
+    fireEvent.click(screen.getByText("Not built yet"));
+    expect(
+      onSelect,
+      "clicking an unavailable command queued a prompt that only errors",
+    ).not.toHaveBeenCalled();
   });
 
-  it("does not fill the chat when an unavailable command is clicked", () => {
+  it("fills the chat when Separate stems is clicked", () => {
     const onSelect = vi.fn();
     render(
       <CommandPalette open onClose={() => undefined} onSelect={onSelect} />,
@@ -87,10 +95,7 @@ describe("the command palette and unimplemented features (#233)", () => {
       target: { value: "stems" },
     });
     fireEvent.click(screen.getByText("Separate stems"));
-    expect(
-      onSelect,
-      "clicking an unavailable command queued a prompt that only errors",
-    ).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalled();
   });
 
   it("fills the chat when Transcribe speech is clicked", () => {
