@@ -316,8 +316,8 @@ export const apiAreas: ApiArea[] = [
   },
   {
     slug: "tracks",
-    title: "Tracks and Recording",
-    summary: "List and edit tracks and clips, sync-lock and envelopes, and record from the microphone.",
+    title: "Tracks",
+    summary: "List and edit tracks and clips, sync-lock and envelopes.",
     sections: [
       {
         kind: "commands",
@@ -395,6 +395,13 @@ export const apiAreas: ApiArea[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    slug: "recording",
+    title: "Recording",
+    summary: "Record from the microphone, on a timer, and punch in over a region; the latency that places a take.",
+    sections: [
       {
         kind: "commands",
         title: "Recording",
@@ -402,7 +409,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "startRecording()",
             returns: "string",
-            desc: "Begin capturing from the default input device. Rejects while a latency measurement is running, because the take would hear its test tones.",
+            desc: "Begin capturing from the default input device. Rejects while a latency measurement or a punch-in is running, because the take would hear it.",
           },
           {
             name: "stopRecording(outputPath)",
@@ -412,7 +419,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "timerRecord(outputPath, schedule)",
             returns: "{ path?, cancelled }",
-            desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Rejects while a latency measurement is running. Emits tool-progress events throughout.",
+            desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Rejects while a latency measurement or a punch-in is running. Emits tool-progress events throughout.",
           },
           {
             name: "getRecordingLatency()",
@@ -422,12 +429,27 @@ export const apiAreas: ApiArea[] = [
           {
             name: "calibrateRecordingLatency()",
             returns: "CalibrationResult",
-            desc: "Measure the round trip of the default speakers and microphone with test sweeps, and keep it for that pair. Takes about ten seconds and makes noise. Rejects, with a reason to act on, when not every sweep is heard, the measurements disagree by more than 1 ms, audio was lost during the run, the speakers never started, the default devices cannot be named, or a recording, an armed timer or another measurement is running; resolves { cancelled: true } when cancelRecordingLatency() stopped it. Emits tool-progress events with kind calibrate_latency.",
+            desc: "Measure the round trip of the default speakers and microphone with test sweeps, and keep it for that pair. Takes about ten seconds and makes noise. Rejects, with a reason to act on, when not every sweep is heard, the measurements disagree by more than 1 ms, audio was lost during the run, the speakers never started, the default devices cannot be named, or a recording, a punch-in, an armed timer or another measurement is running; resolves { cancelled: true } when cancelRecordingLatency() stopped it. Emits tool-progress events with kind calibrate_latency.",
           },
           {
             name: "cancelRecordingLatency()",
             returns: "void",
             desc: "Ask the running latency measurement to stop at its next checkpoint; calibrateRecordingLatency() then resolves { cancelled: true }. Its own flag: cancelLongRunningTool() is the Cancel of batch_apply and timerRecord, and neither stops the other. Resolves at once, and does nothing when no measurement is running.",
+          },
+          {
+            name: "setRecordingLatency(latencyMs)",
+            returns: "{ devices, latency }",
+            desc: "Keep a delay the person typed, in milliseconds, for the current default speakers and microphone. It counts exactly as a measured one for punchRecord, and the newest write wins. Rejects a value that is not a number or is outside 0 to 2000 ms, and rejects when the default devices cannot be named. Resolves with the pair and the entry (source \"manual\", no spread_ms). Plays and records nothing.",
+          },
+          {
+            name: "punchRecord(track, startSec, endSec, prerollSec?, postrollSec?)",
+            returns: "PunchResult",
+            desc: "Replace [startSec, endSec) of a track with a new take, recorded while the rest of the mix plays through the speakers: the track is muted inside the region and heard in the lead-in (prerollSec, default 2) and the tail (postrollSec, default 1). The take is placed with the latency kept for the current devices, converted to the track's rate and channels, and applied with punch_in. Resolves { cancelled: false, head, latency_ms, latency_source, track, start_sec, end_sec }, or { cancelled: true } with no node when cancelPunchRecord() stopped it. Rejects, with a reason to act on, when no latency is kept for the devices (measured or typed), when a measurement, a recording, an armed timer or another punch-in is running, when the take lost audio, or when the project changed while it was recorded (the take is kept in the project and the message says where). Pause the transport first. Emits tool-progress events with kind punch_record, phase and remaining_sec.",
+          },
+          {
+            name: "cancelPunchRecord()",
+            returns: "void",
+            desc: "Ask the running punch-in to stop at its next checkpoint; punchRecord() then resolves { cancelled: true } and nothing is applied. Its own flag: cancelLongRunningTool() is the Cancel of batch_apply and timerRecord, and neither stops the other. Resolves at once, and does nothing when no punch-in is running.",
           },
         ],
       },

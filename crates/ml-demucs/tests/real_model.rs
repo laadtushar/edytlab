@@ -320,8 +320,15 @@ fn memory_does_not_grow_with_the_track() {
              {short_audio:.0} s and {peak_long:.0} MB after {long_audio:.0} s, {rss_end:.0} MB \
              at the end; the longer track is {extra_input:.0} MB more of f32, held twice"
         );
+        // Expected: the two copies of the extra input, `2 * extra_input`
+        // (about 144 MB for 204 s more audio), plus up to 150 MB of
+        // allocator and runtime noise, so the bound below is where the
+        // expected growth plus the whole noise allowance sits, 2.0 *
+        // extra_input + 150 (about 294 MB). Holding the four whole-track f32
+        // stems would add a further `4 * extra_input` (about 288 MB) on top
+        // of the expected 144 MB, about 432 MB, which this bound refuses.
         assert!(
-            peak_long - peak_short < 3.5 * extra_input + 150.0,
+            peak_long - peak_short < 2.0 * extra_input + 150.0,
             "the peak grew by {:.0} MB for {extra_input:.0} MB more audio: the stems are being \
              held, or something else scales with the track",
             peak_long - peak_short

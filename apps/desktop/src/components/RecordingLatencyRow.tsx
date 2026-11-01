@@ -15,6 +15,10 @@
  * report; other jobs on the same channel are not this row's, and its Cancel
  * is its own command (`cancel_recording_latency`), not the batch's.
  *
+ * The delay can also be typed (#203): where the room cannot be made noisy, or
+ * the delay was found another way. A typed value counts exactly as a measured
+ * one for a punch-in, and the newest of the two is the one kept.
+ *
  * Leaving the row (closing Settings, or another tab) while a measurement
  * runs cancels it: it plays test tones, and nothing on screen would say so
  * any more.
@@ -23,6 +27,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  MANUAL_PURPOSE,
   ROW_PURPOSE,
   SETUP_LINE,
   ageText,
@@ -30,12 +35,14 @@ import {
   devicesText,
   latencyText,
   measuringText,
+  parseManualLatency,
 } from "../lib/recordingLatency";
 import {
   calibrateRecordingLatency,
   cancelRecordingLatency,
   getRecordingLatency,
   onToolProgress,
+  setRecordingLatency,
   type RecordingLatency,
   type ToolProgress,
 } from "../lib/tauri-bridge";
@@ -52,6 +59,9 @@ export function RecordingLatencyRow() {
   const [progress, setProgress] = useState<ToolProgress | undefined>(undefined);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [manualText, setManualText] = useState("");
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const alive = useRef(true);
   // Read by the unmount cleanup, which runs once, with the first render's
   // closure.
@@ -120,6 +130,27 @@ export function RecordingLatencyRow() {
       setRefusal(outcome.message);
     }
   }, []);
+
+  const saveManual = useCallback(async () => {
+    const parsed = parseManualLatency(manualText);
+    if (!parsed.ok) {
+      setManualError(parsed.message);
+      return;
+    }
+    setSaving(true);
+    setManualError(null);
+    try {
+      const kept = await setRecordingLatency(parsed.ms);
+      if (!alive.current) return;
+      setStatus({ devices: kept.devices, problem: null, latency: kept.latency });
+      setRefusal(null);
+      setManualText("");
+    } catch (e) {
+      if (alive.current) setManualError(messageOf(e));
+    } finally {
+      if (alive.current) setSaving(false);
+    }
+  }, [manualText]);
 
   const cancel = useCallback(() => {
     setCancelling(true);
@@ -206,6 +237,51 @@ export function RecordingLatencyRow() {
               </button>
             ) : null}
           </div>
+
+          <p
+            data-testid="recording-latency-manual-purpose"
+            className="mt-3 text-[11px] leading-snug text-[var(--text-faint)]"
+          >
+            {MANUAL_PURPOSE}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              inputMode="decimal"
+              data-testid="recording-latency-manual-input"
+              aria-label="Delay in milliseconds"
+              placeholder="e.g. 42.5"
+              value={manualText}
+              disabled={measuring || saving}
+              onChange={(e) => {
+                setManualText(e.target.value);
+                setManualError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveManual();
+              }}
+              className="field w-24 px-1.5 py-1 text-right text-xs"
+            />
+            <span className="text-[11px] text-[var(--text-faint)]">ms</span>
+            <button
+              type="button"
+              data-testid="recording-latency-manual-save"
+              disabled={measuring || saving || manualText.trim() === ""}
+              onClick={() => void saveManual()}
+              className="btn-secondary rounded px-3 py-1 text-xs transition"
+            >
+              Use this value
+            </button>
+          </div>
+          {manualError !== null ? (
+            <p
+              data-testid="recording-latency-manual-error"
+              role="alert"
+              className="mt-2 break-words text-xs text-[var(--warning)]"
+            >
+              {manualError}
+            </p>
+          ) : null}
         </>
       ) : null}
     </div>

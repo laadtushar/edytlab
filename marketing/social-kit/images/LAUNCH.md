@@ -3,8 +3,9 @@
 Read with [`../calendar.md`](../calendar.md) (the two-week plan: it is for 12 October, so shift its days),
 [`../../launch/`](../../launch/) (Show HN, Product Hunt, Reddit) and [`../more.md`](../more.md) (X, Bluesky, TikTok,
 Shorts). This file only says which image goes where and when; the words are in [`captions.md`](captions.md)
-and those files. Where the calendar and this file differ, the calendar's rules win: one live community post
-that needs you per day, Show HN before Reddit, a different text on each post, nobody asked to upvote, star or share.
+and those files, written in the voice of [`../../brand-voice.md`](../../brand-voice.md). Where the calendar and this
+file differ, the calendar's rules win: one live community post that needs you per day, Show HN before Reddit, a
+different text on each post, nobody asked to upvote, star or share.
 
 ## Which canvas, image or video, and where the link goes
 
@@ -114,7 +115,7 @@ Vercel analytics breaks out UTM parameters.
 - No upvote, star or share asks, on any platform.
 - Never post the same text twice: every caption in `captions.md` is written for its platform.
 - Keep the "Real app, real Claude" and "Real app, recorded live" labels on every frame; do not crop them out.
-- No stem separation, vocal isolation or mashup claims, and no version number, count or ranking beyond what is on
-  the images (99 tools, six API providers plus your ChatGPT plan, MIT, unsigned installers).
+- No stem separation, vocal isolation or mashup claims, and no version number, count or ranking that is not on the
+  images. A caption tells the story of its image; it does not list providers, formats or tools.
 - No "best" or "fastest". Say "unsigned" in any post that links a download.
 - Do not stack two community posts on one day, and do not post a community thread you cannot stay in.

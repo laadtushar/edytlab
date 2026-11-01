@@ -1871,6 +1871,43 @@ pub(crate) fn track_clip_rate(track: &Track, fallback: u32) -> Result<f64, Strin
     Ok(rate.unwrap_or(fallback).max(1) as f64)
 }
 
+/// What a take for `track` has to be to go in by `punch_in`: the rate its
+/// clips are counted in and its channel count (#203).
+///
+/// `punch_in` refuses a take of any other rate or interleaving, so a caller
+/// that makes the take (the punch-in recording, which has a microphone's
+/// format to convert) asks first. The channel count is read from the
+/// track's first clip, the same place `punch_in` reads it.
+pub fn track_take_format(state: &SessionState, track: usize) -> Result<(u32, u16), String> {
+    check_track_index(&state.tracks, track)?;
+    let t = &state.tracks[track];
+    let clip = t
+        .clips
+        .first()
+        .ok_or_else(|| format!("track {track} has no clips"))?;
+    let rate = track_clip_rate(t, state.sample_rate)? as u32;
+    Ok((rate, clip_channels(&clip.source_path)?))
+}
+
+/// A source's channel count: from the header of a WAV (every file an edit
+/// writes, and most of what is loaded), which is a few bytes read under the
+/// store's lock; by decoding for any other format, which has no header
+/// reader here.
+fn clip_channels(path: &Path) -> Result<u16, String> {
+    let is_wav = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
+    if is_wav {
+        if let Ok(r) = hound::WavReader::open(path) {
+            return Ok(r.spec().channels.max(1));
+        }
+    }
+    let decoded = audio_decoder::decode_file(path)
+        .map_err(|e| format!("failed to decode {}: {e}", path.display()))?;
+    Ok(decoded.channels.max(1))
+}
+
 /// Seconds → this clip's own frame domain.
 pub fn seconds_to_clip_frames(clip: &Clip, seconds: f64) -> Result<u64, String> {
     let rate = clip_source_rate(clip)? as f64;

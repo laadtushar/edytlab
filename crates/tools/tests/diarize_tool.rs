@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::{json, Value};
 use session::Store;
@@ -18,6 +18,10 @@ use tools::tool::diarize::{
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 
 const RATE: u32 = 16_000;
+
+// The process-wide cancel switch represents one foreground run. Keep every
+// project in this binary on its own turn, including setup and teardown.
+static TURN: Mutex<()> = Mutex::new(());
 
 type Bounds = (Option<usize>, Option<usize>, Option<usize>);
 
@@ -99,16 +103,22 @@ impl SpeakerModel for Fake {
     }
 }
 
+// Drop a Project before constructing another on the same thread: each owns
+// the one foreground turn, including between tool calls.
 struct Project {
     dir: TempDir,
     store: Store,
     engine: audio_engine::Engine,
     clipboard: Option<tools::Clipboard>,
     dispatcher: ToolDispatcher,
+    // Fields drop in declaration order; release the turn after the resources.
+    _turn: MutexGuard<'static, ()>,
 }
 
 impl Project {
     fn new(fake: Arc<Fake>) -> Self {
+        let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        tools::progress::begin();
         let dir = TempDir::new().unwrap();
         let store = Store::open(dir.path()).unwrap();
         let mut dispatcher = ToolDispatcher::default_dispatcher();
@@ -120,6 +130,7 @@ impl Project {
             engine: audio_engine::Engine::new(),
             clipboard: None,
             dispatcher,
+            _turn: turn,
         };
         let path = p.wav("a.wav", 2.0, 220.0);
         p.ok("load", json!({ "path": path.to_string_lossy() }));

@@ -1,0 +1,167 @@
+{
+  "video": "reel-highlights.mp4",
+  "duration": 61.533,
+  "fps": 30,
+  "size": "1080x1920",
+  "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). The narration lines for the earlier takes are in transcripts.md.",
+  "cues": [
+    {
+      "id": "R01",
+      "kind": "hook",
+      "start": 0.0,
+      "end": 2.5,
+      "onscreen": "Describe the blend. Hear the mix.",
+      "title": [
+        "Describe",
+        "the blend.",
+        "Hear the mix."
+      ],
+      "sub": "A real screen recording of edytlab"
+    },
+    {
+      "id": "R02",
+      "kind": "step",
+      "start": 2.5,
+      "end": 7.3,
+      "onscreen": "2 · Beatmatch",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT05",
+        "start": 37.0,
+        "end": 41.8
+      }
+    },
+    {
+      "id": "R03",
+      "kind": "step",
+      "start": 7.3,
+      "end": 12.1,
+      "onscreen": "4 · Blend: crossfade, low-pass on the outgoing track",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT07",
+        "start": 74.4,
+        "end": 79.2
+      }
+    },
+    {
+      "id": "R04",
+      "kind": "listen",
+      "start": 12.1,
+      "end": 20.867,
+      "onscreen": "Listen: the transition, from 0:12",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT08",
+        "start": 86.067,
+        "end": 94.833
+      },
+      "sound": [
+        12.363,
+        20.867
+      ]
+    },
+    {
+      "id": "R05",
+      "kind": "step",
+      "start": 20.867,
+      "end": 25.667,
+      "onscreen": "2 · Extend the intro",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI05",
+        "start": 43.6,
+        "end": 48.4
+      }
+    },
+    {
+      "id": "R06",
+      "kind": "step",
+      "start": 25.667,
+      "end": 30.467,
+      "onscreen": "3 · A filter that opens into the drop",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI06",
+        "start": 58.2,
+        "end": 63.0
+      }
+    },
+    {
+      "id": "R07",
+      "kind": "listen",
+      "start": 30.467,
+      "end": 39.667,
+      "onscreen": "Listen: the low end arrives at the drop (0:31)",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI09",
+        "start": 98.267,
+        "end": 107.467
+      },
+      "sound": [
+        30.68,
+        39.667
+      ]
+    },
+    {
+      "id": "R08",
+      "kind": "step",
+      "start": 39.667,
+      "end": 44.467,
+      "onscreen": "1 · Match every track to 124 BPM",
+      "source": {
+        "demo": "dj-mini-mix",
+        "code": "MM",
+        "caption": "MM03",
+        "start": 14.267,
+        "end": 19.067
+      }
+    },
+    {
+      "id": "R09",
+      "kind": "step",
+      "start": 44.467,
+      "end": 49.267,
+      "onscreen": "2 · Sequence with 4-bar overlaps",
+      "source": {
+        "demo": "dj-mini-mix",
+        "code": "MM",
+        "caption": "MM04",
+        "start": 40.4,
+        "end": 45.2
+      }
+    },
+    {
+      "id": "R10",
+      "kind": "listen",
+      "start": 49.267,
+      "end": 58.533,
+      "onscreen": "Listen: Midnight Drive into Solar Flare (0:23)",
+      "source": {
+        "demo": "dj-mini-mix",
+        "code": "MM",
+        "caption": "MM06",
+        "start": 70.0,
+        "end": 79.267
+      },
+      "sound": [
+        49.517,
+        58.533
+      ]
+    },
+    {
+      "id": "R11",
+      "kind": "end",
+      "start": 58.533,
+      "end": 61.533,
+      "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux"
+    }
+  ]
+}

@@ -4,24 +4,33 @@
 //! else recording at the time hears them (and a take made during one has
 //! test tones in it), and a recording that starts mid-measurement makes the
 //! measurement hear the person. A timer that is armed will start recording
-//! on its own, by the clock, perhaps in the middle of a measurement. So the
-//! three exclude one another, and the exclusion is one small piece of state
-//! here, not three flags in three commands:
+//! on its own, by the clock, perhaps in the middle of a measurement. A
+//! punch-in plays the mix to the performer and records them, so it is the
+//! same kind of user: nothing else may record or play test tones while it
+//! runs, and it may not start over anything that does. So the four exclude
+//! one another, and the exclusion is one small piece of state here, not
+//! flags in four commands:
 //!
-//! - a calibration refuses to start while one is running, while a timer is
-//!   armed (waiting or recording), and (the caller checks its own
-//!   `Recorder` slot after taking the run, see below) while a take is
-//!   running;
-//! - `start_recording` and `timer_record` refuse while a calibration runs.
+//! - a calibration refuses to start while one is running, while a punch is
+//!   running, while a timer is armed (waiting or recording), and (the
+//!   caller checks its own `Recorder` slot after taking the run, see
+//!   below) while a take is running;
+//! - a punch-in refuses to start under exactly the same conditions, with
+//!   its own wording;
+//! - `start_recording` and `timer_record` refuse while a calibration or a
+//!   punch-in runs.
 //!
 //! Each side sets its own flag and then reads the other's, all `SeqCst`, so
 //! of two that start at the same instant at least one sees the other and
 //! refuses.
 //!
-//! The calibration's cancel is its own flag too. It used to share
+//! Each run's cancel is its own flag too. The calibration's used to share
 //! `tools::progress`'s, which is the agent's `batch_apply` and the timer's:
 //! a Cancel pressed for one stopped the other, and a calibration beginning
-//! cleared a cancel that was meant for a batch.
+//! cleared a cancel that was meant for a batch. The punch-in's is a third:
+//! it is a take with a performer in the room, so a Cancel meant for the
+//! agent's batch must not throw it away, and the Cancel pressed for it must
+//! not stop a batch (the agent can run one while the person punches).
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -40,11 +49,22 @@ pub enum Busy {
         "A timed recording is waiting to start or running. Cancel it before measuring the latency."
     )]
     TimerArmed,
+    #[error("A punch-in is already recording.")]
+    AlreadyPunching,
+    #[error(
+        "A punch-in is recording. Wait for it to finish, or cancel it, before recording or \
+         measuring the latency."
+    )]
+    Punching,
+    #[error("A timed recording is waiting to start or running. Cancel it before punching in.")]
+    TimerArmedForPunch,
 }
 
 pub struct Gate {
     calibrating: AtomicBool,
     cancel: AtomicBool,
+    punching: AtomicBool,
+    punch_cancel: AtomicBool,
     timers: AtomicUsize,
 }
 
@@ -56,6 +76,8 @@ impl Gate {
         Self {
             calibrating: AtomicBool::new(false),
             cancel: AtomicBool::new(false),
+            punching: AtomicBool::new(false),
+            punch_cancel: AtomicBool::new(false),
             timers: AtomicUsize::new(0),
         }
     }
@@ -72,12 +94,59 @@ impl Gate {
         {
             return Err(Busy::AlreadyCalibrating);
         }
+        if self.punching.load(Ordering::SeqCst) {
+            self.calibrating.store(false, Ordering::SeqCst);
+            return Err(Busy::Punching);
+        }
         if self.timers.load(Ordering::SeqCst) > 0 {
             self.calibrating.store(false, Ordering::SeqCst);
             return Err(Busy::TimerArmed);
         }
         self.cancel.store(false, Ordering::SeqCst);
         Ok(CalibrationRun { gate: self })
+    }
+
+    /// Take the right to punch in: the same conditions as a calibration,
+    /// since both play to the speakers and listen to the microphone. A
+    /// cancel left over from an earlier punch is cleared here. The caller
+    /// then checks that no take is running and drops the run if one is.
+    pub fn begin_punch(&self) -> Result<PunchRun<'_>, Busy> {
+        if self
+            .punching
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(Busy::AlreadyPunching);
+        }
+        if self.calibrating.load(Ordering::SeqCst) {
+            self.punching.store(false, Ordering::SeqCst);
+            return Err(Busy::Calibrating);
+        }
+        if self.timers.load(Ordering::SeqCst) > 0 {
+            self.punching.store(false, Ordering::SeqCst);
+            return Err(Busy::TimerArmedForPunch);
+        }
+        self.punch_cancel.store(false, Ordering::SeqCst);
+        Ok(PunchRun { gate: self })
+    }
+
+    /// Ask the running punch-in to stop at its next checkpoint, throwing
+    /// the take away. Does nothing when none is running, so a stray cancel
+    /// is not remembered for the next one.
+    pub fn cancel_punch(&self) {
+        if self.punching.load(Ordering::SeqCst) {
+            self.punch_cancel.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether the running punch-in was asked to stop; its `cancel`
+    /// callback.
+    pub fn punch_cancelled(&self) -> bool {
+        self.punch_cancel.load(Ordering::SeqCst)
+    }
+
+    pub fn punching(&self) -> bool {
+        self.punching.load(Ordering::SeqCst)
     }
 
     /// Ask the running calibration to stop at its next checkpoint. Does
@@ -105,6 +174,8 @@ impl Gate {
     pub fn check_can_record(&self) -> Result<(), Busy> {
         if self.calibrating.load(Ordering::SeqCst) {
             Err(Busy::Calibrating)
+        } else if self.punching.load(Ordering::SeqCst) {
+            Err(Busy::Punching)
         } else {
             Ok(())
         }
@@ -116,6 +187,10 @@ impl Gate {
         if self.calibrating.load(Ordering::SeqCst) {
             self.timers.fetch_sub(1, Ordering::SeqCst);
             return Err(Busy::Calibrating);
+        }
+        if self.punching.load(Ordering::SeqCst) {
+            self.timers.fetch_sub(1, Ordering::SeqCst);
+            return Err(Busy::Punching);
         }
         Ok(TimerArm { gate: self })
     }
@@ -135,6 +210,17 @@ pub struct CalibrationRun<'a> {
 impl Drop for CalibrationRun<'_> {
     fn drop(&mut self) {
         self.gate.calibrating.store(false, Ordering::SeqCst);
+    }
+}
+
+/// A punch-in in progress; dropping it frees the gate.
+pub struct PunchRun<'a> {
+    gate: &'a Gate,
+}
+
+impl Drop for PunchRun<'_> {
+    fn drop(&mut self) {
+        self.gate.punching.store(false, Ordering::SeqCst);
     }
 }
 
@@ -232,6 +318,68 @@ mod tests {
         assert!(
             !g.calibration_cancelled(),
             "a cancel for the last run must not stop the next"
+        );
+    }
+
+    #[test]
+    fn a_punch_excludes_recording_timers_and_measuring_and_the_other_way_round() {
+        let g = Gate::new();
+        let punch = g.begin_punch().unwrap();
+        assert_eq!(g.begin_punch().err(), Some(Busy::AlreadyPunching));
+        assert_eq!(g.check_can_record(), Err(Busy::Punching));
+        assert_eq!(g.arm_timer().err(), Some(Busy::Punching));
+        assert_eq!(g.begin_calibration().err(), Some(Busy::Punching));
+        let e = g.check_can_record().unwrap_err().to_string();
+        assert!(e.contains("punch-in"), "{e}");
+        drop(punch);
+        assert_eq!(g.check_can_record(), Ok(()));
+        assert!(g.begin_calibration().is_ok(), "free once the punch is done");
+
+        // And a punch is refused over each of the others.
+        let cal = g.begin_calibration().unwrap();
+        assert_eq!(g.begin_punch().err(), Some(Busy::Calibrating));
+        drop(cal);
+        let timer = g.arm_timer().unwrap();
+        let e = g.begin_punch().err().unwrap();
+        assert_eq!(e, Busy::TimerArmedForPunch);
+        assert!(e.to_string().contains("punching in"), "{e}");
+        drop(timer);
+        assert!(g.begin_punch().is_ok());
+    }
+
+    #[test]
+    fn a_refused_attempt_leaves_no_trace_in_the_other_flags() {
+        let g = Gate::new();
+        let punch = g.begin_punch().unwrap();
+        let _ = g.begin_calibration();
+        let _ = g.arm_timer();
+        drop(punch);
+        // Neither refused attempt may keep the gate closed.
+        assert!(g.begin_punch().is_ok());
+        let cal_gate = Gate::new();
+        let cal = cal_gate.begin_calibration().unwrap();
+        let _ = cal_gate.begin_punch();
+        drop(cal);
+        assert!(cal_gate.begin_punch().is_ok(), "the refused punch held it");
+    }
+
+    #[test]
+    fn the_punch_has_its_own_cancel() {
+        let g = Gate::new();
+        g.cancel_punch();
+        assert!(!g.punch_cancelled(), "nothing was running to cancel");
+        let run = g.begin_punch().unwrap();
+        // The calibration's cancel is not the punch's, either way.
+        g.cancel_calibration();
+        assert!(!g.punch_cancelled());
+        g.cancel_punch();
+        assert!(g.punch_cancelled());
+        assert!(!g.calibration_cancelled());
+        drop(run);
+        let _next = g.begin_punch().unwrap();
+        assert!(
+            !g.punch_cancelled(),
+            "a cancel for the last punch must not stop the next"
         );
     }
 }

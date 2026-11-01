@@ -8,8 +8,9 @@ list's files on 2026-10-09 and can change.
 **Links to use in every entry:** source <https://github.com/laadtushar/edytlab>,
 site <https://edytlab.com>.
 
-Entries are one line each. Do not add claims beyond them. In particular, no
-mention of stem separation. Transcription only with its limits (see
+Entries are one plain sentence each, in the voice of `brand-voice.md`. Do not
+add claims beyond them. In particular, no mention of stem separation, and no
+mention of transcription unless it comes with its limits (see
 `marketing/README.md`).
 
 ## Summary
@@ -44,7 +45,7 @@ recorded in the repo yet.
 Entry:
 
 ```markdown
-- [edytlab](https://github.com/laadtushar/edytlab) - Open-source desktop audio editor where an agent edits through 99 tools; Ollama is a supported local provider
+- [edytlab](https://github.com/laadtushar/edytlab) - A free, open-source desktop audio editor you drive by chatting, with Ollama as one of the AIs you can pick
 ```
 
 ## 2. EndoTheDev/Awesome-Ollama
@@ -57,7 +58,7 @@ Entry:
 Entry:
 
 ```markdown
-| [edytlab](https://github.com/laadtushar/edytlab) | Open-source desktop audio editor driven by an LLM agent; Ollama is a supported local provider, so the chat can stay on your machine | Desktop installer (macOS, Windows, Linux) |
+| [edytlab](https://github.com/laadtushar/edytlab) | A free, open-source desktop audio editor you drive by chatting. Pick Ollama and the chat stays on your computer. | Desktop installer (macOS, Windows, Linux) |
 ```
 
 Keep the table's alphabetical order (the file lists AiLama, Amica and so on in
@@ -78,7 +79,7 @@ name order; place it accordingly).
 Entry:
 
 ```markdown
-* [laadtushar/edytlab](https://github.com/laadtushar/edytlab) - Tauri desktop audio editor driven by an LLM agent, with in-house pure-Rust DSP and a phase vocoder for time-stretch and pitch-shift [![build badge](https://github.com/laadtushar/edytlab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/laadtushar/edytlab/actions)
+* [laadtushar/edytlab](https://github.com/laadtushar/edytlab) - A Tauri desktop audio editor you drive by chatting with an AI, with its own Rust DSP and a phase vocoder for time-stretch and pitch-shift [![build badge](https://github.com/laadtushar/edytlab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/laadtushar/edytlab/actions)
 ```
 
 ## 4. tauri-apps/awesome-tauri (nothing to submit)
@@ -107,7 +108,7 @@ one, is a better place; it was not checked.
 Entry:
 
 ```markdown
-* [edytlab](https://edytlab.com/) - Cross-platform audio editor you drive by chatting with an AI agent; the audio processing is local pure-Rust DSP. MIT, with .deb and AppImage builds
+* [edytlab](https://edytlab.com/) - A free, MIT-licensed audio editor you drive by chatting with an AI, with the audio processing done in Rust on your computer and .deb and AppImage builds for Linux
 ```
 
 ## Lists not checked

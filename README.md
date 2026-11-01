@@ -25,6 +25,7 @@ Local-first, multi-provider, pure-Rust DSP. Builds for macOS (universal), Window
 - **Pure-Rust DSP.** Decode (`symphonia`), resampling (`rubato`), and effects written in-house in `crates/audio-dsp` — a crate with deliberately zero dependencies. DSP quality is non-negotiable and there is no Python in the hot path.
 - **Local-first.** Audio never leaves your machine unless you export. The agent talks to the LLM you pick — a hosted one, or a local model through Ollama; the audio engine runs entirely in-process.
 - **Multi-provider LLMs out of the box.** Six API providers plus your ChatGPT plan: Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama — each hosted provider with its own key in the OS keychain (Ollama needs none) — and, as a preview, Continue with ChatGPT to use a ChatGPT Plus or Pro plan's usage instead of a key. Switchable from the Settings panel without reinstall. Adding another is a single `LlmProvider` impl.
+- **Punch in with the rest of the mix playing.** Select a region, press Punch, and hear the mix (the track you are replacing is silent inside the region) while you re-record it; the take is placed with the delay measured for your speakers and microphone, or typed by hand, and refused without one, so it does not land late. One history step, Cancel leaves none ([#203](https://github.com/laadtushar/edytlab/issues/203)).
 - **Branchable session graph.** Every state is a node in a DAG. Fork, name, compare, revert — A/B is first-class, not an undo stack. The Graph view draws the DAG next to the timeline.
 - **Transcription works once the speech model is downloaded; stem separation is not shipped yet.** `transcribe` runs Whisper (base, about 139 MB, pinned by commit and SHA-256) on the CPU of this computer, on the ONNX Runtime library the installers carry (1.23.2, since v0.7.0). The model is downloaded from Hugging Face (v0.8.0 and later), but only when you click Download in Settings → Account: nothing downloads by itself, and the tool never fetches it; without it `transcribe` says so and the chat shows a card that sends you to Settings ([#383](https://github.com/laadtushar/edytlab/issues/383), [#384](https://github.com/laadtushar/edytlab/issues/384)). Your audio never leaves the computer; the words it finds reach your AI provider like any tool result. The transcript drives `cut_words`, `remove_fillers`, `select_region`'s `text` mode and the Transcript tab, and a transcript records the track it was made from so an edit by words cuts that track. `duck_under_speech` and `select_region`'s `speech_passage` need no transcript: they key on a voice track's audio (`voice_tracks`), the voiced sound rather than level. Demucs (stem separation) is wired in as a tool the agent can call, but its model inference is not shipped: `separate_stems` returns an error today ([#385](https://github.com/laadtushar/edytlab/issues/385)); the pieces around it that are written and checked against the reference (htdemucs' STFT and its segment overlap-add) are called by nothing.
 - **Time and pitch without a C dependency.** Time-stretch, pitch-shift, formant preservation and beat-grid warping run on a phase vocoder written here, on `realfft`. Rubber Band was the original plan and was dropped: it needs a different native package on each of the three CI targets, and a native dependency is the kind of thing that breaks every build at once. See the module docs in `crates/audio-time/src/vocoder.rs` for the trade that buys and what it costs.
@@ -35,9 +36,9 @@ Screen recordings of the desktop app with Claude as the agent, each one a DJ job
 
 All three are recorded with sound: waits for Claude are sped up, and every playback is in real time.
 
-- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4) (2:45): the DJ asks what they are working with (Neon Rush about 6.7% faster); Neon Rush is time-stretched to Midnight Drive's 120 BPM and started at 16 s, under its last 8 bars, and Claude points out that its bars then run a beat behind and offers to start it at 15.5 s. Midnight Drive fades out under a 1 kHz low-pass while Neon Rush fades in; the mix is mastered and exported as a 50-second WAV at −13.9 LUFS, peaking at −1 dBFS.
-- [**Extend an intro for mixing**](website/public/demos/dj-extended-club-intro.mp4) (1:55): the DJ asks for Solar Flare's tempo and bar length; the drums-only first 8 bars are copied from the first downbeat and pasted after themselves, so the intro runs 16 bars; a 200 Hz high-pass holds the low end back until the drop, the first 4 bars fade in, and the track is exported as a WAV. Claude flags that it peaks right at full scale. You hear the new intro, then the drop at 0:31.
-- [**A three-track mini-mix**](website/public/demos/dj-mini-mix.mp4) (1:58): three tracks are brought to 124 BPM, sequenced with overlaps of about 4 bars and crossfades, matched to about −14 LUFS each and limited at −1 dB on the master, then exported as a 79-second WAV. Claude brings the last track in on the bar line before it rather than at the exact 4-bar mark.
+- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4): the DJ asks what they are working with; Neon Rush is time-stretched to Midnight Drive's tempo, keeping its pitch, and started under Midnight Drive's last 8 bars. Midnight Drive fades out under a low-pass filter while Neon Rush fades in; the mix is mastered for streaming and exported as a WAV.
+- [**Extend an intro for mixing**](website/public/demos/dj-extended-club-intro.mp4): the DJ asks for Solar Flare's tempo and bar length; the drums-only first 8 bars are copied and pasted after themselves, so the intro runs 16 bars; a high-pass filter holds the low end back until the drop, the first 4 bars fade in, and the track is exported as a WAV. You hear the new intro, then the drop.
+- [**A three-track mini-mix**](website/public/demos/dj-mini-mix.mp4): three tracks are brought to one tempo, sequenced with overlaps of about 4 bars and crossfades, matched to about −14 LUFS each and limited at −1 dB on the master, then exported as a WAV.
 
 The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails if a listed video or poster is missing from `website/public/demos/`.
 
@@ -93,7 +94,7 @@ Ollama is sent a smaller set of tools than the hosted providers: the common edit
 ┌──────────────────────────────────────────────────────────────────┐
 │  Rust core (cargo workspace)                                     │
 │   crates/ai          — LlmProvider trait, agent loop, keychain   │
-│   crates/tools       — 99 deterministic tools + dispatcher       │
+│   crates/tools       — 101 deterministic tools + dispatcher      │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, DSP, engine, time-domain ops      │
 │   crates/ml-*        — Whisper, diarize, Demucs (run on ONNX)    │
@@ -128,20 +129,20 @@ apps/
   cli/                Headless one-turn agent driver (edytlab-cli) for E2E tests and smoke runs
 crates/
   ai/                 LLM provider abstraction, agent loop, keychain, prompt cache
-  tools/              99 audio-editing tools (load, cut, gain, normalize, render, …)
+  tools/              101 audio-editing tools (load, cut, gain, normalize, render, …)
   session/            Session-graph data model, DAG storage, fork/diff/compare
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by the tools and the renderer (no dependencies)
   audio-engine/       DSP graph + render
   audio-time/         Time-stretch and pitch-shift primitives
   audio-analysis/     BPM, key, beat-grid, transients
-  recorder/           Microphone capture to WAV; recording-latency measurement (cpal)
+  recorder/           Microphone capture to WAV; recording-latency measurement; the punch-in's monitor and take (cpal)
   memory/             Global and per-project markdown memory for the system prompt
   skills/             User skill library, appended to the prompt when a skill matches
   agent_profiles/     Saved model + tool-whitelist + prompt profiles
   mcp/                MCP server config, lifecycle and JSON-RPC
   ml-demucs/          Stem separation: HT-Demucs v4 on ONNX Runtime (#385)
-  ml-diarize/         Speaker diarization (pyannote-style pipeline on ONNX; the `diarize` tool runs it; the app does not offer the model for download yet, #168)
+  ml-diarize/         Speaker diarization (pyannote-style pipeline on ONNX; the `diarize` tool runs it on the speaker model the user downloads in Settings, #168)
   ml-whisper/         Transcription (run by the `transcribe` tool on the model the user downloaded, #384)
   ml-pipeline/        Shared ONNX runtime gate, verified model downloader + the user-started speech-model download (#383) + inference cache
 docs/                 Specs, handover, packaging notes
@@ -179,7 +180,7 @@ The Tauri bundle build is intentionally **not** in CI (too slow); release workfl
 
 - **Auto dev releases.** `auto-release.yml` listens to `ci.yml`'s `workflow_run` on `main`. On green, it tags `v<version>-dev.<run_number>` and dispatches `release-dev.yml`, which builds **unsigned** bundles — a universal macOS `.dmg`, Windows `.msi` + NSIS `.exe`, Linux `.deb` + AppImage — and attaches them to a GitHub Release. On a green matrix the `publish` job flips that release out of draft, so every green push to `main` publishes a dev prerelease; it is marked `prerelease` with `make_latest=false`, so it never takes the Latest badge from a real release. A draft is what a *failed* matrix leaves behind.
 - **The ONNX Runtime in every installer.** Each release leg fetches the pinned ONNX Runtime (`apps/desktop/src-tauri/ml-runtime.json`), builds with its platform's `tauri.ml-runtime.<os>.conf.json` overlay, and checks every installer before uploading it (`scripts/installer-ml-runtime.py`): the library and its notices are where the app looks, and the app binary from that installer reports it bundled (`--ml-runtime-status`). `release-dev.yml` dispatched with `dry_run: true` builds and checks without releasing anything.
-- **Versioned releases (unsigned for now).** `release-dev.yml` dispatched with `channel: release` publishes a real release — not a prerelease, marked Latest. v0.2.0 to v0.9.2 shipped this way.
+- **Versioned releases (unsigned for now).** `release-dev.yml` dispatched with `channel: release` publishes a real release — not a prerelease, marked Latest. v0.2.0 to v0.9.3 shipped this way.
 - **Signed releases.** `release-signed.yml` builds all three platforms in one matrix — Apple notarization on mac, Authenticode + DigiCert timestamp on Windows, unsigned `.deb`/AppImage on Linux. **Manual** `workflow_dispatch`, gated on signing secrets being provisioned. They are not provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). It builds first and uploads only after signing, so the published assets are always the signed bytes. See [`docs/packaging-windows.md`](docs/packaging-windows.md) for the Windows side, including the SmartScreen reputation note.
 - Bundle targets are pinned in `tauri.conf.json` to `["app", "dmg", "msi", "nsis", "deb", "appimage"]` — don't revert to `"all"`.
 

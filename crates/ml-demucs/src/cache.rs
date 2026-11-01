@@ -169,7 +169,16 @@ impl Pending {
             // code. It cannot be a hit, and it is in the way.
             std::fs::remove_dir_all(&self.dest)?;
         }
-        std::fs::rename(&self.temp, &self.dest)?;
+        if let Err(e) = std::fs::rename(&self.temp, &self.dest) {
+            // Another run can publish between the check above and here; the
+            // rename then fails because `dest` is a non-empty directory (or,
+            // on Windows, in use). If the entry that won is whole, it stays
+            // and ours is dropped (removed) as above.
+            if paths.all_exist() {
+                return Ok(paths);
+            }
+            return Err(e.into());
+        }
         self.published = true;
         Ok(paths)
     }

@@ -20,8 +20,8 @@
 //!
 //! The split is what showed where the size is. The system prompt is
 //! small (about 1.2 KB, session block included); the tool schemas are
-//! nearly all of it (about 64.5 KB of 66 KB for Anthropic, 67 KB of 68 KB
-//! as chat-completions JSON, with 96 tools, before #770's three generators; it was 54 KB of 55 KB and
+//! nearly all of it (about 71.5 KB of 72.9 KB for Anthropic, 74.4 KB of 75.8 KB
+//! as chat-completions JSON, with 101 tools; it was 54 KB of 55 KB and
 //! 57 KB of 58 KB when #395 was fixed). So the fix is not a shorter prompt but
 //! fewer, terser tools, and only for a provider that needs it:
 //!
@@ -39,7 +39,7 @@
 //! Where three bytes per token comes from: the issue's llama.cpp run
 //! counted 15,157 tokens for a request of the whole-list kind, and
 //! `openai_first_request_reports_the_full_chat_completions_size` builds
-//! that kind of request today. Divided by 15,157 it is 4.43 bytes per
+//! that kind of request today. Divided by 15,157 it is 5.00 bytes per
 //! token (3.84 when this was written, and it rises as tools are added). The
 //! registry has grown since the issue, so today's request has more tokens
 //! than were counted, and that figure is an upper bound on the true ratio,
@@ -168,8 +168,13 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // descriptor is 1,304 B (65,482 B to 66,786 B). It went up by that and no more.
 // #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`:
 // 2,875 B (66,786 B to 69,661 B), with the 14 B of headroom kept.
+// Merging #861 and main into the `separate_stems` tool's branch (101 tools):
+// #767's `export_transcript` and `transcript_to_markers` are 1,752 B, and the
+// rest of main's descriptor changes (#842's Opus and #854's OS-native M4A/AAC
+// wording in `load`) the other 70 B: 69,772 B to 71,594 B, 1,822 B in all, with
+// the 14 B of headroom kept (69,786 B to 71,608 B).
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 69_786; // measured 69,772 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B; `separate_stems` 111 B net, #385: its descriptor now says what it does and what to tell the user, and is 111 B longer than the not-implemented one)
+const FULL_TOOLS_MAX_BYTES: usize = 71_608; // measured 71,594 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B; `separate_stems` 111 B net, #385: its descriptor now says what it does and what to tell the user; `export_transcript` and `transcript_to_markers` 1,752 B, #767; `load`'s wording 70 B, #842 and #854)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -733,8 +738,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // what chat completions send), so the numbers are its own. The plan is
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
+// Merging #861 and main into the `separate_stems` tool's branch (101 tools):
+// #767's two tools are 1,814 B here and `load`'s wording 70 B, 72,902 B to
+// 74,786 B, 1,884 B in all, with the 14 B of headroom kept (72,916 B to 74,800 B).
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 72_916; // measured 72,902 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B; `separate_stems` 111 B, #385)
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_800; // measured 74,786 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B; `separate_stems` 111 B, #385; `export_transcript` and `transcript_to_markers` 1,814 B, #767; `load`'s wording 70 B)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
@@ -1912,6 +1920,16 @@ async fn ollama_loose_phrasings_are_shown_the_tool_they_ask_for() {
         ("remove the reverb from track 1", "remove_effect"),
         ("make the vocals less harsh", "de_esser"),
         ("export each track separately", "export_multiple"),
+        ("save captions as SRT", "export_transcript"),
+        ("save subtitles as VTT", "export_transcript"),
+        ("save it as TXT", "export_transcript"),
+        ("save it as plaintext", "export_transcript"),
+        (
+            "turn spoken chapters into timeline cues",
+            "transcript_to_markers",
+        ),
+        ("put each sentence on the timeline", "transcript_to_markers"),
+        ("save it as plain text", "export_transcript"),
         // Keys on a voice track's audio when there is no transcript, so it
         // is not one of the tools left out for needing one.
         ("duck the music under the speech", "duck_under_speech"),
