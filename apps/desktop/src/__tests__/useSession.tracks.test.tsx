@@ -15,19 +15,7 @@ vi.mock("../lib/tauri-bridge", async (importOriginal) => {
     isNoSession: actual.isNoSession,
     listTracks: bridge.listTracks,
     getSessionHead: vi.fn(() => Promise.resolve("A")),
-    getHeadTrail: vi.fn(() => Promise.resolve({ head: null, trail: [], redo: [] })),
-    saveHeadTrail: vi.fn(() => Promise.resolve()),
-    renderPreview: vi.fn(() => Promise.resolve("/tmp/mix.wav")),
-    onNodeCreated: vi.fn((cb: (n: string) => void) => {
-      bridge.nodeCreated.push(cb);
-      return Promise.resolve(() => {
-        bridge.nodeCreated = bridge.nodeCreated.filter((c) => c !== cb);
-      });
-    }),
-    onToolCall: vi.fn(() => Promise.resolve(() => undefined)),
-    onToolCallEnd: vi.fn(() => Promise.resolve(() => undefined)),
-    onAgentDone: vi.fn(() => Promise.resolve(() => undefined)),
-    getGraph: vi.fn(() => Promise.resolve({ nodes: [], head: null })),
+    ...(await import("./sessionBridge")).sessionBridgeCommon(bridge),
   };
 });
 

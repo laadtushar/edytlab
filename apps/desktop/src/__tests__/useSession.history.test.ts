@@ -15,24 +15,9 @@ const bridge = vi.hoisted(() => ({
   getSessionHead: vi.fn(),
 }));
 
-vi.mock("../lib/tauri-bridge", () => ({
+vi.mock("../lib/tauri-bridge", async () => ({
   getSessionHead: bridge.getSessionHead,
-  // Nothing saved with the project, and saving is not under test here
-  // (`useSession.trail.test.ts`).
-  getHeadTrail: vi.fn(() => Promise.resolve({ head: null, trail: [], redo: [] })),
-  saveHeadTrail: vi.fn(() => Promise.resolve()),
-  renderPreview: vi.fn(() => Promise.resolve("/tmp/mix.wav")),
-  onNodeCreated: vi.fn((cb: (n: string) => void) => {
-    bridge.nodeCreated.push(cb);
-    return Promise.resolve(() => {
-      bridge.nodeCreated = bridge.nodeCreated.filter((c) => c !== cb);
-    });
-  }),
-  // Compactions are not under test here (`useSession.trail.test.ts`).
-  onToolCall: vi.fn(() => Promise.resolve(() => undefined)),
-  onToolCallEnd: vi.fn(() => Promise.resolve(() => undefined)),
-  onAgentDone: vi.fn(() => Promise.resolve(() => undefined)),
-  getGraph: vi.fn(() => Promise.resolve({ nodes: [], head: null })),
+  ...(await import("./sessionBridge")).sessionBridgeCommon(bridge),
 }));
 
 import { useSession } from "../hooks/useSession";
