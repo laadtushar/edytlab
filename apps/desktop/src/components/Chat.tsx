@@ -37,6 +37,7 @@ import {
   RESUME_CARRIES_ON,
   RESUME_NOTHING_KEPT,
   RESUME_RESENDS,
+  FIRST_USE_STORAGE_KEY,
 } from "../lib/chatgptCopy";
 import { modelStorageKey } from "../lib/model-storage";
 import { nothingCanRun, type PlanStep } from "../lib/planSteps";
@@ -63,6 +64,7 @@ import {
   type ContinueState,
 } from "./PlanUsageCards";
 import { AuditionPlayer } from "./AuditionPlayer";
+import { ChatGptFirstUseNotice } from "./ChatGptFirstUseNotice";
 import { SpectrumChart } from "./SpectrumChart";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolBadge, toolLabel } from "./ToolBadge";
@@ -167,6 +169,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   // apart by the failure's code. Never a refused key, and never retried by
   // itself.
   const [planFailure, setPlanFailure] = useState<PlanUsageFailure | null>(null);
+  // The one-time "You're using your ChatGPT plan" notice (#474).
+  const [firstUse, setFirstUse] = useState(false);
   // Where the session-ended card's Continue has got to (G9).
   const [resume, setResume] = useState<ContinueState>({ kind: "idle" });
   // What a resumed turn says while it runs: the assistant carries on, or the
@@ -352,6 +356,27 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     setLocalError(`Now using ${defaultModel}. Retry to send your message again.`);
   };
 
+  // First turn on the ChatGPT plan: say so once. A read that fails, or
+  // storage that is blocked, shows nothing rather than blocking the send.
+  const maybeShowFirstUse = async () => {
+    try {
+      if (window.localStorage.getItem(FIRST_USE_STORAGE_KEY)) return;
+      if ((await getActiveProvider()) !== "chatgpt") return;
+      setFirstUse(true);
+    } catch {
+      // No notice; the turn goes on.
+    }
+  };
+
+  const dismissFirstUse = () => {
+    setFirstUse(false);
+    try {
+      window.localStorage.setItem(FIRST_USE_STORAGE_KEY, "1");
+    } catch {
+      // Private mode: it may show again next launch, which is harmless.
+    }
+  };
+
   const sendInternal = async (
     wireText: string,
     // `resumed`: the message is already in the log, and was sent before the
@@ -385,6 +410,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
         }
       }
       lastDisabledRef.current = disabledTools;
+      void maybeShowFirstUse();
       await bridgeSendMessage(wireText, disabledTools);
     } catch (err) {
       // The request failed before any agent event could clear "thinking".
@@ -487,6 +513,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
       data-testid="chat-root"
       className="flex h-full w-full flex-col bg-[var(--surface)]"
     >
+      {firstUse ? <ChatGptFirstUseNotice onDismiss={dismissFirstUse} /> : null}
       <ChatHeader
         rendering={rendering}
         onRequestRenderPreview={onRequestRenderPreview}
