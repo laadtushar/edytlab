@@ -10,8 +10,8 @@
 //! Both go through [`ask`], so one arming rule, one timeout and one
 //! meaning for "revised" serve both; the wait itself is the
 //! [`PlanGate`](crate::plan_gate::PlanGate). This module also owns what
-//! the held step looks like on the card ([`describe_call`]) and the
-//! conversation bookkeeping a step that does not run needs ([`not_run`]).
+//! the held step looks like on the card ([`describe_call`]) and its badge
+//! events ([`not_run`]); conversation owns the ordered history answers.
 //!
 //! Kept out of `agent_loop.rs`, which is already long enough that adding
 //! to it would bury the loop it exists to explain.
@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 use tools::ToolDispatcher;
 
 use crate::agent_loop::parse_tool_args;
-use crate::anthropic::{ContentBlock, Message, Role};
+use crate::conversation::PendingStep;
 use crate::plan_gate::{Answer, PlanGate};
 use crate::{AgentEvent, Error, Result};
 
@@ -296,7 +296,7 @@ fn read_recipe(path: &str) -> std::result::Result<tools::Recipe, String> {
 /// did not answer, one that would have gone past the tool budget, or the
 /// rest of one that a failing call ended the turn in the middle of.
 ///
-/// Emits `ToolCallNotRun` for every held id, so no badge is left reading
+/// Emits `ToolCallNotRun` for every unanswered id, so no badge is left reading
 /// "running" and none reads as a failure, and records one user message holding a
 /// `tool_result` for every `tool_use` in the step, plus the user's own
 /// words after them when there are any. The pairing has to hold on every
@@ -304,122 +304,14 @@ fn read_recipe(path: &str) -> std::result::Result<tools::Recipe, String> {
 /// request a 400.
 pub(crate) fn not_run(
     on_event: &mut impl FnMut(AgentEvent),
-    conversation: &mut Vec<Message>,
-    calls: &Calls,
+    pending: PendingStep<'_>,
     content: &str,
     guidance: Option<String>,
 ) {
-    not_run_after(on_event, conversation, Vec::new(), calls, content, guidance);
-}
-
-/// [`not_run`] for a step that was cut short part way through, where the
-/// calls before the cut already have their answers.
-///
-/// `answered` are those answers, in the order the calls were made: the
-/// results of the calls that ran, and of the one that failed. They stay
-/// first and are not touched, because they are true: a call that ran and
-/// changed the session must not be reported as "not run". `calls` are the
-/// ones the step never reached, and each is answered `content`. All of it
-/// is one user message, so the step's `tool_use`s are answered together,
-/// in order, in the message right after them.
-pub(crate) fn not_run_after(
-    on_event: &mut impl FnMut(AgentEvent),
-    conversation: &mut Vec<Message>,
-    answered: Vec<ContentBlock>,
-    calls: &Calls,
-    content: &str,
-    guidance: Option<String>,
-) {
-    let mut blocks = answered;
-    blocks.reserve(calls.len() + 1);
-    for (id, _, _) in calls {
-        on_event(AgentEvent::ToolCallNotRun { id: id.clone() });
-        blocks.push(ContentBlock::ToolResult {
-            tool_use_id: id.clone(),
-            content: content.to_string(),
-            is_error: Some(true),
-        });
+    for id in pending.unanswered_ids() {
+        on_event(AgentEvent::ToolCallNotRun { id: id.to_string() });
     }
-    if let Some(text) = guidance {
-        blocks.push(ContentBlock::Text { text });
-    }
-    conversation.push(Message {
-        role: Role::User,
-        content: blocks,
-    });
-}
-
-/// Add the user's words to the conversation without ever putting two
-/// user messages side by side.
-///
-/// After a declined or timed-out step the conversation ends in a user
-/// message of `tool_result`s. The next turn's text joins it, as
-/// `[tool_result…, text]`, instead of starting a second user message that
-/// providers reject. It repairs the same shape after any error exit,
-/// which left the conversation ending in a user message it never
-/// answered.
-pub(crate) fn push_user_text(conversation: &mut Vec<Message>, text: String) {
-    if let Some(last) = conversation.last_mut() {
-        if last.role == Role::User {
-            match last.content.last_mut() {
-                // One text block rather than two: chat-completions
-                // providers join a message's text blocks with nothing in
-                // between.
-                Some(ContentBlock::Text { text: prev }) => {
-                    prev.push_str("\n\n");
-                    prev.push_str(&text);
-                }
-                _ => last.content.push(ContentBlock::Text { text }),
-            }
-            return;
-        }
-    }
-    conversation.push(Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text { text }],
-    });
-}
-
-/// Takes `text` back off the end of the conversation, the way
-/// [`push_user_text`] put it there: the last block of the last message, a user
-/// message, if that block is exactly `text` (a block the text was joined onto
-/// keeps what was before it). A message left with no block goes too. Returns
-/// whether it did.
-///
-/// For a turn that ended before the model answered it (the ChatGPT session
-/// ended, #474 G9): the message is kept to be sent again, and left in the
-/// conversation it would be joined to its own copy. A conversation whose end
-/// is anything else (the model answered, tools ran) is left alone.
-pub(crate) fn withdraw_user_text(conversation: &mut Vec<Message>, text: &str) -> bool {
-    let Some(last) = conversation.last_mut() else {
-        return false;
-    };
-    if last.role != Role::User {
-        return false;
-    }
-    match last.content.last() {
-        Some(ContentBlock::Text { text: t }) if t == text => {
-            last.content.pop();
-        }
-        // The text joined onto an earlier one in the same block.
-        Some(ContentBlock::Text { text: t }) => {
-            let Some(rest) = t.strip_suffix(text) else {
-                return false;
-            };
-            let Some(rest) = rest.strip_suffix("\n\n") else {
-                return false;
-            };
-            let rest = rest.to_string();
-            if let Some(ContentBlock::Text { text: t }) = last.content.last_mut() {
-                *t = rest;
-            }
-        }
-        _ => return false,
-    }
-    if last.content.is_empty() {
-        conversation.pop();
-    }
-    true
+    pending.finish_not_run(content, guidance);
 }
 
 #[cfg(test)]
@@ -1024,189 +916,22 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // not_run, push_user_text
+    // not_run badge events (history operations are tested in conversation)
     // ------------------------------------------------------------------
 
-    fn three_calls() -> Vec<(String, String, String)> {
-        vec![
-            call("a", "edit", "{}"),
-            call("b", "edit", "{}"),
-            call("c", "peek", "{}"),
-        ]
-    }
-
     #[test]
-    fn not_run_answers_every_tool_use_id() {
-        let calls = three_calls();
+    fn not_run_resolves_each_badge_in_call_order() {
+        let mut conversation = crate::conversation::Conversation::default();
+        let pending = conversation.pending_step(["a".into(), "b".into(), "c".into()]);
         let mut events = Vec::new();
-        let mut conversation = Vec::new();
-        not_run(
-            &mut |e| events.push(e),
-            &mut conversation,
-            &calls,
-            DECLINED,
-            None,
-        );
-
-        let not_run_ids: Vec<&str> = events
+        not_run(&mut |event| events.push(event), pending, DECLINED, None);
+        let ids: Vec<_> = events
             .iter()
-            .map(|e| match e {
+            .map(|event| match event {
                 AgentEvent::ToolCallNotRun { id } => id.as_str(),
                 other => panic!("unexpected event {other:?}"),
             })
             .collect();
-        assert_eq!(not_run_ids, vec!["a", "b", "c"]);
-
-        assert_eq!(conversation.len(), 1);
-        assert_eq!(conversation[0].role, Role::User);
-        let ids: Vec<&str> = conversation[0]
-            .content
-            .iter()
-            .map(|b| match b {
-                ContentBlock::ToolResult {
-                    tool_use_id,
-                    content,
-                    is_error,
-                } => {
-                    assert_eq!(content, DECLINED);
-                    assert_eq!(*is_error, Some(true));
-                    tool_use_id.as_str()
-                }
-                other => panic!("unexpected block {other:?}"),
-            })
-            .collect();
-        assert_eq!(ids, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn not_run_appends_guidance_after_the_results() {
-        let calls = three_calls();
-        let mut conversation = Vec::new();
-        not_run(
-            &mut |_| {},
-            &mut conversation,
-            &calls,
-            REVISED,
-            Some("do this instead".to_string()),
-        );
-        let blocks = &conversation[0].content;
-        assert_eq!(blocks.len(), 4);
-        assert!(blocks[..3]
-            .iter()
-            .all(|b| matches!(b, ContentBlock::ToolResult { .. })));
-        assert!(matches!(
-            &blocks[3],
-            ContentBlock::Text { text } if text == "do this instead"
-        ));
-    }
-
-    #[test]
-    fn push_user_text_merges_into_a_trailing_user_message() {
-        let mut conversation = vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::ToolResult {
-                tool_use_id: "a".into(),
-                content: DECLINED.into(),
-                is_error: Some(true),
-            }],
-        }];
-        push_user_text(&mut conversation, "next request".to_string());
-        assert_eq!(conversation.len(), 1, "two user messages in a row");
-        assert_eq!(conversation[0].content.len(), 2);
-        assert!(matches!(
-            &conversation[0].content[1],
-            ContentBlock::Text { text } if text == "next request"
-        ));
-
-        // Text already there joins into one block, not two.
-        let mut conversation = vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
-                text: "first".into(),
-            }],
-        }];
-        push_user_text(&mut conversation, "second".to_string());
-        assert!(matches!(
-            conversation[0].content.as_slice(),
-            [ContentBlock::Text { text }] if text == "first\n\nsecond"
-        ));
-    }
-
-    #[test]
-    fn push_user_text_pushes_after_an_assistant_message() {
-        let mut conversation = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::Text { text: "hi".into() }],
-        }];
-        push_user_text(&mut conversation, "hello".to_string());
-        assert_eq!(conversation.len(), 2);
-        assert_eq!(conversation[1].role, Role::User);
-
-        let mut empty = Vec::new();
-        push_user_text(&mut empty, "hello".to_string());
-        assert_eq!(empty.len(), 1);
-    }
-    #[test]
-    fn withdrawing_takes_the_text_back_the_way_push_user_text_put_it() {
-        // On its own: the message goes.
-        let mut c = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::Text { text: "hi".into() }],
-        }];
-        push_user_text(&mut c, "cut it".to_string());
-        assert!(withdraw_user_text(&mut c, "cut it"));
-        assert_eq!(c.len(), 1, "{c:?}");
-
-        // Joined onto tool results: only the text goes.
-        let mut c = vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::ToolResult {
-                tool_use_id: "a".into(),
-                content: DECLINED.into(),
-                is_error: Some(true),
-            }],
-        }];
-        push_user_text(&mut c, "next".to_string());
-        assert!(withdraw_user_text(&mut c, "next"));
-        assert_eq!(c.len(), 1);
-        assert!(matches!(
-            c[0].content.as_slice(),
-            [ContentBlock::ToolResult { .. }]
-        ));
-
-        // Joined onto text in the same block: what was there stays.
-        let mut c = Vec::new();
-        push_user_text(&mut c, "first".to_string());
-        push_user_text(&mut c, "second".to_string());
-        assert!(withdraw_user_text(&mut c, "second"));
-        assert!(matches!(
-            c[0].content.as_slice(),
-            [ContentBlock::Text { text }] if text == "first"
-        ));
-    }
-
-    #[test]
-    fn withdrawing_leaves_a_conversation_that_does_not_end_in_the_text_alone() {
-        // The model answered: nothing to take back.
-        let mut c = Vec::new();
-        push_user_text(&mut c, "cut it".to_string());
-        c.push(Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::Text {
-                text: "done".into(),
-            }],
-        });
-        let before = format!("{c:?}");
-        assert!(!withdraw_user_text(&mut c, "cut it"));
-        assert_eq!(format!("{c:?}"), before);
-
-        // Another text at the end, an empty conversation, a suffix that is
-        // not the whole text.
-        let mut c = Vec::new();
-        push_user_text(&mut c, "cut it now".to_string());
-        assert!(!withdraw_user_text(&mut c, "it now"));
-        assert!(!withdraw_user_text(&mut c, "something else"));
-        assert!(!withdraw_user_text(&mut Vec::new(), "x"));
-        assert_eq!(c.len(), 1);
+        assert_eq!(ids, ["a", "b", "c"]);
     }
 }
