@@ -187,15 +187,15 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // so the headroom is still 34 B.
 //
 // #385 part 3 names where the user gets the stem model in `separate_stems`'s
-// description ("the user downloads once in Settings → Account", as
-// `transcribe`'s says): +17 B, measured 71,816 B to 71,833 B. The ratchet
-// rises by exactly that, so the headroom is still 34 B.
+// description: +17 B, measured 71,816 B to 71,833 B.
+// #766 then added `find_markers`, `add_markers`, `edit_markers` and
+// `delete_markers`: +1,953 B, measured 73,786 B. The ratchet rises by both deltas,
+// keeping main's 34 B of headroom.
 //
-// #765 (shelf `type` on `eq`, `taps`/`feedback` on `echo`) adds 24 B on top of
-// main's 71,833 B, with `echo`'s description and `taps` schema written shorter
-// to keep the slim request 500 B under its bound with MCP tools: measured
-// 71,857 B; the ratchet is main's 71,867 B + 24 B, the same 34 B margin.
-const FULL_TOOLS_MAX_BYTES: usize = 71_891; // main ratchet 71,867 + 24 B of #765
+// #765 (shelf `type` on `eq`, `taps`/`feedback` on `echo`) adds 24 B on top, with
+// `echo`'s description and `taps` schema written short to keep the slim request
+// 500 B under its bound with MCP tools.
+const FULL_TOOLS_MAX_BYTES: usize = 73_844; // main ratchet 73,820 + 24 B of #765
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -784,12 +784,13 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
 // #385's 47 B come on top: main's 74,995 B + 47 B, the same 34 B of headroom.
 //
-// #385 part 3's 17 B (the Settings pointer in `separate_stems`'s description)
-// come on top: measured 75,008 B to 75,025 B, the same 34 B of headroom.
+// #385 part 3's 17 B (the Settings pointer in `separate_stems`'s description):
+// measured 75,008 B to 75,025 B.
+// #766's four marker tools add 2,077 B here: measured 77,102 B. The ratchet rises
+// by that delta, keeping main's 34 B of headroom.
 //
-// #765 adds the same 24 B on top of main's 75,025 B: measured 75,049 B, the
-// same 34 B margin over main's 75,059 B + 24 B.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_083; // main ratchet 75,059 + 24 B of #765
+// #765 adds the same 24 B.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 77_160; // main ratchet 77,136 + 24 B of #765
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

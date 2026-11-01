@@ -245,25 +245,26 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            AddEffectTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool,
-            ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool, ClickRemovalTool,
-            CompactSessionTool, CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool,
-            CutRangeTool, CutWordsTool, DeEsserTool, DiarizeTool, DistortionTool,
-            DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
-            ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool, FadeTool, ForkNodeTool,
-            GainTool, GenerateChirpTool, GenerateClickTrackTool, GenerateDtmfTool,
-            GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
-            InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, ListSessionTool,
-            LoadTool, LowPassFilterTool, MeasureTool, MixToNewTrackTool, MonoToStereoTool,
-            MoveClipTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
-            NormalizeLoudnessTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool,
-            PitchShiftTool, PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool,
-            RemoveFillersTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool,
-            RenderPreviewTool, ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool,
-            ReverbTool, ReverseTool, RevertToTool, SelectRegionTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
-            SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool,
-            SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            AddEffectTool, AddMarkersTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool,
+            ApplyDiffTool, ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool,
+            ClickRemovalTool, CompactSessionTool, CompareNodesTool, CompressorTool, CopyRegionTool,
+            CreateBusTool, CutRangeTool, CutWordsTool, DeEsserTool, DeleteMarkersTool, DiarizeTool,
+            DistortionTool, DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EditMarkersTool,
+            EqTool, ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool,
+            FadeTool, FindMarkersTool, ForkNodeTool, GainTool, GenerateChirpTool,
+            GenerateClickTrackTool, GenerateDtmfTool, GenerateNoiseTool, GenerateToneTool,
+            HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool,
+            LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool,
+            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
+            PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
+            RevertToTool, SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool,
+            SetEffectBypassedTool, SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool,
+            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
+            SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
             StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
             TranscriptToMarkersTool, TremoloTool, TrimTool, TruncateSilenceTool,
             VocalReductionTool,
@@ -406,6 +407,11 @@ impl ToolDispatcher {
         // #618: the way to the tracks, buses and markers the session block
         // cut.
         d.register(Box::new(ListSessionTool));
+        // #766: find, add, edit and delete markers and regions.
+        d.register(Box::new(FindMarkersTool));
+        d.register(Box::new(AddMarkersTool));
+        d.register(Box::new(EditMarkersTool));
+        d.register(Box::new(DeleteMarkersTool));
         // #763: loudness, peaks, noise floor, clipping and the ACX check.
         d.register(Box::new(MeasureTool));
         d
