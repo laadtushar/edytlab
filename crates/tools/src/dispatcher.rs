@@ -245,13 +245,14 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            AddEffectTool, AddTrackTool, AlignEndToEndTool, AlignToBeatTool, AnalyzeTrackTool,
-            ApplyDiffTool, ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool,
-            ClickRemovalTool, CompactSessionTool, CompareNodesTool, CompressorTool, CopyRegionTool,
-            CreateBusTool, CutRangeTool, CutWordsTool, DeEsserTool, DiarizeTool, DistortionTool,
-            DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
-            ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool, FadeTool, ForkNodeTool,
-            GainTool, GenerateChirpTool, GenerateClickTrackTool, GenerateDtmfTool,
+            AddEffectTool, AddMarkersTool, AddTrackTool, AlignEndToEndTool, AlignToBeatTool,
+            AnalyzeTrackTool, ApplyDiffTool, ApplyRecipeTool, AuditionEffectTool, BatchApplyTool,
+            ChangeSpeedTool, ClickRemovalTool, CompactSessionTool, CompareNodesTool,
+            CompressorTool, CopyRegionTool, CreateBusTool, CutRangeTool, CutWordsTool, DeEsserTool,
+            DeleteMarkersTool, DiarizeTool, DistortionTool, DuckUnderSpeechTool,
+            DuplicateTrackTool, EchoTool, EditMarkersTool, EqTool, ExportLabelsTool,
+            ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool, FadeTool, FindMarkersTool,
+            ForkNodeTool, GainTool, GenerateChirpTool, GenerateClickTrackTool, GenerateDtmfTool,
             GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
             InsertSilenceTool, InvertTool, JoinClipsTool, LabelTool, LevelerTool, LimiterTool,
             ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool, MixToNewTrackTool,
@@ -273,7 +274,7 @@ impl ToolDispatcher {
         d.register(Box::new(TranscribeTool::new()));
         d.register(Box::new(ExportTranscriptTool));
         d.register(Box::new(TranscriptToMarkersTool));
-        d.register(Box::new(SeparateStemsTool));
+        d.register(Box::new(SeparateStemsTool::new()));
         d.register(Box::new(SplitBySpeakerTool));
         d.register(Box::new(DiarizeTool::new()));
         d.register(Box::new(AnalyzeTrackTool));
@@ -409,6 +410,11 @@ impl ToolDispatcher {
         // #618: the way to the tracks, buses and markers the session block
         // cut.
         d.register(Box::new(ListSessionTool));
+        // #766: find, add, edit and delete markers and regions.
+        d.register(Box::new(FindMarkersTool));
+        d.register(Box::new(AddMarkersTool));
+        d.register(Box::new(EditMarkersTool));
+        d.register(Box::new(DeleteMarkersTool));
         // #763: loudness, peaks, noise floor, clipping and the ACX check.
         d.register(Box::new(MeasureTool));
         d

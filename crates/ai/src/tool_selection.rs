@@ -226,10 +226,17 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// 1,177 B (1,176 B to 1,018 B for a plain request) with the budget as it
 /// was, so 582 B of it is free for MCP names (the test keeps 400 B) and
 /// about 180 B of new built-in names fit before it has to rise again.
+/// `find_markers`, `add_markers`, `edit_markers` and `delete_markers` (#766)
+/// add 53 B to that line (1,177 B to 1,230 B, measured), so 529 B of the
+/// budget is still free for MCP names, and the budget does not rise with them:
+/// the request with 60 MCP tools registered is the budget's size, and
+/// `tests/request_size.rs` holds that 500 B under the bound. About 129 B of
+/// new built-in names fit before the 400 B kept for MCP names is reached.
 pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
 
 /// A tool whose description begins with this does nothing in this build
-/// (`separate_stems`: its inference is not shipped). The full list still
+/// (`separate_stems` said so until #385 shipped its inference; none does now,
+/// and an MCP server's tool may). The full list still
 /// carries it, with the description saying so; a small model is better
 /// served by not being offered it at all.
 ///
@@ -246,6 +253,11 @@ pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// tool, `vocal_reduction`, but they are what a message about the voice or
 /// about noise says, and the tool takes the vocals *out*. A message
 /// reaches it by a [`CUES`] entry ("remove the vocals", "karaoke").
+///
+/// "find", "edit" and "delete" are here because `find_markers`,
+/// `edit_markers` and `delete_markers` (#766) begin with them and every
+/// message uses them ("delete the first five seconds", "make an edit at
+/// 10 s", "find the loudest part"); only "marker" names those tools.
 const GENERIC_TOKENS: &[&str] = &[
     "track",
     "effect",
@@ -276,6 +288,9 @@ const GENERIC_TOKENS: &[&str] = &[
     "insert",
     "vocal",
     "reduction",
+    "find",
+    "edit",
+    "delete",
 ];
 
 /// Words that say a message is about an effect on a track: "effect", and
@@ -308,7 +323,7 @@ const CUES: &[Cue] = &[
     },
     // "export each track separately": nothing in it is a word of
     // `export_multiple`, and "separately" begins like `separate_stems`,
-    // which does nothing in this build.
+    // which would be sent for it and write four WAVs nobody asked for.
     Cue {
         tool: "export_multiple",
         any: &["separately", "individual", "each", "every"],
@@ -1463,6 +1478,48 @@ mod tests {
         }
     }
 
+    /// `find_markers`, `edit_markers` and `delete_markers` (#766) begin
+    /// with verbs every message uses ("delete the first five seconds",
+    /// "make an edit at 10 s", "find the loudest part"). Only the word
+    /// "marker" names them, so the verbs alone send none of the four.
+    #[test]
+    fn a_plain_verb_does_not_send_the_marker_tools() {
+        let marker_tools = [
+            "find_markers",
+            "add_markers",
+            "edit_markers",
+            "delete_markers",
+        ];
+        for text in [
+            "delete the first five seconds of track 1",
+            "make an edit at 10 s",
+            "find the loudest part",
+        ] {
+            let sent = sent_for(text);
+            let wrongly: Vec<_> = marker_tools
+                .iter()
+                .filter(|t| sent.iter().any(|n| n == *t))
+                .collect();
+            assert!(
+                wrongly.is_empty(),
+                "{text:?} names no marker, yet sent {wrongly:?}"
+            );
+        }
+        for text in [
+            "find the marker called intro",
+            "rename my markers",
+            "mark the chorus",
+        ] {
+            let sent = sent_for(text);
+            for t in marker_tools {
+                assert!(
+                    sent.iter().any(|n| n == t),
+                    "{text:?} should send {t}: {sent:?}"
+                );
+            }
+        }
+    }
+
     /// "Master" with no effect in the message, or an effect with no
     /// master, is not a request for a master-bus effect. The effect alone
     /// reaches its own tool; the master alone reaches nothing.
@@ -1538,45 +1595,64 @@ mod tests {
     // Not implemented, and the names line
     // -----------------------------------------------------------------
 
+    /// A tool that does nothing in this build, as the marker spells it. No
+    /// registered tool is one now (`separate_stems` works, #385), but the
+    /// rule is for any that says so, an MCP server's included, so the tests
+    /// add one.
+    fn a_stub() -> Value {
+        json!({
+            "name": "stub_tool",
+            "description": "NOT IMPLEMENTED IN THIS BUILD. Would split a track in two.",
+            "input_schema": { "type": "object" },
+        })
+    }
+
     #[test]
     fn a_tool_that_says_it_is_not_implemented_is_never_selected_or_listed() {
-        let registry = all_tools();
-        let stubs: Vec<&str> = registry
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|t| {
-                t["description"]
-                    .as_str()
-                    .is_some_and(|d| d.contains("NOT IMPLEMENTED"))
-            })
-            .map(|t| t["name"].as_str().unwrap())
-            .collect();
-        assert!(
-            !stubs.is_empty(),
-            "no registered tool says it is not implemented, so this test checks nothing: has \
-             the marker changed?"
-        );
+        let mut registry = all_tools();
+        registry.as_array_mut().unwrap().push(a_stub());
         for text in [
             "export each track separately",
             "separate the stems",
             "transcribe the interview",
-            "separate_stems transcribe",
+            "stub_tool transcribe",
+            "run the stub tool on track 1",
         ] {
-            let selection = selection_for(text, &[]);
+            let selection = slim_tool_schemas(
+                registry.clone(),
+                text,
+                &[],
+                &[],
+                &[],
+                SLIM_TOOLS_BUDGET_BYTES,
+            );
             let sent = names(&selection.tools);
-            for stub in &stubs {
-                assert!(
-                    !sent.iter().any(|n| n == stub),
-                    "{text:?} sent {stub}: {sent:?}"
-                );
-                assert!(
-                    !selection.unsent.iter().any(|n| n == stub),
-                    "{text:?} lists {stub} as callable: {:?}",
-                    selection.unsent
-                );
-            }
+            assert!(
+                !sent.iter().any(|n| n == "stub_tool"),
+                "{text:?} sent the stub: {sent:?}"
+            );
+            assert!(
+                !selection.unsent.iter().any(|n| n == "stub_tool"),
+                "{text:?} lists the stub as callable: {:?}",
+                selection.unsent
+            );
         }
+    }
+
+    /// `separate_stems` runs now (#385): a small model is offered it like any
+    /// other tool, sent when the message names it and listed by name when it
+    /// does not.
+    #[test]
+    fn separate_stems_is_offered_to_a_small_model() {
+        let selection = selection_for("separate the stems of track 1", &[]);
+        let sent = names(&selection.tools);
+        assert!(sent.iter().any(|n| n == "separate_stems"), "{sent:?}");
+        let selection = selection_for("make it louder", &[]);
+        assert!(
+            selection.unsent.iter().any(|n| n == "separate_stems"),
+            "{:?}",
+            selection.unsent
+        );
     }
 
     /// `transcribe`, and the tools that work on its transcript, run now
@@ -1609,33 +1685,26 @@ mod tests {
     /// above, and the plan check, which marks a plan step naming such a tool
     /// "unavailable" (#482). This is the check that the stub still carries
     /// it, and that a working tool does not: either way the other half of
-    /// the pair is wrong.
+    /// the pair is wrong. No registered tool is a stub now (#385 made the last
+    /// one work), so this holds the reader to a stub of its own, and the
+    /// registry to having none.
     #[test]
-    fn the_registered_stubs_carry_the_marker_and_working_tools_do_not() {
+    fn the_marker_reads_a_stub_and_no_registered_tool_is_one() {
+        assert!(is_not_implemented(&a_stub()), "the marker is not read");
         let registry = all_tools();
-        let flagged = |name: &str| -> bool {
-            let schema = registry
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|t| t["name"] == name)
-                .unwrap_or_else(|| panic!("{name} is not registered"));
-            is_not_implemented(schema)
-        };
+        let flagged: Vec<&str> = registry
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| is_not_implemented(t))
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
         assert!(
-            flagged("separate_stems"),
-            "separate_stems no longer reads as not implemented"
+            flagged.is_empty(),
+            "{flagged:?} read as not implemented: a tool that works must not say it does not"
         );
-        for working in [
-            "analyze_track",
-            "reverse",
-            "set_track_gain",
-            "label",
-            "transcribe",
-            "cut_words",
-            "remove_fillers",
-        ] {
-            assert!(!flagged(working), "{working} reads as not implemented");
+        for working in ["separate_stems", "transcribe", "analyze_track", "reverse"] {
+            assert!(names(&registry).iter().any(|n| n == working), "{working}");
         }
     }
 

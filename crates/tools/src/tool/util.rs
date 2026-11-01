@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde_json::Value;
+use session::audio_store::{AudioFolder, AudioStore};
 use session::{Clip, EnvelopePoint, NodeId, SessionNode, SessionState, Track};
 
 use crate::{ToolContext, ToolResult};
@@ -932,8 +933,8 @@ pub(crate) fn render_warnings_for_tracks(state: &SessionState, tracks: &[usize])
         .collect()
 }
 
-/// Write `samples` to the content-addressed WAV `path`, unless it is
-/// already there, so that the name is only ever on a whole file.
+/// Write `samples` to the content-addressed WAV `stem` in `folder`, unless it
+/// is already there, so that the name is only ever on a whole file.
 ///
 /// The name is trusted on sight: an existing file under it is reused
 /// without a look, and a node names it as audio that exists. So a write
@@ -947,26 +948,33 @@ pub(crate) fn render_warnings_for_tracks(state: &SessionState, tracks: &[usize])
 /// file an agent tool is writing, and an agent run that lost a race to a
 /// user edit writes it again on its retry.
 pub(crate) fn write_cas_wav(
+    store: &AudioStore,
+    folder: AudioFolder,
+    stem: &str,
     samples: &[f32],
     sample_rate: u32,
     channels: u16,
-    path: &Path,
-) -> Result<(), String> {
-    put_cas_file(path, |tmp| {
+) -> Result<PathBuf, String> {
+    store.put_with(folder, stem, |tmp| {
         audio_engine::write_wav(samples, sample_rate, channels, tmp).map_err(|e| e.to_string())
     })
 }
 
-/// Copy the WAV at `src` to the content-addressed `path`, unless it is
-/// already there, with the guarantees of [`write_cas_wav`].
+/// Copy the WAV at `src` to the content-addressed file `stem` in `folder`,
+/// unless it is already there, with the guarantees of [`write_cas_wav`].
 ///
 /// For a WAV the renderer can open as it is but that cannot stay where it
 /// is (#580). The bytes are kept rather than decoded and written again:
 /// [`write_cas_wav`] quantises to 16 bits, and a copy that sounded
 /// different, or stopped being the file a render of an untouched track
 /// reproduces byte for byte, would be a worse stand-in than the file.
-pub(crate) fn copy_cas_wav(src: &Path, path: &Path) -> Result<(), String> {
-    put_cas_file(path, |tmp| {
+pub(crate) fn copy_cas_wav(
+    store: &AudioStore,
+    folder: AudioFolder,
+    stem: &str,
+    src: &Path,
+) -> Result<PathBuf, String> {
+    store.put_with(folder, stem, |tmp| {
         let mut from = std::fs::File::open(src)
             .map_err(|e| format!("failed to read {}: {e}", src.display()))?;
         let mut to = std::fs::OpenOptions::new()
@@ -978,33 +986,6 @@ pub(crate) fn copy_cas_wav(src: &Path, path: &Path) -> Result<(), String> {
             .map(|_| ())
             .map_err(|e| e.to_string())
     })
-}
-
-/// Put the file `fill` writes at `path`, whole or not at all, unless
-/// `path` is already there.
-fn put_cas_file(path: &Path, fill: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
-    if path.exists() {
-        return Ok(());
-    }
-    let dir = path
-        .parent()
-        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
-    let tmp = tempfile::Builder::new()
-        .prefix(".cas-")
-        .suffix(".wav.part")
-        .tempfile_in(dir)
-        .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
-        .into_temp_path();
-    fill(&tmp)?;
-    match tmp.persist(path) {
-        Ok(()) => Ok(()),
-        // Another writer of the same name got there first. The name is the
-        // hash of the content, so what is there is what this would have
-        // put there, and on Windows replacing a file somebody has open
-        // fails.
-        Err(_) if path.is_file() => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
 }
 
 /// Run a destructive sample-buffer edit against the first clip of
@@ -1430,9 +1411,17 @@ where
     // which holds the samples as 16-bit PCM.
     let hash_hex = crate::provenance::audio_hash(&window, rate_out, channels_out);
     let content_hash = crate::provenance::legacy_sample_hash(&window);
-    let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
+    let audio_store = AudioStore::new(ctx.store.project_dir());
+    let cas_path = audio_store.path(AudioFolder::Derived, &hash_hex);
 
-    if let Err(e) = write_cas_wav(&window, rate_out, channels_out, &cas_path) {
+    if let Err(e) = write_cas_wav(
+        &audio_store,
+        AudioFolder::Derived,
+        &hash_hex,
+        &window,
+        rate_out,
+        channels_out,
+    ) {
         return ToolResult::Error(format!(
             "failed to write CAS wav {}: {e}",
             cas_path.display()
@@ -2426,5 +2415,167 @@ mod timeline_stream_tests {
         .unwrap_err();
         assert!(err.contains("mixes formats"), "{err}");
         assert_eq!(std::fs::metadata(&out).unwrap().len(), 0, "nothing written");
+    }
+}
+
+#[cfg(test)]
+mod effect_edit_order_tests {
+    //! The order `EffectEdit` checks things in, and what `window` clamps to.
+    //! Each refusal is a different message, so a reordering shows up here.
+
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use serde_json::json;
+
+    use super::{window, EffectEdit};
+    use crate::dispatcher::ToolDispatcher;
+    use crate::{ToolContext, ToolResult};
+
+    const RATE: u32 = 8_000;
+
+    fn wav(dir: &std::path::Path, name: &str, channels: u16) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let spec = WavSpec {
+            channels,
+            sample_rate: RATE,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&path, spec).unwrap();
+        for _ in 0..RATE * u32::from(channels) {
+            w.write_sample(1_000i16).unwrap();
+        }
+        w.finalize().unwrap();
+        path
+    }
+
+    fn error(result: ToolResult) -> String {
+        match result {
+            ToolResult::Error(m) => m,
+            ToolResult::Ok(v) => panic!("expected an error, got {v}"),
+        }
+    }
+
+    /// Track 0 mono with a clip, track 1 stereo with a clip, track 2 empty.
+    macro_rules! session {
+        ($tmp:ident, $ctx:ident) => {
+            let $tmp = tempfile::TempDir::new().unwrap();
+            let mono = wav($tmp.path(), "mono.wav", 1);
+            let stereo = wav($tmp.path(), "stereo.wav", 2);
+            let mut store = session::Store::open($tmp.path()).unwrap();
+            let mut engine = audio_engine::Engine::new();
+            let mut clipboard: Option<crate::Clipboard> = None;
+            let mut $ctx = ToolContext {
+                store: &mut store,
+                engine: &mut engine,
+                user_message: "",
+                clipboard: &mut clipboard,
+                allowed_tools: None,
+            };
+            let dispatcher = ToolDispatcher::default_dispatcher();
+            for (name, args) in [
+                ("load", json!({ "path": mono.to_string_lossy() })),
+                ("load", json!({ "path": stereo.to_string_lossy() })),
+                ("add_track", json!({})),
+            ] {
+                if let ToolResult::Error(m) = dispatcher.invoke(name, args, &mut $ctx).unwrap() {
+                    panic!("setup `{name}` failed: {m}");
+                }
+            }
+        };
+    }
+
+    #[test]
+    fn a_reversed_window_is_refused_before_the_track_is_looked_up() {
+        session!(_tmp, ctx);
+        // Track 99 does not exist, but the window is checked first.
+        let msg = error(EffectEdit::on(99).run_in_window(
+            &mut ctx,
+            Some(5.0),
+            Some(1.0),
+            "x",
+            |_, _, _| panic!("effect ran"),
+        ));
+        assert!(msg.starts_with("invalid range"), "{msg}");
+        assert!(!msg.contains("out of range"), "{msg}");
+
+        // Control: a valid window on that track reaches the track error.
+        let msg = error(EffectEdit::on(99).run_in_window(
+            &mut ctx,
+            Some(1.0),
+            Some(5.0),
+            "x",
+            |_, _, _| panic!("effect ran"),
+        ));
+        assert!(msg.contains("track index 99 out of range"), "{msg}");
+    }
+
+    #[test]
+    fn no_clips_is_reported_before_the_stereo_refusal() {
+        session!(_tmp, ctx);
+        let msg = error(
+            EffectEdit::on(2)
+                .stereo_only("widen")
+                .run(&mut ctx, "x", |_, _, _| panic!("effect ran")),
+        );
+        assert_eq!(msg, "track 2 has no clips");
+    }
+
+    #[test]
+    fn a_mono_track_with_clips_gets_the_stereo_refusal() {
+        session!(_tmp, ctx);
+        let msg = error(
+            EffectEdit::on(0)
+                .stereo_only("widen")
+                .run(&mut ctx, "x", |_, _, _| panic!("effect ran")),
+        );
+        assert_eq!(msg, "widen requires a stereo track");
+        // Control: the stereo track passes the same check and the effect runs.
+        let mut channels = 0;
+        let result = EffectEdit::on(1)
+            .stereo_only("widen")
+            .run(&mut ctx, "x", |_, _, c| channels = c);
+        assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+        assert_eq!(channels, 2);
+    }
+
+    #[test]
+    fn source_channels_reads_the_first_clip() {
+        session!(_tmp, ctx);
+        assert_eq!(super::source_channels(&ctx, 0), Ok(1));
+        assert_eq!(super::source_channels(&ctx, 1), Ok(2));
+        assert_eq!(
+            super::source_channels(&ctx, 2),
+            Err("track 2 has no clips".to_string())
+        );
+        assert!(super::source_channels(&ctx, 99)
+            .unwrap_err()
+            .contains("out of range"));
+    }
+
+    #[test]
+    fn the_window_clamps_to_the_buffer() {
+        // 4 stereo frames at 2 Hz: 8 samples.
+        let len = 8;
+        // Past the end clamps, in whole frames.
+        assert_eq!(window(len, 2, 2, Some(1.0), Some(100.0)), (4, 8));
+        assert_eq!(window(len, 2, 2, Some(100.0), Some(200.0)), (8, 8));
+        // Missing ends are the buffer's edges.
+        assert_eq!(window(len, 2, 2, None, None), (0, 8));
+        // NaN and negative starts are frame 0.
+        assert_eq!(window(len, 2, 2, Some(f64::NAN), Some(1.0)), (0, 4));
+        assert_eq!(window(len, 2, 2, Some(-3.0), Some(1.0)), (0, 4));
+        // A trailing partial frame is never cut into.
+        assert_eq!(window(9, 2, 2, None, None), (0, 8));
+        // Every result slices without panicking.
+        let buf = vec![0f32; len];
+        for (s, e) in [
+            (Some(f64::NAN), None),
+            (Some(-1.0), Some(1e9)),
+            (Some(1e9), None),
+        ] {
+            let (a, b) = window(len, 2, 2, s, e);
+            assert!(a <= b && b <= len);
+            let _ = &buf[a..b];
+        }
     }
 }

@@ -22,6 +22,7 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
+use session::audio_store::{AudioFolder, AudioStore};
 use session::{Clip, EnvelopePoint};
 
 use crate::schema::anthropic_tool;
@@ -224,25 +225,28 @@ impl Tool for JoinClipsTool {
                 Ok(a) => a,
                 Err(msg) => return Ok(ToolResult::Error(msg)),
             };
-            let derived_dir = crate::provenance::derived_dir(ctx.store.project_dir());
-            if let Err(e) = std::fs::create_dir_all(&derived_dir) {
-                return Ok(ToolResult::Error(format!(
-                    "failed to create derived dir {}: {e}",
-                    derived_dir.display()
-                )));
-            }
             // Named for the samples and their layout (#620); the clip's
             // `content_hash` stays the hash of the samples alone, as every
-            // edit's does.
+            // edit's does. The audio store writes it (#719).
             let name =
                 crate::provenance::audio_hash(&audio.window, audio.sample_rate, audio.channels);
-            let path = derived_dir.join(format!("{name}.wav"));
-            if let Err(e) = write_cas_wav(&audio.window, audio.sample_rate, audio.channels, &path) {
-                return Ok(ToolResult::Error(format!(
-                    "failed to write {}: {e}",
-                    path.display()
-                )));
-            }
+            let audio_store = AudioStore::new(ctx.store.project_dir());
+            let path = match write_cas_wav(
+                &audio_store,
+                AudioFolder::Derived,
+                &name,
+                &audio.window,
+                audio.sample_rate,
+                audio.channels,
+            ) {
+                Ok(p) => p,
+                Err(e) => {
+                    return Ok(ToolResult::Error(format!(
+                        "failed to write {}: {e}",
+                        audio_store.path(AudioFolder::Derived, &name).display()
+                    )))
+                }
+            };
             let frames = (audio.window.len() / audio.channels.max(1) as usize) as u64;
             Clip {
                 source_path: path,
