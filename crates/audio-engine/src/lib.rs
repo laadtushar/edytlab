@@ -47,7 +47,8 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Inclusive-start, exclusive-end frame range relative to the source clip.
+/// Inclusive-start, exclusive-end range on the project mixdown timeline,
+/// measured in frames at the project's sample rate.
 #[derive(Debug, Clone, Copy)]
 pub struct TimeRange {
     pub start_frame: u64,
@@ -73,6 +74,14 @@ pub struct RenderReport {
     pub warnings: Vec<String>,
 }
 
+/// Completion of a controlled range render. Cancellation is not a render
+/// failure and carries no report for a partial output.
+#[derive(Debug)]
+pub enum RenderOutcome {
+    Complete(RenderReport),
+    Cancelled,
+}
+
 /// Render `state` to a 16-bit PCM WAV at `out`. Always uses the source
 /// sample rate and channel count.
 pub fn render_state_to_wav(
@@ -81,6 +90,26 @@ pub fn render_state_to_wav(
     range: Option<TimeRange>,
 ) -> Result<RenderReport> {
     render::render(state, out, range)
+}
+
+/// Render a range to 16-bit PCM WAV, checking `cancel` before setup,
+/// before each existing prefix-discard and output block, and after the
+/// final block. Blocks contain at most one second of project frames;
+/// setup and an in-progress block are not interrupted.
+///
+/// A pre-cancelled call leaves `out` untouched. Later cancellation may
+/// leave a partial WAV at `out`; the caller owns its cleanup and must
+/// publish the file only after [`RenderOutcome::Complete`]. A callback
+/// that always returns false preserves the legacy range render's bytes
+/// and report. Whole renders retain their existing byte-copy fast path
+/// through [`render_state_to_wav`].
+pub fn render_state_range_to_wav_cancellable(
+    state: &SessionState,
+    out: &Path,
+    range: TimeRange,
+    cancel: &dyn Fn() -> bool,
+) -> Result<RenderOutcome> {
+    render::render_range_cancellable(state, out, range, cancel)
 }
 
 /// Stateless wrapper around the engine entry points so callers can hold a
@@ -107,5 +136,16 @@ impl Engine {
         range: Option<TimeRange>,
     ) -> Result<RenderReport> {
         render_state_to_wav(state, out, range)
+    }
+
+    /// See [`render_state_range_to_wav_cancellable`].
+    pub fn render_range_to_wav_cancellable(
+        &self,
+        state: &SessionState,
+        out: &Path,
+        range: TimeRange,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<RenderOutcome> {
+        render_state_range_to_wav_cancellable(state, out, range, cancel)
     }
 }

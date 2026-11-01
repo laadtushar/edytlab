@@ -10,151 +10,47 @@
 //! the mark still land on the words it was named for — rather than
 //! about arithmetic on a struct.
 
-use std::path::{Path, PathBuf};
-
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{ok, write_frames, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
-fn write_sine(path: &Path, seconds: usize) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SAMPLE_RATE as usize * seconds) {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        w.write_sample(((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-/// tone / silence / tone / silence / tone, one second each.
-///
-/// `truncate_silence` needs actual silence to find; the 30s sine the
-/// other tests use has none, so those tests would pass whatever the
-/// remap did.
-fn write_tone_islands(path: &Path) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for band in 0..5 {
-        let silent = band % 2 == 1;
-        for n in 0..SAMPLE_RATE as usize {
-            if silent {
-                w.write_sample(0i16).unwrap();
-            } else {
-                let t = n as f32 / SAMPLE_RATE as f32;
-                w.write_sample(((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0) as i16)
-                    .unwrap();
-            }
-        }
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let wav = write_sine(&dir.path().join("episode.wav"), 30);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": wav.to_string_lossy() }));
-        s
+        Session::with_take(30.0)
     }
 
     /// A session whose track has real silence in it, for
-    /// `truncate_silence`.
+    /// `truncate_silence`: tone / silence / tone / silence / tone, one
+    /// second each. `truncate_silence` needs actual silence to find; the
+    /// 30s sine the other tests use has none, so those tests would pass
+    /// whatever the remap did.
     fn silent_with_tone_islands() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let wav = write_tone_islands(&dir.path().join("islands.wav"));
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": wav.to_string_lossy() }));
+        let mut s = Session::empty();
+        let wav = write_frames(
+            &s.dir.path().join("islands.wav"),
+            SAMPLE_RATE,
+            1,
+            SAMPLE_RATE as usize * 5,
+            |n| {
+                let (band, n) = (n / SAMPLE_RATE as usize, n % SAMPLE_RATE as usize);
+                if band % 2 == 1 {
+                    return 0.0;
+                }
+                let t = n as f32 / SAMPLE_RATE as f32;
+                (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0 / 32_767.0
+            },
+        );
+        s.load(&wav);
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
     }
 
     fn mark(&mut self, name: &str, at: f64) {
         ok(self.call("label", json!({ "name": name, "time": at })));
-    }
-
-    /// The label lane as (name, start, end) in seconds.
-    /// Seed a transcript on the current head.
-    ///
-    /// The transcript is the second time-addressed record in the state
-    /// and the one no length-changing tool used to move (#231). Tests
-    /// that assert about it need one to exist first.
-    fn seed_transcript(&mut self, words: &[(&str, f32, f32)]) {
-        let mut state = {
-            let head = self.store.head().expect("head");
-            self.store.get(head).expect("node").state
-        };
-        state.transcript = Some(session::Transcript {
-            source: None,
-            words: words
-                .iter()
-                .map(|(t, a, b)| session::TranscriptWord {
-                    text: (*t).into(),
-                    start_s: *a,
-                    end_s: *b,
-                    confidence: 0.9,
-                })
-                .collect(),
-        });
-        self.store
-            .append(session::SessionNode {
-                id: session::NodeId([0u8; 32]),
-                parent: None,
-                created_at: chrono::Utc::now(),
-                label: Some("transcript".into()),
-                reasoning: None,
-                state,
-                op: None,
-            })
-            .expect("append");
     }
 
     /// The transcript at the current head, as `(text, start, end)`.
@@ -197,13 +93,6 @@ impl Session {
             .find(|(n, _, _)| n == name)
             .unwrap_or_else(|| panic!("no label named {name}: {:?}", self.labels()))
             .1
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
     }
 }
 
@@ -432,7 +321,7 @@ fn an_edit_with_no_labels_is_unaffected() {
 #[test]
 fn a_word_edit_after_a_cut_removes_the_audio_the_word_actually_occupies() {
     let mut s = Session::new();
-    s.seed_transcript(&[("alpha", 0.0, 0.5), ("omega", 3.0, 3.5)]);
+    s.with_transcript(&[("alpha", 0.0, 0.5), ("omega", 3.0, 3.5)]);
 
     // Two seconds out of the middle: [1.0, 3.0).
     ok(s.call(
@@ -471,7 +360,7 @@ fn a_word_edit_after_a_cut_removes_the_audio_the_word_actually_occupies() {
 #[test]
 fn a_cut_pulls_the_later_words_back_with_it() {
     let mut s = Session::new();
-    s.seed_transcript(&[("before", 0.2, 0.8), ("after", 10.0, 10.5)]);
+    s.with_transcript(&[("before", 0.2, 0.8), ("after", 10.0, 10.5)]);
     ok(s.call(
         "cut_range",
         json!({
@@ -495,7 +384,7 @@ fn a_cut_pulls_the_later_words_back_with_it() {
 #[test]
 fn a_word_inside_the_cut_is_dropped() {
     let mut s = Session::new();
-    s.seed_transcript(&[("keep", 0.0, 0.5), ("gone", 3.0, 3.5), ("keep2", 8.0, 8.5)]);
+    s.with_transcript(&[("keep", 0.0, 0.5), ("gone", 3.0, 3.5), ("keep2", 8.0, 8.5)]);
     ok(s.call(
         "cut_range",
         json!({
@@ -511,7 +400,7 @@ fn a_word_inside_the_cut_is_dropped() {
 #[test]
 fn an_insert_pushes_the_later_words_along() {
     let mut s = Session::new();
-    s.seed_transcript(&[("early", 0.5, 1.0), ("late", 6.0, 6.5)]);
+    s.with_transcript(&[("early", 0.5, 1.0), ("late", 6.0, 6.5)]);
     ok(s.call(
         "insert_silence",
         json!({ "track": 0, "at": 3.0, "duration": 2.0 }),
@@ -577,7 +466,7 @@ fn trim_drops_labels_outside_the_window_and_reports_them() {
 #[test]
 fn trim_rebases_the_transcript_onto_the_kept_window() {
     let mut s = Session::new();
-    s.seed_transcript(&[("outside", 2.0, 2.5), ("inside", 12.0, 12.5)]);
+    s.with_transcript(&[("outside", 2.0, 2.5), ("inside", 12.0, 12.5)]);
     ok(s.call(
         "trim",
         json!({
@@ -611,7 +500,7 @@ fn trim_rebases_the_transcript_onto_the_kept_window() {
 fn change_speed_rescales_labels_and_words() {
     let mut s = Session::new();
     s.mark("halfway", 10.0);
-    s.seed_transcript(&[("word", 10.0, 11.0)]);
+    s.with_transcript(&[("word", 10.0, 11.0)]);
     ok(s.call("change_speed", json!({ "track": 0, "factor": 2.0 })));
 
     assert!(
@@ -643,7 +532,7 @@ fn slowing_down_pushes_labels_later() {
 fn time_stretch_rescales_labels_and_words() {
     let mut s = Session::new();
     s.mark("halfway", 10.0);
-    s.seed_transcript(&[("word", 10.0, 11.0)]);
+    s.with_transcript(&[("word", 10.0, 11.0)]);
     ok(s.call(
         "time_stretch",
         json!({ "track": 0, "factor": 2.0, "preserve_formants": false }),
@@ -742,7 +631,7 @@ fn truncate_silence_applies_removed_spans_back_to_front() {
 fn repeat_selection_appends_and_so_moves_nothing() {
     let mut s = Session::new();
     s.mark("chapter two", 12.0);
-    s.seed_transcript(&[("word", 12.0, 12.5)]);
+    s.with_transcript(&[("word", 12.0, 12.5)]);
     ok(s.call(
         "repeat_selection",
         json!({ "track": 0, "start_sec": 1.0, "end_sec": 3.0, "times": 2 }),
@@ -831,7 +720,7 @@ fn a_region_spanning_the_paste_point_grows_to_hold_it() {
 #[test]
 fn a_paste_pushes_the_later_words_along() {
     let mut s = Session::new();
-    s.seed_transcript(&[("alpha", 0.0, 0.5), ("omega", 8.0, 8.5)]);
+    s.with_transcript(&[("alpha", 0.0, 0.5), ("omega", 8.0, 8.5)]);
 
     copy_then_paste(&mut s, 0.0, 3.0, 5.0);
 

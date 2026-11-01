@@ -21,13 +21,12 @@
 //! effect whose params carry a name no renderer reads, and it must still
 //! open, render and be edited; the last group of tests pins that.
 
-use std::path::{Path, PathBuf};
-
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
 use session::EffectInstance;
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, write_sine, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
@@ -70,79 +69,25 @@ impl Chain {
     }
 }
 
-fn write_sine(path: &Path) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SAMPLE_RATE as usize / 2) {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 300.0 * t).sin() * 0.3;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     /// One track with a sine on it, and a bus called "Drums" that it sends
     /// to, so a chain on any of the three is heard.
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let src = write_sine(&dir.path().join("in.wav"));
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        ok(s.call("load", json!({ "path": src.to_string_lossy() })));
-        let bus = ok(s.call("create_bus", json!({ "name": "Drums" })));
-        let id = bus["bus_id"].as_str().expect("a bus id").to_string();
+        let mut s = Session::empty();
+        let src = write_sine(
+            &s.dir.path().join("in.wav"),
+            SAMPLE_RATE,
+            300.0,
+            0.3,
+            SAMPLE_RATE as usize / 2,
+        );
+        s.load(&src);
+        let id = s.create_bus("Drums");
         ok(s.call(
             "set_send",
             json!({ "track": 0, "bus_id": id, "level_db": 0.0 }),
         ));
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("list nodes").len()
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store
-            .get(self.store.head().expect("a head"))
-            .expect("head node")
-            .state
     }
 
     /// The chain at the head.
@@ -157,7 +102,7 @@ impl Session {
 
     /// Put `effect` on `which` the way a project saved by an older build
     /// holds one: written straight into a node, not through a tool.
-    fn plant(&mut self, which: Chain, effect: EffectInstance) {
+    fn plant_in(&mut self, which: Chain, effect: EffectInstance) {
         let mut node = self.store.get(self.store.head().expect("a head")).unwrap();
         match which {
             Chain::Track => node.state.tracks[0].effects.push(effect),
@@ -165,31 +110,6 @@ impl Session {
             Chain::Bus => node.state.bus_routing.buses[0].effects.push(effect),
         }
         self.store.append(node).expect("append");
-    }
-
-    /// Render the head the way the app does.
-    fn render(&self, name: &str) -> Vec<i16> {
-        let out = self.dir.path().join(name);
-        audio_engine::render_state_to_wav(&self.state(), &out, None).expect("render");
-        WavReader::open(&out)
-            .expect("open render")
-            .samples::<i16>()
-            .map(|r| r.expect("sample"))
-            .collect()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 
@@ -226,7 +146,7 @@ fn names_of_other_kinds(kind: &str) -> Vec<&'static str> {
 fn gain_db_on_a_gain_is_refused_and_the_message_names_db() {
     for chain in CHAINS {
         let mut s = Session::new();
-        let head = s.head();
+        let head = s.head_hex();
         let nodes = s.node_count();
 
         let msg = err(s.call(
@@ -244,7 +164,7 @@ fn gain_db_on_a_gain_is_refused_and_the_message_names_db() {
             "{chain:?}: names the key that works: {msg}"
         );
         assert_eq!(
-            s.head(),
+            s.head_hex(),
             head,
             "{chain:?}: a refusal must not move the head"
         );
@@ -263,7 +183,7 @@ fn gain_db_on_a_gain_is_refused_and_the_message_names_db() {
 fn add_effect_refuses_an_unknown_name_for_every_kind_on_every_chain() {
     for chain in CHAINS {
         let mut s = Session::new();
-        let head = s.head();
+        let head = s.head_hex();
         let nodes = s.node_count();
 
         for (kind, param_names) in KINDS {
@@ -289,7 +209,11 @@ fn add_effect_refuses_an_unknown_name_for_every_kind_on_every_chain() {
                     "{chain:?} {kind}: lists `{other}`, which {kind} does not take: {msg}"
                 );
             }
-            assert_eq!(s.head(), head, "{chain:?} {kind}: the head must not move");
+            assert_eq!(
+                s.head_hex(),
+                head,
+                "{chain:?} {kind}: the head must not move"
+            );
             assert_eq!(s.node_count(), nodes, "{chain:?} {kind}: no node");
             assert!(s.chain(chain).is_empty(), "{chain:?} {kind}: chain empty");
         }
@@ -301,14 +225,14 @@ fn add_effect_refuses_an_unknown_name_for_every_kind_on_every_chain() {
 #[test]
 fn a_name_that_belongs_to_another_kind_is_refused() {
     let mut s = Session::new();
-    let head = s.head();
+    let head = s.head_hex();
     let msg = err(s.call(
         "add_effect",
         json!({ "track": 0, "kind": "gain", "params": { "ceiling_db": -1.0 } }),
     ));
     assert!(names(&msg, "ceiling_db"), "{msg}");
     assert!(names(&msg, "db"), "{msg}");
-    assert_eq!(s.head(), head);
+    assert_eq!(s.head_hex(), head);
 
     // Names are matched exactly, as the renderer matches them.
     for name in ["DB", "Db", " db", "db "] {
@@ -318,7 +242,7 @@ fn a_name_that_belongs_to_another_kind_is_refused() {
         ));
         assert!(msg.contains("unknown"), "{name:?}: {msg}");
     }
-    assert_eq!(s.head(), head);
+    assert_eq!(s.head_hex(), head);
 }
 
 /// One bad key among good ones refuses the whole call, and every bad key is
@@ -326,7 +250,7 @@ fn a_name_that_belongs_to_another_kind_is_refused() {
 #[test]
 fn one_bad_key_among_good_ones_refuses_the_call_and_all_bad_keys_are_named() {
     let mut s = Session::new();
-    let head = s.head();
+    let head = s.head_hex();
     let msg = err(s.call(
         "add_effect",
         json!({
@@ -338,7 +262,7 @@ fn one_bad_key_among_good_ones_refuses_the_call_and_all_bad_keys_are_named() {
         names(&msg, "attack_ms") && names(&msg, "lookahead"),
         "{msg}"
     );
-    assert_eq!(s.head(), head);
+    assert_eq!(s.head_hex(), head);
     assert!(s.chain(Chain::Track).is_empty());
 }
 
@@ -376,7 +300,7 @@ fn every_name_every_kind_takes_is_accepted_on_every_chain_and_renders() {
             ));
         }
         assert_eq!(s.chain(chain).len(), KINDS.len() * 3, "{chain:?}");
-        s.render("chain.wav");
+        s.render_pcm(None);
     }
 }
 
@@ -391,7 +315,7 @@ fn set_effect_params_refuses_an_unknown_name_merging_or_replacing() {
                 "add_effect",
                 chain.with(json!({ "kind": "gain", "params": { "db": -3.0 } })),
             ));
-            let head = s.head();
+            let head = s.head_hex();
             let nodes = s.node_count();
 
             let msg = err(s.call(
@@ -407,7 +331,7 @@ fn set_effect_params_refuses_an_unknown_name_merging_or_replacing() {
                 names(&msg, "db"),
                 "{label}: names the key that works: {msg}"
             );
-            assert_eq!(s.head(), head, "{label}: the head must not move");
+            assert_eq!(s.head_hex(), head, "{label}: the head must not move");
             assert_eq!(s.node_count(), nodes, "{label}: no node");
             assert_eq!(
                 s.chain(chain)[0].params,
@@ -427,7 +351,7 @@ fn set_effect_params_applies_none_of_a_patch_that_has_a_bad_key() {
         "add_effect",
         json!({ "scope": "master", "kind": "limiter", "params": { "ceiling_db": -1.0 } }),
     ));
-    let head = s.head();
+    let head = s.head_hex();
     let msg = err(s.call(
         "set_effect_params",
         json!({
@@ -436,7 +360,7 @@ fn set_effect_params_applies_none_of_a_patch_that_has_a_bad_key() {
         }),
     ));
     assert!(names(&msg, "threshold"), "{msg}");
-    assert_eq!(s.head(), head);
+    assert_eq!(s.head_hex(), head);
     assert_eq!(
         s.chain(Chain::Master)[0].params,
         json!({ "ceiling_db": -1.0 })
@@ -477,14 +401,14 @@ fn set_effect_params_still_changes_every_name_every_kind_takes() {
 fn audition_effect_refuses_an_unknown_name_and_renders_nothing() {
     for chain in CHAINS {
         let mut s = Session::new();
-        let head = s.head();
+        let head = s.head_hex();
         let msg = err(s.call(
             "audition_effect",
             chain.with(json!({ "kind": "gain", "params": { "gain_db": 4.9 } })),
         ));
         assert!(names(&msg, "gain_db"), "{chain:?}: {msg}");
         assert!(names(&msg, "db"), "{chain:?}: {msg}");
-        assert_eq!(s.head(), head);
+        assert_eq!(s.head_hex(), head);
 
         let dir = s.dir.path().join(".audiograph").join("auditions");
         let written = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
@@ -518,9 +442,9 @@ fn stale_gain() -> EffectInstance {
 fn a_stored_effect_with_an_unknown_name_still_loads_and_renders() {
     for chain in CHAINS {
         let mut s = Session::new();
-        let before = s.render("before.wav");
-        s.plant(chain, stale_gain());
-        let head = s.head();
+        let before = s.render_pcm(None);
+        s.plant_in(chain, stale_gain());
+        let head = s.head_hex();
 
         // A fresh store over the same project folder is a reopen.
         let reopened = session::Store::open(s.dir.path()).expect("reopen the project");
@@ -537,7 +461,7 @@ fn a_stored_effect_with_an_unknown_name_still_loads_and_renders() {
         assert_eq!(stored[0].params, json!({ "gain_db": 4.9 }), "{chain:?}");
 
         // It renders, and as the 0 dB gain: the audio is unchanged.
-        assert_eq!(s.render("after.wav"), before, "{chain:?}");
+        assert_eq!(s.render_pcm(None), before, "{chain:?}");
     }
 }
 
@@ -547,7 +471,7 @@ fn a_stored_effect_with_an_unknown_name_still_loads_and_renders() {
 fn a_stored_effect_with_an_unknown_name_can_still_be_edited() {
     for chain in CHAINS {
         let mut s = Session::new();
-        s.plant(chain, stale_gain());
+        s.plant_in(chain, stale_gain());
 
         // A new call that repeats the stale name is a new call: refused.
         let msg = err(s.call(
@@ -594,7 +518,7 @@ fn a_stored_effect_with_an_unknown_name_can_still_be_edited() {
 #[test]
 fn a_stored_effect_of_a_kind_with_no_names_to_check_keeps_its_params_editable() {
     let mut s = Session::new();
-    s.plant(
+    s.plant_in(
         Chain::Track,
         EffectInstance {
             kind: "reverb".into(),

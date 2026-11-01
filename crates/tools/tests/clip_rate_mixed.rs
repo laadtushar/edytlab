@@ -11,47 +11,29 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_frames, Session};
 
 /// The voice track's own rate.
 const VOICE_RATE: u32 = 16_000;
 const VOICE_SECONDS: usize = 4;
 const BED_SECONDS: usize = 6;
 
+/// A mono 16-bit WAV of `signal(t)`, `t` in seconds.
+fn write_signal(path: &Path, rate: u32, seconds: usize, signal: impl Fn(f32) -> f32) -> PathBuf {
+    write_frames(path, rate, 1, rate as usize * seconds, |n| {
+        signal(n as f32 / rate as f32)
+    })
+}
+
 /// A mono 16-bit WAV of a 440 Hz sine whose loudness is shaped by `amp(t)`.
 fn write_wav(path: &Path, rate: u32, seconds: usize, amp: impl Fn(f32) -> f32) -> PathBuf {
     write_signal(path, rate, seconds, |t| {
         (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25 * amp(t)
     })
-}
-
-/// A mono 16-bit WAV of `signal(t)`, `t` in seconds.
-fn write_signal(path: &Path, rate: u32, seconds: usize, signal: impl Fn(f32) -> f32) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(rate as usize * seconds) {
-        let t = n as f32 / rate as f32;
-        w.write_sample((signal(t) * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-    session_rate: u32,
 }
 
 impl Session {
@@ -70,63 +52,24 @@ impl Session {
 
     /// As `new`, with the voice track holding `signal(t)`.
     fn with_signal(session_rate: u32, signal: impl Fn(f32) -> f32) -> Self {
-        let dir = TempDir::new().expect("tempdir");
+        let mut s = Session::empty();
         let bed = write_wav(
-            &dir.path().join("bed.wav"),
+            &s.dir.path().join("bed.wav"),
             session_rate,
             BED_SECONDS,
             |_| 1.0,
         );
         let voice = write_signal(
-            &dir.path().join("voice.wav"),
+            &s.dir.path().join("voice.wav"),
             VOICE_RATE,
             VOICE_SECONDS,
             signal,
         );
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-            session_rate,
-        };
-        s.call("load", json!({ "path": bed.to_string_lossy() }));
-        s.call("load", json!({ "path": voice.to_string_lossy() }));
+        s.load(&bed);
+        s.load(&voice);
         assert_eq!(s.state().sample_rate, session_rate, "the bed sets the rate");
         assert_eq!(s.state().tracks.len(), 2);
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("{tool}: expected Ok, got Error({m})"),
-        }
-    }
-
-    fn err(&mut self, tool: &str, args: Value) -> String {
-        match self.call(tool, args) {
-            ToolResult::Error(m) => m,
-            ToolResult::Ok(v) => panic!("{tool}: expected Error, got Ok({v})"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
     }
 
     /// A track's clips as (start_in_track, source_offset, length), in the
@@ -155,34 +98,6 @@ impl Session {
         self.ok("label", json!({ "name": name, "time": time }));
     }
 
-    /// Words in seconds, of track 1, as `transcribe` leaves them.
-    fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
-        let mut state = self.state();
-        let track_id = state.tracks[1].id.clone();
-        state.transcript = Some(session::Transcript {
-            source: Some(session::TranscriptSource::Track { track: track_id }),
-            words: words
-                .iter()
-                .map(|(text, start, end)| session::TranscriptWord {
-                    text: (*text).to_string(),
-                    start_s: *start,
-                    end_s: *end,
-                    confidence: 0.9,
-                })
-                .collect(),
-        });
-        let node = session::SessionNode {
-            id: session::NodeId([0u8; 32]),
-            parent: None,
-            created_at: chrono::Utc::now(),
-            label: Some("transcript".into()),
-            reasoning: None,
-            state,
-            op: None,
-        };
-        self.store.append(node).expect("append transcript");
-    }
-
     fn words(&self) -> Vec<(String, f32, f32)> {
         self.state()
             .transcript
@@ -194,7 +109,7 @@ impl Session {
     }
 
     fn bed_rate(&self) -> u64 {
-        u64::from(self.session_rate)
+        u64::from(self.state().sample_rate)
     }
 }
 
@@ -228,7 +143,7 @@ const SESSION_RATES: [u32; 2] = [48_000, 44_100];
 fn cut_range_moves_labels_and_words_by_the_tracks_own_rate() {
     for rate in SESSION_RATES {
         let mut s = Session::new(rate);
-        s.with_transcript(&words());
+        s.with_track_transcript(1, &words());
         s.marker_at("inside", 1.5);
         s.marker_at("after", 3.0);
 
@@ -300,7 +215,7 @@ fn cut_range_sync_lock_cuts_the_other_track_at_the_same_seconds() {
 fn trim_moves_labels_and_words_by_the_tracks_own_rate() {
     for rate in SESSION_RATES {
         let mut s = Session::new(rate);
-        s.with_transcript(&words());
+        s.with_track_transcript(1, &words());
         s.marker_at("before", 0.5);
         s.marker_at("inside", 2.0);
         s.marker_at("after", 3.5);

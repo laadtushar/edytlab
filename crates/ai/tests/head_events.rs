@@ -15,7 +15,7 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use ai::{Agent, AgentEvent, LlmConfig};
+use ai::{AgentEvent, LlmConfig};
 use common::{classifier_json, ok, sse_text, sse_tool_step, Entry, SeqResponder};
 use serde_json::{json, Value};
 use session::{Annotation, AnnotationId, AnnotationKind, NodeId, Store};
@@ -31,33 +31,6 @@ fn marker(name: &str, time_sec: f64) -> Annotation {
     }
 }
 
-/// A session with nothing in it, built through its JSON form so this test
-/// does not need a clock crate for `created_at`.
-fn base_node() -> session::SessionNode {
-    let state = session::SessionState {
-        tracks: Vec::new(),
-        bus_routing: session::BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: session::TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: 48_000,
-        length_samples: 0,
-        annotations: Vec::new(),
-        sync_lock: false,
-    };
-    serde_json::from_value(json!({
-        "id": "00".repeat(32),
-        "parent": null,
-        "created_at": "2026-01-01T00:00:00Z",
-        "label": null,
-        "reasoning": null,
-        "state": serde_json::to_value(state).expect("state"),
-        "op": null,
-    }))
-    .expect("a node")
-}
-
 /// A project whose history is `base -> one -> two`, each a marker added by
 /// the user. The head is `two`.
 struct Project {
@@ -70,7 +43,7 @@ struct Project {
 fn project() -> Project {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut store = Store::open(dir.path()).expect("open store");
-    let base = store.append(base_node()).expect("base");
+    let base = store.append(common::base_node()).expect("base");
     let one = store
         .add_annotation(base, marker("one", 1.0))
         .expect("first edit");
@@ -136,13 +109,11 @@ async fn turn(project: Project, tool: &str, args: Value) -> Turn {
 
     let store = Arc::new(Mutex::new(project.store));
     let cfg = LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         cfg,
-        Arc::new(Mutex::new(ToolDispatcher::default_dispatcher())),
+        ToolDispatcher::default_dispatcher(),
         Arc::clone(&store),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(false);
 

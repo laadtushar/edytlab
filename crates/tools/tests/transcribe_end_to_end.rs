@@ -37,12 +37,18 @@
 //! The numbers are printed (`--nocapture`).
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use session::{Store, TranscriptSource};
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use session::TranscriptSource;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
+
+#[path = "support/harness.rs"]
+mod harness;
+#[path = "support/real_model.rs"]
+mod real_model;
+use harness::Session;
+use real_model::{required, watchdog};
 
 const MAX_WRONG_WORDS: usize = 1;
 const START_TOLERANCE_S: f32 = 0.25;
@@ -51,36 +57,6 @@ const START_TOLERANCE_S: f32 = 0.25;
 struct Expected {
     text: String,
     start_s: f32,
-}
-
-/// Abort, rather than stall for ever, if the run is stuck.
-fn watchdog() {
-    std::thread::spawn(|| {
-        std::thread::sleep(Duration::from_secs(1_500));
-        eprintln!("transcribe_end_to_end ran for 25 minutes: it is stuck, not slow");
-        std::process::abort();
-    });
-}
-
-fn required(var: &str, how: &str, folder: bool) -> PathBuf {
-    let value = std::env::var_os(var).unwrap_or_else(|| {
-        panic!(
-            "{var} is not set, so this test cannot run. It was asked for with --ignored, and a \
-             skip is not an answer (#263). {how}"
-        )
-    });
-    let path = PathBuf::from(value);
-    assert!(
-        if folder {
-            path.is_dir()
-        } else {
-            path.is_file()
-        },
-        "{var} is {}, which is not an existing {}. {how}",
-        path.display(),
-        if folder { "folder" } else { "file" }
-    );
-    path
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -174,62 +150,7 @@ fn check(label: &str, words: &Value, expected: &[Expected]) -> (usize, f32) {
     (distance, worst)
 }
 
-struct Session {
-    dir: tempfile::TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-}
-
 impl Session {
-    fn new() -> Self {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = Store::open(dir.path()).expect("store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            // The real dispatcher: the real `transcribe`.
-            dispatcher: ToolDispatcher::default_dispatcher(),
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher
-            .invoke(tool, args, &mut ctx)
-            .unwrap_or_else(|e| panic!("{tool}: dispatcher error {e}"))
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("`{tool}` failed: {m}"),
-        }
-    }
-
-    fn err(&mut self, tool: &str, args: Value) -> String {
-        match self.call(tool, args) {
-            ToolResult::Error(m) => m,
-            ToolResult::Ok(v) => panic!("`{tool}` succeeded: {v}"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store
-            .get(self.store.head().expect("a head"))
-            .expect("head")
-            .state
-    }
-
     fn length(&self, track: usize) -> u64 {
         self.state().tracks[track]
             .clips
@@ -275,7 +196,7 @@ fn write_tiled(path: &Path, times: usize) {
 #[test]
 #[ignore = "needs ORT_DYLIB_PATH and WHISPER_MODEL_PATH (the model folder); run with --ignored"]
 fn the_tool_transcribes_the_known_words_and_the_edits_work_on_the_real_transcript() {
-    watchdog();
+    watchdog("transcribe_end_to_end", 1500);
     required(
         "ORT_DYLIB_PATH",
         "scripts/fetch-ml-runtime.sh <platform> <dir> prints the library to point it at.",
@@ -295,7 +216,7 @@ fn the_tool_transcribes_the_known_words_and_the_edits_work_on_the_real_transcrip
 
     // The session: track 0 is a tone, track 1 the speech. The words are of
     // track 1, which is what has to be cut.
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let tone = s.dir.path().join("tone.wav");
     write_tone(&tone, 4.0);
     s.ok("load", json!({ "path": tone.to_string_lossy() }));
@@ -439,7 +360,7 @@ fn the_tool_transcribes_the_known_words_and_the_edits_work_on_the_real_transcrip
     // SAFETY: the one test in this binary, and nothing else reads the
     // environment while it runs.
     unsafe { std::env::remove_var("WHISPER_MODEL_PATH") };
-    let mut fresh = Session::new();
+    let mut fresh = Session::empty();
     fresh.ok("load", json!({ "path": speech.to_string_lossy() }));
     let began = Instant::now();
     let downloaded = fresh.ok("transcribe", json!({ "track": 0 }));

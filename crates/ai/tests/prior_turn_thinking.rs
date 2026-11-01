@@ -22,40 +22,16 @@
 
 mod common;
 
-use std::sync::{Arc, Mutex};
-
 use ai::anthropic::{ContentBlock, Role};
 use ai::{Agent, LlmConfig, SessionContext};
 use common::{
-    classifier_json, ok, sse_text, sse_thinking_text, sse_thinking_tool_step, SeqResponder,
+    classifier_json, ok, sse_text, sse_thinking_text, sse_thinking_tool_step, Echo, SeqResponder,
 };
 use serde_json::{json, Value};
 use tools::schema::{anthropic_tool, object_schema};
 use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-
-/// A tool the model can call, so a turn has a tool round-trip.
-struct Echo;
-
-impl Tool for Echo {
-    fn name(&self) -> &'static str {
-        "echo"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "echo",
-            "Reads the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn mutates(&self) -> bool {
-        false
-    }
-    fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
 
 /// A second tool, so a whitelist can take one away.
 struct Noop;
@@ -79,13 +55,11 @@ fn agent_against(server: &MockServer, dir: &std::path::Path) -> Agent {
     let mut dispatcher = ToolDispatcher::new();
     dispatcher.register(Box::new(Echo));
     dispatcher.register(Box::new(Noop));
-    Agent::new(
+    common::agent_over(
         LlmConfig::new_anthropic("k").with_base_url(server.uri()),
-        Arc::new(Mutex::new(dispatcher)),
-        Arc::new(Mutex::new(session::Store::open(dir).expect("open store"))),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
+        dispatcher,
+        common::store_in(dir),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     )
 }
 
@@ -116,13 +90,7 @@ async fn mount_two_turns(server: &MockServer) {
 }
 
 async fn bodies(server: &MockServer) -> Vec<Value> {
-    server
-        .received_requests()
-        .await
-        .expect("recording on")
-        .iter()
-        .map(|r| serde_json::from_slice(&r.body).expect("a JSON body"))
-        .collect()
+    common::request_bodies(server).await
 }
 
 fn context_at(head: &str) -> SessionContext {

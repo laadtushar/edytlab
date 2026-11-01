@@ -917,7 +917,7 @@ fn separate_stems_tells_the_agent_to_leave_the_setup_to_the_user_when_it_cannot_
         .unwrap());
     assert!(
         default_msg.contains("Tell the user")
-            && (default_msg.contains("ONNX Runtime") || default_msg.contains("Stem model")),
+            && (default_msg.contains("ONNX Runtime") || default_msg.contains("stem model")),
         "expected a setup answer for the user, got: {default_msg}"
     );
     assert!(

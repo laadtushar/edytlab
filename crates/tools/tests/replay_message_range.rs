@@ -8,78 +8,42 @@
 //! or reversed the whole track, and the history sweep kept that audio for
 //! good. The dispatcher now records the range the call used.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_frames, Session};
 
 const SR: u32 = 48_000;
 const SELECTION: &str = "[apply to 0:01-0:02] ";
 
-fn write_tone(path: &Path) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SR as usize * 4) {
-        let t = n as f32 / SR as f32;
-        // A rising tone, so a reversed span differs from the original.
-        let v = (2.0 * std::f32::consts::PI * (220.0 + 110.0 * t) * t).sin() * 8000.0;
-        w.write_sample(v as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let take = write_tone(&dir.path().join("take.wav"));
-        let store = session::Store::open(dir.path()).expect("store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": take }), "");
+        let mut s = Session::empty();
+        let take = write_frames(
+            &s.dir.path().join("take.wav"),
+            SR,
+            1,
+            SR as usize * 4,
+            |n| {
+                let t = n as f32 / SR as f32;
+                // A rising tone, so a reversed span differs from the original.
+                (2.0 * std::f32::consts::PI * (220.0 + 110.0 * t) * t).sin() * 8000.0 / 32_767.0
+            },
+        );
+        s.load(&take);
         s
     }
 
-    fn call(&mut self, tool: &str, args: Value, message: &str) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: message,
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        match self
-            .dispatcher
-            .invoke(tool, args, &mut ctx)
-            .expect("invoke")
-        {
+    /// Run `tool` from a chat message and take its value.
+    fn say(&mut self, tool: &str, args: Value, message: &str) -> Value {
+        match self.call_saying(tool, args, message) {
             ToolResult::Ok(v) => v,
             ToolResult::Error(m) => panic!("{tool} failed: {m}"),
         }
-    }
-
-    fn head(&self) -> session::NodeId {
-        self.store.head().expect("head")
     }
 
     fn head_audio(&self) -> PathBuf {
@@ -93,11 +57,11 @@ impl Session {
 /// everything, and check its audio went and comes back byte for byte.
 fn swept_and_back(tool: &str) {
     let mut s = Session::new();
-    s.call(tool, json!({ "track": 0 }), &format!("{SELECTION}do it"));
+    s.say(tool, json!({ "track": 0 }), &format!("{SELECTION}do it"));
     let node = s.head();
     let audio = s.head_audio();
     let bytes = std::fs::read(&audio).expect("edited audio");
-    s.call(
+    s.say(
         "silence_region",
         json!({ "track": 0, "start_sec": 3.0, "end_sec": 3.2 }),
         "",
@@ -129,7 +93,7 @@ fn a_reverse_of_the_selection_is_swept_and_comes_back() {
 #[test]
 fn the_op_records_the_range_the_call_used() {
     let mut s = Session::new();
-    s.call(
+    s.say(
         "fade",
         json!({ "track": 0 }),
         &format!("{SELECTION}fade it"),
@@ -148,7 +112,7 @@ fn the_op_records_the_range_the_call_used() {
 fn a_range_the_call_named_is_recorded_as_given() {
     let mut s = Session::new();
     let named = json!({ "start_sec": 0.25, "end_sec": 0.75 });
-    s.call(
+    s.say(
         "fade",
         json!({ "track": 0, "range": named }),
         &format!("{SELECTION}fade it"),
@@ -163,7 +127,7 @@ fn a_range_the_call_named_is_recorded_as_given() {
 #[test]
 fn a_tool_that_ignores_the_message_records_no_range_from_it() {
     let mut s = Session::new();
-    s.call(
+    s.say(
         "silence_region",
         json!({ "track": 0, "start_sec": 0.1, "end_sec": 0.2 }),
         &format!("{SELECTION}silence"),

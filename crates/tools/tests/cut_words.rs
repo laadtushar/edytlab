@@ -6,122 +6,15 @@
 //! transcript that drifts by the length of every edit is worse than no
 //! transcript, because it looks right.
 
-use std::path::{Path, PathBuf};
+use serde_json::json;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 /// Four seconds, so four one-second "words" fit in it.
 const SECONDS: usize = 4;
-
-fn write_sine(path: &Path) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..(SAMPLE_RATE as usize * SECONDS) {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    /// Kept alive for the duration of the test: dropping it deletes
-    /// the project the session is writing into.
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let src = write_sine(&dir.path().join("in.wav"));
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": src.to_string_lossy() }));
-        s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("nodes").len()
-    }
-
-    /// `transcribe` needs a model this test cannot rely on, so the
-    /// transcript is written directly — the same shape it produces.
-    fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
-        let mut state = self.state();
-        state.transcript = Some(session::Transcript {
-            source: None,
-            words: words
-                .iter()
-                .map(|(text, start, end)| session::TranscriptWord {
-                    text: (*text).to_string(),
-                    start_s: *start,
-                    end_s: *end,
-                    confidence: 0.9,
-                })
-                .collect(),
-        });
-        let node = session::SessionNode {
-            id: session::NodeId([0u8; 32]),
-            parent: None,
-            created_at: chrono::Utc::now(),
-            label: Some("transcript".into()),
-            reasoning: None,
-            state,
-            op: None,
-        };
-        self.store.append(node).expect("append transcript");
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
-    }
-}
 
 /// One word per second: "one two three four".
 fn four_words() -> Vec<(&'static str, f32, f32)> {
@@ -136,7 +29,7 @@ fn four_words() -> Vec<(&'static str, f32, f32)> {
 /// Deleting a word deletes its audio and closes the gap.
 #[test]
 fn cutting_a_word_removes_its_audio() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     s.with_transcript(&four_words());
     let before = s.state().length_samples;
 
@@ -156,7 +49,7 @@ fn cutting_a_word_removes_its_audio() {
 /// now earlier by exactly the removed duration.
 #[test]
 fn the_remaining_word_timings_still_line_up() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     s.with_transcript(&four_words());
 
     ok(s.call("cut_words", json!({ "from_word": 1, "to_word": 2 })));
@@ -181,7 +74,7 @@ fn the_remaining_word_timings_still_line_up() {
 /// A span of several words is one cut, and one node.
 #[test]
 fn a_span_of_words_is_one_undoable_node() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     s.with_transcript(&four_words());
     let before = s.node_count();
 
@@ -208,7 +101,7 @@ fn a_span_of_words_is_one_undoable_node() {
 /// behind.
 #[test]
 fn the_span_covers_the_words_completely() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     s.with_transcript(&four_words());
 
     let v = ok(s.call("cut_words", json!({ "from_word": 0, "to_word": 2 })));
@@ -221,14 +114,14 @@ fn the_span_covers_the_words_completely() {
 /// blank.
 #[test]
 fn no_transcript_says_what_to_do() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     let msg = err(s.call("cut_words", json!({ "from_word": 0, "to_word": 1 })));
     assert!(msg.contains("transcribe"), "should name the way out: {msg}");
 }
 
 #[test]
 fn an_out_of_range_span_names_the_length() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     s.with_transcript(&four_words());
     let msg = err(s.call("cut_words", json!({ "from_word": 2, "to_word": 99 })));
     assert!(
@@ -239,7 +132,7 @@ fn an_out_of_range_span_names_the_length() {
 
 #[test]
 fn an_inverted_span_is_refused() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     s.with_transcript(&four_words());
     let msg = err(s.call("cut_words", json!({ "from_word": 3, "to_word": 1 })));
     assert!(msg.contains("greater than"), "{msg}");
@@ -248,7 +141,7 @@ fn an_inverted_span_is_refused() {
 /// Cutting the tail leaves the head alone and shortens the session.
 #[test]
 fn cutting_the_last_words_shortens_the_session() {
-    let mut s = Session::new();
+    let mut s = Session::with_sine(SAMPLE_RATE, SECONDS);
     s.with_transcript(&four_words());
     let before = s.state().length_samples;
 

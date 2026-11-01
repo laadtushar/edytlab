@@ -436,10 +436,15 @@ fn every_setup_problem_tells_the_agent_to_stop_and_names_no_path() {
             assert!(!text.contains(m), "{f:?}: {text}");
         }
     }
-    // The download is the user's: the answer names the row, not a command.
+    // This build has no way to download the model yet, so the answer sends the
+    // user nowhere: it says so, and does not name a Settings row that is not there.
     let text = answer(&StemFailure::ModelNotDownloaded);
-    assert!(text.contains("Stem model"), "{text}");
-    assert!(text.contains("Settings"), "{text}");
+    assert!(text.contains("cannot download it yet"), "{text}");
+    assert!(text.contains("Tell the user and stop"), "{text}");
+    assert!(!text.contains("Settings"), "{text}");
+    assert!(!text.contains("Download on"), "{text}");
+    let damaged = answer(&StemFailure::ModelDamaged);
+    assert!(!damaged.contains("Settings"), "{damaged}");
 }
 
 #[test]

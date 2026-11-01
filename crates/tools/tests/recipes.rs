@@ -10,86 +10,19 @@
 //! * a recipe that cannot keep its promise refuses before it starts,
 //!   naming the step — not halfway through.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-const SAMPLE_RATE: u32 = 48_000;
-
-fn write_sine(path: &Path, freq: f32) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
-fn err(result: ToolResult) -> String {
-    match result {
-        ToolResult::Error(msg) => msg,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
-    }
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, write_take, Session};
 
 impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("open store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
-    }
-
     /// Load `in.wav` and run two destructive edits, so the chain has
     /// something in it worth replaying.
     fn build_chain(&mut self) -> PathBuf {
-        let src = write_sine(&self.dir.path().join("in.wav"), 440.0);
+        let src = write_take(&self.dir.path().join("in.wav"), 440.0);
         ok(self.call("load", json!({ "path": src.to_string_lossy() })));
         ok(self.call(
             "silence_region",
@@ -104,7 +37,7 @@ impl Session {
 /// JSON with the tool names visible in it.
 #[test]
 fn a_recipe_contains_the_chain_and_no_audio() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     s.build_chain();
     let out = s.dir.path().join("chain.json");
 
@@ -161,7 +94,7 @@ fn final_audio(s: &Session) -> (String, Vec<u8>) {
 /// does not hold for track identity.
 #[test]
 fn replaying_the_same_source_reproduces_the_original_bytes() {
-    let mut original = Session::new();
+    let mut original = Session::empty();
     let src = original.build_chain();
     let (expected_name, expected_bytes) = final_audio(&original);
     let recipe = original.dir.path().join("chain.json");
@@ -171,7 +104,7 @@ fn replaying_the_same_source_reproduces_the_original_bytes() {
     ));
 
     // A fresh session, same source file, nothing else in common.
-    let mut replay = Session::new();
+    let mut replay = Session::empty();
     let v = ok(replay.call("apply_recipe", json!({ "path": recipe.to_string_lossy() })));
     assert_eq!(v["steps_applied"], json!(3), "{v}");
 
@@ -194,7 +127,7 @@ fn replaying_the_same_source_reproduces_the_original_bytes() {
 /// not the id.
 #[test]
 fn a_replay_lands_on_a_different_node_id_despite_identical_audio() {
-    let mut original = Session::new();
+    let mut original = Session::empty();
     original.build_chain();
     let recipe = original.dir.path().join("chain.json");
     ok(original.call(
@@ -202,7 +135,7 @@ fn a_replay_lands_on_a_different_node_id_despite_identical_audio() {
         json!({ "out_path": recipe.to_string_lossy() }),
     ));
 
-    let mut replay = Session::new();
+    let mut replay = Session::empty();
     ok(replay.call("apply_recipe", json!({ "path": recipe.to_string_lossy() })));
 
     assert_eq!(
@@ -211,8 +144,8 @@ fn a_replay_lands_on_a_different_node_id_despite_identical_audio() {
         "same audio"
     );
     assert_ne!(
-        replay.head(),
-        original.head(),
+        replay.head_hex(),
+        original.head_hex(),
         "if this ever passes, track ids became deterministic and the recipe \
          comparison could be simplified to the node id"
     );
@@ -222,7 +155,7 @@ fn a_replay_lands_on_a_different_node_id_despite_identical_audio() {
 /// result is a sensible one: the chain runs, and lands somewhere else.
 #[test]
 fn replaying_against_different_audio_runs_and_lands_elsewhere() {
-    let mut original = Session::new();
+    let mut original = Session::empty();
     original.build_chain();
     let expected_audio = final_audio(&original).0;
     let recipe = original.dir.path().join("chain.json");
@@ -231,8 +164,8 @@ fn replaying_against_different_audio_runs_and_lands_elsewhere() {
         json!({ "out_path": recipe.to_string_lossy() }),
     ));
 
-    let mut replay = Session::new();
-    let other = write_sine(&replay.dir.path().join("other.wav"), 880.0);
+    let mut replay = Session::empty();
+    let other = write_take(&replay.dir.path().join("other.wav"), 880.0);
     let v = ok(replay.call(
         "apply_recipe",
         json!({ "path": recipe.to_string_lossy(), "source": other.to_string_lossy() }),
@@ -254,7 +187,7 @@ fn replaying_against_different_audio_runs_and_lands_elsewhere() {
 /// than failing inside step 1 with a decode error.
 #[test]
 fn a_missing_substitute_source_is_refused_up_front() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     s.build_chain();
     let recipe = s.dir.path().join("chain.json");
     ok(s.call(
@@ -274,7 +207,7 @@ fn a_missing_substitute_source_is_refused_up_front() {
 /// step — a session left half-edited is a state nobody chose.
 #[test]
 fn a_non_replayable_step_refuses_the_whole_recipe_and_names_it() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     s.build_chain();
     let recipe = s.dir.path().join("chain.json");
     ok(s.call(
@@ -292,7 +225,7 @@ fn a_non_replayable_step_refuses_the_whole_recipe_and_names_it() {
     }));
     std::fs::write(&recipe, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
 
-    let mut replay = Session::new();
+    let mut replay = Session::empty();
     let head_before = replay.store.head();
     let msg = err(replay.call("apply_recipe", json!({ "path": recipe.to_string_lossy() })));
 
@@ -309,7 +242,7 @@ fn a_non_replayable_step_refuses_the_whole_recipe_and_names_it() {
 /// name rather than left to blow the stack.
 #[test]
 fn a_self_referential_recipe_is_refused() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     s.build_chain();
     let recipe = s.dir.path().join("chain.json");
     ok(s.call(
@@ -333,7 +266,7 @@ fn a_self_referential_recipe_is_refused() {
 /// changes nothing.
 #[test]
 fn a_dry_run_reports_the_plan_and_touches_nothing() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     s.build_chain();
     let recipe = s.dir.path().join("chain.json");
     ok(s.call(
@@ -341,7 +274,7 @@ fn a_dry_run_reports_the_plan_and_touches_nothing() {
         json!({ "out_path": recipe.to_string_lossy() }),
     ));
 
-    let mut replay = Session::new();
+    let mut replay = Session::empty();
     let v = ok(replay.call(
         "apply_recipe",
         json!({ "path": recipe.to_string_lossy(), "dry_run": true }),
@@ -365,7 +298,7 @@ fn a_dry_run_reports_the_plan_and_touches_nothing() {
 /// A file that is not a recipe fails as a message, not a panic.
 #[test]
 fn an_unreadable_recipe_is_a_message() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let junk = s.dir.path().join("junk.json");
     std::fs::write(&junk, "{ this is not json").unwrap();
     let msg = err(s.call("apply_recipe", json!({ "path": junk.to_string_lossy() })));

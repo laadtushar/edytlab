@@ -1935,8 +1935,9 @@ A turn can change what a graph view draws without moving the head: `name_node` s
 Emitted when something needs approval before it runs, and the turn is suspended
 until `approvePlan()` or `rejectPlan()`. Each step is
 `{ step: number, tool: string, description: string }`, plus
-`unavailable: true` on a step whose tool does nothing in this build
-(`separate_stems`: its inference is not shipped).
+`unavailable: true` on a step whose tool does nothing in this build (a tool
+whose description opens with the `NOT IMPLEMENTED` marker; no registered tool
+carries it today, so the field is not set at present).
 
 The agent's own plan is checked before it is shown. A step with neither a tool
 nor a description is dropped, and so is a step naming `none` or a tool that is

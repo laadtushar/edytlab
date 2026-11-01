@@ -43,7 +43,9 @@
 //! The answers carry no local path and no loader reason (the reason is logged):
 //! tool results go to the model provider. They carry no setup marker either,
 //! because the setup card (`ai::ToolView::SpeechSetup`) speaks of the speech
-//! model; the answers name the Stem model row in Settings → Account instead.
+//! model; the answers tell the agent to tell the user and stop instead (this
+//! build cannot download the stem model yet: the Settings row that does comes in
+//! a later change).
 //! The paths in a *successful* answer are the point of it: the agent hands them
 //! to `load`.
 //!
@@ -221,16 +223,25 @@ impl DemucsStems {
                     "the ONNX Runtime library could not be loaded".to_string(),
                 ))
             }
-            Err(other) => {
-                // The reason names files and paths: logged, not handed on.
-                tracing::warn!(error = %other, "the stem model could not be loaded");
-                Err(if model.downloaded {
-                    StemFailure::ModelDamaged
-                } else {
-                    StemFailure::ModelPathInvalid
-                })
-            }
+            Err(other) => Err(load_failure(&other, model.downloaded)),
         }
+    }
+}
+
+/// What a model that would not load is reported as. Running out of memory
+/// while loading is the computer's, not the download's: telling the user to
+/// remove and fetch the model again would not help, so it is checked first.
+fn load_failure(error: &DemucsError, downloaded: bool) -> StemFailure {
+    if ml_demucs::is_oom_error(error) {
+        tracing::warn!(%error, "the stem model could not be loaded: out of memory");
+        return StemFailure::OutOfMemory;
+    }
+    // The reason names files and paths: logged, not handed on.
+    tracing::warn!(%error, "the stem model could not be loaded");
+    if downloaded {
+        StemFailure::ModelDamaged
+    } else {
+        StemFailure::ModelPathInvalid
     }
 }
 
@@ -290,11 +301,10 @@ fn model_megabytes() -> u64 {
 pub fn answer(failure: &StemFailure) -> String {
     match failure {
         StemFailure::ModelNotDownloaded => format!(
-            "The stem model (about {} MB) is not on this computer, so audio cannot be split into \
-             stems yet. Tell the user; only they can download it, with Download on the Stem \
-             model row in Settings → Account. Do not try to download, install or configure \
-             anything yourself, and do not call separate_stems again until the user says the \
-             model is there.",
+            "The stem model (about {} MB) is not on this computer, and this build cannot \
+             download it yet, so audio cannot be split into stems. Tell the user and stop. Do \
+             not try to download, install or configure anything yourself, and do not call \
+             separate_stems again.",
             model_megabytes()
         ),
         StemFailure::RuntimeUnavailable(reason) => format!(
@@ -305,8 +315,7 @@ pub fn answer(failure: &StemFailure) -> String {
              yourself."
         ),
         StemFailure::ModelDamaged => "The stem model is on this computer but could not be \
-             loaded, so the download is damaged. Tell the user to press Remove and then \
-             Download on the Stem model row in Settings → Account. Do not try to repair or \
+             loaded, so its files are damaged. Tell the user and stop. Do not try to repair or \
              replace files yourself."
             .to_string(),
         StemFailure::ModelPathInvalid => format!(
@@ -435,10 +444,9 @@ impl Tool for SeparateStemsTool {
             "Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, \
              on this computer. Writes four WAVs and returns their paths; the session is not \
              changed, so `load` a stem to put it on a track. Stems are estimates. Needs the stem \
-             model, which only the user can download (once, in Settings → Account); if the call \
-             says it or the runtime is missing, tell the user and stop, and do not try to \
-             download, install or configure anything. CPU, about half the audio's length; \
-             cancellable.",
+             model and the ONNX Runtime, which only the user can set up; if the call says either \
+             is missing, tell the user and stop, and do not try to download, install or \
+             configure anything. CPU, about half the audio's length; cancellable.",
             json!({
                 "type": "object",
                 "properties": {
@@ -665,6 +673,29 @@ mod tests {
                 assert!(!text.contains(m), "{f:?}: {text}");
             }
         }
+    }
+
+    #[test]
+    fn a_model_that_runs_out_of_memory_loading_is_not_called_damaged() {
+        for downloaded in [true, false] {
+            for reason in [
+                "out of memory",
+                "std::bad_alloc",
+                "memory allocation of 4 GB failed",
+            ] {
+                assert_eq!(
+                    load_failure(&DemucsError::Ort(reason.to_string()), downloaded),
+                    StemFailure::OutOfMemory,
+                    "{reason}"
+                );
+            }
+        }
+        // Any other failure stays the model's: the download's, or the path's.
+        let other = DemucsError::Ort("invalid protobuf".to_string());
+        assert_eq!(load_failure(&other, true), StemFailure::ModelDamaged);
+        assert_eq!(load_failure(&other, false), StemFailure::ModelPathInvalid);
+        let unexpected = DemucsError::UnexpectedExport("an input is missing".to_string());
+        assert_eq!(load_failure(&unexpected, true), StemFailure::ModelDamaged);
     }
 
     #[test]

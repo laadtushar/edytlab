@@ -9,34 +9,28 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_frames, Session};
 
 const SAMPLE_RATE: u32 = 48_000;
 
 /// Two seconds of quiet tone, so a 10s..5s request is out of range at
 /// both ends as well as reversed.
 fn write_wav(dir: &Path, name: &str, channels: u16) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
+    write_frames(
+        &dir.join(name),
+        SAMPLE_RATE,
         channels,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..(SAMPLE_RATE as usize * 2) {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        let q = (s * 32_767.0).round() as i16;
-        for _ in 0..channels {
-            writer.write_sample(q).unwrap();
-        }
-    }
-    writer.finalize().unwrap();
-    path
+        SAMPLE_RATE as usize * 2,
+        |n| {
+            let t = n as f32 / SAMPLE_RATE as f32;
+            (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25
+        },
+    )
 }
 
 /// Every tool taking a bare seconds window, with the extra arguments
@@ -57,23 +51,10 @@ fn tools_with_a_seconds_window() -> Vec<(&'static str, Value)> {
 fn a_reversed_range_is_reported_not_panicked() {
     for channels in [1u16, 2u16] {
         for (tool, extra) in tools_with_a_seconds_window() {
-            let tmp = TempDir::new().expect("tempdir");
-            let mut store = session::Store::open(tmp.path()).expect("open store");
-            let mut engine = audio_engine::Engine::new();
-            let dispatcher = ToolDispatcher::default_dispatcher();
-            let src = write_wav(tmp.path(), "in.wav", channels);
+            let mut s = Session::empty();
+            let src = write_wav(s.dir.path(), "in.wav", channels);
 
-            let mut clipboard: Option<tools::Clipboard> = None;
-            let mut ctx = ToolContext {
-                store: &mut store,
-                engine: &mut engine,
-                user_message: "",
-                clipboard: &mut clipboard,
-                allowed_tools: None,
-            };
-
-            dispatcher
-                .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            s.try_call("load", json!({ "path": src.to_string_lossy() }))
                 .expect("load");
 
             let mut args = json!({ "track": 0, "start_sec": 10.0, "end_sec": 5.0 });
@@ -83,8 +64,8 @@ fn a_reversed_range_is_reported_not_panicked() {
 
             // The call itself must return, whatever it decides — a panic
             // here would have taken the process down.
-            let result = dispatcher
-                .invoke(tool, args, &mut ctx)
+            let result = s
+                .try_call(tool, args)
                 .unwrap_or_else(|e| panic!("`{tool}` ({channels}ch) failed to dispatch: {e:?}"));
 
             match result {
@@ -113,22 +94,10 @@ fn a_reversed_range_is_reported_not_panicked() {
 #[test]
 fn negative_bounds_are_reported() {
     for (start, end) in [(-5.0, 1.0), (0.5, -1.0)] {
-        let tmp = TempDir::new().expect("tempdir");
-        let mut store = session::Store::open(tmp.path()).expect("open store");
-        let mut engine = audio_engine::Engine::new();
-        let dispatcher = ToolDispatcher::default_dispatcher();
-        let src = write_wav(tmp.path(), "in.wav", 1);
+        let mut s = Session::empty();
+        let src = write_wav(s.dir.path(), "in.wav", 1);
 
-        let mut clipboard: Option<tools::Clipboard> = None;
-        let mut ctx = ToolContext {
-            store: &mut store,
-            engine: &mut engine,
-            user_message: "",
-            clipboard: &mut clipboard,
-            allowed_tools: None,
-        };
-        dispatcher
-            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        s.try_call("load", json!({ "path": src.to_string_lossy() }))
             .expect("load");
 
         // `serde_json` cannot represent NaN/Infinity, so build the value
@@ -142,8 +111,8 @@ fn negative_bounds_are_reported() {
             args.insert("end_sec".into(), Value::Number(n));
         }
 
-        let result = dispatcher
-            .invoke("invert", Value::Object(args), &mut ctx)
+        let result = s
+            .try_call("invert", Value::Object(args))
             .expect("dispatch must not panic");
         assert!(
             matches!(result, ToolResult::Error(_)),

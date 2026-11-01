@@ -1176,29 +1176,120 @@ mod tests {
         }
     }
 
-    /// The pieces are the same numbers the whole-track pass gives: streaming
-    /// is a different way to hold the work, not a different result.
+    /// The whole-track `apply_model(split=True, shifts=0, overlap=0.25)` and
+    /// `Separator.separate_tensor`, written the plain way and sharing no code
+    /// with the pipeline under test: the whole mix in memory, every window
+    /// cut with explicit index arithmetic, a triangle built from its own
+    /// formula, everything accumulated in `f64` and divided once at the end.
+    /// Returns the four stems in `STEM_NAMES` order.
+    fn whole_track_reference(model: &mut Quarters, mix: &Stereo) -> [Stereo; 4] {
+        let len = mix[0].len();
+        // Normalise with the mono mix's mean and Bessel-corrected deviation.
+        let mono: Vec<f64> = (0..len)
+            .map(|i| (f64::from(mix[0][i]) + f64::from(mix[1][i])) / 2.0)
+            .collect();
+        let mean = mono.iter().sum::<f64>() / len as f64;
+        let var = mono.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (len - 1).max(1) as f64;
+        let std = var.sqrt() + 1e-8;
+        // Only f32 rounding of the two scalars is shared with the pipeline
+        // (the model sees them as f32 either way).
+        let (mean32, std32) = (mean as f32, std as f32);
+        let norm = |c: usize, i: usize| (mix[c][i] - mean32) / std32;
+
+        // `weight = cat([arange(1, seg // 2 + 1), arange(seg - seg // 2, 0, -1)])`,
+        // divided by its maximum.
+        let seg = model.segment_samples();
+        let tri: Vec<f64> = (0..seg)
+            .map(|j| {
+                let up = if j < seg / 2 { j + 1 } else { seg - j };
+                up as f64 / (seg - seg / 2) as f64
+            })
+            .collect();
+        let stride = ((1.0 - OVERLAP) * seg as f64) as usize;
+
+        let mut acc = vec![[vec![0.0f64; len], vec![0.0f64; len]]; 4];
+        let mut total = vec![0.0f64; len];
+        let mut offset = 0;
+        while offset < len {
+            let chunk = seg.min(len - offset);
+            let trim = (seg - chunk) / 2;
+            // The chunk centred in a full window: audio where there is any,
+            // zeros beyond either end.
+            let window: Stereo = std::array::from_fn(|c| {
+                (0..seg)
+                    .map(|j| {
+                        let at = offset as i64 - trim as i64 + j as i64;
+                        if (0..len as i64).contains(&at) {
+                            norm(c, at as usize)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect()
+            });
+            let out = model.separate_segment(&window).unwrap();
+            for (acc, out) in acc.iter_mut().zip(&out) {
+                for c in 0..2 {
+                    for (j, w) in tri.iter().enumerate().take(chunk) {
+                        acc[c][offset + j] += w * f64::from(out[c][trim + j]);
+                    }
+                }
+            }
+            for j in 0..chunk {
+                total[offset + j] += tri[j];
+            }
+            offset += stride;
+        }
+        // Back to the stems' own scale and the crate's order.
+        std::array::from_fn(|stem| {
+            let source = MODEL_SOURCES
+                .iter()
+                .position(|s| *s == STEM_NAMES[stem])
+                .unwrap();
+            std::array::from_fn(|c| {
+                (0..len)
+                    .map(|i| ((acc[source][c][i] / total[i]) * std + mean) as f32)
+                    .collect()
+            })
+        })
+    }
+
+    /// The pieces are the same numbers an independent whole-track pass gives:
+    /// streaming is a different way to hold the work, not a different result.
+    /// (Compared with a reference that shares no code with the pipeline, not
+    /// with `separate_stereo`, which is `separate_streaming` collected.)
+    /// Segments are made to disagree with each other, so a wrong blend weight,
+    /// a wrong trim or a wrong stride shows.
     #[test]
     fn the_pieces_put_together_are_the_whole_track_pass() {
-        for length in [1usize, 60, 100, 175, 333, 1000] {
+        for length in [1usize, 2, 60, 75, 100, 150, 175, 333, 1000] {
             let mix = stereo_noise(length, 6);
-            let whole = separate_stereo(&mut Quarters::new(SEG), &mix).unwrap();
+            let mut model = Quarters::new(SEG);
+            model.scale_by_call = true;
+            let reference = whole_track_reference(&mut model, &mix);
+
+            let mut model = Quarters::new(SEG);
+            model.scale_by_call = true;
             let mut joined: [Stereo; 4] = Default::default();
-            separate_streaming(
-                &mut Quarters::new(SEG),
-                &mix,
-                &Control::none(),
-                &mut |_, stems| {
-                    for (dst, src) in joined.iter_mut().zip(stems) {
-                        dst[0].extend_from_slice(&src[0]);
-                        dst[1].extend_from_slice(&src[1]);
-                    }
-                    Ok(())
-                },
-            )
+            separate_streaming(&mut model, &mix, &Control::none(), &mut |_, stems| {
+                for (dst, src) in joined.iter_mut().zip(stems) {
+                    dst[0].extend_from_slice(&src[0]);
+                    dst[1].extend_from_slice(&src[1]);
+                }
+                Ok(())
+            })
             .unwrap();
-            for (name, (a, b)) in STEM_NAMES.iter().zip(joined.iter().zip(&whole)) {
-                assert_eq!(a, b, "length {length}, {name}");
+
+            for (name, (got, want)) in STEM_NAMES.iter().zip(joined.iter().zip(&reference)) {
+                for c in 0..2 {
+                    assert_eq!(got[c].len(), length, "length {length}, {name}");
+                    for (i, (g, w)) in got[c].iter().zip(&want[c]).enumerate() {
+                        assert!(
+                            (g - w).abs() <= 1e-6 * w.abs().max(1.0),
+                            "length {length}, {name}, channel {c}, sample {i}: {g} != {w}"
+                        );
+                    }
+                }
             }
         }
     }

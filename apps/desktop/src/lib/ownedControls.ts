@@ -31,9 +31,10 @@ import { isSessionValue } from "./controlValue";
  *   value on the control rather than the one it did not take.
  *
  * A list read before the commit finished is not that word, whatever order
- * the lists arrive in: each read has a number, and `finish` records the
- * first one that was asked for after the commit was answered. Only a list
- * with that number or a later one lets go.
+ * the lists arrive in: each read has a ticket (`useSessionTracks`), and
+ * `finish` records the first one that was asked for after the commit was
+ * answered. Only a list with that ticket or a later one, adopted into the
+ * track query's cache and observed by the hook, lets go.
  *
  * `clear` lets go of everything at once, for when the session moves by
  * itself: an undo, a redo, a head set from the history graph, A/B compare's
@@ -175,10 +176,13 @@ export class OwnedControls {
   }
 
   /**
-   * The track list read number `request` has landed. It hands back every
-   * control whose commits were answered before that read was asked for and
-   * that the user has not touched since. Call it in the same batch as the
-   * state that holds the list, so the two are drawn together.
+   * The track list read with ticket `request` has been adopted by the track
+   * query (`useSessionTracks`). It hands back every control whose commits
+   * were answered before that read was asked for and that the user has not
+   * touched since. `useSessionTracks` calls it from a layout effect, after
+   * the observer holds that read's list and before paint, so the two are
+   * drawn together. A read that failed or was overtaken is never adopted, so
+   * it never calls this.
    */
   applied(request: number): void {
     let released = false;

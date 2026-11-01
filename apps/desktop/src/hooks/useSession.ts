@@ -31,8 +31,8 @@
  * `resetHead`. A hook method that opened one in the line would deadlock
  * when called from inside a turn, and nothing needed it (#498).
  *
- * Pure: the hook only schedules effects in `useEffect` and never
- * mutates state during render. The single `useEffect` that wires the
+ * Pure: the hook never mutates state during render. Track confirmation
+ * follows observer adoption in a layout effect. The `useEffect` wiring the
  * `onNodeCreated` listener returns its async unlisten so React can
  * detach it on unmount; this avoids the duplicated-listener leak that
  * would otherwise happen under StrictMode's double-mount.
@@ -52,6 +52,8 @@ import {
 
 import { createSessionQueue, type InSessionOrder } from "../lib/sessionQueue";
 import { createTrailWriter } from "../lib/trailWriter";
+import type { Claim, OwnedControls } from "../lib/ownedControls";
+import { useSessionTracks } from "./useSessionTracks";
 
 import {
   getGraph,
@@ -64,6 +66,7 @@ import {
   renderPreview as bridgeRenderPreview,
   saveHeadTrail,
   type NodeId,
+  type TrackSummary,
 } from "../lib/tauri-bridge";
 
 /**
@@ -90,6 +93,9 @@ function graphNodeIds(raw: unknown): Set<NodeId> | null {
 }
 
 export interface UseSessionResult {
+  tracks: TrackSummary[];
+  /** Explicitly read the current backend project's tracks. */
+  refreshTracks: () => Promise<void>;
   /** Latest known head node id: read once at mount (a returning user's
    * restored head), then kept current off the event stream. */
   head: NodeId | null;
@@ -185,7 +191,18 @@ export interface UseSessionResult {
   inOrder: InSessionOrder;
 }
 
-export function useSession(): UseSessionResult {
+export interface UseSessionWithTrackControlsResult extends UseSessionResult {
+  refreshTracks: (claim?: Claim) => Promise<void>;
+}
+
+export function useSession(): UseSessionResult;
+export function useSession(options: {
+  trackControls: OwnedControls;
+}): UseSessionWithTrackControlsResult;
+export function useSession(options?: {
+  trackControls: OwnedControls;
+}): UseSessionWithTrackControlsResult {
+  const { tracks, refreshTracks, resetTracks } = useSessionTracks(options?.trackControls);
   // The head, the undo trail and the redo list, in one reducer. Held in a
   // ref as well as in state: undo and redo read it through `peekUndo` /
   // `peekRedo`, which must see a move made a moment ago even if React has
@@ -297,9 +314,11 @@ export function useSession(): UseSessionResult {
     [dispatchHead],
   );
   const resetHead = useCallback(
-    (nodeId: NodeId | null, saved?: SavedTrail | null) =>
-      dispatchHead({ type: "reset", head: nodeId, saved }),
-    [dispatchHead],
+    (nodeId: NodeId | null, saved?: SavedTrail | null) => {
+      resetTracks();
+      dispatchHead({ type: "reset", head: nodeId, saved });
+    },
+    [dispatchHead, resetTracks],
   );
   const stepBack = useCallback(
     (from: NodeId, to: NodeId) => dispatchHead({ type: "stepBack", from, to }),
@@ -389,6 +408,8 @@ export function useSession(): UseSessionResult {
   }, []);
 
   return {
+    tracks,
+    refreshTracks,
     head,
     renderHead,
     setHeadLocal,

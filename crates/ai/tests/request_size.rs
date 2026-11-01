@@ -84,7 +84,7 @@ use std::sync::{Arc, Mutex};
 
 use ai::provider::provider_from_id;
 use ai::session_context::SESSION_BLOCK_MAX_BYTES;
-use ai::{Agent, AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
+use ai::{AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
 use common::{
     chat_reply_json, chat_sse_text, chat_sse_tool_call, classifier_json, ok, sse_text, Entry,
     SeqResponder,
@@ -168,13 +168,18 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // descriptor is 1,304 B (65,482 B to 66,786 B). It went up by that and no more.
 // #770 then added `generate_click_track`, `generate_chirp` and `generate_dtmf`:
 // 2,875 B (66,786 B to 69,661 B), with the 14 B of headroom kept.
-// Merging #861 and main into the `separate_stems` tool's branch (101 tools):
-// #767's `export_transcript` and `transcript_to_markers` are 1,752 B, and the
-// rest of main's descriptor changes (#842's Opus and #854's OS-native M4A/AAC
-// wording in `load`) the other 70 B: 69,772 B to 71,594 B, 1,822 B in all, with
-// the 14 B of headroom kept (69,786 B to 71,608 B).
+// #842's Opus wording then added 13 B to `load` (69,674 B), and #854's
+// OS-native M4A/AAC wording brought it to 69,789 B.
+// #767 then added `export_transcript` and `transcript_to_markers`: 1,752 B
+// (69,789 B to 71,541 B). The ratchet rose by exactly that, keeping the
+// remaining headroom of the main branch rather than loosening the guard. Main
+// at #883 measures 71,523 B against a ratchet of 71,557 B (34 B of headroom).
+// #385 then replaced `separate_stems`' "not implemented" descriptor with the
+// one of a tool that runs (`track` or `path`, what it writes, what to tell the
+// user when the model or the runtime is missing): +47 B (71,523 B to
+// 71,570 B). The ratchet rises by exactly that, so the headroom is still 34 B.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 71_608; // measured 71,594 (`measure` added 977 B, #763; `diarize` 1,304 B, #168; the three generators of #770 2,875 B; `separate_stems` 111 B net, #385: its descriptor now says what it does and what to tell the user; `export_transcript` and `transcript_to_markers` 1,752 B, #767; `load`'s wording 70 B, #842 and #854)
+const FULL_TOOLS_MAX_BYTES: usize = 71_604; // measured 71,570; main's ratchet 71,557 + the 47 B of #385
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -355,13 +360,11 @@ async fn run_conversation(
     if let Some(state) = &options.state {
         store.append(node_of(state)).expect("append the head");
     }
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         config_for(provider_id, server.uri()),
-        Arc::new(Mutex::new(dispatcher_with_mcp(options.mcp_tools))),
+        dispatcher_with_mcp(options.mcp_tools),
         Arc::new(Mutex::new(store)),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         gate.clone(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(options.plan_first);
     if let Some(whitelist) = options.whitelist {
@@ -684,13 +687,11 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
     let cfg = LlmConfig::new_chatgpt_with(provider, Arc::new(session));
 
     let store = session::Store::open(dir.path()).expect("open store");
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         cfg,
-        Arc::new(Mutex::new(dispatcher_with_mcp(0))),
+        dispatcher_with_mcp(0),
         Arc::new(Mutex::new(store)),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let ctx = native_run_context();
     agent
@@ -738,11 +739,14 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // what chat completions send), so the numbers are its own. The plan is
 // metered in messages of the person's allowance, not tokens, but a bigger
 // request is a slower, costlier one on every step.
-// Merging #861 and main into the `separate_stems` tool's branch (101 tools):
-// #767's two tools are 1,814 B here and `load`'s wording 70 B, 72,902 B to
-// 74,786 B, 1,884 B in all, with the 14 B of headroom kept (72,916 B to 74,800 B).
+// #767's `export_transcript` and `transcript_to_markers` add 1,814 B
+// (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
+// the ratchet rose by that, keeping the main branch's remaining headroom. Main
+// at #883 measures 74,715 B against a ratchet of 74,749 B (34 B of headroom).
+// #385's `separate_stems` descriptor is +47 B here as well (74,715 B to
+// 74,762 B): the ratchet rises by exactly that, so the headroom is still 34 B.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_800; // measured 74,786 (`measure` added 1,008 B, #763; `diarize` 1,335 B, #168; the generators of #770 2,968 B; `separate_stems` 111 B, #385; `export_transcript` and `transcript_to_markers` 1,814 B, #767; `load`'s wording 70 B)
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_796; // measured 74,762; main's ratchet 74,749 + the 47 B of #385
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

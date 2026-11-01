@@ -106,9 +106,9 @@ sudo apt-get install -y \
   progress per segment, Cancel, a cache kept under 1 GiB; it appends no node, so
   the agent calls `load` on a stem). It needs the same two things as
   `transcribe`, and never fetches either: **ONNX Runtime 1.23.2** (`ORT_DYLIB_PATH`
-  in a build from source) and **the stem model**, about 171 MB, which in the app
-  the user downloads in Settings → Account (the row comes in the next change),
-  or `DEMUCS_MODEL_PATH` names a folder of the two files. It needs about 4 GB of
+  in a build from source) and **the stem model**, about 171 MB, which the app cannot
+  download yet (the Settings → Account row that does comes in a later change), so for
+  now `DEMUCS_MODEL_PATH` names a folder of the two files. It needs about 4 GB of
   free memory and takes about half the audio's length on a 4-core CPU.
 - `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
   pinned model artifact (tested against a local HTTP server). Three models are

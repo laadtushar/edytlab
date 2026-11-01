@@ -110,6 +110,10 @@ const STALE_TEMP: Duration = Duration::from_secs(60 * 60);
 /// The infix of a temporary directory's name.
 const TEMP_INFIX: &str = ".tmp-";
 
+/// The suffix of an entry's lock file, `<hex>.lock`, which sits beside the
+/// entry and serialises [`Pending::publish`] across processes.
+const LOCK_SUFFIX: &str = ".lock";
+
 /// A stem directory being written. Nothing is visible at the final name until
 /// [`Pending::publish`]; dropping it without publishing removes what was
 /// written.
@@ -152,6 +156,15 @@ impl Pending {
     /// finished the same entry first, theirs stays and this one is discarded:
     /// the two are the same audio by construction (the name is the input's
     /// and the model's).
+    ///
+    /// The check, the removal of anything in the way and the rename happen
+    /// while holding an exclusive lock on `<dest>.lock`, so two processes on
+    /// one project cannot interleave them: without it, one could remove the
+    /// whole entry the other had just published, or fail between its remove
+    /// and its rename and leave no entry at all. The lock file is never
+    /// removed (unlinking a lock another process is waiting on would let a
+    /// third create a new one and enter beside it); it is empty, and [`prune`]
+    /// only looks at directories.
     pub fn publish(mut self) -> Result<StemPaths> {
         let written = StemPaths::for_dir(&self.temp);
         if !written.all_exist() {
@@ -160,6 +173,8 @@ impl Pending {
             ));
         }
         let paths = StemPaths::for_dir(&self.dest);
+        // Held until this function returns, on every path.
+        let _lock = self.lock_entry()?;
         if paths.all_exist() {
             // Dropping removes ours.
             return Ok(paths);
@@ -169,18 +184,34 @@ impl Pending {
             // code. It cannot be a hit, and it is in the way.
             std::fs::remove_dir_all(&self.dest)?;
         }
-        if let Err(e) = std::fs::rename(&self.temp, &self.dest) {
-            // Another run can publish between the check above and here; the
-            // rename then fails because `dest` is a non-empty directory (or,
-            // on Windows, in use). If the entry that won is whole, it stays
-            // and ours is dropped (removed) as above.
-            if paths.all_exist() {
-                return Ok(paths);
-            }
-            return Err(e.into());
-        }
+        std::fs::rename(&self.temp, &self.dest)?;
         self.published = true;
         Ok(paths)
+    }
+
+    /// Take the exclusive lock on this entry's `<dest>.lock`, waiting for
+    /// another run's publish to finish. Held for the length of a rename, so
+    /// the wait is short.
+    fn lock_entry(&self) -> Result<std::fs::File> {
+        let mut name = self
+            .dest
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("a stem directory needs a name"))?
+            .to_os_string();
+        name.push(LOCK_SUFFIX);
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.dest.with_file_name(name))?;
+        loop {
+            match file.lock() {
+                Ok(()) => return Ok(file),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
     }
 }
 
@@ -309,6 +340,16 @@ mod tests {
         }
     }
 
+    /// How many directories `root` holds (a published entry's `.lock` file
+    /// is not one).
+    fn directories_in(root: &Path) -> usize {
+        std::fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .count()
+    }
+
     #[test]
     fn for_dir_uses_canonical_filenames() {
         let dir = Path::new("/tmp/example/aabb");
@@ -345,12 +386,13 @@ mod tests {
         let paths = pending.publish().unwrap();
         assert_eq!(paths, StemPaths::for_dir(&dest));
         assert!(paths.all_exist());
-        // Only the entry is left: no temporary directory.
-        let names: Vec<_> = std::fs::read_dir(root.path())
+        // Only the entry (and its lock file) is left: no temporary directory.
+        let mut names: Vec<_> = std::fs::read_dir(root.path())
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert_eq!(names, ["abc123"]);
+        names.sort();
+        assert_eq!(names, ["abc123", "abc123.lock"]);
     }
 
     fn read_back(dir: &Path) -> Option<StemPaths> {
@@ -390,7 +432,7 @@ mod tests {
         write_entry(&dest, 99);
         let paths = pending.publish().unwrap();
         assert_eq!(std::fs::metadata(&paths.vocals).unwrap().len(), 99);
-        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+        assert_eq!(directories_in(root.path()), 1);
     }
 
     #[test]
@@ -404,6 +446,58 @@ mod tests {
         let paths = pending.publish().unwrap();
         assert!(paths.all_exist());
         assert_eq!(std::fs::metadata(&paths.vocals).unwrap().len(), 10);
+    }
+
+    #[test]
+    fn two_processes_publishing_one_entry_always_leave_one_whole_entry() {
+        // Two threads stand for two edytlab processes on one project: the
+        // lock is on the file, which conflicts across open file descriptions
+        // in one process as it does across processes.
+        for round in 0..300 {
+            let root = tempfile::tempdir().unwrap();
+            let dest = root.path().join("abc123");
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                let runs: Vec<_> = [10usize, 20]
+                    .into_iter()
+                    .map(|bytes| {
+                        let (dest, barrier) = (&dest, &barrier);
+                        scope.spawn(move || {
+                            let pending = Pending::create(dest).unwrap();
+                            write_entry(pending.dir(), bytes);
+                            barrier.wait();
+                            let paths = pending.publish().unwrap();
+                            // Whatever the other run does next, what this one
+                            // was told exists must still exist.
+                            for _ in 0..50 {
+                                assert!(paths.all_exist(), "round {round}: entry vanished");
+                                std::thread::yield_now();
+                            }
+                            paths
+                        })
+                    })
+                    .collect();
+                for run in runs {
+                    assert!(run.join().unwrap().all_exist());
+                }
+            });
+            assert!(StemPaths::for_dir(&dest).all_exist(), "round {round}");
+            // One whole entry, no temporary directories left behind.
+            assert_eq!(directories_in(root.path()), 1, "round {round}");
+        }
+    }
+
+    #[test]
+    fn prune_ignores_lock_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("abc123");
+        let pending = Pending::create(&dest).unwrap();
+        write_entry(pending.dir(), 10);
+        pending.publish().unwrap();
+        assert!(root.path().join("abc123.lock").is_file());
+        let removed = prune(root.path(), 0, &dest);
+        assert_eq!(removed, Pruned::default());
+        assert!(StemPaths::for_dir(&dest).all_exist());
     }
 
     #[test]

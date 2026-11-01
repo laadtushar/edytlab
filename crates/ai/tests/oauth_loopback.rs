@@ -48,8 +48,7 @@ impl Seen {
     }
 }
 
-async fn get(url: String) -> Seen {
-    let resp = http().get(url).send().await.expect("the listener answers");
+async fn seen(resp: reqwest::Response) -> Seen {
     let status = resp.status().as_u16();
     let headers = resp
         .headers()
@@ -64,21 +63,13 @@ async fn get(url: String) -> Seen {
     }
 }
 
+async fn get(url: String) -> Seen {
+    seen(http().get(url).send().await.expect("the listener answers")).await
+}
+
 /// [`get`], or `None` when nothing answers (the listener has gone).
 async fn try_get(url: String) -> Option<Seen> {
-    let resp = http().get(url).send().await.ok()?;
-    let status = resp.status().as_u16();
-    let headers = resp
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
-        .collect();
-    let body = resp.text().await.unwrap_or_default();
-    Some(Seen {
-        status,
-        headers,
-        body,
-    })
+    Some(seen(http().get(url).send().await.ok()?).await)
 }
 
 /// Sends `raw` as-is and returns the status line's code (0 if the listener
