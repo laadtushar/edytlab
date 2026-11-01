@@ -220,7 +220,11 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// `export_transcript` and `transcript_to_markers` (#767) add 42 B with
 /// their separators, so the built-in names are 1,360 B and the budget
 /// rises by exactly 42 B to preserve the 400 B for MCP names.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
+/// `noise_reduction`'s three profile arguments (#769) add about 80 B to its
+/// slim descriptor, which took the 60-MCP-tool request 77 B into the headroom;
+/// the budget comes down 80 B, leaving 320 B for MCP names, rather than the
+/// headroom going down.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_680;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still
