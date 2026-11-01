@@ -15,7 +15,7 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use ai::{Agent, AgentEvent, LlmConfig, SpeechProblem, ToolView};
+use ai::{AgentEvent, LlmConfig, SpeechProblem, ToolView};
 use common::{classifier_json, ok, sse_text, sse_tool_step, Entry, SeqResponder};
 use serde_json::{json, Value};
 use tools::tool::transcribe::{
@@ -100,13 +100,11 @@ async fn a_missing_speech_model_is_a_view_on_the_tool_call_and_not_on_what_the_a
     )))));
 
     let cfg = LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
-    let mut agent = Agent::new(
+    let mut agent = common::agent_over(
         cfg,
-        Arc::new(Mutex::new(dispatcher)),
+        dispatcher,
         Arc::new(Mutex::new(store)),
-        Arc::new(Mutex::new(audio_engine::Engine::new())),
         ai::PlanGate::new(),
-        Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(false);
 

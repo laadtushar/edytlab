@@ -29,6 +29,13 @@ fn registration_json(dir: &std::path::Path) -> Value {
     serde_json::from_str(&text).unwrap()
 }
 
+/// The error a plain sign-in through the fake browser ends with.
+async fn sign_in_error(fake: &Arc<Fake>, session: &ChatGptSession) -> SignInError {
+    fake.sign_in(session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap_err()
+}
+
 #[tokio::test]
 async fn a_first_sign_in_registers_and_saves_the_issued_client_before_the_exchange() {
     let fake = Fake::start().await;
@@ -389,10 +396,7 @@ async fn an_id_token_for_another_audience_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let store = MemoryStore::new();
         let session = fake.session(dir.path(), store.clone());
-        let err = fake
-            .sign_in(&session, Browser::default(), SignInIntent::SignIn)
-            .await
-            .unwrap_err();
+        let err = sign_in_error(&fake, &session).await;
         assert!(
             matches!(err, SignInError::IdToken(OidcError::WrongAudience)),
             "{audience}: {err:?}"
@@ -417,10 +421,7 @@ async fn a_returning_sign_in_as_another_account_is_refused() {
     let store = MemoryStore::new();
     let session = fake.signed_in(dir.path(), store.clone()).await;
     fake.knobs().subject = "someone-else".into();
-    let err = fake
-        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
-        .await
-        .unwrap_err();
+    let err = sign_in_error(&fake, &session).await;
     assert!(matches!(err, SignInError::AccountChanged), "{err:?}");
     assert_eq!(session.status().state, SessionState::SignedIn);
     assert_eq!(session.bearer().await.unwrap().expose_secret(), "AT-1");
@@ -446,10 +447,7 @@ async fn an_invalid_grant_in_any_case_on_the_exchange_means_a_fresh_start() {
     fake.knobs().exchange_error = Some((400, json!({ "error": "INVALID_GRANT" })));
     let dir = tempfile::tempdir().unwrap();
     let session = fake.session(dir.path(), MemoryStore::new());
-    let err = fake
-        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
-        .await
-        .unwrap_err();
+    let err = sign_in_error(&fake, &session).await;
     assert!(matches!(err, SignInError::CodeRejected), "{err:?}");
 }
 
@@ -459,10 +457,7 @@ async fn an_invalid_grant_on_the_exchange_means_a_fresh_authorization_with_the_s
     fake.knobs().exchange_error = Some((400, json!({ "error": "invalid_grant" })));
     let dir = tempfile::tempdir().unwrap();
     let session = fake.session(dir.path(), MemoryStore::new());
-    let err = fake
-        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
-        .await
-        .unwrap_err();
+    let err = sign_in_error(&fake, &session).await;
     assert!(matches!(err, SignInError::CodeRejected), "{err:?}");
     assert_eq!(session.status().state, SessionState::SignedOut);
 
@@ -503,10 +498,7 @@ async fn a_registration_that_cannot_be_saved_leaves_the_session_in_use_as_it_was
         *fake.on_exchange.lock().unwrap() =
             Some(Box::new(move || failing.store(true, Ordering::SeqCst)));
     }
-    let err = fake
-        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
-        .await
-        .unwrap_err();
+    let err = sign_in_error(&fake, &session).await;
     assert!(matches!(err, SignInError::Registration(_)), "{err:?}");
     assert_eq!(
         store.get().as_deref(),
@@ -532,10 +524,7 @@ async fn another_account_can_be_signed_in_after_a_sign_out() {
 
     // Continue with ChatGPT reuses the saved account's client, as the docs
     // say signing back in should; another account is refused there...
-    let err = fake
-        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
-        .await
-        .unwrap_err();
+    let err = sign_in_error(&fake, &session).await;
     assert!(matches!(err, SignInError::AccountChanged), "{err:?}");
 
     // ...and "use another account" registers a new client for it.

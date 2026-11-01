@@ -24,64 +24,13 @@ use ai::plan_gate::Answer as GateAnswer;
 use ai::{Agent, AgentEvent, LlmConfig, PlanGate};
 use common::{
     classifier_json, ok, plan_json, sse_text, sse_thinking_tool_step, sse_tool_step, Entry,
-    SeqResponder,
 };
 use serde_json::{json, Value};
-use tools::schema::{anthropic_tool, object_schema};
-use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer};
+use wiremock::MockServer;
 
 // ---------------------------------------------------------------------
 // Fixture tools
 // ---------------------------------------------------------------------
-
-/// Mutates, because it says nothing about it. Records what it ran with.
-struct Edit {
-    log: Arc<Mutex<Vec<Value>>>,
-}
-
-impl Tool for Edit {
-    fn name(&self) -> &'static str {
-        "edit"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "edit",
-            "Changes the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        self.log.lock().unwrap().push(args);
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
-
-/// Reads only, and says so. Counts its calls.
-struct Peek {
-    calls: Arc<AtomicUsize>,
-}
-
-impl Tool for Peek {
-    fn name(&self) -> &'static str {
-        "peek"
-    }
-    fn schema(&self) -> Value {
-        anthropic_tool(
-            "peek",
-            "Reads the session.",
-            object_schema(&[("track", "integer", true)]),
-        )
-    }
-    fn mutates(&self) -> bool {
-        false
-    }
-    fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(ToolResult::Ok(json!({ "ok": true })))
-    }
-}
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -130,36 +79,15 @@ struct Fixture {
 
 impl Fixture {
     async fn new(plan_first: bool, whitelist: Option<Vec<String>>, responses: Vec<Entry>) -> Self {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/v1/messages"))
-            .respond_with(SeqResponder::new(responses))
-            .mount(&server)
-            .await;
+        let server = common::serve_messages(responses).await;
 
         let dir = tempfile::tempdir().expect("tempdir");
-        let edits = Arc::new(Mutex::new(Vec::new()));
-        let peeks = Arc::new(AtomicUsize::new(0));
-        let mut dispatcher = ToolDispatcher::new();
-        dispatcher.register(Box::new(Edit {
-            log: Arc::clone(&edits),
-        }));
-        dispatcher.register(Box::new(Peek {
-            calls: Arc::clone(&peeks),
-        }));
+        let (dispatcher, edits, peeks) = common::edit_and_peek();
 
         let gate = PlanGate::new();
         let cfg = LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
-        let mut agent = Agent::new(
-            cfg,
-            Arc::new(Mutex::new(dispatcher)),
-            Arc::new(Mutex::new(
-                session::Store::open(dir.path()).expect("open store"),
-            )),
-            Arc::new(Mutex::new(audio_engine::Engine::new())),
-            gate.clone(),
-            Arc::new(Mutex::new(None::<tools::Clipboard>)),
-        );
+        let mut agent =
+            common::agent_over(cfg, dispatcher, common::store_in(dir.path()), gate.clone());
         if let Some(whitelist) = whitelist {
             agent = agent.with_tool_whitelist(whitelist);
         }
@@ -245,13 +173,7 @@ impl Fixture {
 
     /// The JSON bodies the provider was sent, in order.
     async fn requests(&self) -> Vec<Value> {
-        self.server
-            .received_requests()
-            .await
-            .expect("recording is on")
-            .iter()
-            .map(|r| serde_json::from_slice(&r.body).expect("a JSON body"))
-            .collect()
+        common::request_bodies(&self.server).await
     }
 
     fn edits_run(&self) -> Vec<Value> {
