@@ -109,6 +109,9 @@ fn is_thinking(block: &ContentBlock) -> bool {
     )
 }
 
+/// What a call is told when the loop finished its step without a result for it.
+const UNANSWERED: &str = "No result was recorded for this call. It may not have run.";
+
 pub(crate) struct PendingStep<'a> {
     conversation: &'a mut Conversation,
     call_ids: Vec<String>,
@@ -116,11 +119,14 @@ pub(crate) struct PendingStep<'a> {
 }
 
 impl<'history> PendingStep<'history> {
+    /// Record the next call's result. Release builds abort on a panic, so an
+    /// answer past the last call is a bug that debug builds assert on and
+    /// release builds ignore: history stays valid either way.
     pub(crate) fn answer(&mut self, content: String, is_error: Option<bool>) {
-        let id = self
-            .call_ids
-            .get(self.answers.len())
-            .expect("one answer per call");
+        let Some(id) = self.call_ids.get(self.answers.len()) else {
+            debug_assert!(false, "one answer per call");
+            return;
+        };
         self.answers.push(ContentBlock::ToolResult {
             tool_use_id: id.clone(),
             content,
@@ -134,8 +140,13 @@ impl<'history> PendingStep<'history> {
             .map(String::as_str)
     }
 
+    /// Store the answers; every call is expected to have one. In a debug
+    /// build a missing answer is a failure. In a release build (`panic =
+    /// "abort"`) any call left unanswered gets an error result, so the
+    /// history still pairs every `tool_use` with a `tool_result`.
     pub(crate) fn finish(mut self) {
-        assert_eq!(self.answers.len(), self.call_ids.len(), "answer every call");
+        debug_assert_eq!(self.answers.len(), self.call_ids.len(), "answer every call");
+        self.answer_remaining(UNANSWERED);
         self.store_answers(None);
     }
 
@@ -344,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    fn strip_thinking_removes_both_kinds_and_keeps_the_rest_in_order() {
+    fn invalidate_thinking_removes_both_kinds_and_keeps_the_rest_in_order() {
         let mut conversation = Conversation {
             messages: vec![
                 Message {
@@ -470,6 +481,62 @@ mod tests {
         );
         assert!(matches!(&conversation.messages()[1].content[0],
             ContentBlock::Thinking { thinking, signature } if thinking == "reasoning signed" && signature == "signed"));
+    }
+
+    #[test]
+    fn answer_remaining_fills_every_unanswered_call_with_an_error() {
+        let mut conversation = Conversation::default();
+        let mut pending = step(&mut conversation);
+        pending.answer("applied".into(), None);
+        pending.answer_remaining(UNANSWERED);
+        pending.store_answers(None);
+        assert_eq!(
+            serde_json::to_value(&conversation.messages()[2].content).unwrap(),
+            json!([
+                {"type": "tool_result", "tool_use_id": "a", "content": "applied"},
+                {"type": "tool_result", "tool_use_id": "b", "content": UNANSWERED, "is_error": true},
+                {"type": "tool_result", "tool_use_id": "c", "content": UNANSWERED, "is_error": true}
+            ])
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "answer every call")]
+    fn finishing_a_step_with_a_missing_answer_asserts_in_debug() {
+        let mut conversation = Conversation::default();
+        let mut pending = step(&mut conversation);
+        pending.answer("applied".into(), None);
+        pending.finish();
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "one answer per call")]
+    fn an_extra_answer_asserts_in_debug() {
+        let mut conversation = Conversation::default();
+        let mut pending = step(&mut conversation);
+        for _ in 0..4 {
+            pending.answer("x".into(), None);
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_fills_a_missing_answer_and_ignores_an_extra_one() {
+        let mut conversation = Conversation::default();
+        let mut pending = step(&mut conversation);
+        pending.answer("applied".into(), None);
+        pending.finish();
+        assert_eq!(conversation.messages()[2].content.len(), 3);
+
+        let mut conversation = Conversation::default();
+        let mut pending = step(&mut conversation);
+        for _ in 0..4 {
+            pending.answer("x".into(), None);
+        }
+        pending.finish();
+        assert_eq!(conversation.messages()[2].content.len(), 3);
     }
 
     #[test]
