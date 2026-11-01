@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, destructive_edit, load_head_state};
+use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Appends `times` copies of the region `[start_sec, end_sec)` to the
@@ -96,40 +96,14 @@ impl Tool for RepeatSelectionTool {
             return Ok(ToolResult::Error("start_sec must be < end_sec".into()));
         }
 
-        // Pre-read channel count so the closure can compute the correct
-        // interleaved byte range.
-        let channels = {
-            let state = match load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = match state.tracks[args.track].clips.first().cloned() {
-                Some(c) => c,
-                None => {
-                    return Ok(ToolResult::Error(format!(
-                        "track {} has no clips",
-                        args.track
-                    )))
-                }
-            };
-            match audio_decoder::decode_file(&clip.source_path) {
-                Ok(d) => d.channels as usize,
-                Err(_) => 1,
-            }
-        };
-
         let (s, e, t) = (args.start_sec, args.end_sec, args.times);
-        Ok(destructive_edit(
+        Ok(EffectEdit::on(args.track).run(
             ctx,
-            args.track,
-            move |samples, sr| apply_repeat(samples, sr, channels, s, e, t),
             format!(
                 "repeat_selection track {} {:.3}s..{:.3}s x{}",
                 args.track, args.start_sec, args.end_sec, args.times
             ),
+            move |samples, sr, channels| apply_repeat(samples, sr, channels, s, e, t),
         ))
     }
 }

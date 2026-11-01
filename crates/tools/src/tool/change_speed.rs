@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit_then, remap_after_scale};
+use crate::tool::util::{destructive_edit_then, remap_after_scale, source_channels};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -66,25 +66,9 @@ impl Tool for ChangeSpeedTool {
                 "factor must be a positive finite number".into(),
             ));
         }
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
+        let channels = match source_channels(ctx, args.track) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
         let factor = args.factor;
         Ok(destructive_edit_then(
