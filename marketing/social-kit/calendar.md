@@ -1,6 +1,9 @@
 # Two-week posting plan
 
-Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). v0.6.0 was published on 16 October, v0.6.1 on 17 October, v0.7.0 on 22 October, v0.8.0 on 23 October, v0.8.1 on 24 October, v0.9.0 and v0.9.1 on 25 October, v0.9.2 on 26 October, v0.9.3 on 27 October, and the copy now names v0.9.3 (updated for v0.9.3 on 2026-10-27: the version and download lines); if you start later, shift the days. The relaunch starts Tuesday 27 October 2026: day 1 below is that Tuesday, and every later day moves with it (the weekday labels in the tables are the original ones). The recordings were re-filmed on a development build just before v0.6.0, in its look, and the reels re-cut from them.
+Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). Since then: v0.6.0 on 16 October, v0.6.1 on 17 October, v0.7.0 on 22 October, v0.8.0 on 23 October, v0.8.1 on 24 October, v0.9.0 and v0.9.1 on 25 October, v0.9.2 on 26 October and v0.9.3 on 27 October. The copy now names v0.9.3 (updated for v0.9.3 on 2026-10-27: the version and download lines). If you start later, shift the days.
+The relaunch starts Tuesday 27 October 2026. Day 1 below is that Tuesday, and every later day moves with it (the weekday labels in the tables are the original ones). The recordings were re-filmed on 26 October on the released app, and the reels re-cut from them.
+The copy is written in the voice of [`../brand-voice.md`](../brand-voice.md): a scene first, one message a post.
+
 Every piece is in this folder: `linkedin-posts.md`, `instagram.md`,
 `reddit.md`, `more.md`. Videos are the `reel-*.mp4` files (no narrated
 versions or `.srt` captions yet: they will be regenerated once narration
@@ -89,7 +92,7 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
   newcomer sees the whole range in one video. It is also the video most likely to
   hold a viewer who has not heard of the project.
 - **Tue, Show HN.** It is the most scrutiny-heavy post, and `more.md`'s
-  version states the limits first. Everything technical that follows has
+  version states the limits plainly. Everything technical that follows has
   already been through it.
 - **Wed and Thu, r/rust and r/LocalLLaMA.** The two audiences that will test
   specific claims (vocoder, lock discipline, local-model numbers). Both posts
@@ -134,5 +137,5 @@ page the day you post it.
 
 Correct it in the same thread, plainly, and fix the source file here. The
 claims most likely to be questioned: the synthetic demo tracks, the scripted
-recording, the unsigned installers, what local models can do, and the
-"Master" track that bakes the mix. All five are disclosed in the posts.
+recording, the unsigned installers and what local models can do. The posts
+disclose all four.

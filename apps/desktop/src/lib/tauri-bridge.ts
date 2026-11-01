@@ -1121,6 +1121,13 @@ export interface ToolProgress {
   recording?: boolean;
   remaining_sec?: number;
   /**
+   * `punch_record` (#203) reports where the take is on this channel:
+   * `preparing` (the two renders of the monitor), then `preroll`,
+   * `recording` (inside the region) and `postroll`, with `remaining_sec` to
+   * the end of that part. Not on `total`/`index`, like `timer_record`.
+   */
+  phase?: "preparing" | "preroll" | "recording" | "postroll" | "applying";
+  /**
    * `calibrate_latency` (#203): run `run` of `runs` is about to play its
    * test sweeps. Not on the progress strip's allow-list; the Audio tab's
    * row reads it for itself.
@@ -1559,6 +1566,73 @@ export const calibrateRecordingLatency = (): Promise<CalibrationResult> =>
  */
 export const cancelRecordingLatency = (): Promise<void> =>
   invoke("cancel_recording_latency");
+
+/** What `setRecordingLatency` answers: the pair and what is kept for it. */
+export interface SetLatencyResult {
+  devices: RecordingDevices;
+  latency: StoredLatency;
+}
+
+/**
+ * Keep a delay the person typed, in milliseconds, for the current default
+ * speakers and microphone (#203). It counts exactly as a measured one for
+ * `punchRecord`; the newest write for a pair wins. Rejects, with the text to
+ * show, for a value outside 0 to 2000 or when the default devices cannot be
+ * named.
+ */
+export const setRecordingLatency = (latencyMs: number): Promise<SetLatencyResult> =>
+  invoke<SetLatencyResult>("set_recording_latency", { latencyMs });
+
+/** What `punchRecord` resolves to. */
+export type PunchResult =
+  | { cancelled: true }
+  | {
+      cancelled: false;
+      /** The new session head (the punch's node). */
+      head: string;
+      /** The delay the take was placed with. */
+      latency_ms: number;
+      latency_source: "measured" | "manual";
+      track: number;
+      start_sec: number;
+      end_sec: number;
+    };
+
+/**
+ * Replace `[startSec, endSec)` of `track` with a take recorded while the
+ * rest of the mix plays through the speakers (#203): the track is muted
+ * inside the region and heard in the lead-in (`prerollSec`, default 2) and
+ * the tail (`postrollSec`, default 1). The take is placed with the latency
+ * kept for the current devices. Rejects, with the text to show, when none is
+ * kept (measured or typed), when something else is recording or being
+ * measured, when the take lost frames, or when the project changed under it;
+ * resolves `{ cancelled: true }` and makes no node when `cancelPunchRecord`
+ * stopped it. Progress (`kind: "punch_record"`) arrives on `onToolProgress`.
+ *
+ * It changes the session, so the caller adopts `head` as an edit.
+ */
+export const punchRecord = (
+  track: number,
+  startSec: number,
+  endSec: number,
+  prerollSec?: number,
+  postrollSec?: number,
+): Promise<PunchResult> =>
+  invoke<PunchResult>("punch_record", {
+    track,
+    startSec,
+    endSec,
+    prerollSec,
+    postrollSec,
+  });
+
+/**
+ * Stop the running punch-in at its next checkpoint; its take is thrown away.
+ * Its own command: `cancelLongRunningTool` is the agent's batch and the
+ * timer's Cancel, and neither stops the other. Resolves at once, also when
+ * nothing is running; `punchRecord`'s own promise settles when it has stopped.
+ */
+export const cancelPunchRecord = (): Promise<void> => invoke("cancel_punch_record");
 
 // -----------------------------------------------------------------------------
 // Bundled skills install (Task 2)

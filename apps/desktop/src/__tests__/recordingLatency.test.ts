@@ -11,7 +11,9 @@ import {
   calibrateOutcome,
   devicesText,
   latencyText,
+  MANUAL_MAX_MS,
   measuringText,
+  parseManualLatency,
   rateText,
 } from "../lib/recordingLatency";
 import type { CalibrationResult, RecordingDevices } from "../lib/tauri-bridge";
@@ -133,5 +135,34 @@ describe("calibrateOutcome", () => {
         throw new Error("no input device available");
       }),
     ).toEqual({ kind: "refused", message: "no input device available" });
+  });
+});
+
+describe("parseManualLatency", () => {
+  it("reads a delay in milliseconds, with a comma or a point", () => {
+    expect(parseManualLatency("42.5")).toEqual({ ok: true, ms: 42.5 });
+    expect(parseManualLatency(" 42,5 ")).toEqual({ ok: true, ms: 42.5 });
+    expect(parseManualLatency("0")).toEqual({ ok: true, ms: 0 });
+    expect(parseManualLatency(String(MANUAL_MAX_MS))).toEqual({ ok: true, ms: 2000 });
+  });
+
+  it("does not read an empty field as zero", () => {
+    for (const blank of ["", "   "]) {
+      const r = parseManualLatency(blank);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.message).toMatch(/type a delay/i);
+    }
+  });
+
+  it("refuses what is not a number, and what is outside 0 to 2000", () => {
+    for (const bad of ["abc", "4 2", "NaN", "Infinity"]) {
+      const r = parseManualLatency(bad);
+      expect(r.ok, bad).toBe(false);
+    }
+    for (const bad of ["-0.1", "2000.1", "99999"]) {
+      const r = parseManualLatency(bad);
+      expect(r.ok, bad).toBe(false);
+      expect(!r.ok && r.message).toContain("0 to 2000");
+    }
   });
 });
