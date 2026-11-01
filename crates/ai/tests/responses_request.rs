@@ -384,7 +384,7 @@ fn a_failed_tool_result_says_so_in_its_output() {
 }
 
 /// The results lead the user's own words, which is where the agent loop
-/// puts them (`approval::push_user_text`), and every call is answered in
+/// puts them (`Conversation::push_user_text`), and every call is answered in
 /// the order it was made.
 #[test]
 fn results_come_before_the_users_next_words_and_calls_keep_their_order() {

@@ -251,7 +251,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
       <h2>CI / release pipeline</h2>
       <p>
         <code>ci.yml</code> runs on every push to main and every PR: fmt →
-        clippy → cargo test → frontend tests → frontend build, on macOS 14,
+        clippy → cargo test → frontend tests → frontend build, on macOS 15,
         Windows latest and Ubuntu 22.04, plus a Playwright job (Chromium) and
         the website&rsquo;s tests.
       </p>

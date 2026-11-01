@@ -805,59 +805,10 @@ fn tool_names(schemas: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// Remove every `thinking` and `redacted_thinking` block from
-/// `conversation`; text, `tool_use` and `tool_result` blocks stay, in order.
-///
-/// A thinking block's signature is bound to the request that produced it:
-/// the top-level `system`, the `tools` set, and every message before it.
-/// On Anthropic's 5.x models (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5)
-/// a block replayed under a different prefix is a 400
-/// (`Invalid signature in thinking block ... bound to a different
-/// conversation`) for accounts created on or after 2026-08-31, and for any
-/// request that opts in. Removing the blocks is the documented way out:
-/// "Remove `thinking` blocks from the start of the history, from the end,
-/// or all of them" is valid, and the model only loses that reasoning.
-///
-/// [`run_turn`] calls this once at the start of every turn, because every
-/// turn rebuilds the prefix: `system` is assembled from the classifier's
-/// mode, the matched skills, the memory, the agent profile and a session
-/// context that carries the head node id and the selection, and `tools` is
-/// filtered by that turn's whitelist. Almost no two turns send the same
-/// `system`, so a block kept from an earlier turn would not be valid.
-///
-/// Within a turn the prefix cannot change: `run_turn` builds `system` and
-/// `tools` once before its request loop and sends those same values on every
-/// step, so the thinking a step produced is replayed, unmodified, with the
-/// tool results that follow it. `tests/prior_turn_thinking.rs` pins that;
-/// anything that makes `system` or `tools` change between a turn's steps
-/// has to strip there too, and so does editing or removing an earlier
-/// message (compaction, trimming old tool results, rewriting a stored
-/// `tool_use` or `tool_result`), which changes the prefix of every block
-/// after it.
-///
-/// A provider that does not keep thinking in the first place (everything
-/// but Anthropic's own API) has none of these blocks, so this is a no-op
-/// for it. No message is left empty: an assistant message is stored only if
-/// it carries a block other than thinking.
-///
-/// Follow-up, not done here: an append-only history with a frozen `system`
-/// (the session context sent as part of the user message or as a
-/// mid-conversation system message) would keep the reasoning across turns.
-pub(crate) fn strip_thinking(conversation: &mut [Message]) {
-    for message in conversation {
-        message.content.retain(|block| {
-            !matches!(
-                block,
-                ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }
-            )
-        });
-    }
-}
-
 /// Run a single agent turn. See [`crate::Agent::turn`] for behaviour.
 ///
 /// This is a free function (rather than an `Agent` method) so the
-/// borrow checker can hold a `&mut Vec<Message>` for the conversation
+/// borrow checker can hold a `&mut Conversation` for the conversation
 /// while keeping the dispatcher / store / engine in the
 /// `Arc<Mutex<_>>`s the spec mandates. Mixing `&mut self` on `Agent`
 /// with the mutex guards leads to awkward lifetimes.
@@ -869,7 +820,7 @@ pub(crate) async fn run_turn<F>(
     store: &Arc<Mutex<session::Store>>,
     engine: &Arc<Mutex<audio_engine::Engine>>,
     clipboard: &Arc<Mutex<Option<tools::Clipboard>>>,
-    conversation: &mut Vec<Message>,
+    conversation: &mut crate::conversation::Conversation,
     plan_gate: &PlanGate,
     plan_first: bool,
     user_message: String,
@@ -885,7 +836,7 @@ where
 {
     // M27: classify the user message to select the system prompt and
     // decide whether to gate on plan approval.
-    let mode = classify_mode(cfg, http, &user_message, conversation).await;
+    let mode = classify_mode(cfg, http, &user_message, conversation.messages()).await;
     let base_prompt = base_prompt_with_budget(mode);
 
     let memory_block = memory_store.map(|m| m.render()).unwrap_or_default();
@@ -895,6 +846,7 @@ where
             // history haystack. Skills stay sticky across follow-up
             // turns even when the trigger keyword isn't repeated.
             let history: Vec<String> = conversation
+                .messages()
                 .iter()
                 .filter(|m| m.role == Role::User)
                 .map(message_text)
@@ -969,7 +921,7 @@ where
             cfg,
             http,
             system_prompt,
-            conversation,
+            conversation.messages(),
             &user_message,
             &tool_schemas,
         )
@@ -1034,8 +986,8 @@ where
     // First, drop the thinking that earlier turns left in it. `system` and
     // `tools` were rebuilt above for this turn, and a thinking block only
     // stays valid under the prefix it was produced with: replayed under
-    // this one it is a 400 on the 5.x models. See `strip_thinking`.
-    strip_thinking(conversation);
+    // this one it is a 400 on the 5.x models. See `Conversation::invalidate_thinking`.
+    conversation.invalidate_thinking();
     // Save a copy before `user_message` is consumed by the ContentBlock move.
     let user_msg_saved = user_message.clone();
     // If the user edited the plan steps before approving, merge the override
@@ -1053,7 +1005,7 @@ where
     // Joins a trailing user message rather than following it: after a
     // declined step the conversation ends in the `tool_result`s that
     // answered it, and a second user message in a row is rejected.
-    approval::push_user_text(conversation, user_text);
+    conversation.push_user_text(user_text);
 
     // A provider for small-context models is sent a core plus the tools
     // this message points at, in a shorter form (#395). Worked out once
@@ -1108,7 +1060,7 @@ where
         };
         (tools, prompt)
     };
-    let (mut tool_schemas, mut request_prompt) = select_tools(conversation);
+    let (mut tool_schemas, mut request_prompt) = select_tools(conversation.messages());
     // How many times a refusal has changed the provider in this turn, and so
     // the request. Each change is a request that is different from the last,
     // and a provider has finitely many, so this ends; the bound is for a
@@ -1160,7 +1112,7 @@ where
             &wire_model,
             system_prompt,
             &tool_schemas,
-            conversation,
+            conversation.messages(),
             tool_choice,
             cfg.effective_effort(),
         );
@@ -1204,13 +1156,13 @@ where
                             ?adaptation,
                             "the provider refused the request; sending a different one"
                         );
-                        strip_thinking(conversation);
-                        (tool_schemas, request_prompt) = select_tools(conversation);
+                        conversation.invalidate_thinking();
+                        (tool_schemas, request_prompt) = select_tools(conversation.messages());
                         let next = cfg.provider.serialize_request(&build_request(
                             &wire_model,
                             &request_prompt,
                             &tool_schemas,
-                            conversation,
+                            conversation.messages(),
                             tool_choice,
                             cfg.effective_effort(),
                         ));
@@ -1496,21 +1448,7 @@ where
                 _ => None,
             })
             .collect();
-        // A message that is nothing but thinking (a reply cut off at
-        // `max_tokens` before it said anything) is not an assistant turn
-        // worth replaying: it has no content for the next request to
-        // follow.
-        if assistant_blocks.iter().any(|b| {
-            !matches!(
-                b,
-                ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }
-            )
-        }) {
-            conversation.push(Message {
-                role: Role::Assistant,
-                content: assistant_blocks,
-            });
-        }
+        conversation.store_assistant(assistant_blocks);
         accumulated_text.push_str(&text_this_message);
 
         // 5. If the model used tools, dispatch them and iterate.
@@ -1541,10 +1479,7 @@ where
                 let notice = budget_notice();
                 on_event(AgentEvent::TextDelta(notice.clone()));
                 accumulated_text.push_str(&notice);
-                conversation.push(Message {
-                    role: Role::Assistant,
-                    content: vec![ContentBlock::Text { text: notice }],
-                });
+                conversation.store_assistant(vec![ContentBlock::Text { text: notice }]);
             }
             on_event(AgentEvent::Done);
             return Ok(TurnResult {
@@ -1581,14 +1516,9 @@ where
         //
         // It sits before the held-step gate on purpose: a step that will
         // not run is not put to the user for approval.
+        let mut pending = conversation.pending_step(tool_uses.iter().map(|(id, _, _)| id.clone()));
         if total_tool_calls + tool_uses.len() > MAX_TOOL_CALLS_PER_TURN {
-            approval::not_run(
-                &mut on_event,
-                conversation,
-                &tool_uses,
-                &budget_reached_result(),
-                None,
-            );
+            approval::not_run(&mut on_event, pending, &budget_reached_result(), None);
             summarising = true;
             continue;
         }
@@ -1607,18 +1537,18 @@ where
                 approval::held_step(&d, &tool_uses, allowed_tools.as_ref(), &user_msg_saved)
             };
             if let Some(steps) = held {
-                match approval::ask(&mut on_event, steps, plan_gate).await {
+                let answer = {
+                    let waiting = pending.awaiting_approval();
+                    let answer = approval::ask(&mut on_event, steps, plan_gate).await;
+                    pending = waiting.resume();
+                    answer
+                };
+                match answer {
                     // This step runs, and so does the rest of the turn,
                     // as after an approved plan.
                     Ok(Answer::Approve) => gate = Gate::Open,
                     Ok(Answer::Reject) => {
-                        approval::not_run(
-                            &mut on_event,
-                            conversation,
-                            &tool_uses,
-                            approval::DECLINED,
-                            None,
-                        );
+                        approval::not_run(&mut on_event, pending, approval::DECLINED, None);
                         on_event(AgentEvent::PlanRejected);
                         return Ok(TurnResult {
                             text: accumulated_text,
@@ -1634,37 +1564,22 @@ where
                     Ok(Answer::Revise(guidance)) => {
                         approval::not_run(
                             &mut on_event,
-                            conversation,
-                            &tool_uses,
+                            pending,
                             approval::REVISED,
                             Some(guidance),
                         );
                         continue;
                     }
                     Err(e) => {
-                        approval::not_run(
-                            &mut on_event,
-                            conversation,
-                            &tool_uses,
-                            approval::TIMED_OUT,
-                            None,
-                        );
+                        approval::not_run(&mut on_event, pending, approval::TIMED_OUT, None);
                         return Err(e);
                     }
                 }
             }
         }
 
-        // The step's `tool_use`s are all in the assistant message stored
-        // above, so every one of them has to be answered in the user message
-        // that follows it, whichever way this loop is left. `tool_results`
-        // is that message in the making. The two exits below that end the
-        // turn in an error close it first, with `close_failed_step`, rather
-        // than return with the step unanswered: a history that ends in a
-        // `tool_use` with no `tool_result` is a 400 on the user's next
-        // message, and on every one after it (#486).
-        let mut tool_results: Vec<ContentBlock> = Vec::with_capacity(tool_uses.len());
-        for (at, (id, name, args_json)) in tool_uses.iter().enumerate() {
+        // Explicit completion preserves actual results before any unreached calls.
+        for (id, name, args_json) in &tool_uses {
             total_tool_calls += 1;
 
             let args: Value = match parse_tool_args(args_json) {
@@ -1679,23 +1594,16 @@ where
                     if consecutive_validation_errors > 1 {
                         close_failed_step(
                             &mut on_event,
-                            conversation,
-                            tool_results,
-                            id,
+                            pending,
                             format!("tool args were not valid JSON: {e}. {TURN_STOPPED}"),
-                            &tool_uses[at + 1..],
                         );
                         return Err(Error::ToolValidation(format!(
                             "tool {name} args malformed twice; bailing: {e}"
                         )));
                     }
-                    tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
-                        content: format!(
+                    pending.answer(format!(
                             "tool args were not valid JSON: {e}. retry once with a valid JSON object."
-                        ),
-                        is_error: Some(true),
-                    });
+                        ), Some(true));
                     continue;
                 }
             };
@@ -1745,15 +1653,14 @@ where
                         ok: false,
                         view: None,
                     });
-                    tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
-                        content: format!(
+                    pending.answer(
+                        format!(
                             "`{tool}` is turned off for this turn. Do not try it again; \
                              use one of the tools you were given, or say what you would \
                              need enabled."
                         ),
-                        is_error: Some(true),
-                    });
+                        Some(true),
+                    );
                 }
                 Err(dispatch_err) => {
                     // Schema validation failure or unknown tool. Surface
@@ -1768,21 +1675,14 @@ where
                     if consecutive_validation_errors > 1 {
                         close_failed_step(
                             &mut on_event,
-                            conversation,
-                            tool_results,
-                            id,
+                            pending,
                             format!("{dispatch_err}\n{TURN_STOPPED}"),
-                            &tool_uses[at + 1..],
                         );
                         return Err(Error::ToolValidation(format!(
                             "tool {name} failed validation twice: {dispatch_err}"
                         )));
                     }
-                    tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
-                        content: format!("{dispatch_err}"),
-                        is_error: Some(true),
-                    });
+                    pending.answer(format!("{dispatch_err}"), Some(true));
                 }
                 Ok(ToolResult::Ok(mut value)) => {
                     consecutive_validation_errors = 0;
@@ -1794,11 +1694,10 @@ where
                     // Order matters: the view has its copy now, so the
                     // chart's bulk can come out of the model's copy.
                     strip_view_only_fields(&mut value);
-                    tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
-                        content: serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string()),
-                        is_error: None,
-                    });
+                    pending.answer(
+                        serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string()),
+                        None,
+                    );
                 }
                 Ok(ToolResult::Error(msg)) => {
                     consecutive_validation_errors = 0;
@@ -1807,11 +1706,7 @@ where
                         ok: false,
                         view: extract_error_view(&msg),
                     });
-                    tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
-                        content: msg,
-                        is_error: Some(true),
-                    });
+                    pending.answer(msg, Some(true));
                 }
             }
         }
@@ -1819,10 +1714,7 @@ where
         // The user-role message carrying tool_result blocks: per
         // Anthropic's conversation shape, tool_result lives in a `user`
         // message that immediately follows the assistant's tool_use.
-        conversation.push(Message {
-            role: Role::User,
-            content: tool_results,
-        });
+        pending.finish();
         // Iterate: the next round-trip lets the model react to the
         // tool results.
     }
@@ -1911,37 +1803,19 @@ const STEP_STOPPED: &str = "Not run: an earlier call in this step failed twice i
 /// is one user message with a `tool_result` for each call, in the order the
 /// calls were made:
 ///
-/// * `answered` are the results of the calls before the failing one, kept
-///   as they are. They ran; their edits are in the session, and the model
-///   must read that and not that they were skipped.
-/// * the failing call `failed_id` is answered `failure`, an error that says
-///   what was wrong, and its badge is ended by the caller before this runs.
-/// * `unreached` are the calls after it, which never ran. Each is answered
-///   as not run, and its badge resolved as such.
+/// `pending` retains the results of earlier calls, which already ran, then
+/// answers the failing call with `failure` and every unreached call as not run.
+/// The caller already ended the failing badge; this resolves the others.
 ///
 /// The user's next message then joins this message, after its results, as
-/// [`approval::push_user_text`] does for every turn that ended on one.
+/// [`crate::conversation::Conversation::push_user_text`] does for every turn that ended on one.
 fn close_failed_step(
     on_event: &mut impl FnMut(AgentEvent),
-    conversation: &mut Vec<Message>,
-    mut answered: Vec<ContentBlock>,
-    failed_id: &str,
+    mut pending: crate::conversation::PendingStep<'_>,
     failure: String,
-    unreached: &approval::Calls,
 ) {
-    answered.push(ContentBlock::ToolResult {
-        tool_use_id: failed_id.to_string(),
-        content: failure,
-        is_error: Some(true),
-    });
-    approval::not_run_after(
-        on_event,
-        conversation,
-        answered,
-        unreached,
-        STEP_STOPPED,
-        None,
-    );
+    pending.answer(failure, Some(true));
+    approval::not_run(on_event, pending, STEP_STOPPED, None);
 }
 
 /// What the user is shown when the model, asked to summarise after the
@@ -3505,114 +3379,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    // ------------------------------------------------------------------
-    // strip_thinking (#468)
-    // ------------------------------------------------------------------
-
-    fn thinking(signature: &str) -> ContentBlock {
-        ContentBlock::Thinking {
-            thinking: format!("reasoning {signature}"),
-            signature: signature.into(),
-        }
-    }
-
-    /// `role:kind,kind` per message, to compare a conversation's shape.
-    fn shape_of(conversation: &[Message]) -> Vec<String> {
-        conversation
-            .iter()
-            .map(|m| {
-                let kinds: Vec<&str> = m
-                    .content
-                    .iter()
-                    .map(|b| match b {
-                        ContentBlock::Text { .. } => "text",
-                        ContentBlock::ToolUse { .. } => "tool_use",
-                        ContentBlock::ToolResult { .. } => "tool_result",
-                        ContentBlock::Thinking { .. } => "thinking",
-                        ContentBlock::RedactedThinking { .. } => "redacted_thinking",
-                    })
-                    .collect();
-                format!("{:?}:{}", m.role, kinds.join(","))
-            })
-            .collect()
-    }
-
-    #[test]
-    fn strip_thinking_removes_both_kinds_and_keeps_the_rest_in_order() {
-        let mut conversation = vec![
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text { text: "go".into() }],
-            },
-            Message {
-                role: Role::Assistant,
-                content: vec![
-                    thinking("A"),
-                    ContentBlock::RedactedThinking { data: "R".into() },
-                    ContentBlock::Text {
-                        text: "on it".into(),
-                    },
-                    thinking("B"),
-                    ContentBlock::ToolUse {
-                        id: "t1".into(),
-                        name: "gain".into(),
-                        input: json!({ "db": 3 }),
-                    },
-                ],
-            },
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::ToolResult {
-                    tool_use_id: "t1".into(),
-                    content: "{}".into(),
-                    is_error: None,
-                }],
-            },
-            Message {
-                role: Role::Assistant,
-                content: vec![
-                    thinking("C"),
-                    ContentBlock::Text {
-                        text: "done".into(),
-                    },
-                ],
-            },
-        ];
-        strip_thinking(&mut conversation);
-
-        assert_eq!(
-            shape_of(&conversation),
-            [
-                "User:text",
-                "Assistant:text,tool_use",
-                "User:tool_result",
-                "Assistant:text"
-            ]
-        );
-        // The survivors are untouched.
-        assert!(matches!(
-            &conversation[1].content[0],
-            ContentBlock::Text { text } if text == "on it"
-        ));
-        assert!(matches!(
-            &conversation[1].content[1],
-            ContentBlock::ToolUse { id, input, .. } if id == "t1" && input == &json!({ "db": 3 })
-        ));
-        assert!(matches!(
-            &conversation[2].content[0],
-            ContentBlock::ToolResult { tool_use_id, .. } if tool_use_id == "t1"
-        ));
-    }
-
-    #[test]
-    fn strip_thinking_leaves_a_conversation_without_any_alone() {
-        let mut conversation = tool_turn("make it louder", "Done.");
-        let before = shape_of(&conversation);
-        strip_thinking(&mut conversation);
-        assert_eq!(shape_of(&conversation), before);
-        strip_thinking(&mut []);
     }
 
     /// A reply to a request with an effort can lead with a `thinking`
