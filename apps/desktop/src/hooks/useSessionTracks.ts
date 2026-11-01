@@ -37,11 +37,13 @@ export function useSessionTracks(owner?: OwnedControls) {
 
   const { data: snapshot } = useQuery<TrackSnapshot>({
     queryKey: TRACKS_KEY,
+    structuralSharing: false,
     queryFn: skipToken,
     enabled: false,
   });
 
-  // A fresh ticket survives structural sharing of identical track arrays.
+  // Structural sharing is off for this query (see `refreshTracks`), so every
+  // adopted read hands out fresh `TrackSummary` and `clips` references.
   // Only a list adopted by the observer may hand back controls, so a failed
   // read or an older cached success cannot confirm a newer claim.
   useLayoutEffect(() => {
@@ -66,6 +68,12 @@ export function useSessionTracks(owner?: OwnedControls) {
       await client.fetchQuery({
         queryKey: TRACKS_KEY,
         staleTime: 0,
+        // Consumers re-sync on the identity of the list and of each track's
+        // `clips` (App's lane memo, Timeline's lane state, ClipStrip and
+        // AutomationLane drafts). A refused edit followed by an identical
+        // read must still hand back new references, or a dragged chip stays
+        // where it was dropped while the session holds the old position.
+        structuralSharing: false,
         queryFn: async (): Promise<TrackSnapshot> => {
           try {
             return { ticket, tracks: await listTracks() };

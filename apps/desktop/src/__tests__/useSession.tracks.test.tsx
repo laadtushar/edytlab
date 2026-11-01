@@ -181,7 +181,7 @@ it("adopts NoSession as a successful empty list", async () => {
   await waitFor(() => expect(hook.result.current.tracks).toEqual([]));
 });
 
-it("confirms identical-data success even when the track array is structurally shared", async () => {
+it("confirms identical-data success and hands back fresh references", async () => {
   const hook = await mountTracks();
   await readBaseline(hook);
   const previous = hook.result.current.tracks;
@@ -195,7 +195,10 @@ it("confirms identical-data success even when the track array is structurally sh
   await confirming.resolve(tracks(0));
   await act(() => done);
   await waitFor(() => expect(hook.result.current.visible).toEqual(tracks(0)));
-  expect(hook.result.current.tracks).toBe(previous);
+  // Consumers re-sync on reference identity, so equal data must not be shared.
+  expect(hook.result.current.tracks).toEqual(previous);
+  expect(hook.result.current.tracks).not.toBe(previous);
+  expect(hook.result.current.tracks[0]).not.toBe(previous[0]);
   expect(hook.result.current.owner.sent("voice", "gain")).toBeUndefined();
 });
 

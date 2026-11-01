@@ -767,13 +767,16 @@ function AppSession() {
   // before the commit was answered, landing meanwhile, would put the
   // older value back under it. `claim` is the control's hold on the
   // lane (`lib/ownedControls.ts`); the answer ends the commit, and the
-  // refresh requested here is the first read that can confirm it.
+  // refresh requested here is the first read that can confirm it. It does
+  // so when `useSessionTracks` adopts that read into the track query, which
+  // hands out fresh track and clip references even for identical data, so
+  // a refused edit still redraws the lane from the session's value.
   //
   // In line (#498): two commits made in quick succession reach the
   // session in the order they were made, so the last value set is the
   // one it keeps. The refresh is outside the turn, so it never holds up
-  // the next edit; `refreshTracks` already drops a reply that a newer
-  // request has overtaken.
+  // the next edit; the track query only adopts the newest request's reply
+  // (`useSessionTracks`), so one that a newer request has overtaken is dropped.
   const commitTrackChange = useCallback(
     async (apply: () => Promise<string>, claim?: Claim) => {
       try {
