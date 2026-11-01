@@ -9,12 +9,12 @@
 //! agent loop calls `invoke` holding the dispatcher, store and engine
 //! mutexes, so one `transcribe` call froze the agent.
 //!
-//! Both tools must answer with a `ToolResult::Error` instead. For
-//! `separate_stems` the error must still say the feature is not implemented:
-//! installing the runtime does not make it work (#385). `transcribe` runs
-//! (#384), so its error is the setup problem and says what the user does:
-//! point `ORT_DYLIB_PATH` at a copy (a build from source has none), under the
-//! marker the window turns into a card.
+//! Both tools must answer with a `ToolResult::Error` instead. Both run (#384,
+//! #385), so the error is the setup problem and says what the user does: point
+//! `ORT_DYLIB_PATH` at a copy (a build from source has none). `transcribe`'s
+//! comes under the marker the window turns into a card; `separate_stems`'s has
+//! none (the card speaks of the speech model) and tells the agent to leave it
+//! to the user, as `diarize`'s does.
 //!
 //! A single test in its own binary, because it edits the process
 //! environment and its watchdog ends the whole process.
@@ -115,19 +115,26 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
         };
         assert!(msg.contains("ONNX Runtime"), "{name} {args}: {msg}");
         assert!(
-            msg.contains("not implemented in this build"),
-            "{name} {args}: the error must not suggest the runtime is the missing piece: {msg}"
+            !msg.contains("not implemented"),
+            "{name} {args}: stem separation runs once the runtime is there: {msg}"
         );
-        assert_eq!(
-            msg.matches("not implemented in this build").count(),
-            1,
-            "{name} {args}: it should say so once: {msg}"
-        );
-        // Whatever the agent is told it may act on. Pointing it at a local
-        // copy of the library is a step it would try, and it gets nowhere.
+        // Like `diarize`'s: the user is told how to point at a copy (a build
+        // from source has none), the agent is told to leave it to them, and
+        // the answer names no local path and carries no setup marker (the
+        // card speaks of the speech model).
+        assert!(msg.contains("ORT_DYLIB_PATH"), "{name} {args}: {msg}");
+        assert!(msg.contains("Tell the user"), "{name} {args}: {msg}");
         assert!(
-            !msg.contains("ORT_DYLIB_PATH"),
-            "{name} {args}: the error offers the agent a setup step: {msg}"
+            msg.contains("Do not try to install"),
+            "{name} {args}: {msg}"
+        );
+        assert!(
+            !msg.contains(&s.dir.path().to_string_lossy().to_string()),
+            "{name} {args}: the answer goes to the model provider, and names no local path: {msg}"
+        );
+        assert!(
+            !msg.starts_with(tools::tool::transcribe::MARKER_RUNTIME_UNAVAILABLE),
+            "{name} {args}: {msg}"
         );
     }
 }

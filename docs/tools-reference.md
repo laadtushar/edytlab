@@ -42,7 +42,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
-- [`echo`](#echo) — Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95).
+- [`echo`](#echo) — Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).
 - [`eq`](#eq) — EQ a track with biquad bands.
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
@@ -97,7 +97,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`reverse`](#reverse) — Reverse the sample order of a track, optionally within a sub-range.
 - [`revert_to`](#revert_to) — Move the head back to an earlier node, such as a checkpoint before an edit the user wants to undo.
 - [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map.
-- [`separate_stems`](#separate_stems) — NOT IMPLEMENTED IN THIS BUILD.
+- [`separate_stems`](#separate_stems) — Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer.
 - [`set_clip_envelope`](#set_clip_envelope) — Replace the per-clip volume automation curve.
 - [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect on a track, on the master bus (scope "master") or on a bus (scope "bus") without removing it, so its settings survive an A/B.
 - [`set_effect_params`](#set_effect_params) — Change an effect's parameters in place, on a track, on the master bus (scope "master") or on a bus (scope "bus").
@@ -395,7 +395,7 @@ Create an exact copy of a track (same clips, gain, pan, effects). The duplicate 
 
 ## `echo`
 
-Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95). Appends a new session node.
+Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65). Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1034,12 +1034,13 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `separate_stems`
 
-NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached by content hash. The tool is not connected to the inference yet, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build instead.
+Split `track` or a file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. Writes four WAVs and returns their paths; the session is not changed, so `load` a stem to put it on a track. Stems are estimates. Needs the stem model the user downloads once in Settings → Account, and the ONNX Runtime; if the call says either is missing, tell the user and stop, and do not try to download, install or configure anything. CPU, about half the audio's length; cancellable.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `model` | one of `htdemucs` | no |  |
-| `path` | string | yes |  |
+| `path` | string | no |  |
+| `track` | integer | no |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

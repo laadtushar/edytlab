@@ -154,3 +154,74 @@ fn stereo_taps_keep_channels_apart() {
     assert!(near(samples[160], 0.25), "left tap");
     assert_eq!(samples[161], 0, "right stays silent");
 }
+
+#[test]
+fn echo_arguments_outside_the_limits_are_refused_and_add_no_node() {
+    let mut s = Session::with_tracks(&[(8_000, impulse(1000))]);
+    let (head, count) = (s.head(), s.node_count());
+    let too_many: Vec<_> = (1..=17).map(|i| json!([i as f64 * 10.0, 0.1])).collect();
+    let cases = [
+        // feedback past the ceiling, below zero, or not a number
+        (
+            json!({ "track": 0, "taps": [[10.0, 0.5]], "feedback": 0.95 }),
+            "feedback",
+        ),
+        (
+            json!({ "track": 0, "taps": [[10.0, 0.5]], "feedback": -0.1 }),
+            "feedback",
+        ),
+        // decay belongs to the single echo
+        (
+            json!({ "track": 0, "taps": [[10.0, 0.5]], "decay": 0.3 }),
+            "decay",
+        ),
+        // a tap or a single echo an hour long would allocate for it
+        (
+            json!({ "track": 0, "taps": [[3_600_000.0, 0.5]] }),
+            "at most",
+        ),
+        (json!({ "track": 0, "delay_ms": 3_600_000.0 }), "at most"),
+        (json!({ "track": 0, "delay_ms": 10_000.5 }), "at most"),
+        (json!({ "track": 0, "taps": too_many }), "at most 16 taps"),
+    ];
+    for (args, want) in cases {
+        let m = s.err("echo", args.clone());
+        assert!(m.contains(want), "{args}: {m}");
+    }
+    assert_eq!(s.head(), head, "a refusal moves no head");
+    assert_eq!(s.node_count(), count, "a refusal adds no node");
+
+    // The limits themselves are accepted.
+    s.ok(
+        "echo",
+        json!({ "track": 0, "taps": [[10_000.0, 0.5]], "feedback": 0.65 }),
+    );
+    let mut s = Session::with_tracks(&[(8_000, impulse(1000))]);
+    let sixteen: Vec<_> = (1..=16).map(|i| json!([i as f64 * 10.0, 0.1])).collect();
+    s.ok("echo", json!({ "track": 0, "taps": sixteen }));
+    s.ok(
+        "echo",
+        json!({ "track": 0, "delay_ms": 10_000.0, "decay": 0.5 }),
+    );
+}
+
+#[test]
+fn only_a_shelf_names_its_kind_in_the_label() {
+    let label = |band: serde_json::Value| {
+        let mut s = Session::with_tracks(&[(48_000, sine(48_000, 100.0, 4800))]);
+        s.ok("eq", json!({ "track": 0, "bands": [band] }));
+        s.store.get(s.head()).unwrap().label.unwrap()
+    };
+    assert_eq!(
+        label(json!({ "freq_hz": 1000.0, "gain_db": 3.0 })),
+        "eq [1000Hz +3.0dB Q1.00] on track 0"
+    );
+    assert_eq!(
+        label(json!({ "type": "peak", "freq_hz": 1000.0, "gain_db": 3.0, "q": 2.0 })),
+        "eq [1000Hz +3.0dB Q2.00] on track 0"
+    );
+    assert_eq!(
+        label(json!({ "type": "low_shelf", "freq_hz": 200.0, "gain_db": 3.0 })),
+        "eq [200Hz +3.0dB Q0.71 LowShelf] on track 0"
+    );
+}

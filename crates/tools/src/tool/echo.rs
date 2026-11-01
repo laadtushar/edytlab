@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 pub(crate) use audio_dsp::effects::echo::{apply_echo, apply_multitap};
+use audio_dsp::effects::echo::{MAX_DELAY_MS, MAX_FEEDBACK, MAX_TAPS};
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -28,7 +29,7 @@ impl Tool for EchoTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "echo",
-            "Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95). Appends a new session node.",
+            "Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65). Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -65,12 +66,36 @@ impl Tool for EchoTool {
                 if t.is_empty() {
                     return Ok(ToolResult::Error("taps must not be empty".into()));
                 }
+                if t.len() > MAX_TAPS {
+                    return Ok(ToolResult::Error(format!(
+                        "at most {MAX_TAPS} taps (got {})",
+                        t.len()
+                    )));
+                }
                 if t.iter()
                     .any(|x| !x.0.is_finite() || x.0 <= 0.0 || !x.1.is_finite())
                 {
                     return Ok(ToolResult::Error(
                         "each tap needs delay_ms > 0 and a finite gain".into(),
                     ));
+                }
+                if let Some(x) = t.iter().find(|x| x.0 > MAX_DELAY_MS) {
+                    return Ok(ToolResult::Error(format!(
+                        "a tap's delay_ms is at most {MAX_DELAY_MS} (got {})",
+                        x.0
+                    )));
+                }
+                if args.decay.is_some() {
+                    return Ok(ToolResult::Error(
+                        "decay applies to delay_ms only; give each tap its gain".into(),
+                    ));
+                }
+                if let Some(fb) = args.feedback {
+                    if !(0.0..=MAX_FEEDBACK).contains(&fb) {
+                        return Ok(ToolResult::Error(format!(
+                            "feedback must be in [0, {MAX_FEEDBACK}] (got {fb})"
+                        )));
+                    }
                 }
                 Some(t.iter().map(|x| (x.0, x.1)).collect())
             }
@@ -80,6 +105,11 @@ impl Tool for EchoTool {
                 }
                 if !d.is_finite() || d <= 0.0 {
                     return Ok(ToolResult::Error("delay_ms must be positive".into()));
+                }
+                if d > MAX_DELAY_MS {
+                    return Ok(ToolResult::Error(format!(
+                        "delay_ms is at most {MAX_DELAY_MS} (got {d})"
+                    )));
                 }
                 None
             }

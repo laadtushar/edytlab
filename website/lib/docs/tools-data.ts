@@ -395,7 +395,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "echo",
             prompt: "add a 300 ms echo",
-            what: "Add an echo: delay_ms (ms) + decay (0..1), or taps [[delay_ms, gain], ...] with optional feedback (0..0.95).",
+            what: "Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).",
             output: "node_id",
           },
           {

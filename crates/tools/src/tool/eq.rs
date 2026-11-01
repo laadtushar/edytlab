@@ -172,13 +172,12 @@ fn invoke_eq(ctx: &mut ToolContext, track_idx: usize, bands: Vec<Band>) -> ToolR
     let band_summary: Vec<String> = bands
         .iter()
         .map(|b| {
-            format!(
-                "{:.0}Hz {:+.1}dB Q{:.2} {:?}",
-                b.freq_hz,
-                b.gain_db,
-                b.q(),
-                b.kind
-            )
+            // Peak labels stay as they were; only a shelf names its kind.
+            let kind = match b.kind {
+                Kind::Peak => String::new(),
+                k => format!(" {k:?}"),
+            };
+            format!("{:.0}Hz {:+.1}dB Q{:.2}{kind}", b.freq_hz, b.gain_db, b.q())
         })
         .collect();
     let label = format!("eq [{}] on track {}", band_summary.join(", "), track_idx);
