@@ -174,7 +174,7 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // (69,789 B to 71,541 B). The ratchet rises by exactly that, keeping the
 // remaining headroom of the main branch rather than loosening the guard.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 71_557; // measured 71,541; main ratchet 69,805 + the 1,752 B of #767
+const FULL_TOOLS_MAX_BYTES: usize = 72_668; // measured 72,652; main ratchet 71,557 + the 1,111 B of `join_clips` and `align_end_to_end` (#771)
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -737,7 +737,7 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
 // the ratchet rises by that, keeping the main branch's remaining headroom.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 74_749; // measured 74,733; main ratchet 72,935 + the 1,814 B of #767
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_922; // measured 75,906; main ratchet 74,749 + the 1,173 B of `join_clips` and `align_end_to_end` (#771)
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

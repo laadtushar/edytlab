@@ -220,6 +220,12 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// `export_transcript` and `transcript_to_markers` (#767) add 42 B with
 /// their separators, so the built-in names are 1,360 B and the budget
 /// rises by exactly 42 B to preserve the 400 B for MCP names.
+/// `join_clips` and `align_end_to_end` (#771) add 30 B with their separators,
+/// so the built-in names are 1,390 B. The budget stays at 1,760 B this time,
+/// and the room it leaves for MCP names goes from 400 B to 370 B
+/// (`MCP_ROOM_BYTES`), because the request with 60 MCP tools registered, whose
+/// names line is at the cap, had 3 B to spare above its 500 B headroom
+/// (`MCP_HEADROOM_BYTES` in `tests/request_size.rs`).
 pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
 
 /// A tool whose description begins with this does nothing in this build
@@ -811,8 +817,9 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// The room the built-in names must leave in the names line for MCP
-    /// names: about sixteen tools of an ordinary server.
-    const MCP_ROOM_BYTES: usize = 400;
+    /// names: about fifteen tools of an ordinary server. 400 B until
+    /// `join_clips` and `align_end_to_end` (#771) took 30 B of the line.
+    const MCP_ROOM_BYTES: usize = 370;
 
     fn all_tools() -> Value {
         ToolDispatcher::default_dispatcher().tool_schemas()

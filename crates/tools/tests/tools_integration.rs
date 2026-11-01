@@ -776,6 +776,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
         vec![
             "add_effect",
             "add_track",
+            "align_end_to_end",
             "align_to_beat",
             "analyze_track",
             "apply_diff",
@@ -814,6 +815,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "import_labels",
             "insert_silence",
             "invert",
+            "join_clips",
             "label",
             "leveler",
             "limiter",
