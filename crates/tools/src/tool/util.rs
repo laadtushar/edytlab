@@ -2091,6 +2091,84 @@ pub fn clip_frames_to_seconds(clip: &Clip, frames: u64) -> Result<f64, String> {
     Ok(frames as f64 / rate)
 }
 
+/// How far a cut point may move to reach a zero crossing, in milliseconds
+/// (#771). A few ms: far enough to find one in voiced sound, near enough that
+/// the cut stays where the caller meant it.
+pub(crate) const ZERO_CROSSING_WINDOW_MS: f64 = 5.0;
+
+/// The frame nearest `frame` (within `window_ms`) at which the signal crosses
+/// zero, for the cut tools' `snap_to_zero_crossing` (#771).
+///
+/// `samples` is interleaved and `frame` counts frames of it; the crossing is
+/// looked for in the mean of the channels, so one cut point serves them all.
+/// A frame `f` is a crossing when the signal changes sign between `f - 1` and
+/// `f` (or `f` is exactly zero), so cutting before frame `f` joins two
+/// samples either side of zero. Ties go to the earlier frame. With no
+/// crossing in reach, or `frame` outside the buffer, `frame` comes back
+/// unchanged.
+pub(crate) fn nearest_zero_crossing(
+    samples: &[f32],
+    channels: u16,
+    rate: f64,
+    frame: u64,
+    window_ms: f64,
+) -> u64 {
+    let ch = channels.max(1) as usize;
+    let frames = (samples.len() / ch) as u64;
+    if frame == 0 || frame >= frames {
+        return frame;
+    }
+    let at = |f: u64| -> f32 {
+        let i = f as usize * ch;
+        samples[i..i + ch].iter().sum::<f32>() / ch as f32
+    };
+    let reach = ((window_ms / 1000.0) * rate).round().max(0.0) as u64;
+    let crossing = |f: u64| -> bool {
+        let (a, b) = (at(f - 1), at(f));
+        b == 0.0 || (a < 0.0) != (b < 0.0) && a != 0.0
+    };
+    for d in 0..=reach {
+        if frame >= d && frame - d >= 1 && crossing(frame - d) {
+            return frame - d;
+        }
+        let f = frame + d;
+        if d > 0 && f < frames && crossing(f) {
+            return f;
+        }
+    }
+    frame
+}
+
+/// [`nearest_zero_crossing`] for a cut point `frame` on the timeline of
+/// `clips`, which are decoded and laid out as the track plays.
+pub(crate) fn snap_on_clips(clips: &[Clip], frame: u64) -> Result<u64, String> {
+    if clips.is_empty() {
+        return Ok(frame);
+    }
+    let audio = flatten_track(clips)?;
+    Ok(nearest_zero_crossing(
+        &audio.window,
+        audio.channels,
+        audio.sample_rate as f64,
+        frame,
+        ZERO_CROSSING_WINDOW_MS,
+    ))
+}
+
+/// Both ends of `[start, end)` on `clips`, each moved to its nearest zero
+/// crossing and kept inside the track. If the move would leave no range, the
+/// ends are returned as they came.
+pub(crate) fn snap_range(
+    clips: &[Clip],
+    start: u64,
+    end: u64,
+    track_len: u64,
+) -> Result<(u64, u64), String> {
+    let s = snap_on_clips(clips, start)?;
+    let e = snap_on_clips(clips, end)?.min(track_len);
+    Ok(if s < e { (s, e) } else { (start, end) })
+}
+
 #[cfg(test)]
 mod abort_tests {
     //! A failing edit must leave the session exactly as it found it

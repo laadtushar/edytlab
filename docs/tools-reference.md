@@ -35,7 +35,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`compressor`](#compressor) — Apply dynamic compression to a track using an envelope follower.
 - [`copy_region`](#copy_region) — Copy a time range from a track into the in-memory clipboard.
 - [`create_bus`](#create_bus) — Create an effects bus.
-- [`cut_range`](#cut_range) — Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left.
+- [`cut_range`](#cut_range) — Remove [start_sample, end_sample) from a track and shift the rest left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
 - [`diarize`](#diarize) — Find who spoke when, on this computer.
@@ -109,7 +109,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`silence_region`](#silence_region) — Zero out audio samples between start_sec and end_sec on a track.
 - [`solo_track`](#solo_track) — Solo or un-solo a track.
 - [`split_by_speaker`](#split_by_speaker) — Split one track into a separate track per speaker, given speaker segments in seconds.
-- [`split_clip`](#split_clip) — Split a clip into two at the specified time position.
+- [`split_clip`](#split_clip) — Split a clip in two at a time position.
 - [`stereo_to_mono`](#stereo_to_mono) — Convert a stereo (or multi-channel) track to mono by averaging all channels.
 - [`stereo_widener`](#stereo_widener) — Widen or narrow the stereo field using M/S processing.
 - [`storage_report`](#storage_report) — Report what this session is costing on disk.
@@ -309,11 +309,12 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `cut_range`
 
-Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left. Appends a new session node parented to the current head.
+Remove [start_sample, end_sample) from a track and shift the rest left. Appends a new session node parented to the current head.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `end_sample` | integer | yes |  |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `start_sample` | integer | yes |  |
 | `track` | integer | yes |  |
 
@@ -1165,12 +1166,13 @@ Split one track into a separate track per speaker, given speaker segments in sec
 
 ## `split_clip`
 
-Split a clip into two at the specified time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.
+Split a clip in two at a time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `at_sec` | number | yes | Position to split at, in seconds from track start |
-| `clip_index` | integer | yes | Zero-based clip index within the track |
+| `at_sec` | number | yes | Split position, seconds from track start |
+| `clip_index` | integer | yes | Zero-based clip index |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `track` | integer | yes |  |
 
 ## `stereo_to_mono`
@@ -1259,6 +1261,7 @@ Keep only the half-open sample range [start_sample, end_sample) of a track and d
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `end_sample` | integer | yes |  |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `start_sample` | integer | yes |  |
 | `track` | integer | yes |  |
 

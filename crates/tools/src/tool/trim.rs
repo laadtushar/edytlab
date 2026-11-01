@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, keep_timeline, load_track_state_and_rate, remap_after_cut,
-    set_session_length, timeline_end,
+    set_session_length, snap_range, timeline_end,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -19,6 +19,8 @@ struct Args {
     track: usize,
     start_sample: u64,
     end_sample: u64,
+    #[serde(default)]
+    snap_to_zero_crossing: bool,
 }
 
 pub struct TrimTool;
@@ -36,6 +38,7 @@ impl Tool for TrimTool {
                 ("track", "integer", true),
                 ("start_sample", "integer", true),
                 ("end_sample", "integer", true),
+                ("snap_to_zero_crossing", "boolean", false),
             ]),
         )
     }
@@ -64,6 +67,14 @@ impl Tool for TrimTool {
                 "track has no clips; nothing to trim".into(),
             ));
         }
+        let (start, end) = if args.snap_to_zero_crossing {
+            match snap_range(&track.clips, start, end, track_len) {
+                Ok(p) => p,
+                Err(msg) => return Ok(ToolResult::Error(msg)),
+            }
+        } else {
+            (start, end)
+        };
 
         let new_length = end - start;
         // Keeping the window means keeping it from every clip that reaches
@@ -92,10 +103,7 @@ impl Tool for TrimTool {
         let new_id = match append_state(
             ctx,
             state,
-            format!(
-                "trim track {} [{}..{})",
-                args.track, args.start_sample, args.end_sample
-            ),
+            format!("trim track {} [{}..{})", args.track, start, end),
         ) {
             Ok(id) => id,
             Err(msg) => return Ok(ToolResult::Error(msg)),
@@ -111,8 +119,8 @@ impl Tool for TrimTool {
             "summary": format!(
                 "Trimmed track {} to [{}, {}) ({} samples){}; new head {}",
                 args.track,
-                args.start_sample,
-                args.end_sample,
+                start,
+                end,
                 new_length,
                 if dropped_labels > 0 {
                     format!(", dropped {dropped_labels} label(s)")
