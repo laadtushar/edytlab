@@ -9,30 +9,31 @@ comment, which you post right after publishing.
 
 ## Post
 
+About 175 words. The single-post version of the launch, for when you would
+rather post once than follow the five-post plan.
+
 ```
-I've released edytlab 0.9.3, a free, open-source desktop audio editor you drive by describing what you want.
+You know what you want the transition to sound like. Getting the software to do it is the slow part.
 
-The demo is a DJ transition. The request: get both tracks' tempos, time-stretch the incoming track to match, start it 8 bars before the outgoing one ends, crossfade, put a low-pass on the outgoing track, compress and limit the mix, bring it to -14 LUFS, export a WAV. An AI agent turns that into calls to audio tools, step by step. (The recording is 2:23, with sound; the waits for the agent are sped up.)
+I've released edytlab 0.9.3, a free, open-source audio editor you drive by describing what you want.
 
-Three design choices I'd like feedback on:
+The demo is a DJ transition, asked for in six short requests. Get both tracks' tempos, match the incoming track to the outgoing one, start it 8 bars before the outgoing one ends, crossfade with a low-pass on the old track, then compress the mix, bring it to -14 LUFS and export a WAV. The AI turns that into editing steps and shows you each one. The recording is 2:23 with sound, and I sped up the waits.
 
-1. The model never touches the audio. It chooses and orders 99 tools; the DSP runs locally in Rust, with no model in the audio path. Your audio is not uploaded. Only the chat goes to the AI provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, your ChatGPT plan (a preview, signed in instead of a key), or Ollama, which keeps the chat on your machine too.
+The part I care about most: the AI never touches your audio. It reads a summary of the session and picks the tools. The editing runs on your computer, so your files aren't uploaded. And every edit can be undone.
 
-2. Every edit is a node in a branching history. You can fork a take, A/B it against the original, and go back. An optional "plan first" mode shows the agent's steps for your approval before it runs them.
-
-3. The time-stretch and pitch-shift are a phase vocoder written for the project, in pure Rust, rather than a bundled C++ library. That keeps the build simple on macOS, Windows and Linux. The cost is that dense material can sound smeared at large changes.
-
-What it can't do yet: stem separation is not built. Transcription, and editing by text, works from v0.8.0 after a one-time download of a speech model; I've only checked it on a short English recording and about 16 minutes of English audiobook speech. The builds are unsigned, so macOS and Windows warn on first launch. It's an editor for prepared files, not a live performance tool.
+It edits prepared files. It isn't a live performance tool.
 
 If you work with audio, which edit would you ask for first?
 
-#opensource #audio #rust #localfirst #AI
+#DJing #AudioEditing #OpenSource
 ```
 
 ## First comment
 
 ```
-Download (macOS universal, Windows, Linux; the installers are unsigned, so macOS and Windows warn on first launch): https://github.com/laadtushar/edytlab/releases/latest
+Download for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/latest
+The installers aren't signed yet, so expect a warning the first time you open it.
+
 Demo, docs and the DJ walkthrough: https://edytlab.com
 Source (MIT): https://github.com/laadtushar/edytlab
 ```

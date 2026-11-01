@@ -5,9 +5,10 @@
 //! reports less the 312 frames of pre-skip it counts in `duration_ts`
 //! (RFC 7845 §4: a stream holds `last granule - pre_skip` frames).
 
-use std::path::{Path, PathBuf};
-
 use audio_decoder::{decode_bytes, decode_file, probe_sample_rate, DecodeError, DecodedAudio};
+
+mod support;
+use support::{channel, fixture, peak, peak_hz};
 
 const MONO: &str = "tone_440_mono_48000.opus";
 const STEREO: &str = "tones_440_880_stereo_48000.opus";
@@ -20,61 +21,8 @@ const MONO_FRAMES: usize = 24_000;
 /// last packet is cut by the end trim.
 const STEREO_FRAMES: usize = 46_560;
 
-fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(name)
-}
-
-fn channel(d: &DecodedAudio, c: usize) -> Vec<f32> {
-    d.samples
-        .iter()
-        .skip(c)
-        .step_by(d.channels as usize)
-        .copied()
-        .collect()
-}
-
 fn frames(d: &DecodedAudio) -> usize {
     d.samples.len() / d.channels as usize
-}
-
-/// The frequency of the strongest component of `x`: a Hann-windowed FFT over
-/// the middle of the signal, the peak refined by a parabola through the log
-/// magnitudes of its three bins.
-fn peak_hz(x: &[f32], rate: u32) -> f32 {
-    use rustfft::num_complex::Complex;
-    let n = 16_384usize;
-    let start = (x.len() - n) / 2;
-    let mut buf: Vec<Complex<f32>> = x[start..start + n]
-        .iter()
-        .enumerate()
-        .map(|(i, &s)| {
-            let w = 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / n as f32).cos();
-            Complex::new(s * w, 0.0)
-        })
-        .collect();
-    rustfft::FftPlanner::<f32>::new()
-        .plan_fft_forward(n)
-        .process(&mut buf);
-    let mag: Vec<f32> = buf[..n / 2].iter().map(|c| c.norm()).collect();
-    let (k, _) = mag
-        .iter()
-        .enumerate()
-        .skip(1)
-        .fold((1, 0.0f32), |a, (i, &m)| if m > a.1 { (i, m) } else { a });
-    let (a, b, c) = (
-        mag[k - 1].max(1e-12).ln(),
-        mag[k].max(1e-12).ln(),
-        mag[k + 1].max(1e-12).ln(),
-    );
-    let delta = 0.5 * (a - c) / (a - 2.0 * b + c);
-    (k as f32 + delta) * rate as f32 / n as f32
-}
-
-fn peak(x: &[f32]) -> f32 {
-    x.iter().fold(0.0, |m, s| m.max(s.abs()))
 }
 
 fn sine(hz: f32, i: usize) -> f32 {

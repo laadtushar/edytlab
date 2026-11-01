@@ -13,78 +13,20 @@
 //! head's own audio is never counted as reclaimable, and that a file
 //! nothing names is found.
 
-use std::path::Path;
-
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_tone, Session};
 use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
 
 const SAMPLE_RATE: u32 = 48_000;
 
-fn write_sine(dir: &Path, name: &str) -> std::path::PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
 /// Load a file, run `edits` destructive edits, and return the report.
-fn report_after(edits: usize) -> (TempDir, Value) {
-    let tmp = TempDir::new().expect("tempdir");
-    let src = write_sine(tmp.path(), "in.wav");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
-    for i in 0..edits {
-        // A *destructive* edit — `gain` only records a track gain and
-        // writes no audio at all, so it would measure nothing. Each
-        // range is longer than the last so every edit produces distinct
-        // samples and therefore a distinct content hash; repeating one
-        // would hit the CAS and write no new file.
-        let end = 0.1 * (i as f64 + 1.0);
-        ok(dispatcher
-            .invoke(
-                "silence_region",
-                json!({ "track": 0, "start_sec": 0.0, "end_sec": end }),
-                &mut ctx,
-            )
-            .unwrap());
-    }
-    let v = ok(dispatcher
-        .invoke("storage_report", json!({}), &mut ctx)
-        .unwrap());
-    (tmp, v)
+fn report_after(edits: usize) -> (Session, Value) {
+    let mut s = Session::with_edits(edits);
+    let v = s.ok("storage_report", json!({}));
+    (s, v)
 }
 
 fn u(v: &Value, path: &[&str]) -> u64 {
@@ -104,41 +46,23 @@ fn u(v: &Value, path: &[&str]) -> u64 {
 /// project was therefore not a thing you could copy, move or back up.
 #[test]
 fn derived_audio_is_written_inside_the_project() {
-    let tmp = TempDir::new().expect("tempdir");
+    let mut s = Session::empty();
     // The source lives somewhere else entirely, which is the normal
     // case: a user opens a file from their music folder.
     let elsewhere = TempDir::new().expect("source dir");
-    let src = write_sine(elsewhere.path(), "in.wav");
+    let src = write_tone(&elsewhere.path().join("in.wav"), SAMPLE_RATE, 1);
 
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
+    s.load(&src);
+    s.ok(
+        "silence_region",
+        json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
+    );
 
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
-    ok(dispatcher
-        .invoke(
-            "silence_region",
-            json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
-            &mut ctx,
-        )
-        .unwrap());
-
-    let head = ctx.store.head().expect("a head");
-    let node = ctx.store.get(head).expect("head node");
+    let node = s.store.get(s.head()).expect("head node");
     let derived = &node.state.tracks[0].clips[0].source_path;
 
     assert!(
-        derived.starts_with(tmp.path()),
+        derived.starts_with(s.dir.path()),
         "derived audio landed outside the project: {}",
         derived.display()
     );
@@ -216,41 +140,18 @@ fn the_heads_own_audio_is_always_live() {
 /// without an argument, so the report has to actually find it.
 #[test]
 fn a_file_no_node_names_is_reported_unreferenced() {
-    let tmp = TempDir::new().expect("tempdir");
-    let src = write_sine(tmp.path(), "in.wav");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
-    ok(dispatcher
-        .invoke(
-            "silence_region",
-            json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.1 }),
-            &mut ctx,
-        )
-        .unwrap());
+    let mut s = Session::with_edits(1);
 
     // An orphan, as an interrupted edit would leave behind.
-    let orphan = tmp
+    let orphan = s
+        .dir
         .path()
         .join(".audiograph")
         .join("derived")
         .join("orphan.wav");
     std::fs::write(&orphan, vec![0u8; 4096]).expect("write orphan");
 
-    let v = ok(dispatcher
-        .invoke("storage_report", json!({}), &mut ctx)
-        .unwrap());
+    let v = s.ok("storage_report", json!({}));
     assert_eq!(u(&v, &["unreferenced", "files"]), 1);
     assert_eq!(u(&v, &["unreferenced", "bytes"]), 4096);
     let largest = v["largest_unreferenced"]
@@ -272,51 +173,21 @@ fn a_file_no_node_names_is_reported_unreferenced() {
 /// thing that quietly starts deleting.
 #[test]
 fn the_report_deletes_nothing() {
-    let tmp = TempDir::new().expect("tempdir");
-    let src = write_sine(tmp.path(), "in.wav");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
-    for end in [0.1, 0.2, 0.3] {
-        ok(dispatcher
-            .invoke(
-                "silence_region",
-                json!({ "track": 0, "start_sec": 0.0, "end_sec": end }),
-                &mut ctx,
-            )
-            .unwrap());
-    }
-    let orphan = tmp
-        .path()
-        .join(".audiograph")
-        .join("derived")
-        .join("orphan.wav");
+    let mut s = Session::with_edits(3);
+    let derived = s.dir.path().join(".audiograph").join("derived");
+    let orphan = derived.join("orphan.wav");
     std::fs::write(&orphan, vec![0u8; 1024]).expect("write orphan");
 
-    let before: Vec<_> = std::fs::read_dir(tmp.path().join(".audiograph").join("derived"))
-        .expect("read derived")
-        .flatten()
-        .map(|e| e.path())
-        .collect();
-    ok(dispatcher
-        .invoke("storage_report", json!({}), &mut ctx)
-        .unwrap());
-    let after: Vec<_> = std::fs::read_dir(tmp.path().join(".audiograph").join("derived"))
-        .expect("read derived")
-        .flatten()
-        .map(|e| e.path())
-        .collect();
+    let listing = || -> Vec<_> {
+        std::fs::read_dir(&derived)
+            .expect("read derived")
+            .flatten()
+            .map(|e| e.path())
+            .collect()
+    };
+    let before = listing();
+    s.ok("storage_report", json!({}));
+    let after = listing();
 
     assert_eq!(before.len(), after.len(), "the report removed a file");
     assert!(orphan.exists(), "the report deleted the orphan");
@@ -328,51 +199,9 @@ fn the_report_deletes_nothing() {
 // cache of an older version's — never "referenced by nothing".
 // =============================================================================
 
-struct Project {
-    tmp: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Project {
-    /// A loaded file and `edits` destructive edits to it.
-    fn with_edits(edits: usize) -> Self {
-        let tmp = TempDir::new().expect("tempdir");
-        let src = write_sine(tmp.path(), "in.wav");
-        let store = session::Store::open(tmp.path()).expect("open store");
-        let mut p = Self {
-            tmp,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        p.call("load", json!({ "path": src.to_string_lossy() }));
-        for i in 0..edits {
-            let end = 0.1 * (i as f64 + 1.0);
-            p.call(
-                "silence_region",
-                json!({ "track": 0, "start_sec": 0.0, "end_sec": end }),
-            );
-        }
-        p
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        ok(self.dispatcher.invoke(tool, args, &mut ctx).unwrap())
-    }
-
+impl Session {
     fn report(&mut self) -> Value {
-        self.call("storage_report", json!({}))
+        self.ok("storage_report", json!({}))
     }
 
     /// The lane copy the timeline would show for `node`'s first track.
@@ -380,11 +209,7 @@ impl Project {
         let clips = self.store.get(node).expect("node").state.tracks[0]
             .clips
             .clone();
-        tools::flattened_track_wav(self.tmp.path(), &clips).expect("lane copy")
-    }
-
-    fn head(&self) -> session::NodeId {
-        self.store.head().expect("head")
+        tools::flattened_track_wav(self.dir.path(), &clips).expect("lane copy")
     }
 
     fn parent(&self) -> session::NodeId {
@@ -397,7 +222,7 @@ impl Project {
 
     fn orphan(&self) -> u64 {
         let path = self
-            .tmp
+            .dir
             .path()
             .join(".audiograph")
             .join("derived")
@@ -409,7 +234,7 @@ impl Project {
 
 #[test]
 fn the_lane_copy_on_screen_is_live() {
-    let mut p = Project::with_edits(2);
+    let mut p = Session::with_edits(2);
     let live_before = u(&p.report(), &["live", "files"]);
     p.lane_copy_of(p.head());
 
@@ -420,7 +245,7 @@ fn the_lane_copy_on_screen_is_live() {
 
 #[test]
 fn a_lane_copy_of_an_older_version_is_its_own_category() {
-    let mut p = Project::with_edits(2);
+    let mut p = Session::with_edits(2);
     let lane = p.lane_copy_of(p.parent());
     let bytes = std::fs::metadata(&lane).expect("lane").len();
 
@@ -439,7 +264,7 @@ fn a_lane_copy_of_an_older_version_is_its_own_category() {
 /// project removes: the report's own summary says so.
 #[test]
 fn unreferenced_is_exactly_what_opening_the_project_removes() {
-    let mut p = Project::with_edits(3);
+    let mut p = Session::with_edits(3);
     p.lane_copy_of(p.head());
     p.lane_copy_of(p.parent());
     let orphan_bytes = p.orphan();
@@ -460,7 +285,7 @@ fn unreferenced_is_exactly_what_opening_the_project_removes() {
 /// and the report has to look there.
 #[test]
 fn the_projects_own_derived_directory_is_always_counted() {
-    let mut p = Project::with_edits(0);
+    let mut p = Session::with_edits(0);
     p.lane_copy_of(p.head());
     let orphan_bytes = p.orphan();
 

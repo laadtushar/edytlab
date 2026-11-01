@@ -18,16 +18,15 @@
 //!   `ModelMissing`;
 //! - a model configured but no ONNX Runtime library to load it with —
 //!   `RuntimeUnavailable` (this used to hang the agent, #383);
-//! - a model configured and loaded — [`DemucsModel::separate`] returns
-//!   `NotImplemented`.
+//! - a model configured and loaded — the tool still ends in the same error,
+//!   because it is not wired to the inference yet. The inference exists
+//!   ([`DemucsModel::separate_to_dir`], #385) and the tool is connected to it
+//!   in a following change.
 //!
-//! The last is the one that matters: **dropping an `.onnx` into place
-//! does not enable separation.** What is missing is the ORT decode
-//! loop, an M28 deliverable, not the file. This module used to say the
-//! opposite, and the error called itself actionable (#233).
-//!
-//! The caching path and tool dispatch are fully wired, so the decoder
-//! lands into a shape that already works.
+//! The last is the one that matters: **dropping a model into place does not
+//! enable separation in this build.** What is missing is the call from this
+//! tool to [`DemucsModel::separate_to_dir`], not the file. This module used to
+//! say the opposite, and the error called itself actionable (#233).
 //!
 //! ## Out of memory
 //!
@@ -40,10 +39,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
-use ml_demucs::{
-    is_oom_error, read_cached_stems, stem_dir_for, write_stems_to_dir, DemucsError, DemucsModel,
-    StemPaths, StemSeparationResult, DEFAULT_MODEL_ID, SUPPORTED_MODEL_IDS,
-};
+use ml_demucs::{DemucsError, DemucsModel, DEFAULT_MODEL_ID, SUPPORTED_MODEL_IDS};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -54,10 +50,10 @@ use crate::{Tool, ToolContext, ToolResult};
 ///
 /// Named a fetch-models shell script until #233; that script has never
 /// been in the repository, and following it would not have helped
-/// anyway — `DemucsModel::separate` is a stub that always returns
-/// `NotImplemented`, so no model file produces stems.
+/// anyway — this tool does not call [`DemucsModel::separate_to_dir`] yet, so
+/// no model file produces stems through it.
 const INSTALL_HINT: &str = "stem separation is not implemented in this build: Demucs inference is \
-     a stub, so no DEMUCS_MODEL_PATH setting will produce stems. There is no setup that makes \
+     not connected to this tool yet, so no DEMUCS_MODEL_PATH setting will produce stems. There is no setup that makes \
      this work today; it is tracked post-v1 (#233)";
 
 /// Process-wide cache of `(model_path, &'static DemucsModel)`. One
@@ -129,7 +125,7 @@ impl Tool for SeparateStemsTool {
             "separate_stems",
             "NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file \
              and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached \
-             by content hash. Inference is a stub, so this always returns an error and there is \
+             by content hash. The tool is not connected to the inference yet, so this always returns an error and there is \
              no setup that changes that — do not suggest installing a model or setting \
              DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build \
              instead.",
@@ -145,7 +141,7 @@ impl Tool for SeparateStemsTool {
         )
     }
 
-    fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
+    fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
@@ -169,134 +165,30 @@ impl Tool for SeparateStemsTool {
             )));
         }
 
-        let decoded = match audio_decoder::decode_file(&audio_path) {
-            Ok(d) => d,
-            Err(e) => return Ok(ToolResult::Error(format!("decode failed: {e}"))),
-        };
-
-        let stem_cache_root = ctx
-            .store
-            .project_dir()
-            .join(".audiograph")
-            .join("stem-cache");
-
-        match run_separation(&model_id, &audio_path, &decoded, &stem_cache_root) {
-            Ok(result) => Ok(ToolResult::Ok(stem_result_json(&result, &model_id))),
-            Err(SeparateError::Tool(msg)) => Ok(ToolResult::Error(msg)),
-            Err(SeparateError::Oom) => Ok(ToolResult::Error(format!(
-                "Demucs reported out-of-memory on {model_id}; there is no smaller model to fall \
-                 back to"
-            ))),
-        }
+        // The inference exists in `ml-demucs` (#385) and this tool is wired to
+        // it in the next change: until then it answers as it always has.
+        Ok(ToolResult::Error(run_separation(&model_id)))
     }
 }
 
-/// Internal error vocabulary for [`run_separation`].
-enum SeparateError {
-    /// Plain `ToolResult::Error` text — pass through to the caller.
-    Tool(String),
-    /// ORT reported an out-of-memory condition. Reported as such; there
-    /// is no smaller model to retry with.
-    Oom,
-}
-
-/// Run the cache-or-compute path for a single (model_id, audio) pair.
-fn run_separation(
-    model_id: &str,
-    audio_path: &Path,
-    decoded: &audio_decoder::DecodedAudio,
-    stem_cache_root: &Path,
-) -> std::result::Result<StemPaths, SeparateError> {
+/// Find and load the model, then say what this build does: the text of the
+/// `ToolResult::Error`. Until the tool is wired to the inference this is the
+/// whole of it.
+fn run_separation(model_id: &str) -> String {
     let model_path = match resolve_model_path(model_id) {
         Ok(p) => p,
-        Err(msg) => return Err(SeparateError::Tool(msg)),
+        Err(msg) => return msg,
     };
 
-    let model = match get_or_load_model(model_id, &model_path) {
-        Ok(m) => m,
+    match get_or_load_model(model_id, &model_path) {
+        Ok(_) => INSTALL_HINT.to_string(),
         Err(DemucsError::ModelMissing { path }) => {
-            return Err(SeparateError::Tool(format!(
-                "Demucs model not found at {path}; {INSTALL_HINT}"
-            )));
+            format!("Demucs model not found at {path}; {INSTALL_HINT}")
         }
-        // No ONNX Runtime library. Not `Oom`, and not "model load
-        // failed". Only the reason goes in: the error's own text repeats
-        // "not implemented in this build" (the hint already says it) and
-        // the agent reads whatever it is given as something to act on. The
-        // hint is the sentence it is told never to contradict, so it is
-        // appended as for a missing model.
-        Err(DemucsError::RuntimeUnavailable(reason)) => {
-            return Err(SeparateError::Tool(format!("{reason}; {INSTALL_HINT}")));
-        }
-        Err(e) => return Err(SeparateError::Tool(format!("model load failed: {e}"))),
-    };
-
-    let key = model.cache_key(decoded);
-    let dir = stem_dir_for(stem_cache_root, &key.to_hex());
-    if let Some(paths) = read_cached_stems(&dir) {
-        tracing::debug!(
-            cache_dir = %dir.display(),
-            model_id,
-            audio = %audio_path.display(),
-            "stem-cache hit"
-        );
-        return Ok(paths);
+        // No ONNX Runtime library. Only the reason goes in: the hint is the
+        // sentence the agent is told never to contradict, so it is appended
+        // as for a missing model.
+        Err(DemucsError::RuntimeUnavailable(reason)) => format!("{reason}; {INSTALL_HINT}"),
+        Err(e) => format!("model load failed: {e}"),
     }
-
-    let stems = match model.separate(decoded) {
-        Ok(s) => s,
-        Err(e) => {
-            if is_oom_error(&e) {
-                return Err(SeparateError::Oom);
-            }
-            return Err(SeparateError::Tool(format!("stem separation failed: {e}")));
-        }
-    };
-
-    if stems.len() != 4 {
-        return Err(SeparateError::Tool(format!(
-            "Demucs returned {} stems, expected 4",
-            stems.len()
-        )));
-    }
-    let stems: [ml_demucs::StemBuffer; 4] = match <[_; 4]>::try_from(stems) {
-        Ok(arr) => arr,
-        Err(_) => {
-            return Err(SeparateError::Tool(
-                "internal error: stem count check passed but conversion failed".into(),
-            ))
-        }
-    };
-
-    let paths = match write_stems_to_dir(&dir, &stems) {
-        Ok(p) => p,
-        Err(e) => {
-            return Err(SeparateError::Tool(format!(
-                "writing stems to {} failed: {e}",
-                dir.display()
-            )))
-        }
-    };
-    // Sanity: the writer must produce a directory the reader can
-    // immediately re-hit. Catches a refactor where the hex layout
-    // drifts between writer and reader.
-    debug_assert!(read_cached_stems(&dir).is_some());
-    Ok(paths)
-}
-
-fn stem_result_json(paths: &StemPaths, model_id: &str) -> Value {
-    let result: StemSeparationResult = paths.clone().into();
-    json!({
-        "model": model_id,
-        "stems": {
-            "vocals": result.vocals.to_string_lossy(),
-            "drums": result.drums.to_string_lossy(),
-            "bass": result.bass.to_string_lossy(),
-            "other": result.other.to_string_lossy(),
-        },
-        "summary": format!(
-            "Separated stems with {model_id}: 4 stems written to {}",
-            result.vocals.parent().map(|p| p.display().to_string()).unwrap_or_default(),
-        ),
-    })
 }

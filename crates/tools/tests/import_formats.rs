@@ -12,9 +12,12 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+use tools::ToolDispatcher;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{err, ok, Session};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -22,58 +25,13 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("open store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
     /// Where the head's first clip reads its audio from.
     fn first_clip_source(&self) -> PathBuf {
         let head = self.store.head().expect("a head");
         self.store.get(head).unwrap().state.tracks[0].clips[0]
             .source_path
             .clone()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
     }
 }
 
@@ -97,7 +55,7 @@ fn imports() -> Vec<(&'static str, u32, u16)> {
 #[test]
 fn load_takes_each_new_format_the_way_it_takes_an_mp3() {
     for (name, rate, channels) in imports() {
-        let mut s = Session::new();
+        let mut s = Session::empty();
         let src = s.dir.path().join(name);
         std::fs::copy(fixture(name), &src).unwrap();
 
@@ -152,7 +110,7 @@ fn load_takes_each_new_format_the_way_it_takes_an_mp3() {
 #[test]
 fn an_aiff_is_transcoded_once_and_a_wav_of_the_same_audio_is_not_copied() {
     // AIFF 16-bit mono, and a WAV written from exactly what it decodes to.
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let aiff = s.dir.path().join("tone.aiff");
     std::fs::copy(fixture("tone_440_mono_44100_s16.aiff"), &aiff).unwrap();
     let d = audio_decoder::decode_file(&aiff).unwrap();
@@ -187,7 +145,7 @@ fn an_aiff_is_transcoded_once_and_a_wav_of_the_same_audio_is_not_copied() {
 
 #[test]
 fn batch_apply_picks_up_ogg_and_aiff_and_skips_m4a_where_the_system_cannot_decode_it() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let template = s.dir.path().join("template.aiff");
     std::fs::copy(fixture("tone_440_mono_44100_s16.aiff"), &template).unwrap();
     ok(s.call("load", json!({ "path": template.to_string_lossy() })));
@@ -228,7 +186,7 @@ fn batch_apply_picks_up_ogg_and_aiff_and_skips_m4a_where_the_system_cannot_decod
 
 #[test]
 fn load_refuses_surround_opus_by_name_and_writes_nothing() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let name = "tones_surround_6ch_48000.opus";
     let src = s.dir.path().join(name);
     std::fs::copy(fixture(name), &src).unwrap();
@@ -246,7 +204,7 @@ fn load_refuses_surround_opus_by_name_and_writes_nothing() {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[test]
 fn load_refuses_m4a_by_name_and_writes_nothing_where_the_system_has_no_decoder() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let name = "tone_440_mono_44100.m4a";
     let src = s.dir.path().join(name);
     std::fs::copy(fixture(name), &src).unwrap();

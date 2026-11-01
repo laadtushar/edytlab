@@ -29,50 +29,27 @@
 use edytlab_desktop_lib::commands;
 use edytlab_desktop_lib::state::AppState;
 use serde_json::json;
-use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{assert_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
-use tauri::webview::InvokeRequest;
-use tauri::{Manager, WebviewWindowBuilder};
+use tauri::test::assert_ipc_response;
+use tauri::Manager;
 
-fn make_request(cmd: &str, body: serde_json::Value) -> InvokeRequest {
-    InvokeRequest {
-        cmd: cmd.into(),
-        callback: CallbackFn(0),
-        error: CallbackFn(1),
-        url: if cfg!(any(windows, target_os = "android")) {
-            "http://tauri.localhost"
-        } else {
-            "tauri://localhost"
-        }
-        .parse()
-        .unwrap(),
-        body: InvokeBody::Json(body),
-        headers: Default::default(),
-        invoke_key: INVOKE_KEY.to_string(),
-    }
-}
+#[macro_use]
+mod support;
+use support::{call, make_request, silence_history, write_wav};
 
 #[test]
 fn open_project_via_ipc_returns_project_info() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let project_path = tmp.path().to_str().expect("utf-8 path").to_string();
 
-    let app = mock_builder()
-        .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![
-            commands::open_project,
-            commands::send_message,
-            commands::set_api_key,
-            commands::get_session_head,
-            commands::get_node,
-            commands::render_preview,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        AppState::new();
+        commands::open_project,
+        commands::send_message,
+        commands::set_api_key,
+        commands::get_session_head,
+        commands::get_node,
+        commands::render_preview,
+    );
 
     // Happy path: open a fresh project, expect ProjectInfo with the
     // path we passed and head=null.
@@ -94,14 +71,10 @@ fn opening_a_project_removes_audio_no_node_names() {
     let leftover = derived.join("left-by-a-failed-edit.wav");
     std::fs::write(&leftover, b"RIFF").expect("leftover");
 
-    let app = mock_builder()
-        .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![commands::open_project])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        AppState::new();
+        commands::open_project,
+    );
 
     assert_ipc_response(
         &webview,
@@ -116,22 +89,15 @@ fn opening_a_project_removes_audio_no_node_names() {
 
 #[test]
 fn get_session_head_returns_error_when_no_project_open() {
-    let app = mock_builder()
-        .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![
-            commands::open_project,
-            commands::send_message,
-            commands::set_api_key,
-            commands::get_session_head,
-            commands::get_node,
-            commands::render_preview,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        AppState::new();
+        commands::open_project,
+        commands::send_message,
+        commands::set_api_key,
+        commands::get_session_head,
+        commands::get_node,
+        commands::render_preview,
+    );
 
     // No project opened, so the command should return an error string
     // mentioning the missing session.
@@ -151,14 +117,10 @@ fn get_session_head_returns_error_when_no_project_open() {
 fn active_provider_over_ipc(stash: Option<&str>) -> Result<String, String> {
     let state = AppState::new();
     state.set_keychain_read_error(stash.map(str::to_string));
-    let app = mock_builder()
-        .manage(state)
-        .invoke_handler(tauri::generate_handler![commands::get_active_provider])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        state;
+        commands::get_active_provider,
+    );
     tauri::test::get_ipc_response(&webview, make_request("get_active_provider", json!({})))
         .map(|r| r.deserialize::<String>().expect("a string"))
         .map_err(|e| e.as_str().unwrap_or_default().to_string())
@@ -186,21 +148,15 @@ fn the_active_provider_is_answered_when_the_keychain_was_read() {
 
 /// A command over IPC, answered from `state`: what the frontend sees.
 fn ipc(state: AppState, cmd: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
-    let app = mock_builder()
-        .manage(state)
-        .invoke_handler(tauri::generate_handler![
-            commands::get_active_model,
-            commands::get_base_url_for,
-            commands::get_effort_for,
-            commands::list_models_for,
-            commands::approve_plan,
-            commands::reject_plan,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        state;
+        commands::get_active_model,
+        commands::get_base_url_for,
+        commands::get_effort_for,
+        commands::list_models_for,
+        commands::approve_plan,
+        commands::reject_plan,
+    );
     tauri::test::get_ipc_response(&webview, make_request(cmd, body))
         .map(|r| r.deserialize::<serde_json::Value>().expect("json"))
         .map_err(|e| e.as_str().unwrap_or_default().to_string())
@@ -295,14 +251,10 @@ fn settings_reads_after_a_refused_startup_do_not_ask_the_keychain_again() {
 /// person to a key they may already have saved.
 #[test]
 fn a_message_after_a_refused_startup_says_the_keychain_refused() {
-    let app = mock_builder()
-        .manage(refused_state(Some("locked")))
-        .invoke_handler(tauri::generate_handler![commands::send_message])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        refused_state(Some("locked"));
+        commands::send_message,
+    );
 
     let err = tauri::test::get_ipc_response(
         &webview,
@@ -339,18 +291,12 @@ fn call_while_startup_reads_are_pending(
     state.set_keychain_read_error(Some("locked".into()));
     state.begin_startup_reads();
     let reads = state.startup_reads_guard();
-    let app = mock_builder()
-        .manage(state)
-        .invoke_handler(tauri::generate_handler![
-            commands::has_api_key,
-            commands::get_active_provider,
-            commands::get_active_model,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        state;
+        commands::has_api_key,
+        commands::get_active_provider,
+        commands::get_active_model,
+    );
 
     let releaser = std::thread::spawn(move || {
         std::thread::sleep(HELD_FOR);
@@ -427,17 +373,11 @@ fn restarting_a_keychain_server_after_a_refused_startup_is_refused_with_a_reason
     );
     state.set_keychain_refused(true);
     state.set_keychain_read_error(Some("locked".into()));
-    let app = mock_builder()
-        .manage(state)
-        .invoke_handler(tauri::generate_handler![
-            commands::restart_mcp_server,
-            commands::list_mcp_servers,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        state;
+        commands::restart_mcp_server,
+        commands::list_mcp_servers,
+    );
 
     let err = tauri::test::get_ipc_response(
         &webview,
@@ -465,28 +405,6 @@ fn restarting_a_keychain_server_after_a_refused_startup_is_refused_with_a_reason
     );
 }
 
-/// A mono 16-bit WAV of `frames` frames at 8 kHz, every sample 1000.
-fn write_wav(path: &std::path::Path, frames: u32) {
-    let data_len = frames * 2;
-    let mut bytes = Vec::with_capacity(44 + data_len as usize);
-    bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
-    bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
-    bytes.extend_from_slice(&8_000u32.to_le_bytes());
-    bytes.extend_from_slice(&16_000u32.to_le_bytes()); // byte rate
-    bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
-    bytes.extend_from_slice(&16u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&data_len.to_le_bytes());
-    for _ in 0..frames {
-        bytes.extend_from_slice(&1_000i16.to_le_bytes());
-    }
-    std::fs::write(path, bytes).expect("write wav");
-}
-
 /// `list_tracks` hands the lane its audio on the session's axis (#348).
 ///
 /// Straight after a load the clip is its whole source at zero, and the
@@ -500,19 +418,13 @@ fn list_tracks_hands_the_lane_audio_on_the_session_axis() {
     let take = media.path().join("take.wav");
     write_wav(&take, 8_000);
 
-    let app = mock_builder()
-        .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![
-            commands::open_project,
-            commands::batch_load,
-            commands::move_clip,
-            commands::list_tracks,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        AppState::new();
+        commands::open_project,
+        commands::batch_load,
+        commands::move_clip,
+        commands::list_tracks,
+    );
     let call = |cmd: &str, body: serde_json::Value| {
         tauri::test::get_ipc_response(&webview, make_request(cmd, body))
             .unwrap_or_else(|e| panic!("{cmd} failed: {e:?}"))
@@ -576,54 +488,18 @@ struct SweptProject {
 impl SweptProject {
     fn open() -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
-        let take = dir.path().join("take.wav");
-        write_wav(&take, 16_000);
-        let nodes = {
-            let mut store = session::Store::open(dir.path()).expect("store");
-            let mut engine = audio_engine::Engine::new();
-            let mut clipboard = None;
-            let dispatcher = tools::ToolDispatcher::default_dispatcher();
-            let mut ctx = tools::ToolContext {
-                store: &mut store,
-                engine: &mut engine,
-                user_message: "",
-                clipboard: &mut clipboard,
-                allowed_tools: None,
-            };
-            let mut nodes = Vec::new();
-            let mut run = |tool: &str, args: serde_json::Value, ctx: &mut tools::ToolContext| {
-                match dispatcher.invoke(tool, args, ctx).expect("invoke") {
-                    tools::ToolResult::Ok(_) => nodes.push(ctx.store.head().expect("head")),
-                    tools::ToolResult::Error(m) => panic!("{tool} failed: {m}"),
-                }
-            };
-            run("load", json!({ "path": take }), &mut ctx);
-            for start in [0.0, 0.5, 1.0] {
-                run(
-                    "silence_region",
-                    json!({ "track": 0, "start_sec": start, "end_sec": start + 0.2 }),
-                    &mut ctx,
-                );
-            }
-            nodes
-        };
+        let nodes = silence_history(dir.path(), &[0.0, 0.5, 1.0], 0.2);
 
-        let app = mock_builder()
-            .manage(AppState::new())
-            .invoke_handler(tauri::generate_handler![
-                commands::open_project,
-                commands::get_session_head,
-                commands::set_head_to,
-                commands::accept_b,
-                commands::render_preview,
-                commands::prepare_compare,
-                commands::render_range,
-            ])
-            .build(mock_context(noop_assets()))
-            .expect("mock app");
-        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .expect("webview");
+        let (app, webview) = mock_window!(
+            AppState::new();
+            commands::open_project,
+            commands::get_session_head,
+            commands::set_head_to,
+            commands::accept_b,
+            commands::render_preview,
+            commands::prepare_compare,
+            commands::render_range,
+        );
         let project = Self {
             dir,
             nodes,
@@ -637,9 +513,7 @@ impl SweptProject {
     }
 
     fn call(&self, cmd: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
-        tauri::test::get_ipc_response(&self.webview, make_request(cmd, body))
-            .map(|r| r.deserialize::<serde_json::Value>().expect("json"))
-            .map_err(|e| e.as_str().unwrap_or_default().to_string())
+        call(&self.webview, cmd, body)
     }
 
     /// Run the history sweep at cap 0, as a full disk would, and check it
@@ -899,18 +773,11 @@ fn plan_first_launch(
 ) {
     let state = AppState::new();
     state.install_settings(settings.to_path_buf());
-    let app = mock_builder()
-        .manage(state)
-        .invoke_handler(tauri::generate_handler![
-            commands::set_plan_first,
-            commands::get_plan_first
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
-    (app, webview)
+    mock_window!(
+        state;
+        commands::set_plan_first,
+        commands::get_plan_first,
+    )
 }
 
 fn plan_first_over_ipc(webview: &tauri::WebviewWindow<tauri::test::MockRuntime>) -> bool {
@@ -978,14 +845,10 @@ fn a_plan_first_save_that_fails_says_so_and_still_applies() {
 /// `src/commands.rs`; this is the registration and the wire.
 #[test]
 fn ml_runtime_status_over_ipc_answers_with_a_state() {
-    let app = mock_builder()
-        .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![commands::ml_runtime_status])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        AppState::new();
+        commands::ml_runtime_status,
+    );
 
     let answer =
         tauri::test::get_ipc_response(&webview, make_request("ml_runtime_status", json!({})))

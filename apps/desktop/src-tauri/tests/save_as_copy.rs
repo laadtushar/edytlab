@@ -32,72 +32,33 @@ use std::path::{Path, PathBuf};
 
 use edytlab_desktop_lib::commands;
 use edytlab_desktop_lib::state::AppState;
-use serde_json::{json, Value};
-use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-use tauri::webview::InvokeRequest;
-use tauri::{WebviewWindow, WebviewWindowBuilder};
+use serde_json::json;
+use tauri::test::MockRuntime;
+use tauri::WebviewWindow;
 
-fn request(cmd: &str, body: Value) -> InvokeRequest {
-    InvokeRequest {
-        cmd: cmd.into(),
-        callback: CallbackFn(0),
-        error: CallbackFn(1),
-        url: "tauri://localhost".parse().unwrap(),
-        body: InvokeBody::Json(body),
-        headers: Default::default(),
-        invoke_key: INVOKE_KEY.to_string(),
-    }
-}
-
-fn call(webview: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Result<Value, String> {
-    tauri::test::get_ipc_response(webview, request(cmd, body))
-        .map(|r| r.deserialize::<Value>().expect("json"))
-        .map_err(|e| e.as_str().unwrap_or_default().to_string())
-}
+#[macro_use]
+mod support;
+use support::{call, invoke_tool, write_wav_with};
 
 /// A mono 16-bit WAV of `frames` frames at 8 kHz, a square wave.
 fn write_wav(path: &Path, frames: u32) {
-    let data_len = frames * 2;
-    let mut bytes = Vec::with_capacity(44 + data_len as usize);
-    bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
-    bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
-    bytes.extend_from_slice(&8_000u32.to_le_bytes());
-    bytes.extend_from_slice(&16_000u32.to_le_bytes()); // byte rate
-    bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
-    bytes.extend_from_slice(&16u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&data_len.to_le_bytes());
-    for n in 0..frames {
-        let sample: i16 = if (n / 20) % 2 == 0 { 4_000 } else { -4_000 };
-        bytes.extend_from_slice(&sample.to_le_bytes());
-    }
-    std::fs::write(path, bytes).expect("write wav");
+    write_wav_with(
+        path,
+        frames,
+        |n| if (n / 20) % 2 == 0 { 4_000 } else { -4_000 },
+    );
 }
 
-/// Run one of the agent's tools on `store`, as the agent would.
-fn tool(
-    store: &mut session::Store,
-    clipboard: &mut Option<tools::Clipboard>,
-    name: &str,
-    args: Value,
-) {
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = tools::ToolDispatcher::default_dispatcher();
-    let mut ctx = tools::ToolContext {
-        store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard,
-        allowed_tools: None,
-    };
-    match dispatcher.invoke(name, args, &mut ctx).expect("invoke") {
-        tools::ToolResult::Ok(_) => {}
-        tools::ToolResult::Error(m) => panic!("{name} failed: {m}"),
+/// Copy a folder the way a file manager does: every file, nothing left out.
+fn copy_folder(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_folder(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
     }
 }
 
@@ -136,20 +97,20 @@ fn a_copy_leaves_the_caches_behind_and_its_head_renders() {
     let head = {
         let mut store = session::Store::open(src).expect("store");
         let mut clipboard = None;
-        tool(&mut store, &mut clipboard, "load", json!({ "path": take }));
-        tool(
+        invoke_tool(&mut store, &mut clipboard, "load", json!({ "path": take }));
+        invoke_tool(
             &mut store,
             &mut clipboard,
             "silence_region",
             json!({ "track": 0, "start_sec": 0.2, "end_sec": 0.4 }),
         );
-        tool(
+        invoke_tool(
             &mut store,
             &mut clipboard,
             "copy_region",
             json!({ "track": 0, "range": { "start_sec": 0.5, "end_sec": 0.7 } }),
         );
-        tool(
+        invoke_tool(
             &mut store,
             &mut clipboard,
             "paste_region",
@@ -172,18 +133,12 @@ fn a_copy_leaves_the_caches_behind_and_its_head_renders() {
         std::fs::write(dir.join(name), vec![0u8; 4096]).unwrap();
     }
 
-    let app = mock_builder()
-        .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![
-            commands::open_project,
-            commands::save_project_as,
-            commands::render_preview,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
+    let (_app, webview) = mock_window!(
+        AppState::new();
+        commands::open_project,
+        commands::save_project_as,
+        commands::render_preview,
+    );
     call(&webview, "open_project", json!({ "path": src })).expect("open_project");
     let clipboard = files_under(&store_dir.join("clipboard"));
     assert!(!clipboard.is_empty(), "the paste wrote no clipboard blob");
@@ -238,21 +193,14 @@ fn a_copy_leaves_the_caches_behind_and_its_head_renders() {
 
 /// A window with the commands these tests use.
 fn window() -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
-    let app = mock_builder()
-        .manage(AppState::new())
-        .invoke_handler(tauri::generate_handler![
-            commands::open_project,
-            commands::save_project_as,
-            commands::render_preview,
-            commands::get_session_head,
-            commands::move_clip,
-        ])
-        .build(mock_context(noop_assets()))
-        .expect("mock app");
-    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-        .build()
-        .expect("webview");
-    (app, webview)
+    mock_window!(
+        AppState::new();
+        commands::open_project,
+        commands::save_project_as,
+        commands::render_preview,
+        commands::get_session_head,
+        commands::move_clip,
+    )
 }
 
 /// A project made by the agent's tools, and the user's takes outside it.
@@ -281,7 +229,7 @@ impl History {
         for i in 0..3 {
             let take = takes.path().join(format!("take-{i}.wav"));
             write_wav(&take, 16_000 + 4_000 * i);
-            tool(&mut store, &mut clipboard, "load", json!({ "path": take }));
+            invoke_tool(&mut store, &mut clipboard, "load", json!({ "path": take }));
         }
         for (name, args) in [
             (
@@ -302,7 +250,7 @@ impl History {
                 json!({ "frequency_hz": 660.0, "duration_sec": 0.5 }),
             ),
         ] {
-            tool(&mut store, &mut clipboard, name, args);
+            invoke_tool(&mut store, &mut clipboard, name, args);
         }
         let head = store.head().expect("a head");
         Self {
@@ -496,17 +444,6 @@ fn a_copy_of_the_copy_plays_once_both_before_it_are_deleted() {
 /// same as Save As, since the open is what sweeps.
 #[test]
 fn a_folder_copied_by_hand_keeps_its_audio() {
-    fn copy_folder(from: &Path, to: &Path) {
-        std::fs::create_dir_all(to).unwrap();
-        for entry in std::fs::read_dir(from).unwrap().flatten() {
-            let target = to.join(entry.file_name());
-            if entry.path().is_dir() {
-                copy_folder(&entry.path(), &target);
-            } else {
-                std::fs::copy(entry.path(), target).unwrap();
-            }
-        }
-    }
     let history = History::new();
     let copies = tempfile::tempdir().expect("tempdir");
     let dest = copies.path().join("copied by hand");
@@ -531,17 +468,6 @@ fn a_folder_copied_by_hand_keeps_its_audio() {
 /// can be deleted and the copy plays every clip.
 #[test]
 fn opening_a_copy_saved_by_0_6_0_brings_its_audio_home() {
-    fn copy_folder(from: &Path, to: &Path) {
-        std::fs::create_dir_all(to).unwrap();
-        for entry in std::fs::read_dir(from).unwrap().flatten() {
-            let target = to.join(entry.file_name());
-            if entry.path().is_dir() {
-                copy_folder(&entry.path(), &target);
-            } else {
-                std::fs::copy(entry.path(), target).unwrap();
-            }
-        }
-    }
     let history = History::new();
     let copies = tempfile::tempdir().expect("tempdir");
     let dest = copies.path().join("saved by 0.6.0");

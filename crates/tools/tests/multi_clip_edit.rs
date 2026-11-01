@@ -8,42 +8,18 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use hound::WavReader;
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{write_half_ramp, Session};
 
 const SAMPLE_RATE: u32 = 8_000;
 const SOURCE_FRAMES: usize = 8_000;
 
-fn ok(result: ToolResult) -> Value {
-    match result {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
-    }
-}
-
-/// A ramp, so every frame is individually identifiable and an assertion
-/// can name which part of the source it is looking at.
 fn write_ramp_wav(dir: &Path, name: &str) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SOURCE_FRAMES {
-        // Half scale, so inverting can't clip against the i16 floor.
-        let s = 0.5 * n as f32 / SOURCE_FRAMES as f32;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
+    write_half_ramp(&dir.join(name), SAMPLE_RATE, SOURCE_FRAMES)
 }
 
 fn read_samples(path: &Path) -> Vec<i16> {
@@ -57,54 +33,32 @@ fn read_samples(path: &Path) -> Vec<i16> {
 /// Render a track that has had an interior cut, optionally inverting it
 /// after the cut. Returns the rendered samples.
 fn cut_then_maybe_invert(invert: bool) -> Vec<i16> {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut store = session::Store::open(tmp.path()).expect("open store");
-    let mut engine = audio_engine::Engine::new();
-    let dispatcher = ToolDispatcher::default_dispatcher();
-    let src = write_ramp_wav(tmp.path(), "in.wav");
-    let out = tmp.path().join("out.wav");
+    let mut s = Session::empty();
+    let src = write_ramp_wav(s.dir.path(), "in.wav");
+    let out = s.dir.path().join("out.wav");
 
-    let mut clipboard: Option<tools::Clipboard> = None;
-    let mut ctx = ToolContext {
-        store: &mut store,
-        engine: &mut engine,
-        user_message: "",
-        clipboard: &mut clipboard,
-        allowed_tools: None,
-    };
-
-    ok(dispatcher
-        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
-        .unwrap());
+    s.ok("load", json!({ "path": src.to_string_lossy() }));
 
     // Cut [2000, 3000) out of the middle: two clips, 2000 + 5000 frames.
-    let cut = ok(dispatcher
-        .invoke(
-            "cut_range",
-            json!({ "track": 0, "start_sample": 2000, "end_sample": 3000 }),
-            &mut ctx,
-        )
-        .unwrap());
+    let cut = s.ok(
+        "cut_range",
+        json!({ "track": 0, "start_sample": 2000, "end_sample": 3000 }),
+    );
     let mut node_id = cut["node_id"].as_str().unwrap().to_string();
 
     if invert {
-        let inverted = ok(dispatcher
-            .invoke("invert", json!({ "track": 0 }), &mut ctx)
-            .unwrap());
+        let inverted = s.ok("invert", json!({ "track": 0 }));
         node_id = inverted["node_id"].as_str().unwrap().to_string();
     }
 
-    ok(dispatcher
-        .invoke(
-            "render_final",
-            json!({
-                "node_id": node_id,
-                "format": "wav",
-                "out_path": out.to_string_lossy(),
-            }),
-            &mut ctx,
-        )
-        .unwrap());
+    s.ok(
+        "render_final",
+        json!({
+            "node_id": node_id,
+            "format": "wav",
+            "out_path": out.to_string_lossy(),
+        }),
+    );
 
     read_samples(&out)
 }

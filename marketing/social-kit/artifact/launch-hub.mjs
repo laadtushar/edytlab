@@ -412,7 +412,7 @@ function linkedinHtml() {
       out += card("li-3-doc", "Post 3 as a document post (carousel PDF)", post.replace(SENT, ""), { limit: 3000, badge: "derived", meta: `<p>Derived: <code>linkedin-posts.md</code> says to delete the one sentence that says what the video shows when you post the PDF instead of the reel. Nothing else changed. Document title: "How edytlab is built".</p>` });
     }
     if (n === 1) {
-      out += card("li-1-short", "Shorter version (under 90 words), same video", pick(LI, { h2, label: /^Shorter version/ }), { limit: 3000 });
+      out += card("li-1-short", "Shorter version, same video", pick(LI, { h2, label: /^Shorter version/ }), { limit: 3000 });
     }
     out += card(`li-${n}-comment`, `Post ${n}: pin this comment`, pin, { limit: 1250 });
     out += `</div>`;

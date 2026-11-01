@@ -21,106 +21,24 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{DispatchError, ToolContext, ToolDispatcher, ToolResult};
+use tools::{DispatchError, ToolResult};
+
+#[path = "support/effects.rs"]
+mod effects;
+#[path = "support/harness.rs"]
+mod harness;
+use effects::{NOT_YET_STREAMABLE, STREAMABLE};
+use harness::{err, ok, read_pcm, Session};
 
 const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: usize = 44_100;
 
-const STREAMABLE: [&str; 5] = [
-    "gain",
-    "limiter",
-    "low_pass_filter",
-    "high_pass_filter",
-    "notch_filter",
-];
-
-const NOT_YET_STREAMABLE: [&str; 11] = [
-    "tremolo",
-    "phaser",
-    "echo",
-    "reverb",
-    "noise_gate",
-    "leveler",
-    "de_esser",
-    "distortion",
-    "stereo_widener",
-    "eq",
-    "compressor",
-];
-
-fn write_tone(dir: &Path, name: &str, freq: f32, amp: f32) -> PathBuf {
-    let path = dir.join(name);
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..FRAMES {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path
-}
-
-/// A two-track session at 0.6 each. Their peaks line up every 1/110 s, so
-/// the sum reaches about 1.2: a limiter on the mix has something to do.
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-    renders: usize,
-}
-
 impl Session {
+    /// A two-track session at 0.6 each. Their peaks line up every 1/110 s, so
+    /// the sum reaches about 1.2: a limiter on the mix has something to do.
     fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let a = write_tone(dir.path(), "a.wav", 220.0, 0.6);
-        let b = write_tone(dir.path(), "b.wav", 330.0, 0.6);
-        let store = session::Store::open(dir.path()).expect("open store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-            renders: 0,
-        };
-        ok(s.call("load", json!({ "path": a.to_string_lossy() })));
-        ok(s.call("load", json!({ "path": b.to_string_lossy() })));
-        s
-    }
-
-    fn try_call(&mut self, tool: &str, args: Value) -> Result<ToolResult, DispatchError> {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx)
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        self.try_call(tool, args)
-            .unwrap_or_else(|e| panic!("{tool} was rejected before it ran: {e}"))
-    }
-
-    fn head(&self) -> String {
-        self.store.head().expect("a head").to_hex()
-    }
-
-    fn node_count(&self) -> usize {
-        self.store.list_nodes().expect("list nodes").len()
+        Session::with_tones(SAMPLE_RATE, FRAMES, &[(220.0, 0.6), (330.0, 0.6)])
     }
 
     /// How many clips the audition cache holds.
@@ -132,20 +50,11 @@ impl Session {
     /// The head rendered over the first second, which is all of it, the
     /// way an audition renders its region.
     fn render(&mut self) -> Vec<i16> {
-        self.renders += 1;
-        let out = self.dir.path().join(format!("out-{}.wav", self.renders));
-        let state = self.store.get(self.store.head().unwrap()).unwrap().state;
         let range = audio_engine::TimeRange {
             start_frame: 0,
             end_frame: FRAMES as u64,
         };
-        audio_engine::render_state_to_wav(&state, &out, Some(range)).expect("render");
-        read_wav(&out)
-    }
-
-    fn create_bus(&mut self, name: &str) -> String {
-        let v = ok(self.call("create_bus", json!({ "name": name })));
-        v["bus_id"].as_str().expect("a bus id").to_string()
+        self.render_pcm(Some(range))
     }
 
     fn audition(&mut self, args: Value) -> ToolResult {
@@ -153,30 +62,8 @@ impl Session {
     }
 }
 
-fn read_wav(path: &Path) -> Vec<i16> {
-    WavReader::open(path)
-        .expect("open wav")
-        .samples::<i16>()
-        .map(|r| r.expect("sample"))
-        .collect()
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
-    }
-}
-
 fn clip(v: &Value) -> Vec<i16> {
-    read_wav(Path::new(v["path"].as_str().expect("a path")))
+    read_pcm(Path::new(v["path"].as_str().expect("a path")))
 }
 
 fn peak(pcm: &[i16]) -> f32 {
@@ -194,7 +81,7 @@ fn level(db: f32) -> f32 {
 #[test]
 fn a_master_audition_commits_nothing() {
     let mut s = Session::new();
-    let head = s.head();
+    let head = s.head_hex();
     let nodes = s.node_count();
 
     let v = ok(s.audition(json!({
@@ -203,7 +90,7 @@ fn a_master_audition_commits_nothing() {
 
     assert!(PathBuf::from(v["path"].as_str().unwrap()).is_file());
     assert_eq!(v["type"], "audition", "{v}");
-    assert_eq!(s.head(), head, "the head must not move");
+    assert_eq!(s.head_hex(), head, "the head must not move");
     assert_eq!(s.node_count(), nodes, "no node may be appended");
     assert!(
         s.store
@@ -323,7 +210,7 @@ fn a_master_audition_goes_into_the_existing_chain_where_asked() {
 #[test]
 fn a_master_audition_refuses_each_kind_the_renderer_cannot_run() {
     let mut s = Session::new();
-    let head = s.head();
+    let head = s.head_hex();
     let nodes = s.node_count();
 
     for kind in NOT_YET_STREAMABLE {
@@ -345,7 +232,7 @@ fn a_master_audition_refuses_each_kind_the_renderer_cannot_run() {
         assert!(msg.contains("unknown effect kind"), "{kind:?}: {msg}");
     }
 
-    assert_eq!(s.head(), head);
+    assert_eq!(s.head_hex(), head);
     assert_eq!(s.node_count(), nodes);
     assert_eq!(
         s.cached_auditions(),
@@ -480,14 +367,14 @@ fn a_bus_audition_is_what_add_effect_would_render() {
         json!({ "track": 0, "bus_id": bus, "level_db": -6.0 }),
     ));
     let dry = s.render();
-    let head = s.head();
+    let head = s.head_hex();
     let nodes = s.node_count();
 
     let v = ok(s.audition(json!({
         "scope": "bus", "bus": "Drums", "kind": "gain", "params": { "db": 6.0 },
         "start_sec": 0.0, "end_sec": 1.0
     })));
-    assert_eq!(s.head(), head);
+    assert_eq!(s.head_hex(), head);
     assert_eq!(s.node_count(), nodes);
     assert!(
         v["summary"].as_str().unwrap().contains("Drums"),

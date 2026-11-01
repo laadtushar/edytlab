@@ -18,13 +18,16 @@
 //!
 //! ACX's requirements: <https://help.acx.com/s/article/acx-audio-submission-requirements>.
 
-use std::f64::consts::TAU;
 use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use std::f64::consts::TAU;
+use tools::ToolContext;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
 /// A mono or interleaved 16-bit WAV of `samples` (full scale is 1.0).
 fn write_wav(path: &Path, rate: u32, channels: u16, samples: &[f32]) -> PathBuf {
@@ -77,62 +80,12 @@ fn concat(parts: &[Vec<f32>]) -> Vec<f32> {
     parts.iter().flatten().copied().collect()
 }
 
-struct Project {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Project {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("open store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
+impl Session {
     /// Write a WAV into the project folder and load it as the next track.
-    fn load(&mut self, name: &str, rate: u32, channels: u16, samples: &[f32]) -> usize {
+    fn load_samples(&mut self, name: &str, rate: u32, channels: u16, samples: &[f32]) -> usize {
         let path = write_wav(&self.dir.path().join(name), rate, channels, samples);
-        self.ok("load", json!({ "path": path.to_string_lossy() }));
+        Session::load(self, &path);
         self.state().tracks.len() - 1
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("{tool}: expected Ok, got Error({m})"),
-        }
-    }
-
-    fn err(&mut self, tool: &str, args: Value) -> String {
-        match self.call(tool, args) {
-            ToolResult::Error(m) => m,
-            ToolResult::Ok(v) => panic!("{tool}: expected Error, got Ok({v})"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        let head = self.store.head().expect("a head");
-        self.store.get(head).expect("head node").state
     }
 }
 
@@ -159,8 +112,8 @@ fn close(what: &str, got: f64, want: f64, tol: f64) {
 /// channel, 20 s: I, M max and S max are -23.0 +/- 0.1 LUFS.
 #[test]
 fn the_spec_tone_reads_minus_23_lufs() {
-    let mut p = Project::new();
-    p.load(
+    let mut p = Session::empty();
+    p.load_samples(
         "tone.wav",
         48_000,
         2,
@@ -195,12 +148,12 @@ fn the_spec_tone_reads_minus_23_lufs() {
 /// LRA = 10 +/- 1 LU.
 #[test]
 fn the_spec_two_level_signal_reads_10_lu_of_range() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let s = concat(&[
         stereo(&sine(48_000, 20.0, 1000.0, -20.0)),
         stereo(&sine(48_000, 20.0, 1000.0, -30.0)),
     ]);
-    p.load("range.wav", 48_000, 2, &s);
+    p.load_samples("range.wav", 48_000, 2, &s);
     let r = p.ok("measure", json!({ "track": 0 }));
     close("LRA", num(&r, &["loudness", "range_lu"]), 10.0, 1.0);
 }
@@ -210,12 +163,12 @@ fn the_spec_two_level_signal_reads_10_lu_of_range() {
 /// -6.0 dBTP (+0.2/-0.4).
 #[test]
 fn the_inter_sample_peak_signal_reads_its_true_peak() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let n = 48_000 * 3;
     let s: Vec<f32> = (0..n)
         .map(|i| (0.5 * (TAU * i as f64 / 4.0 + 45f64.to_radians()).sin()) as f32)
         .collect();
-    p.load("fs4.wav", 48_000, 1, &s);
+    p.load_samples("fs4.wav", 48_000, 1, &s);
     let r = p.ok("measure", json!({ "track": 0 }));
     let sample = num(&r, &["peak", "sample_dbfs"]);
     let truth = num(&r, &["peak", "true_dbtp"]);
@@ -228,7 +181,7 @@ fn the_inter_sample_peak_signal_reads_its_true_peak() {
 /// whatever range is asked for.
 #[test]
 fn clipping_is_counted_and_placed_in_session_seconds() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let mut s = sine(44_100, 4.0, 220.0, -6.0);
     for t in [1.0, 2.5] {
         let at = (t * 44_100.0) as usize;
@@ -236,7 +189,7 @@ fn clipping_is_counted_and_placed_in_session_seconds() {
             *v = 1.0;
         }
     }
-    p.load("clipped.wav", 44_100, 1, &s);
+    p.load_samples("clipped.wav", 44_100, 1, &s);
 
     let all = p.ok("measure", json!({ "track": 0 }));
     assert_eq!(all["clipping"]["events"], 2, "{all}");
@@ -260,8 +213,8 @@ fn clipping_is_counted_and_placed_in_session_seconds() {
 /// A track is measured as it plays: its own gain is in the number.
 #[test]
 fn a_track_is_measured_with_its_gain() {
-    let mut p = Project::new();
-    p.load("a.wav", 48_000, 1, &sine(48_000, 3.0, 1000.0, -20.0));
+    let mut p = Session::empty();
+    p.load_samples("a.wav", 48_000, 1, &sine(48_000, 3.0, 1000.0, -20.0));
     let before = p.ok("measure", json!({ "track": 0 }));
     close("peak", num(&before, &["peak", "sample_dbfs"]), -20.0, 0.05);
     p.ok("set_track_gain", json!({ "track": 0, "db": 6.0 }));
@@ -283,9 +236,9 @@ fn a_track_is_measured_with_its_gain() {
 /// With no `track`, the mix; with one, that track alone.
 #[test]
 fn the_mix_is_every_track_and_a_track_is_its_own() {
-    let mut p = Project::new();
-    p.load("a.wav", 48_000, 1, &sine(48_000, 4.0, 440.0, -20.0));
-    p.load("b.wav", 48_000, 1, &sine(48_000, 4.0, 1000.0, -30.0));
+    let mut p = Session::empty();
+    p.load_samples("a.wav", 48_000, 1, &sine(48_000, 4.0, 440.0, -20.0));
+    p.load_samples("b.wav", 48_000, 1, &sine(48_000, 4.0, 1000.0, -30.0));
     let mix = p.ok("measure", json!({}));
     let t0 = p.ok("measure", json!({ "track": 0 }));
     let t1 = p.ok("measure", json!({ "track": 1 }));
@@ -304,8 +257,8 @@ fn the_mix_is_every_track_and_a_track_is_its_own() {
 /// A range is in seconds of the session. Loud for 2 s, quiet for 2 s.
 #[test]
 fn a_range_measures_only_those_seconds() {
-    let mut p = Project::new();
-    p.load(
+    let mut p = Session::empty();
+    p.load_samples(
         "steps.wav",
         48_000,
         1,
@@ -357,13 +310,13 @@ fn a_range_measures_only_those_seconds() {
 /// times too early or late.
 #[test]
 fn a_range_on_a_track_at_another_rate_is_in_session_seconds() {
-    let mut p = Project::new();
-    p.load("bed.wav", 48_000, 1, &sine(48_000, 6.0, 220.0, -30.0));
+    let mut p = Session::empty();
+    p.load_samples("bed.wav", 48_000, 1, &sine(48_000, 6.0, 220.0, -30.0));
     let voice = concat(&[
         sine(16_000, 2.0, 1000.0, -10.0),
         sine(16_000, 2.0, 1000.0, -40.0),
     ]);
-    let t = p.load("voice.wav", 16_000, 1, &voice);
+    let t = p.load_samples("voice.wav", 16_000, 1, &voice);
     assert_eq!(t, 1);
     assert_eq!(
         p.state().sample_rate,
@@ -448,9 +401,9 @@ fn passes(r: &Value) -> (bool, bool, bool) {
 
 #[test]
 fn acx_passes_a_file_that_meets_all_three_rules() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     // 8 s of 10 at -19 dB RMS is -19.97 dB RMS over the file.
-    p.load("ok.wav", 44_100, 1, &narration(-19.0, -66.0, None));
+    p.load_samples("ok.wav", 44_100, 1, &narration(-19.0, -66.0, None));
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
     assert_eq!(r["acx"]["pass"], true, "{r}");
     assert_eq!(passes(&r), (true, true, true));
@@ -474,8 +427,8 @@ fn acx_passes_a_file_that_meets_all_three_rules() {
 
 #[test]
 fn acx_fails_a_file_that_is_too_quiet_and_says_by_how_much() {
-    let mut p = Project::new();
-    p.load("quiet.wav", 44_100, 1, &narration(-30.0, -66.0, None));
+    let mut p = Session::empty();
+    p.load_samples("quiet.wav", 44_100, 1, &narration(-30.0, -66.0, None));
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
     assert_eq!(r["acx"]["pass"], false);
     assert_eq!(passes(&r), (false, true, true), "{r}");
@@ -490,8 +443,8 @@ fn acx_fails_a_file_that_is_too_quiet_and_says_by_how_much() {
 
 #[test]
 fn acx_fails_a_peak_over_minus_3() {
-    let mut p = Project::new();
-    p.load("hot.wav", 44_100, 1, &narration(-19.0, -66.0, Some(-1.5)));
+    let mut p = Session::empty();
+    p.load_samples("hot.wav", 44_100, 1, &narration(-19.0, -66.0, Some(-1.5)));
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
     assert_eq!(passes(&r), (true, false, true), "{r}");
     close(
@@ -504,8 +457,8 @@ fn acx_fails_a_peak_over_minus_3() {
 
 #[test]
 fn acx_fails_a_noise_floor_over_minus_60() {
-    let mut p = Project::new();
-    p.load("noisy.wav", 44_100, 1, &narration(-19.0, -45.0, None));
+    let mut p = Session::empty();
+    p.load_samples("noisy.wav", 44_100, 1, &narration(-19.0, -45.0, None));
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
     assert_eq!(passes(&r), (true, true, false), "{r}");
     close(
@@ -520,8 +473,8 @@ fn acx_fails_a_noise_floor_over_minus_60() {
 /// digital silence.
 #[test]
 fn each_acx_rule_states_its_limit() {
-    let mut p = Project::new();
-    p.load("edge.wav", 44_100, 1, &narration(-19.0, -66.0, None));
+    let mut p = Session::empty();
+    p.load_samples("edge.wav", 44_100, 1, &narration(-19.0, -66.0, None));
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
     let limits: Vec<&str> = r["acx"]["rules"]
         .as_array()
@@ -543,8 +496,8 @@ fn each_acx_rule_states_its_limit() {
 /// The ACX block says where its limits come from and what it did not check.
 #[test]
 fn the_acx_block_cites_the_requirements_and_the_rules_it_leaves_out() {
-    let mut p = Project::new();
-    p.load("ok.wav", 44_100, 1, &narration(-19.0, -66.0, None));
+    let mut p = Session::empty();
+    p.load_samples("ok.wav", 44_100, 1, &narration(-19.0, -66.0, None));
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
     assert_eq!(
         r["acx"]["source"],
@@ -568,11 +521,11 @@ fn the_acx_block_cites_the_requirements_and_the_rules_it_leaves_out() {
 /// worked out from the audio that is there.
 #[test]
 fn a_clip_that_starts_late_is_digital_silence_and_not_a_quiet_room() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let rate = 48_000;
     // 1.5 s of room tone at -62 dBFS, then 6 s of a sine at -37 dB RMS.
     let file = concat(&[noise(rate, 1.5, -62.0, 3), sine(rate, 6.0, 440.0, -34.0)]);
-    p.load("late.wav", rate, 1, &file);
+    p.load_samples("late.wav", rate, 1, &file);
     p.ok("time_shift", json!({ "track": 0, "offset_sec": 1.0 }));
 
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
@@ -615,11 +568,11 @@ fn a_clip_that_starts_late_is_digital_silence_and_not_a_quiet_room() {
 /// between them) is digital silence in the mix.
 #[test]
 fn a_gap_between_two_clips_is_digital_silence() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let rate = 48_000;
     let voice = concat(&[noise(rate, 1.0, -64.0, 5), sine(rate, 3.0, 440.0, -23.0)]);
-    p.load("one.wav", rate, 1, &voice);
-    p.load("two.wav", rate, 1, &voice);
+    p.load_samples("one.wav", rate, 1, &voice);
+    p.load_samples("two.wav", rate, 1, &voice);
     // The second clip starts at 5 s; the first ends at 4 s.
     p.ok("time_shift", json!({ "track": 1, "offset_sec": 5.0 }));
 
@@ -649,8 +602,8 @@ fn a_gap_between_two_clips_is_digital_silence() {
 /// Room tone is never silence: the narration fixtures carry none.
 #[test]
 fn room_tone_reports_no_digital_silence() {
-    let mut p = Project::new();
-    p.load("ok.wav", 44_100, 1, &narration(-19.0, -66.0, None));
+    let mut p = Session::empty();
+    p.load_samples("ok.wav", 44_100, 1, &narration(-19.0, -66.0, None));
     let r = p.ok("measure", json!({ "track": 0, "check": "acx" }));
     assert_eq!(num(&r, &["digital_silence", "seconds"]), 0.0);
     assert_eq!(rule(&r, "digital_silence")["pass"], true);
@@ -664,7 +617,7 @@ fn room_tone_reports_no_digital_silence() {
 /// gain (a master limiter is far above it), whatever came before them.
 #[test]
 fn a_range_measures_the_same_as_that_audio_alone() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let rate = 48_000u32;
     let a = lin(-30.0);
     let file: Vec<f32> = (0..rate as usize * 10)
@@ -679,7 +632,7 @@ fn a_range_measures_the_same_as_that_audio_alone() {
             (a * env * ((TAU * 220.0 * t).sin() + (TAU * 330.0 * t + 1.0).sin())) as f32
         })
         .collect();
-    p.load("long.wav", rate, 1, &file);
+    p.load_samples("long.wav", rate, 1, &file);
     p.ok(
         "add_effect",
         json!({ "track": 0, "kind": "limiter", "params": { "ceiling_db": -1.0 } }),
@@ -745,7 +698,7 @@ fn a_range_measures_the_same_as_that_audio_alone() {
 /// limiter has a job.
 #[test]
 fn the_acx_workflow_reaches_a_pass_on_a_failing_fixture() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let rate = 44_100u32;
     let a = lin(-27.0);
     let speech: Vec<f32> = (0..rate as usize * 8)
@@ -760,7 +713,7 @@ fn the_acx_workflow_reaches_a_pass_on_a_failing_fixture() {
         speech,
         noise(rate, 1.0, -50.0, 12),
     ]);
-    p.load("chapter.wav", rate, 1, &s);
+    p.load_samples("chapter.wav", rate, 1, &s);
 
     // 1. Measure.
     let before = p.ok("measure", json!({ "track": 0, "check": "acx" }));
@@ -821,7 +774,7 @@ fn the_acx_workflow_reaches_a_pass_on_a_failing_fixture() {
 /// of the others.
 #[test]
 fn the_answer_is_bounded_however_much_is_clipped() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     let mut s = sine(44_100, 20.0, 220.0, -6.0);
     for k in 0..60 {
         let at = (k as f64 * 0.3 + 0.1) * 44_100.0;
@@ -829,7 +782,7 @@ fn the_answer_is_bounded_however_much_is_clipped() {
             *v = 1.0;
         }
     }
-    p.load("clipped.wav", 44_100, 1, &s);
+    p.load_samples("clipped.wav", 44_100, 1, &s);
     let r = p.ok(
         "measure",
         json!({ "track": 0, "check": "acx", "max_clip_times": 50 }),
@@ -853,12 +806,12 @@ fn the_answer_is_bounded_however_much_is_clipped() {
 
 #[test]
 fn bad_arguments_are_refused_with_a_reason() {
-    let mut p = Project::new();
+    let mut p = Session::empty();
     assert!(
         p.err("measure", json!({})).contains("load"),
         "no session yet"
     );
-    p.load("a.wav", 48_000, 1, &sine(48_000, 2.0, 440.0, -20.0));
+    p.load_samples("a.wav", 48_000, 1, &sine(48_000, 2.0, 440.0, -20.0));
     assert!(p.err("measure", json!({ "track": 5 })).contains("track"));
     assert!(p
         .err("measure", json!({ "start_sec": 2.0, "end_sec": 1.0 }))
@@ -871,8 +824,8 @@ fn bad_arguments_are_refused_with_a_reason() {
 /// The schema refuses what the tool cannot do, before the tool runs.
 #[test]
 fn the_schema_refuses_an_unknown_check_a_negative_time_and_too_many_clip_times() {
-    let mut p = Project::new();
-    p.load("a.wav", 48_000, 1, &sine(48_000, 2.0, 440.0, -20.0));
+    let mut p = Session::empty();
+    p.load_samples("a.wav", 48_000, 1, &sine(48_000, 2.0, 440.0, -20.0));
     for bad in [
         json!({ "check": "audible" }),
         json!({ "max_clip_times": 500 }),
@@ -898,14 +851,14 @@ fn the_schema_refuses_an_unknown_check_a_negative_time_and_too_many_clip_times()
 /// It writes nothing into the project and moves no head.
 #[test]
 fn measuring_changes_nothing() {
-    let mut p = Project::new();
-    p.load(
+    let mut p = Session::empty();
+    p.load_samples(
         "a.wav",
         48_000,
         2,
         &stereo(&sine(48_000, 3.0, 440.0, -20.0)),
     );
-    p.load("b.wav", 22_050, 1, &sine(22_050, 3.0, 440.0, -20.0));
+    p.load_samples("b.wav", 22_050, 1, &sine(22_050, 3.0, 440.0, -20.0));
     let list = |dir: &Path| -> Vec<(String, u64)> {
         let mut out = Vec::new();
         fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, u64)>) {

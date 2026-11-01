@@ -10,9 +10,11 @@
 use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavSpec, WavWriter};
-use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use serde_json::json;
+
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
 const SR: u32 = 48_000;
 
@@ -43,53 +45,19 @@ fn write_tone(path: &Path, float: bool) -> PathBuf {
     path.to_path_buf()
 }
 
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
 impl Session {
     /// A take, a copy of 0.5–1.0 s, a paste of it at 2 s, and two edits
     /// after, so the paste's audio is history.
     fn pasted(float: bool) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let take = write_tone(&dir.path().join("take.wav"), float);
-        let store = session::Store::open(dir.path()).expect("store");
-        let mut s = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        };
-        s.call("load", json!({ "path": take }));
-        s.call(
+        let mut s = Session::empty();
+        let take = write_tone(&s.dir.path().join("take.wav"), float);
+        s.load(&take);
+        s.ok(
             "copy_region",
             json!({ "track": 0, "range": { "start_sec": 0.5, "end_sec": 1.0 } }),
         );
-        s.call("paste_region", json!({ "track": 0, "at": 2.0 }));
+        s.ok("paste_region", json!({ "track": 0, "at": 2.0 }));
         s
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> Value {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        match self
-            .dispatcher
-            .invoke(tool, args, &mut ctx)
-            .expect("invoke")
-        {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(m) => panic!("{tool} failed: {m}"),
-        }
     }
 
     /// The derived file the head names — right after the paste, the
@@ -103,7 +71,7 @@ impl Session {
 
     fn move_on(&mut self) {
         for start in [0.1, 3.2] {
-            self.call(
+            self.ok(
                 "silence_region",
                 json!({ "track": 0, "start_sec": start, "end_sec": start + 0.1 }),
             );
@@ -144,18 +112,10 @@ fn a_paste_from_float_audio_is_swept_and_comes_back() {
 /// that copy wrote. Straight from the take, because derived audio is
 /// 16-bit and a 16-bit blob of it would be exact anyway.
 fn copied_from_float() -> (Session, String) {
-    let dir = TempDir::new().expect("tempdir");
-    let take = write_tone(&dir.path().join("take.wav"), true);
-    let store = session::Store::open(dir.path()).expect("store");
-    let mut s = Session {
-        dir,
-        store,
-        engine: audio_engine::Engine::new(),
-        dispatcher: ToolDispatcher::default_dispatcher(),
-        clipboard: None,
-    };
-    s.call("load", json!({ "path": take }));
-    let out = s.call(
+    let mut s = Session::empty();
+    let take = write_tone(&s.dir.path().join("take.wav"), true);
+    s.load(&take);
+    let out = s.ok(
         "copy_region",
         json!({ "track": 0, "range": { "start_sec": 0.5, "end_sec": 1.0 } }),
     );
@@ -207,7 +167,7 @@ fn copying_again_replaces_a_blob_that_is_not_its_name() {
     let (mut s, hash) = copied_from_float();
     make_lossy(&s, &hash);
 
-    s.call(
+    s.ok(
         "copy_region",
         json!({ "track": 0, "range": { "start_sec": 0.5, "end_sec": 1.0 } }),
     );

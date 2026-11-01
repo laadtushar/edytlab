@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 99 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 101 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -47,6 +47,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
+- [`export_transcript`](#export_transcript) — Export the stored transcript as SRT, WebVTT, or plain text.
 - [`fade`](#fade) — Apply a linear fade-in or fade-out to a time range of a track.
 - [`fork_node`](#fork_node) — Branch the session DAG at the given node id (defaults to the current head when `from` is omitted).
 - [`gain`](#gain) — Apply a constant gain in decibels to a track.
@@ -115,6 +116,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`time_shift`](#time_shift) — Move a track's clips forward or backward in time.
 - [`time_stretch`](#time_stretch) — Stretch or compress a track in time without changing its pitch.
 - [`transcribe`](#transcribe) — Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript that cut_words, remove_fillers and select_region's `text` work from.
+- [`transcript_to_markers`](#transcript_to_markers) — Add point markers at the stored transcript's segment or sentence starts, at the times it had when transcribed (stale once the clip is moved).
 - [`tremolo`](#tremolo) — Apply tremolo (LFO amplitude modulation).
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
@@ -440,6 +442,20 @@ Export this session's edit chain — every tool and its parameters, in order —
 |---|---|---|---|
 | `name` | string | no | Optional human name for the chain |
 | `out_path` | string | yes | Where to write the recipe JSON |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `export_transcript`
+
+Export the stored transcript as SRT, WebVTT, or plain text. Times are as transcribed (session seconds for a track); moving the clip afterwards makes them stale. Writes a file, never inside .audiograph; call transcribe first.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `format` | one of `srt`, `vtt`, `txt` | no |  |
+| `max_chars_per_line` | integer | no | Maximum Unicode characters per caption line; segments normally contain at most two lines |
+| `max_cue_sec` | number | no | Maximum segment duration, unless one stored word alone exceeds it |
+| `out_path` | string | yes | Destination, relative to the project directory or absolute |
+| `pause_sec` | number | no | Start a new segment after a pause of at least this many seconds |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -1015,7 +1031,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `separate_stems`
 
-NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached by content hash. Inference is a stub, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build instead.
+NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached by content hash. The tool is not connected to the inference yet, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build instead.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1211,6 +1227,17 @@ Transcribe speech to text on this computer and attach the words, with times, to 
 | `language` | string | no | ISO 639-1 code of the language spoken (en, de, fr, es, ...). Leave out to detect it. |
 | `path` | string | no | An audio file that is not in the session. |
 | `track` | integer | no | Index of a track in the session. |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `transcript_to_markers`
+
+Add point markers at the stored transcript's segment or sentence starts, at the times it had when transcribed (stale once the clip is moved). Appends one node, keeps annotations and audio, skips markers that already exist. File or unknown-source transcripts require an explicit offset_sec (zero is allowed). Run transcribe first.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `mode` | one of `segment`, `sentence` | no |  |
+| `offset_sec` | number | no | Explicit signed offset in seconds for aligning source times with the timeline; required for file or unknown sources |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

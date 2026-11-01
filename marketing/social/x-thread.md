@@ -14,65 +14,75 @@ Each post is 280 characters or fewer (counted by script).
 **1/8**
 
 ```
-I built a desktop audio editor you drive by chatting.
+The night before a gig is all chores: matching tempos, counting bars, nudging levels.
 
-Here a DJ asks for two tracks' tempos, the incoming one is time-stretched to match, crossfaded in 8 bars before the first ends, and the mix is exported as a WAV at -14 LUFS.
+So I built an audio editor I could just tell what to do. Here it brings a 128 BPM track in under the last 8 bars of a 120 BPM one.
 
-(With sound. Free, open source.)
+Sound on.
 ```
 
 **2/8**
 
 ```
-How it works: an AI agent turns your request into calls to 99 audio tools. The tools do the DSP, in Rust, on your machine. The model only picks and orders them. It never touches the samples.
+It never hears your music.
+
+The AI reads a summary of your session and what the tools measure, like tempo and loudness, then picks from 99 editing tools. The tools do the work, on your computer.
+
+It decides. Your machine does the work. You stay the DJ.
 ```
 
 **3/8**
 
 ```
-Your audio is never uploaded. Only the chat goes to the AI provider you choose.
+So your files never get uploaded. Only the chat goes out, to the AI you choose: Claude, GPT, Gemini and others.
 
-Anthropic, OpenAI, OpenRouter, Groq, Gemini, your ChatGPT plan (a preview), or Ollama. With Ollama there's no key and the chat stays on your computer too.
+Or run a local model with Ollama, and the chat stays home too.
 ```
 
 **4/8**
 
 ```
-Every edit is a node in a graph. Fork a take, A/B it against the original, go back.
+Nothing you do is lost.
 
-There's also an optional "plan first" mode: the agent shows its steps and you approve before anything runs.
+Every edit is a step in a history you can branch. Try a louder master, compare it with the old one, keep the better one.
+
+Nervous? Turn on "plan first" and approve each step before it runs.
 ```
 
 **5/8**
 
 ```
-For the DJ job: it analyses BPM, key, beat grid and loudness, then time-stretches or pitch-shifts with a phase vocoder written for the project, in pure Rust.
+Where it shines today: the prep you'd rather not do by hand.
 
-It's for prep, not live use. Every edit in the demo shows as a tool call, with a reply saying what changed.
+Beatmatching and transitions. Trimming long silences out of a podcast. Checking an audiobook against ACX loudness specs before you submit.
 ```
 
 **6/8**
 
 ```
-v0.9.3 is out. New: a measure tool (loudness, peaks, noise floor, clipping, ACX check) and a diarize tool that labels who speaks when, on your computer, after a one-time 33 MB speaker-model download you start in Settings. AIFF and Opus files now import.
+New in v0.9.3: it can tell who's speaking when.
+
+A two-person interview becomes one track per voice, so each gets its own levels and cleanup. That runs on your computer too, after a one-time download in Settings.
 ```
 
 **7/8**
 
 ```
-What it can't do yet, so you don't have to find out: no stem separation. Transcription needs a one-time model download and was tested on English only (a clip, 16 min of audiobooks). Builds are unsigned, so macOS and Windows warn at first launch. Release notes have the steps.
+Not there yet: stem separation is still being built.
+
+And the installers aren't signed, so macOS and Windows will warn you the first time you open it. The release notes walk you through it.
 ```
 
 **8/8**
 
 ```
-Download for macOS (universal), Windows or Linux: https://github.com/laadtushar/edytlab/releases/latest
+Free, MIT-licensed, for macOS, Windows and Linux.
 
-Demo and docs: https://edytlab.com
+Download: https://github.com/laadtushar/edytlab/releases/latest
 
-MIT-licensed. Tell me which edit you'd ask for first.
+Demos: https://edytlab.com
 
-Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
+Which edit would you hand it first?
 ```
 
 ---

@@ -1,53 +1,19 @@
 //! End-to-end coverage for generated DTMF audio and session changes.
 
 use serde_json::{json, Value};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::ToolResult;
 
-struct Project {
-    _dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::Session;
 
-impl Project {
-    fn empty() -> Self {
-        let dir = TempDir::new().unwrap();
-        let store = session::Store::open(dir.path()).unwrap();
-        Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
+impl Session {
+    fn try_dtmf(&mut self, args: Value) -> Result<ToolResult, tools::DispatchError> {
+        self.try_call("generate_dtmf", args)
     }
 
-    fn invoke(&mut self, args: Value) -> Result<ToolResult, tools::DispatchError> {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke("generate_dtmf", args, &mut ctx)
-    }
-
-    fn ok(&mut self, args: Value) -> Value {
-        match self.invoke(args).unwrap() {
-            ToolResult::Ok(value) => value,
-            ToolResult::Error(error) => panic!("generate_dtmf: {error}"),
-        }
-    }
-
-    fn state(&self) -> session::SessionState {
-        self.store
-            .get(self.store.head().expect("a head"))
-            .unwrap()
-            .state
+    fn dtmf(&mut self, args: Value) -> Value {
+        self.ok("generate_dtmf", args)
     }
 }
 
@@ -96,8 +62,8 @@ fn every_keypad_digit_contains_its_two_standard_frequencies() {
     let digits = "0123456789ABCD*#";
     let tone_duration = 0.1;
     let gap_duration = 0.05;
-    let mut project = Project::empty();
-    let result = project.ok(json!({
+    let mut project = Session::empty();
+    let result = project.dtmf(json!({
         "digits": digits,
         "tone_duration_sec": tone_duration,
         "gap_duration_sec": gap_duration,
@@ -169,13 +135,13 @@ fn every_keypad_digit_contains_its_two_standard_frequencies() {
 
 #[test]
 fn default_durations_and_second_call_append_tracks() {
-    let mut project = Project::empty();
-    project.ok(json!({ "digits": "12" }));
+    let mut project = Session::empty();
+    project.dtmf(json!({ "digits": "12" }));
     let old_head = project.store.head().unwrap();
     let first = project.state();
     assert_eq!(first.length_samples, 2 * 4410 + 2205);
 
-    let result = project.ok(json!({ "digits": "aD" }));
+    let result = project.dtmf(json!({ "digits": "aD" }));
     assert_eq!(result["track_index"], 1);
     assert_ne!(project.store.head().unwrap(), old_head);
     let after = project.state();
@@ -186,8 +152,8 @@ fn default_durations_and_second_call_append_tracks() {
 
 #[test]
 fn rejects_tones_shorter_than_40ms_without_creating_audio_or_a_head() {
-    let mut project = Project::empty();
-    let result = project.invoke(json!({
+    let mut project = Session::empty();
+    let result = project.try_dtmf(json!({
         "digits": "12",
         "tone_duration_sec": 0.039,
         "gap_duration_sec": 0.0
@@ -197,13 +163,13 @@ fn rejects_tones_shorter_than_40ms_without_creating_audio_or_a_head() {
         "sub-minimum tone should be rejected: {result:?}"
     );
     assert!(project.store.head().is_none());
-    assert!(!project._dir.path().join("generated").exists());
+    assert!(!project.dir.path().join("generated").exists());
 }
 
 #[test]
 fn minimum_40ms_tones_contain_both_dtmf_frequencies() {
-    let mut project = Project::empty();
-    project.ok(json!({
+    let mut project = Session::empty();
+    project.dtmf(json!({
         "digits": "12",
         "tone_duration_sec": 0.04,
         "gap_duration_sec": 0.0
@@ -236,9 +202,9 @@ fn invalid_inputs_return_errors_without_changing_the_head() {
         json!({ "digits": "1", "tone_duration_sec": 601.0 }),
         json!({ "digits": "12", "tone_duration_sec": 400.0 }),
     ] {
-        let mut project = Project::empty();
+        let mut project = Session::empty();
         assert!(project.store.head().is_none());
-        match project.invoke(args.clone()) {
+        match project.try_dtmf(args.clone()) {
             Err(_) | Ok(ToolResult::Error(_)) => {}
             Ok(ToolResult::Ok(result)) => {
                 panic!("invalid arguments succeeded: {args} -> {result}")
@@ -250,10 +216,10 @@ fn invalid_inputs_return_errors_without_changing_the_head() {
         );
     }
 
-    let mut project = Project::empty();
-    project.ok(json!({ "digits": "123" }));
+    let mut project = Session::empty();
+    project.dtmf(json!({ "digits": "123" }));
     let before = project.store.head().unwrap();
-    match project.invoke(json!({ "digits": "12x" })).unwrap() {
+    match project.try_dtmf(json!({ "digits": "12x" })).unwrap() {
         ToolResult::Error(_) => {}
         ToolResult::Ok(result) => panic!("invalid digits succeeded: {result}"),
     }
@@ -262,9 +228,9 @@ fn invalid_inputs_return_errors_without_changing_the_head() {
 
 #[test]
 fn long_digit_strings_are_truncated_in_the_name_and_a_tiny_gap_is_none() {
-    let mut p = Project::empty();
+    let mut p = Session::empty();
     let digits = "1234567890".repeat(4);
-    p.ok(json!({ "digits": digits, "tone_duration_sec": 0.04, "gap_duration_sec": 0.000001 }));
+    p.dtmf(json!({ "digits": digits, "tone_duration_sec": 0.04, "gap_duration_sec": 0.000001 }));
     let state = p.state();
     assert_eq!(state.tracks[0].name, format!("DTMF {}…", &digits[..32]));
     let rate = u64::from(state.sample_rate);

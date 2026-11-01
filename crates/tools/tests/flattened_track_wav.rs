@@ -8,8 +8,10 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::Clip;
+use hound::WavReader;
+#[path = "support/harness.rs"]
+mod harness;
+use harness::{clip, write_half_ramp};
 use tempfile::TempDir;
 use tools::flattened_track_wav;
 
@@ -18,38 +20,7 @@ const SOURCE_FRAMES: usize = 800;
 
 /// A ramp, so every frame names the source frame it came from.
 fn write_ramp_wav(dir: &Path) -> PathBuf {
-    let path = dir.join("in.wav");
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    for n in 0..SOURCE_FRAMES {
-        let s = 0.5 * n as f32 / SOURCE_FRAMES as f32;
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).unwrap();
-    }
-    writer.finalize().unwrap();
-    path
-}
-
-fn clip(source: &Path, start_in_track: u64, source_offset: u64, length: u64) -> Clip {
-    Clip {
-        source_path: source.to_path_buf(),
-        start_in_track,
-        source_offset,
-        length,
-        content_hash: None,
-        time_stretch_factor: None,
-        pitch_shift_semitones: None,
-        beat_grid: None,
-        volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
-    }
+    write_half_ramp(&dir.join("in.wav"), RATE, SOURCE_FRAMES)
 }
 
 fn source_frame_of(sample: i16) -> f32 {

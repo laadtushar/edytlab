@@ -17,24 +17,15 @@ use std::path::Path;
 
 use ml_pipeline::runtime::{self, Origin};
 
+mod ort_support;
+
 #[test]
 #[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
 fn the_pinned_library_in_the_bundle_directory_loads_and_is_reported_as_bundled() {
-    let library = std::env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| {
-        panic!("ORT_DYLIB_PATH is not set; scripts/fetch-ml-runtime.sh <platform> <dir> fetches it")
-    });
+    let library = ort_support::ort_dylib_path();
     assert!(Path::new(&library).is_file(), "{library} is not a file");
 
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("apps")
-        .join("desktop")
-        .join("src-tauri")
-        .join("ml-runtime.json");
-    let manifest: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&manifest).expect("read the manifest"))
-            .expect("the manifest is JSON");
+    let manifest = ort_support::pinned_runtime_manifest();
 
     // The installer's job, done by hand: the library under the name
     // `runtime::ensure` looks for, in a directory of its own.

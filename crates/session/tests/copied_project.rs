@@ -10,64 +10,23 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::Utc;
 use session::relocate::{clipboard_dir, derived_dir};
-use session::{BusGraph, Clip, NodeId, SessionNode, SessionState, Store, TempoMap, Track, TrackId};
+use session::{NodeId, SessionState, Store, TrackId};
 use tempfile::TempDir;
+
+mod support;
+use support::{clip_of, node_with, state_of_length, track_of};
 use uuid::Uuid;
 
-fn clip(path: &Path) -> Clip {
-    Clip {
-        source_path: path.to_path_buf(),
-        start_in_track: 0,
-        source_offset: 0,
-        length: 1_000,
-        content_hash: None,
-        time_stretch_factor: None,
-        pitch_shift_semitones: None,
-        beat_grid: None,
-        volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
-    }
-}
-
 fn state(paths: &[&Path]) -> SessionState {
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId(Uuid::from_u128(1)),
-            name: "Vox".into(),
-            clips: paths.iter().map(|p| clip(p)).collect(),
-            gain_db: 0.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: Vec::new(),
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: 48_000,
-        length_samples: 1_000,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    let clips = paths.iter().map(|p| clip_of(p, 1_000)).collect();
+    let mut state = state_of_length(1_000);
+    state.tracks = vec![track_of(TrackId(Uuid::from_u128(1)), "Vox", clips)];
+    state
 }
 
 fn append(store: &mut Store, state: SessionState) -> NodeId {
-    store
-        .append(SessionNode {
-            id: NodeId([0; 32]),
-            parent: None,
-            created_at: Utc::now(),
-            label: None,
-            reasoning: None,
-            state,
-            op: None,
-        })
-        .expect("append")
+    store.append(node_with(state)).expect("append")
 }
 
 /// Copy a folder the way a file manager does: every file, nothing left out.

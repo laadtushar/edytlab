@@ -5,109 +5,21 @@
 //! gets its **own** session, a failure on one does not abandon the
 //! rest, and the report says which was which and why.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
-use tempfile::TempDir;
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-const SAMPLE_RATE: u32 = 48_000;
-
-fn write_sine(path: &Path, freq: f32) -> PathBuf {
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..SAMPLE_RATE as usize {
-        let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.25;
-        w.write_sample((s * 32_767.0) as i16).unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
-
-struct Session {
-    dir: TempDir,
-    store: session::Store,
-    engine: audio_engine::Engine,
-    dispatcher: ToolDispatcher,
-    clipboard: Option<tools::Clipboard>,
-}
-
-impl Session {
-    fn new() -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = session::Store::open(dir.path()).expect("open store");
-        Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            dispatcher: ToolDispatcher::default_dispatcher(),
-            clipboard: None,
-        }
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
-    }
-}
-
-fn ok(r: ToolResult) -> Value {
-    match r {
-        ToolResult::Ok(v) => v,
-        ToolResult::Error(m) => panic!("expected Ok, got Error({m})"),
-    }
-}
-
-fn err(r: ToolResult) -> String {
-    match r {
-        ToolResult::Error(m) => m,
-        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
-    }
-}
-
-/// A recipe that loads a file and quietens it, exported from a throwaway
-/// session — the same way a user would make one.
-fn make_recipe(s: &mut Session) -> PathBuf {
-    let src = write_sine(&s.dir.path().join("template.wav"), 440.0);
-    ok(s.call("load", json!({ "path": src.to_string_lossy() })));
-    ok(s.call("gain", json!({ "track": 0, "db": -6.0 })));
-    let recipe = s.dir.path().join("chain.json");
-    ok(s.call(
-        "export_recipe",
-        json!({ "out_path": recipe.to_string_lossy(), "name": "quieten" }),
-    ));
-    recipe
-}
-
-/// A folder of three takes.
-fn make_folder(root: &Path) -> PathBuf {
-    let dir = root.join("takes");
-    std::fs::create_dir_all(&dir).unwrap();
-    for (i, freq) in [220.0, 440.0, 880.0].into_iter().enumerate() {
-        write_sine(&dir.join(format!("take-{i}.wav")), freq);
-    }
-    // Something that is not audio, which must be ignored rather than
-    // reported as a failure.
-    std::fs::write(dir.join("notes.txt"), "not audio").unwrap();
-    dir
-}
+#[path = "support/batch.rs"]
+mod batch;
+#[path = "support/harness.rs"]
+mod harness;
+use batch::{make_folder, make_recipe};
+use harness::{err, ok, write_take, Session};
 
 #[test]
 fn a_chain_runs_across_every_file_in_a_folder() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let out = s.dir.path().join("out");
@@ -130,7 +42,7 @@ fn a_chain_runs_across_every_file_in_a_folder() {
 /// session with three tracks: three projects, each with its own store.
 #[test]
 fn each_file_becomes_its_own_project() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let out = s.dir.path().join("out");
@@ -164,7 +76,7 @@ fn each_file_becomes_its_own_project() {
 /// of a batch is that it is unattended.
 #[test]
 fn one_bad_file_does_not_stop_the_rest() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     // A file with the right extension and nothing decodable in it.
@@ -204,7 +116,7 @@ fn one_bad_file_does_not_stop_the_rest() {
 /// hides which one was odd.
 #[test]
 fn the_report_names_each_file() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
 
@@ -227,7 +139,7 @@ fn the_report_names_each_file() {
 
 #[test]
 fn it_can_render_each_result() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let out = s.dir.path().join("out");
@@ -253,7 +165,7 @@ fn it_can_render_each_result() {
 /// it is a property of the chain, not of the twelve files.
 #[test]
 fn an_unreplayable_chain_is_refused_before_any_file() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let out = s.dir.path().join("out");
@@ -281,7 +193,7 @@ fn an_unreplayable_chain_is_refused_before_any_file() {
 
 #[test]
 fn an_empty_folder_says_so() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let empty = s.dir.path().join("empty");
     std::fs::create_dir_all(&empty).unwrap();
@@ -334,8 +246,8 @@ fn call_restricted(
 
 #[test]
 fn a_tool_outside_the_whitelist_is_refused_at_dispatch() {
-    let mut s = Session::new();
-    let src = write_sine(&s.dir.path().join("a.wav"), 440.0);
+    let mut s = Session::empty();
+    let src = write_take(&s.dir.path().join("a.wav"), 440.0);
 
     let refused = call_restricted(
         &mut s,
@@ -354,7 +266,7 @@ fn a_tool_outside_the_whitelist_is_refused_at_dispatch() {
 /// the model hunting for a spelling mistake.
 #[test]
 fn a_refusal_is_not_reported_as_an_unknown_tool() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let refused = call_restricted(&mut s, "gain", json!({ "track": 0, "db": -3.0 }), &["load"]);
     assert!(
         matches!(refused, Err(tools::DispatchError::NotPermitted(_))),
@@ -364,8 +276,8 @@ fn a_refusal_is_not_reported_as_an_unknown_tool() {
 
 #[test]
 fn a_whitelisted_tool_still_runs() {
-    let mut s = Session::new();
-    let src = write_sine(&s.dir.path().join("a.wav"), 440.0);
+    let mut s = Session::empty();
+    let src = write_take(&s.dir.path().join("a.wav"), 440.0);
     let out = call_restricted(
         &mut s,
         "load",
@@ -385,12 +297,12 @@ fn a_whitelisted_tool_still_runs() {
 /// follows the nested dispatch.
 #[test]
 fn batch_apply_cannot_reach_a_tool_its_caller_may_not_use() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
 
     let input_dir = s.dir.path().join("inputs");
     std::fs::create_dir_all(&input_dir).unwrap();
-    write_sine(&input_dir.join("one.wav"), 440.0);
+    write_take(&input_dir.join("one.wav"), 440.0);
 
     // `batch_apply` is allowed; the `gain` step inside the recipe is not.
     let out = call_restricted(
@@ -488,7 +400,7 @@ fn history(live: &session::LiveStore, project: &Path) -> (Option<session::NodeId
 
 #[test]
 fn a_batch_will_not_write_into_the_project_that_is_open() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     // The open project is `takes/take-0`, which is where the default
@@ -522,7 +434,7 @@ fn a_batch_will_not_write_into_the_project_that_is_open() {
 /// folder's, and the open project is only open.
 #[test]
 fn a_batch_will_not_write_into_a_project_the_window_has_open_either() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let project = takes.join("take-1");
@@ -546,7 +458,7 @@ fn a_batch_will_not_write_into_a_project_the_window_has_open_either() {
 /// it) is as much in use as a shared one, and every open one is named.
 #[test]
 fn every_project_in_use_is_named() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let shared = open_project(&takes.join("take-0"), &takes.join("take-0.wav"));
@@ -571,7 +483,7 @@ fn every_project_in_use_is_named() {
 #[test]
 fn a_per_file_project_folder_replaced_under_an_open_project_is_refused_without_telling_the_turn_to_wait(
 ) {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let project = takes.join("take-0");
@@ -611,7 +523,7 @@ fn a_per_file_project_folder_replaced_under_an_open_project_is_refused_without_t
 /// different `output_dir` runs as ever and does not touch it.
 #[test]
 fn a_batch_into_another_folder_still_runs_beside_an_open_project() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = make_folder(s.dir.path());
     let project = takes.join("take-0");
@@ -644,12 +556,12 @@ fn a_batch_into_another_folder_still_runs_beside_an_open_project() {
 /// over the first, and both were reported as succeeded.
 #[test]
 fn names_that_differ_after_a_dot_get_a_render_each() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = s.dir.path().join("dotted");
     std::fs::create_dir_all(&takes).unwrap();
-    write_sine(&takes.join("take.1.wav"), 220.0);
-    write_sine(&takes.join("take.2.wav"), 880.0);
+    write_take(&takes.join("take.1.wav"), 220.0);
+    write_take(&takes.join("take.2.wav"), 880.0);
     let out = s.dir.path().join("out");
 
     let v = ok(s.call(
@@ -685,11 +597,11 @@ fn names_that_differ_after_a_dot_get_a_render_each() {
 /// extension) are refused before either is started (#667).
 #[test]
 fn inputs_that_would_share_a_project_are_refused_up_front() {
-    let mut s = Session::new();
+    let mut s = Session::empty();
     let recipe = make_recipe(&mut s);
     let takes = s.dir.path().join("pair");
     std::fs::create_dir_all(&takes).unwrap();
-    write_sine(&takes.join("take.wav"), 220.0);
+    write_take(&takes.join("take.wav"), 220.0);
     std::fs::copy(takes.join("take.wav"), takes.join("take.flac.tmp")).unwrap();
     // A second input with the same stem: a FLAC name is enough to be listed,
     // and the refusal comes before anything reads it.

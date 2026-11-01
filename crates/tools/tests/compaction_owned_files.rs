@@ -13,30 +13,14 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavWriter};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tools::reclaim::{apply_compaction, plan_compaction, CompactionPlan};
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-const SR: u32 = 48_000;
-
-fn write_tone(path: &Path, seconds: f64, hz: f32) -> PathBuf {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut w = WavWriter::create(path, spec).expect("wav writer");
-    for n in 0..((SR as f64 * seconds) as usize) {
-        let t = n as f32 / SR as f32;
-        w.write_sample(((2.0 * std::f32::consts::PI * hz * t).sin() * 8000.0) as i16)
-            .unwrap();
-    }
-    w.finalize().unwrap();
-    path.to_path_buf()
-}
+#[path = "support/harness.rs"]
+mod harness;
+use harness::write_secs;
 
 fn ok(r: ToolResult) -> Value {
     match r {
@@ -70,7 +54,7 @@ impl World {
     fn new() -> Self {
         let project = TempDir::new().expect("project dir");
         let user = TempDir::new().expect("user dir");
-        let outside = write_tone(&user.path().join("take.wav"), 4.0, 440.0);
+        let outside = write_secs(&user.path().join("take.wav"), 4.0, 440.0);
         let store = session::Store::open(project.path()).expect("open store");
         let mut w = Self {
             project,
@@ -156,7 +140,7 @@ impl World {
     fn cache_file(&self, dir: &str, name: &str, hz: f32) -> PathBuf {
         let d = self.project.path().join(".audiograph").join(dir);
         std::fs::create_dir_all(&d).unwrap();
-        write_tone(&d.join(name), 4.0, hz)
+        write_secs(&d.join(name), 4.0, hz)
     }
 
     /// How many nodes name `file` as a clip source.
@@ -417,7 +401,7 @@ fn a_path_that_only_looks_like_derived_is_not_derived() {
     let mut w = World::new();
     // A file in the project folder but not in derived/: the shape of a
     // user dropping `take.wav` next to their project.
-    let beside = write_tone(&w.project.path().join("beside.wav"), 1.0, 220.0);
+    let beside = write_secs(&w.project.path().join("beside.wav"), 1.0, 220.0);
     // `..` only resolves through a directory that exists.
     std::fs::create_dir_all(w.derived()).unwrap();
     let dotdot = w.derived().join("..").join("..").join("beside.wav");
