@@ -280,7 +280,7 @@ impl Tool for NoiseReductionTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "noise_reduction",
-            "Apply spectral noise reduction (spectral subtraction, overlap-add) to a track. \
+            "Spectral noise reduction. Applies spectral subtraction with overlap-add to a track. \
              The first `noise_duration_sec` seconds of the clip are used as the noise profile. \
              `strength` controls how aggressively noise is subtracted (default 0.85); \
              `floor` sets the minimum fraction of the original magnitude retained to avoid \
