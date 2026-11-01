@@ -185,7 +185,12 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // the same 34 B of headroom as before. #385's `separate_stems` descriptor
 // (the 47 B above) comes on top of that: the ratchet is main's 71,803 B + 47 B,
 // so the headroom is still 34 B.
-const FULL_TOOLS_MAX_BYTES: usize = 71_850; // main ratchet 71,803 + the 47 B of #385
+//
+// #385 part 3 names where the user gets the stem model in `separate_stems`'s
+// description ("the user downloads once in Settings → Account", as
+// `transcribe`'s says): +17 B, measured 71,816 B to 71,833 B. The ratchet
+// rises by exactly that, so the headroom is still 34 B.
+const FULL_TOOLS_MAX_BYTES: usize = 71_867; // main ratchet 71,850 + the 17 B of #385 part 3
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -773,7 +778,10 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 
 // #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
 // #385's 47 B come on top: main's 74,995 B + 47 B, the same 34 B of headroom.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_042; // main ratchet 74,995 + the 47 B of #385
+//
+// #385 part 3's 17 B (the Settings pointer in `separate_stems`'s description)
+// come on top: measured 75,008 B to 75,025 B, the same 34 B of headroom.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_059; // main ratchet 75,042 + the 17 B of #385 part 3
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

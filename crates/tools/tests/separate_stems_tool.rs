@@ -385,15 +385,21 @@ fn every_setup_problem_tells_the_agent_to_stop_and_names_no_path() {
             assert!(!text.contains(m), "{f:?}: {text}");
         }
     }
-    // This build has no way to download the model yet, so the answer sends the
-    // user nowhere: it says so, and does not name a Settings row that is not there.
+    // The app has a Stem model row now, and the answers send the user to it
+    // the way `diarize`'s send them to the Speaker model row.
     let text = answer(&StemFailure::ModelNotDownloaded);
-    assert!(text.contains("cannot download it yet"), "{text}");
-    assert!(text.contains("Tell the user and stop"), "{text}");
-    assert!(!text.contains("Settings"), "{text}");
-    assert!(!text.contains("Download on"), "{text}");
+    assert!(
+        text.contains("Download on the Stem model row in Settings → Account"),
+        "{text}"
+    );
+    assert!(text.contains("Tell the user"), "{text}");
+    assert!(!text.contains("cannot download it yet"), "{text}");
+    assert!(!text.contains("/models"), "{text}");
     let damaged = answer(&StemFailure::ModelDamaged);
-    assert!(!damaged.contains("Settings"), "{damaged}");
+    assert!(
+        damaged.contains("Remove and then Download on the Stem model row in Settings → Account"),
+        "{damaged}"
+    );
 }
 
 #[test]
