@@ -18,8 +18,8 @@
  * is `e2e/mix-evicted.spec.ts`.
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { files } = vi.hoisted(() => {
@@ -38,43 +38,33 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   convertFileSrc: (path: string) => `asset://localhost/${path}`,
 }));
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: () => {
-      let url: string | null = null;
-      return {
-        on: vi.fn(),
-        un: vi.fn(),
-        load: vi.fn((next: string) => {
-          url = next;
-          files.loads.push(next);
-          const status = files.gone.get(next);
-          return status === undefined
-            ? Promise.resolve()
-            : Promise.reject(new Error(`Failed to fetch ${next}: ${status} ()`));
-        }),
-        zoom: vi.fn(),
-        play: vi.fn(() => Promise.resolve()),
-        pause: vi.fn(),
-        seekTo: vi.fn(),
-        setTime: vi.fn(),
-        setVolume: vi.fn(),
-        setOptions: vi.fn(),
-        isPlaying: () => false,
-        destroy: vi.fn(),
-        getDuration: () => (url ? 10 : 0),
-        getCurrentTime: () => 0,
-        getWrapper: () => document.createElement("div"),
-        setScroll: vi.fn(),
-        getScroll: () => 0,
-      };
+vi.mock("wavesurfer.js", async () => {
+  const { wavesurferInstance, laneMembers } = await import("./wavesurferStub");
+  return {
+    default: {
+      create: () => {
+        let url: string | null = null;
+        return wavesurferInstance({
+          load: vi.fn((next: string) => {
+            url = next;
+            files.loads.push(next);
+            const status = files.gone.get(next);
+            return status === undefined
+              ? Promise.resolve()
+              : Promise.reject(new Error(`Failed to fetch ${next}: ${status} ()`));
+          }),
+          play: vi.fn(() => Promise.resolve()),
+          isPlaying: () => false,
+          getDuration: () => (url ? 10 : 0),
+          ...laneMembers(),
+        });
+      },
     },
-  },
-}));
+  };
+});
 
+import { type Args, appAnswer, bootIpc, quiet, voiceTrack } from "./appHarness";
 import App from "../App";
-
-type Args = Record<string, unknown>;
 
 const HEAD = (1).toString(16).padStart(64, "0");
 /** Named after the node, as the real one is. */
@@ -96,47 +86,16 @@ class Backend {
         return MIX;
       case "get_session_head":
         return HEAD;
-      case "has_api_key":
-        return true;
-      case "get_keychain_persistence":
-        return { persistent: true, reason: null };
-      case "install_bundled_skills":
-        return 0;
-      case "list_templates":
-      case "list_recent_projects":
-      case "list_markers":
-        return [];
-      case "get_transcript":
-        return { words: [], source: { kind: "unknown" } };
-      case "get_view_state":
-        return {};
-      case "get_plan_first":
-      case "get_sync_lock":
       case "get_render_warnings":
-        return cmd === "get_render_warnings" ? [] : false;
-      case "save_view_state":
-      case "set_selection_context":
+        return [];
       case "save_head_trail":
         return null;
       case "get_head_trail":
         return { head: null, trail: [], redo: [] };
       case "list_tracks":
-        return [
-          {
-            id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-            name: "Voice",
-            muted: false,
-            gain_db: 0,
-            pan: 0,
-            soloed: false,
-            audio_path: "/tmp/voice.wav",
-            clips: [
-              { start_sec: 0, length_sec: 10, source_path: "/tmp/voice.wav", volume_envelope: [] },
-            ],
-          },
-        ];
+        return [voiceTrack()];
       default:
-        return undefined;
+        return appAnswer(cmd);
     }
   };
 
@@ -145,27 +104,12 @@ class Backend {
   }
 }
 
-/** Let what the app does next happen. */
-const settle = () =>
-  act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-async function quiet(backend: Backend): Promise<void> {
-  for (let guard = 0; guard < 20; guard++) {
-    const before = backend.calls;
-    await settle();
-    if (backend.calls === before) return;
-  }
-  throw new Error("the app never stopped asking");
-}
-
 const loadsOfMix = () => files.loads.filter((u) => u === MIX_URL).length;
 const mixError = () => screen.queryByTestId("timeline-mix-error");
 
 /** Open the app, press Preview, and wait for the mix to have loaded. */
 async function previewed(backend: Backend) {
-  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), { shouldMockEvents: true });
+  bootIpc(backend);
   render(<App />);
   await screen.findByTestId("timeline-lane-mute");
   await quiet(backend);

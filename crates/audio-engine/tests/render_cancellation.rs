@@ -7,76 +7,28 @@ use audio_engine::{
     render_state_range_to_wav_cancellable, render_state_to_wav, Engine, Error, RenderOutcome,
     TimeRange,
 };
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
-use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
+use hound::WavReader;
+use session::SessionState;
 use tempfile::TempDir;
+
+mod support;
+use support::{effect, pcm_trunc, plain_track, session_of, sine_at, unity_clip, write_wav_i16};
 
 const SOURCE_RATE: u32 = 44_100;
 const PROJECT_RATE: u32 = 48_000;
 
 fn fixture(dir: &Path) -> SessionState {
-    let source = dir.join("source.wav");
-    let mut writer = WavWriter::create(
-        &source,
-        WavSpec {
-            channels: 1,
-            sample_rate: SOURCE_RATE,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
-        },
-    )
-    .unwrap();
-    for frame in 0..SOURCE_RATE * 6 {
-        let t = frame as f32 / SOURCE_RATE as f32;
-        let sample = (2.0 * std::f32::consts::PI * 330.0 * t).sin() * 0.4
-            + (2.0 * std::f32::consts::PI * 6_000.0 * t).sin() * 0.2;
-        writer.write_sample((sample * 32_767.0) as i16).unwrap();
-    }
-    writer.finalize().unwrap();
-    SessionState {
-        tracks: vec![Track {
-            id: TrackId::new(),
-            name: "Voice".into(),
-            clips: vec![Clip {
-                source_path: source,
-                start_in_track: 0,
-                source_offset: 0,
-                length: (SOURCE_RATE * 6) as u64,
-                content_hash: None,
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: Vec::new(),
-                volume_envelope_frames: Default::default(),
-            }],
-            gain_db: -2.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            effects: vec![
-                EffectInstance {
-                    kind: "low_pass_filter".into(),
-                    params: serde_json::json!({ "cutoff_hz": 800.0 }),
-                    bypassed: false,
-                },
-                EffectInstance {
-                    kind: "wobbulator".into(),
-                    params: serde_json::json!({}),
-                    bypassed: false,
-                },
-            ],
-            sends: Vec::new(),
-        }],
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: PROJECT_RATE,
-        length_samples: (PROJECT_RATE * 6) as u64,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    let frames = (SOURCE_RATE * 6) as usize;
+    let source = write_wav_i16(dir, "source.wav", SOURCE_RATE, 1, frames, |n| {
+        pcm_trunc(sine_at(n, 330.0, 0.4, SOURCE_RATE) + sine_at(n, 6_000.0, 0.2, SOURCE_RATE))
+    });
+    let mut voice = plain_track("Voice", vec![unity_clip(&source, 0, 0, frames as u64)]);
+    voice.gain_db = -2.0;
+    voice.effects = vec![
+        effect("low_pass_filter", serde_json::json!({ "cutoff_hz": 800.0 })),
+        effect("wobbulator", serde_json::json!({})),
+    ];
+    session_of(vec![voice], PROJECT_RATE, (PROJECT_RATE * 6) as u64)
 }
 
 fn range(start_frame: u64, end_frame: u64) -> TimeRange {

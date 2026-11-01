@@ -8,23 +8,15 @@
 //! and skipped when `None`. The ids and the JSON below were produced by the
 //! code before the field existed.
 
-use session::{
-    BusGraph, NodeId, SessionState, TempoMap, TrackId, Transcript, TranscriptSource, TranscriptWord,
-};
+use session::{NodeId, SessionState, TrackId, Transcript, TranscriptSource, TranscriptWord};
+
+mod support;
+use support::empty_state;
 
 fn state(transcript: Option<Transcript>) -> SessionState {
-    SessionState {
-        tracks: Vec::new(),
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript,
-        sample_rate: 48_000,
-        length_samples: 0,
-        annotations: Vec::new(),
-        sync_lock: false,
-    }
+    let mut state = empty_state();
+    state.transcript = transcript;
+    state
 }
 
 fn hi() -> Vec<TranscriptWord> {
