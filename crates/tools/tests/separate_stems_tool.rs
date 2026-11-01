@@ -268,9 +268,15 @@ fn a_track_is_separated_into_four_files_and_the_session_is_untouched() {
             "{name}: the track's own length"
         );
     }
-    // One entry, whole, and nothing beside it.
-    let entries: Vec<_> = std::fs::read_dir(p.stem_cache()).unwrap().collect();
-    assert_eq!(entries.len(), 1);
+    // One entry, whole, and nothing beside it but its lock file
+    // (`<hex>.lock`, which `ml_demucs::Pending::publish` leaves).
+    let names: Vec<String> = std::fs::read_dir(p.stem_cache())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let entries: Vec<_> = names.iter().filter(|n| !n.ends_with(".lock")).collect();
+    assert_eq!(entries.len(), 1, "{names:?}");
     let summary = v["summary"].as_str().unwrap();
     assert!(
         summary.contains("load"),

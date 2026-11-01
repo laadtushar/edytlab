@@ -178,6 +178,16 @@ impl Session {
     }
 }
 
+/// The entries of a stem cache: its directories, without the `<hex>.lock` file
+/// `ml_demucs::Pending::publish` leaves beside each.
+fn entries_in(root: &Path) -> usize {
+    std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .filter(|e| !e.file_name().to_string_lossy().ends_with(".lock"))
+        .count()
+}
+
 fn stem_paths(v: &Value) -> Vec<PathBuf> {
     STEMS
         .iter()
@@ -279,7 +289,7 @@ fn the_tool_separates_a_track_on_the_real_model() {
     let again = s.ok("separate_stems", json!({ "track": 0 }));
     assert_eq!(again["cached"], true);
     assert_eq!(stem_paths(&again), paths);
-    assert_eq!(std::fs::read_dir(s.stem_cache()).unwrap().count(), 1);
+    assert_eq!(entries_in(&s.stem_cache()), 1);
 
     // 3. A stem is a track.
     let loaded = s.ok("load", json!({ "path": paths[0].to_string_lossy() }));
@@ -308,7 +318,7 @@ fn the_tool_separates_a_track_on_the_real_model() {
     };
     assert!(text.contains("cancelled by the user"), "{text}");
     assert_eq!(
-        std::fs::read_dir(s.stem_cache()).unwrap().count(),
+        entries_in(&s.stem_cache()),
         1,
         "the first entry only: no entry, no .tmp- leftover"
     );
