@@ -334,6 +334,11 @@ impl Tool for NoiseReductionTool {
                 "noise_track needs noise_from and noise_to".to_string(),
             ));
         }
+        if range.is_some() && parsed.noise_duration_sec.is_some() {
+            return Ok(ToolResult::Error(
+                "noise_duration_sec cannot be combined with noise_from and noise_to".to_string(),
+            ));
+        }
         let noise_duration_sec = match (parsed.noise_duration_sec, range) {
             (Some(d), _) => d,
             // Unused when a range names the profile.
@@ -474,6 +479,24 @@ fn invoke_noise_reduction(
                         "profile range is {} frames; it needs at least {FFT_SIZE} ({:.0} ms at {sample_rate} Hz)",
                         to.saturating_sub(from),
                         FFT_SIZE as f64 * 1000.0 / sample_rate as f64
+                    ));
+                }
+                // Both buffers are laid out from track frame 0, so a range in
+                // a lead-in or a gap between clips is digital silence: an
+                // all-zero profile subtracts nothing and the edit would report
+                // success while changing (almost) nothing.
+                let src: &[f32] = match &other {
+                    Some(o) => &o.window,
+                    None => samples,
+                };
+                if src[from * pr_stride..to * pr_stride]
+                    .iter()
+                    .all(|&s| s == 0.0)
+                {
+                    return Err(format!(
+                        "profile range {:.3}s-{:.3}s is digital silence (no clip covers it, or the audio there is all zeros); \
+                         pick a range that holds the noise",
+                        p.start, p.end
                     ));
                 }
                 bounds = Some((from, to));

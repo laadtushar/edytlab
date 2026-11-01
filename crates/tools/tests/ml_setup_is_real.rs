@@ -339,19 +339,13 @@ fn the_tools_that_run_tell_the_agent_what_to_say_when_they_cannot() {
             !desc.to_lowercase().contains("not implemented"),
             "`{name}` runs, and its schema says it does not: {desc}"
         );
-        if name == "transcribe" {
-            assert!(
-                desc.contains("Settings → Account"),
-                "the schema does not say where the user gets the model: {desc}"
-            );
-        } else {
-            // The app cannot download the stem model yet (its Settings row is
-            // a later change), so the schema sends the user nowhere: the
-            // agent is told to tell them and stop.
-            assert!(
-                !desc.contains("Settings"),
-                "the schema names a Settings row the app does not have: {desc}"
-            );
+        // Both models are downloaded from a row in Settings → Account (#383,
+        // #385), and the schema says so.
+        assert!(
+            desc.contains("Settings → Account"),
+            "the schema does not say where the user gets the model: {desc}"
+        );
+        if name == "separate_stems" {
             assert!(
                 desc.contains("tell the user and stop"),
                 "the schema does not say what to do when the model is missing: {desc}"

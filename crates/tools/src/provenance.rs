@@ -47,100 +47,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-/// Directory under `.audiograph/` where clipboard blobs are kept.
-///
-/// Defined in `session` because the store rebinds against these
-/// directories when a project has been moved (`session::relocate`), and
-/// two definitions of where the audio lives is one too many.
-pub use session::relocate::CLIPBOARD_DIR;
-
-/// Content hash of decoded audio: rate, channels, then samples as
-/// little-endian bytes.
-///
-/// Two files whose samples, rate and channel count all match *are* the
-/// same audio for every purpose this store has, so they hash the same
-/// (#160) — and two genuinely different ones cannot collide without
-/// colliding blake3 itself.
-///
-/// **The name of every audio file the project writes from its samples**
-/// (`<hash>.wav`), and the only function to name one with: a writer that
-/// hashed on its own could leave the rate or channel count out again
-/// (#620), and `tests/audio_names_cover_layout.rs` fails a tool source that
-/// calls blake3 itself.
-pub fn audio_hash(samples: &[f32], sample_rate: u32, channels: u16) -> String {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&sample_rate.to_le_bytes());
-    hasher.update(&(channels as u32).to_le_bytes());
-    update_with_samples(&mut hasher, samples);
-    hasher.finalize().to_hex().to_string()
-}
-
-/// Feed `samples` to `hasher` as little-endian bytes, a slice at a time so
-/// that hashing a track's worth does not first copy it.
-fn update_with_samples(hasher: &mut blake3::Hasher, samples: &[f32]) {
-    let mut chunk = [0u8; 4 * 4096];
-    for block in samples.chunks(4096) {
-        for (bytes, s) in chunk.chunks_exact_mut(4).zip(block) {
-            bytes.copy_from_slice(&s.to_le_bytes());
-        }
-        hasher.update(&chunk[..block.len() * 4]);
-    }
-}
-
-/// The hash that named an edit's output and a generated tone or noise
-/// before #620: blake3 of the interleaved samples, little-endian, and
-/// nothing else — not the rate, not the channel count.
-///
-/// **Exists only to recognise names written before that change.** Files
-/// already on disk and the nodes that name them keep those names (nothing
-/// is renamed), and a replay of such a node now writes the new name
-/// ([`audio_hash`]), so `rederive` and the history sweep ask whether this
-/// would have been the recorded one. Nothing may name a new file with it:
-/// two buffers of a different layout and the same samples share it, which
-/// is the bug.
-///
-/// A writer stores it as the clip's `content_hash`, as the edits have
-/// always done (the blake3 of the samples), which is how a replay finds it
-/// again without recomputing anything from a file: the file holds the
-/// samples as 16-bit PCM, not as they were hashed.
-pub fn legacy_sample_hash(samples: &[f32]) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new();
-    update_with_samples(&mut hasher, samples);
-    *hasher.finalize().as_bytes()
-}
-
-/// [`legacy_sample_hash`] as the file stem it named, hex. Like it, only for
-/// recognising a name written before #620.
-pub fn legacy_sample_hash_name(samples: &[f32]) -> String {
-    legacy_stem(&legacy_sample_hash(samples))
-}
-
-/// The file stem a [`legacy_sample_hash`] named, hex.
-pub fn legacy_stem(hash: &[u8; 32]) -> String {
-    blake3::Hash::from_bytes(*hash).to_hex().to_string()
-}
-
-/// Directory under `.audiograph/` holding derived audio.
-pub use session::relocate::DERIVED_DIR;
-
-/// Where derived audio lives: `<project>/.audiograph/derived/`.
-///
-/// Inside the project, not beside the source (#156). Derived files used
-/// to be written to `<source_dir>/derived/`, which meant a project
-/// folder held only `project.json` and `.audiograph/` while every
-/// sample sat next to whatever the user happened to open — usually
-/// somewhere else entirely. A project was therefore not a thing you
-/// could copy, move or back up, because the audio it points at was not
-/// in it. The clipboard blobs and the preview cache already live under
-/// `.audiograph/`; this puts the derived audio with them.
-pub fn derived_dir(project_dir: &Path) -> PathBuf {
-    project_dir.join(session::STORE_DIR).join(DERIVED_DIR)
-}
-
-/// Where clipboard blobs live for a project.
-pub fn clipboard_dir(project_dir: &Path) -> PathBuf {
-    project_dir.join(session::STORE_DIR).join(CLIPBOARD_DIR)
-}
+// The names and the folders of the project's audio live in
+// `session::audio_store` (#719); they stay reachable from here, where every
+// caller has always found them.
+pub use session::audio_store::{
+    audio_hash, clipboard_dir, derived_dir, legacy_sample_hash, legacy_sample_hash_name,
+    legacy_stem, CLIPBOARD_DIR, DERIVED_DIR,
+};
 
 /// Persist a clipboard buffer as a CAS blob and return its hash.
 ///

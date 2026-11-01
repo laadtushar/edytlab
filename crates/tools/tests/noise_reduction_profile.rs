@@ -186,19 +186,12 @@ fn a_profile_from_the_middle_of_the_track_lowers_the_noise_floor() {
     rig.load("a.wav", &input, SR);
     rig.ok(
         "noise_reduction",
-        json!({ "track": 0, "noise_duration_sec": 1.0, "noise_from": 2.1, "noise_to": 2.9 }),
+        json!({ "track": 0, "noise_from": 2.1, "noise_to": 2.9 }),
     );
     let out = rig.render_samples();
     let drop = db(rms(&input[tail.clone()]), rms(&out[tail.clone()]));
     eprintln!("mid-track profile: noise floor dropped {drop:.1} dB");
     assert!(drop >= 6.0, "noise floor dropped only {drop:.1} dB");
-    // And noise_duration_sec is not needed with a range.
-    let mut rig = Rig::new();
-    rig.load("a.wav", &input, SR);
-    rig.ok(
-        "noise_reduction",
-        json!({ "track": 0, "noise_from": 2.1, "noise_to": 2.9 }),
-    );
 }
 
 #[test]
@@ -274,10 +267,47 @@ fn bad_profiles_are_refused_and_add_no_node() {
             "Hz",
         ),
         (json!({ "track": 0 }), "noise_duration_sec"),
+        (
+            json!({ "track": 0, "noise_from": 0.2, "noise_to": 0.8, "noise_duration_sec": 0.5 }),
+            "cannot be combined",
+        ),
     ];
     for (args, want) in cases {
         let m = rig.err("noise_reduction", args.clone());
         assert!(m.contains(want), "{args}: {m}");
     }
     assert_eq!(rig.store.head(), head, "a refusal appends no node");
+}
+
+#[test]
+fn a_profile_range_of_digital_silence_is_refused_and_adds_no_node() {
+    // Both buffers are laid out from track frame 0, so shifting the clip
+    // later leaves a lead-in of zeros, and a silence inserted mid-clip leaves
+    // a gap of them. A profile learned there is all zeros and the edit would
+    // succeed while changing next to nothing.
+    let mut rig = Rig::new();
+    rig.load("a.wav", &signal(3.0, 31, None), SR);
+    rig.load("b.wav", &signal(3.0, 32, None), SR);
+    rig.ok("time_shift", json!({ "track": 0, "offset_sec": 1.5 }));
+    rig.ok(
+        "insert_silence",
+        json!({ "track": 1, "at": 1.0, "duration": 1.0 }),
+    );
+    let head = rig.store.head();
+
+    // The lead-in before track 0's clip, on its own track and as another's.
+    let lead_in = json!({ "track": 0, "noise_from": 0.2, "noise_to": 1.2 });
+    let gap = json!({ "track": 1, "noise_from": 1.2, "noise_to": 1.8 });
+    let from_lead_in = json!({ "track": 1, "noise_from": 0.2, "noise_to": 1.2, "noise_track": 0 });
+    for args in [lead_in, gap, from_lead_in] {
+        let m = rig.err("noise_reduction", args.clone());
+        assert!(m.contains("digital silence"), "{args}: {m}");
+    }
+    assert_eq!(rig.store.head(), head, "a refusal appends no node");
+
+    // A range that reaches sound is still accepted.
+    rig.ok(
+        "noise_reduction",
+        json!({ "track": 0, "noise_from": 1.6, "noise_to": 2.6 }),
+    );
 }
