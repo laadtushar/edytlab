@@ -23,6 +23,7 @@ dependencies = [
 name = "agent_profiles"
 version = "0.9.3"
 dependencies = [
+ "skills",
  "tempfile",
  "thiserror 2.0.21",
 ]
