@@ -61,6 +61,10 @@ Where this is applied: `apps/desktop/e2e-native/stories/demos.mjs` (prompts and 
 
 **Known exceptions, not yet applied** (they are text for the owner or UI screenshots, and need a decision): the launch kit's posts and the `social-kit/artifact/launch-hub.mjs` page name the release they were written for, quote the tool count and say the installers are unsigned (true today, and a post is text for the owner, not footage); `social-kit/*.md`, `launch/*.md` and `social/*.md` no longer quote readings, cutoffs or export lengths from the old recordings (the owner's #710 text follow-up), only what the DJ types and the fixture tempos, and `social-kit/artifact/launch-hub.mjs` reads them; `social-kit/linkedin/shots/*.png` are screenshots of the app's Settings and chat and show the UI of the day (retake with `node render.mjs --shots` after a UI change); `docs/brand/` is a before/after record of the 2026 restyle and is kept as it was.
 
+## How the copy should sound
+
+Read [`brand-voice.md`](brand-voice.md) before writing or editing a post: one message per post, the reader's moment first, plain words, one limit at most. The rules below say what a post may claim; that file says how it should sound.
+
 ## The accuracy rules (read before you edit anything)
 
 These are the claims that are easy to get wrong. Each has bitten a draft once.
@@ -252,7 +256,7 @@ comments, and one thread cannot be answered well while three others are open.
 | 2 | **r/LocalLLaMA** | Wants the Ollama angle and honest numbers. Bring the #395 data and the request sizes from #479, and say that no local model has run a full job. |
 | 3 | **r/DJs** | Lead with the demo video. |
 | 4 | **r/WeAreTheMusicMakers** | Read the sidebar the same day; self-promotion is often limited to a set thread. |
-| 5 | **r/podcasting** | Say plainly what transcription was checked on (a short synthetic English recording and 16 minutes of English audiobook speech), that it needs a one-time model download, and that there is no speaker splitting by voice. |
+| 5 | **r/podcasting** | Say plainly what transcription was checked on (a short synthetic English recording and 16 minutes of English audiobook speech), that it needs a one-time model download, and that telling speakers apart (v0.9.3) needs a second download of its own. |
 | 6 | **r/audioengineering** | Expect scrutiny of the DSP. Post only if the current rules allow it. |
 | 7 to 14 | **Product Hunt** ([`launch/product-hunt.md`](launch/product-hunt.md)) | Needs the screenshots and a launch-day calendar. Schedule it for 00:01 PT. Later is fine; it works better with a few real users to show up. |
 | After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. The repo had 4 on 2026-10-10 and 6 on 2026-10-22. |
