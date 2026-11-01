@@ -192,7 +192,7 @@ edytlab is a free audio editor you drive by chatting with an AI, MIT licensed, f
 
 Three places to start:
 
-- A small first change. Five open issues are labelled "good first issue" (#846 to #850): a wah-wah effect, a curve option for fades, a mute-all-tracks tool, and tests for mute, solo and pan. Each one says where in the code to begin and how it is checked.
+- A small first change. Three open issues are labelled "good first issue" (#846 to #848): a wah-wah effect, a curve option for fades and a mute-all-tracks tool. Each one says where in the code to begin and how it is checked.
 - A Mac. Microphone recording on macOS still needs a proper check by someone who has one (issue 464).
 - The big one. Stem separation isn't built yet: nothing runs a stem model. If you've shipped model inference inside a Tauri app, I'd like to talk (issue 385).
 
@@ -241,8 +241,8 @@ Decisions for you:
 - Post 3 says "I build it with Claude Code". It is true (commit trailers,
   `CLAUDE.md`) and `marketing/README.md` recommends disclosing once. Delete
   the line if you prefer, but decide before someone asks.
-- Post 5 names #846 to #850 as the open `good first issue` issues (true when
-  checked on 2026-10-27). Re-check that they are still open before posting;
+- Post 5 names #846 to #848 as the open `good first issue` issues (true when
+  checked on 2026-11-01). Re-check that they are still open before posting;
   edit that paragraph if one has been taken.
 - No post names the AI in the recordings. If asked, it is Claude, as the demo
   captions say. No model version is named anywhere.

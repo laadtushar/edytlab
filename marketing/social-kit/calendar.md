@@ -41,8 +41,8 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
 - [ ] Set the Instagram bio link and bio line (`instagram.md`).
 - [ ] Decide the Claude Code disclosure (`linkedin-posts.md` post 3 and the
       HN, r/rust and r/opensource posts include it; keep it).
-- [ ] Re-check that issues #846 to #850 (labelled `good first issue`, open on
-      2026-10-27) are still open, so the r/opensource and LinkedIn #5 posts can
+- [ ] Re-check that issues #846 to #848 (labelled `good first issue`, open on
+      2026-11-01) are still open, so the r/opensource and LinkedIn #5 posts can
       name real ones.
 - [ ] Read the sidebar and rules of r/rust, r/LocalLLaMA, r/DJs,
       r/opensource, r/edmproduction and r/WeAreTheMusicMakers. Write down
