@@ -557,9 +557,6 @@ pub(crate) fn keep_timeline(clips: &[Clip], start: u64, end: u64) -> Vec<Clip> {
     out
 }
 
-/// Load the current head's [`SessionState`]. Returns `Err(message)`
-/// shaped for [`crate::ToolResult::Error`] when there is no head or the
-/// store can't materialise the node.
 /// Parse a tool's arguments and read the head state, the two steps nearly
 /// every editing tool opens with. Either failure is the `ToolResult::Error`
 /// the model is shown, so a tool writes
@@ -574,6 +571,9 @@ pub(crate) fn args_and_head<T: serde::de::DeserializeOwned>(
     Ok((args, state))
 }
 
+/// Load the current head's [`SessionState`]. Returns `Err(message)`
+/// shaped for [`crate::ToolResult::Error`] when there is no head or the
+/// store can't materialise the node.
 pub(crate) fn load_head_state(ctx: &ToolContext) -> Result<SessionState, String> {
     let head = ctx
         .store
