@@ -96,7 +96,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`remove_send`](#remove_send) — Stop routing a track to a bus.
 - [`remove_track`](#remove_track) — Remove a track from the session.
 - [`rename_track`](#rename_track) — Rename a track.
-- [`render_final`](#render_final) — Render a session node to a final audio file at the user's chosen path.
+- [`render_final`](#render_final) — Render a session node to an audio file at the chosen path.
 - [`render_preview`](#render_preview) — Render a session node to a WAV file in the project's preview cache and return its path.
 - [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus").
 - [`reorder_tracks`](#reorder_tracks) — Move a track to new_index; the tracks between shift by one, so indices change.
@@ -130,6 +130,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
 - [`vocal_reduction`](#vocal_reduction) — Reduce center-panned vocals using L-R channel subtraction (Karaoke effect).
+- [`wah_wah`](#wah_wah) — Apply a wah-wah effect with an LFO-swept band-pass filter.
 
 ---
 
@@ -1031,16 +1032,17 @@ Rename a track. Appends a new session node.
 
 ## `render_final`
 
-Render a session node to a final audio file at the user's chosen path. wav and aiff are uncompressed, flac is lossless at about half the size, mp3 and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another.
+Render a session node to an audio file at the chosen path. wav and aiff are uncompressed, flac is lossless at about half the size, mp3 and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another. range exports part of the session: for "the selection", pass the selection's seconds; ask if there is none.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `bitrate_kbps` | integer | no | MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats. |
+| `bitrate_kbps` | integer | no | MP3 or OGG target bitrate. MP3 is CBR, snapped to a valid Layer III rate; lossless formats ignore it. |
 | `format` | one of `wav`, `aiff`, `flac`, `mp3`, `ogg` | yes |  |
-| `markers_as_chapters` | boolean | no | Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping. |
+| `markers_as_chapters` | boolean | no | Write markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping. |
 | `metadata` | object | no | Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export. |
 | `node_id` | string | yes |  |
 | `out_path` | string | yes |  |
+| `range` | array of number | no | [start, end] in session seconds. The end is exclusive; omit range for the whole session. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -1409,5 +1411,17 @@ Reduce center-panned vocals using L-R channel subtraction (Karaoke effect). Work
 |---|---|---|---|
 | `end_sec` | number | no |  |
 | `start_sec` | number | no |  |
+| `track` | integer | yes |  |
+
+## `wah_wah`
+
+Apply a wah-wah effect with an LFO-swept band-pass filter. Depth controls the sweep up to two octaves either side of base_freq_hz; resonance is the filter Q. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `base_freq_hz` | number | no | Centre frequency in Hz (200 to 5000) |
+| `depth` | number | no | Sweep depth (0 to 1) |
+| `rate_hz` | number | no | LFO rate in Hz (0.1 to 10) |
+| `resonance` | number | no | Filter Q (0.1 to 10) |
 | `track` | integer | yes |  |
 

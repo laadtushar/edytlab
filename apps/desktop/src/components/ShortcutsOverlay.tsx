@@ -64,6 +64,8 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
     >
       <div
         className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-96 p-6`}
+        // Keeps a click inside the card from reaching the backdrop's close.
+        role="presentation"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">

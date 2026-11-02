@@ -6,12 +6,62 @@ export function Speech() {
     <>
       <h2 id="stem-separation">Stem Separation</h2>
       <p>
-        <strong>Not available in this build.</strong> Stem separation is meant
-        to split a track into vocals, drums, bass and other with Demucs, on
-        your device, but inference ships as a stub, so asking the agent to{" "}
-        <code>separate the stems on track 1</code> returns an error. There is
-        no stem model to download and no environment variable that changes
-        this: the decoder is what is missing, not the model file.
+        Ask the agent <code>separate the stems on track 1</code> and it splits
+        the track into vocals, drums, bass and other with HT-Demucs, on your
+        computer. No audio is sent anywhere, and separating makes no network
+        request. The result is four WAV files in the project folder; the
+        session itself does not change. To work with a stem, ask the agent to
+        load it, and it becomes a track like any other. Stems are estimates,
+        not the original recordings: expect some of one instrument to leak
+        into another stem.
+      </p>
+      <p>
+        The model is not installed with the app. Open Settings → Account and
+        press <strong>Download</strong> beside the Stem model row (about 171
+        MB in two files; see{" "}
+        <Link href="/docs/user-guide/providers">LLM Provider and Model</Link>).
+        Nothing downloads unless you press it, and the agent cannot download
+        it. The files come from <code>huggingface.co</code>, which sees your IP
+        address and that edytlab is asking, and nothing about your audio.
+      </p>
+      <ul>
+        <li>
+          <strong>What it works on.</strong> A track as it sits on the timeline,
+          or an audio file by path. Stems keep the sample rate and length of
+          the audio, and a mono file gives mono stems.
+        </li>
+        <li>
+          <strong>Time and memory.</strong> It runs on the CPU and takes about
+          half the length of the audio. It needs about 4 GB of free memory; a
+          computer with less cannot run it, and the result says so. The app may
+          hold on to some of that memory until you close it.
+        </li>
+        <li>
+          <strong>Approval, progress and Cancel.</strong> A run writes about 40
+          MB for every minute of stereo audio, so Plan first holds it for your
+          approval. A progress strip shows the work, and Cancel stops it and
+          leaves nothing behind.
+        </li>
+        <li>
+          <strong>Disk.</strong> The stems are kept in the project&rsquo;s{" "}
+          <code>.audiograph</code> folder, up to about 1 GB: the ones used
+          longest ago go first, and the set just made is kept even when it
+          alone is larger. Asking again for audio whose stems are still
+          there is instant. A stem you
+          have loaded is copied into the project, so clearing the cache never
+          breaks a track.
+        </li>
+        <li>
+          <strong>What reaches your AI provider.</strong> The audio never leaves
+          your computer. The paths of the four stems come back as a tool
+          result, so they go to the provider you chose, as text, and stay on
+          your computer with Ollama.
+        </li>
+      </ul>
+      <p>
+        HT-Demucs is Meta&rsquo;s (MIT licence) and the files are Intel&rsquo;s
+        ONNX export of it (also marked MIT); the credits are on the{" "}
+        <Link href="/terms">Terms page</Link>.
       </p>
 
       <h2 id="transcription">Transcription</h2>
@@ -76,6 +126,51 @@ export function Speech() {
         </li>
       </ul>
       <p>The rest of the editor works without a transcript or the model.</p>
+
+      <h2 id="transcript-export-and-markers">Transcript Export and Markers</h2>
+      <p>
+        After transcribing, ask <code>export the transcript to captions.srt</code>{" "}
+        to write an SRT file, or name <code>vtt</code> for WebVTT or{" "}
+        <code>txt</code> for plain text. The <code>export_transcript</code> tool
+        needs <code>out_path</code>, relative to the project folder or absolute.
+        It writes the file atomically, protects project audio from being
+        overwritten, and changes no audio or session history.
+      </p>
+      <p>
+        Captions split at sentence-ending punctuation and at a pause of 0.75
+        seconds by default, and normally stay within six seconds and two lines
+        of 42 Unicode scalar values each (not display columns). Ask for
+        different <code>pause_sec</code> (0 or more),{" "}
+        <code>max_cue_sec</code> (greater than 0) or{" "}
+        <code>max_chars_per_line</code> (an integer from 1 to 200). A single
+        stored word may need more lines or exceed the duration limit, because
+        the export keeps its recorded times. TXT keeps each segment on one
+        unwrapped line. All three formats use UTF-8 and LF line endings.
+        WebVTT escapes markup characters; SRT keeps raw text, which readers
+        may interpret as markup.
+      </p>
+      <p>
+        Ask <code>add a marker at each transcript sentence</code> to use{" "}
+        <code>transcript_to_markers</code>. It adds point markers in one
+        undoable step, keeps existing annotations, and changes no audio.
+        Choose <code>mode: segment</code> (the default caption grouping) or{" "}
+        <code>mode: sentence</code> (sentence-ending punctuation). Labels use
+        the first six words, capped at 80 Unicode characters. Running it again
+        skips markers that already exist (same name, within 1 ms).
+      </p>
+      <p>
+        Both tools use the stored word times. A track transcript keeps session
+        seconds, and its words follow edits that move, cut or stretch the
+        track; <code>align_to_beat</code> leaves them stale, so transcribe
+        again after it (both tools say so in their results). A file transcript
+        keeps file seconds; an older transcript may have an unknown source.
+        Results report that time basis and source, with a stable track ID and
+        its current index when available. For markers from a file or an
+        unknown source, explicitly supply a signed <code>offset_sec</code> to
+        align those times to the timeline, even if the offset is 0. Every
+        resulting time must be finite and at least 0. A removed source track
+        is refused even with an offset; transcribe an existing track again.
+      </p>
 
       <h2 id="speakers">Who Speaks When</h2>
       <p>

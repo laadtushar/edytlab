@@ -2,7 +2,9 @@
 // burn in each step's caption as a lower third, play the waits faster than
 // the listening, encode for the web, and take a poster frame.
 //
-//   OUT=/tmp/edytlab-native DEST=…/website/public/demos node make-demo-videos.mjs
+//   DEST=…/website/public/demos node make-demo-videos.mjs
+//
+// $OUT, unset, is the suite's checked per-user folder (out-dir.mjs).
 //
 // Reads $OUT/results.json (written by suite.mjs with RECORD=1) for each
 // 8-demo-* story's video, captions and pace marks. A demo that did not pass
@@ -16,8 +18,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { outDir } from "./out-dir.mjs";
 
-const OUT = process.env.OUT ?? "/tmp/edytlab-native";
+const OUT = outDir();
 const DEST = process.env.DEST;
 // The pace of a recording without pace marks, and before the first one.
 const SPEED = Number(process.env.SPEED ?? 1.25);

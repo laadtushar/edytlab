@@ -84,19 +84,32 @@ function tidy(text) {
   return text
     .replace(/\r\n?/g, "\n")
     .split("\n")
-    .map((l) => l.replace(/[ \t]+$/, ""))
+    // The lookbehind starts a match only at the head of a run of blanks: without
+    // it every blank of a long run is a start that reads on to the run's end.
+    .map((l) => l.replace(/(?<![ \t])[ \t]+$/, ""))
     .join("\n")
     .replace(/\n{4,}/g, "\n\n\n")
     // Leading blank lines go, a first line's own indentation (a licence title
     // centred over its text) stays.
     .replace(/^\n+/, "")
-    .replace(/\s+$/, "");
+    .trimEnd();
 }
 
 /** Package metadata can carry a person's e-mail address; the notices name
  *  the holder, not the inbox. */
 function withoutEmails(text) {
-  return text.replace(/\s*<[^<>\s]+@[^<>\s]+>/g, "");
+  // `<name@host>`, with the blanks before it: found as a `<...>` with no `<`,
+  // `>` or blank inside and an "@" with something on each side. Done by hand
+  // because one regular expression for the same retries from every blank and
+  // every "@" of a long line.
+  let kept = "";
+  let from = 0;
+  for (const m of text.matchAll(/<[^<>\s]+>/g)) {
+    if (!m[0].slice(2, -2).includes("@")) continue;
+    kept += text.slice(from, m.index).trimEnd();
+    from = m.index + m[0].length;
+  }
+  return kept + text.slice(from);
 }
 
 /** The `targets` of about.toml: every platform an installer is built for. */
@@ -254,10 +267,12 @@ function cargoAbout(tmp) {
 
 /** Does an SPDX expression ("MIT OR Apache-2.0") fit the allow-list? */
 function licenceAllowed(expr) {
-  const parts = expr.split(/\s+(AND|OR)\s+/);
+  // Each separator starts at the head of a run of blanks (lookbehind), so a long
+  // run is read once and not once from each blank in it.
+  const parts = expr.split(/(?<!\s)\s+(AND|OR)\s+/);
   const ids = parts.filter((_, i) => i % 2 === 0).map((s) => s.replace(/[()]/g, "").trim());
   const ops = parts.filter((_, i) => i % 2 === 1);
-  const ok = ids.map((id) => JS_ALLOWED.has(id.split(/\s+WITH\s+/)[0]));
+  const ok = ids.map((id) => JS_ALLOWED.has(id.split(/(?<!\s)\s+WITH\s+/)[0]));
   return ops.length && ops.every((o) => o === "OR") ? ok.some(Boolean) : ok.every(Boolean);
 }
 

@@ -5,8 +5,33 @@
 # Stops only what it started, by PID: `pkill -f` matches any command line
 # that merely mentions the name, including the caller's own shell.
 set -euo pipefail
-OUT=${OUT:-/tmp/edytlab-native}
-mkdir -p "$OUT"
+# suite.mjs always passes OUT down (out-dir.mjs's answer). Run on its own with
+# no OUT, this picks the same folder out-dir.mjs would: Node's os.tmpdir()
+# (TMPDIR, then TMP, then TEMP, then /tmp, with a trailing slash dropped) and
+# edytlab-native-<uid> in it, owner-only, refused if the name is a link, not
+# a folder, or someone else's (a fixed name in a shared folder is somewhere
+# another user can plant a link, S5443).
+if [[ -z "${OUT:-}" ]]; then
+  tmp=${TMPDIR:-${TMP:-${TEMP:-/tmp}}}
+  [[ ${#tmp} -gt 1 ]] && tmp=${tmp%/}
+  OUT="$tmp/edytlab-native-$(id -u)"
+  # A file under the name makes mkdir fail; the check below says why.
+  mkdir -p -m 700 "$OUT" 2>/dev/null || true
+  if [[ -L "$OUT" || ! -d "$OUT" || "$(stat -c %u "$OUT")" != "$(id -u)" ]]; then
+    echo "run-env.sh: $OUT is not a folder of yours; set OUT to a folder you own" >&2
+    exit 1
+  fi
+  # mkdir -m applies only to a folder it makes. One others could write to may
+  # hold a link planted at a log's name, so it is refused; one they could only
+  # read is set back to owner-only.
+  if (( 8#$(stat -c %a "$OUT") & 8#022 )); then
+    echo "run-env.sh: $OUT has been writable by other users; delete it and run again" >&2
+    exit 1
+  fi
+  chmod 700 "$OUT"
+else
+  mkdir -p -m 700 "$OUT"
+fi
 # Stop what a previous run started. By exact process name (`-x`), not by
 # command line: `pkill -f` would match this shell too.
 for name in edytlab-desktop WebKitWebDriver tauri-driver openbox Xvfb; do

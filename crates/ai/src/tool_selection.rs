@@ -317,7 +317,7 @@ const GENERIC_TOKENS: &[&str] = &[
 /// the effects themselves. A [`Cue`] can require one.
 const EFFECT_WORDS: &[&str] = &[
     "effect", "reverb", "echo", "delay", "tremolo", "phaser", "distort", "compress", "limit", "eq",
-    "equali", "filter", "gate", "leveler", "widener", "esser",
+    "equali", "filter", "gate", "leveler", "widener", "esser", "wah",
 ];
 
 /// A way of asking for a tool that is not its name or a word of it.
@@ -390,6 +390,13 @@ const CUES: &[Cue] = &[
         tool: "mute_all_tracks",
         any: &["all", "every", "everything"],
         with: &["mute", "unmute"],
+    },
+    // "add a wah-wah effect": the name match needs a word of four letters
+    // or more, and "wah" is three.
+    Cue {
+        tool: "wah_wah",
+        any: &["wah", "wahwah"],
+        with: &[],
     },
     Cue {
         tool: "vocal_reduction",
@@ -1261,6 +1268,8 @@ mod tests {
             ("mute all the tracks", "mute_all_tracks"),
             ("unmute everything", "mute_all_tracks"),
             ("mute every track but the vocals", "mute_all_tracks"),
+            ("add a wah-wah effect", "wah_wah"),
+            ("put some wah on the guitar", "wah_wah"),
         ] {
             let sent = sent_for(text);
             assert!(

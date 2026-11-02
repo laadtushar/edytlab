@@ -112,6 +112,7 @@ pub mod truncate_silence;
 /// re-exported from the crate root — everything else in here is
 /// `pub(crate)` and stays inside the crate.
 pub mod util;
+pub mod wah_wah;
 
 pub mod vocal_reduction;
 
@@ -217,3 +218,4 @@ pub use tremolo::TremoloTool;
 pub use trim::TrimTool;
 pub use truncate_silence::TruncateSilenceTool;
 pub use vocal_reduction::VocalReductionTool;
+pub use wah_wah::WahWahTool;

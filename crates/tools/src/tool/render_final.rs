@@ -20,6 +20,8 @@ struct Args {
     node_id: String,
     format: String,
     out_path: String,
+    #[serde(default)]
+    range: Option<[f64; 2]>,
     /// MP3 only. Ignored by the lossless formats.
     #[serde(default)]
     bitrate_kbps: Option<u32>,
@@ -66,18 +68,20 @@ impl Tool for RenderFinalTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "render_final",
-            "Render a session node to a final audio file at the user's chosen path. \
+            "Render a session node to an audio file at the chosen path. \
              wav and aiff are uncompressed, flac is lossless at about half the size, mp3 \
              and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for \
              compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. \
              An out_path that is audio the project reads (a loaded file, or any file its \
-             history plays) is refused: choose another.",
+             history plays) is refused: choose another. range exports part of the session: for \
+             \"the selection\", pass the selection's seconds; ask if there is none.",
             json!({
                 "type": "object",
                 "properties": {
                     "node_id": { "type": "string" },
                     "format": { "type": "string", "enum": ["wav", "aiff", "flac", "mp3", "ogg"] },
                     "out_path": { "type": "string" },
+                    "range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[start, end] in session seconds. The end is exclusive; omit range for the whole session." },
                     "metadata": {
                         "type": "object",
                         "description": "Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export.",
@@ -92,13 +96,13 @@ impl Tool for RenderFinalTool {
                     },
                     "markers_as_chapters": {
                         "type": "boolean",
-                        "description": "Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping.",
+                        "description": "Write markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping.",
                     },
                     "bitrate_kbps": {
                         "type": "integer",
                         "minimum": MP3_MIN_KBPS,
                         "maximum": MP3_MAX_KBPS,
-                        "description": "MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats."
+                        "description": "MP3 or OGG target bitrate. MP3 is CBR, snapped to a valid Layer III rate; lossless formats ignore it."
                     },
                 },
                 "required": ["node_id", "format", "out_path"],
@@ -174,6 +178,33 @@ impl Tool for RenderFinalTool {
         let node = match ctx.store.get(node_id) {
             Ok(n) => n,
             Err(e) => return Ok(ToolResult::Error(format!("node lookup failed: {e}"))),
+        };
+
+        let range = match args.range {
+            None => None,
+            Some([start, end]) => {
+                let rate = f64::from(node.state.sample_rate);
+                if !start.is_finite()
+                    || !end.is_finite()
+                    || start < 0.0
+                    || end <= start
+                    || end * rate >= u64::MAX as f64
+                {
+                    return Ok(ToolResult::Error(
+                        "invalid range: require finite seconds with 0 <= start < end".into(),
+                    ));
+                }
+                let range = audio_engine::TimeRange {
+                    start_frame: (start * rate) as u64,
+                    end_frame: (end * rate) as u64,
+                };
+                if range.start_frame >= range.end_frame {
+                    return Ok(ToolResult::Error(
+                        "invalid range: it must contain at least one frame".into(),
+                    ));
+                }
+                Some(range)
+            }
         };
 
         let out_path = PathBuf::from(&args.out_path);
@@ -263,10 +294,23 @@ impl Tool for RenderFinalTool {
                     // Point markers only. A region has a duration, and a
                     // chapter is a start — turning one into the other
                     // would silently discard the half the user drew.
-                    session::AnnotationKind::Marker { time_sec } => Some(audio_engine::Chapter {
-                        start_sec: *time_sec,
-                        title: a.name.clone(),
-                    }),
+                    session::AnnotationKind::Marker { time_sec } => {
+                        let start = if let Some(r) = range {
+                            let rate = f64::from(node.state.sample_rate);
+                            let start = r.start_frame as f64 / rate;
+                            let end = r.end_frame as f64 / rate;
+                            if *time_sec < start || *time_sec >= end {
+                                return None;
+                            }
+                            start
+                        } else {
+                            0.0
+                        };
+                        Some(audio_engine::Chapter {
+                            start_sec: *time_sec - start,
+                            title: a.name.clone(),
+                        })
+                    }
                     _ => None,
                 })
                 .collect();
@@ -300,10 +344,17 @@ impl Tool for RenderFinalTool {
         }
         let mut tag_warning: Option<String> = None;
 
-        let report = match ctx.engine.render_to_wav(&node.state, &render_path, None) {
+        let report = match ctx.engine.render_to_wav(&node.state, &render_path, range) {
             Ok(r) => r,
             Err(e) => return Ok(ToolResult::Error(format!("render failed: {e}"))),
         };
+
+        // The renderer clamps an end beyond the session. Chapters must fit
+        // the actual export, not the longer interval the caller requested.
+        if range.is_some() {
+            let duration = report.frames_written as f64 / f64::from(report.sample_rate);
+            tags.chapters.retain(|chapter| chapter.start_sec < duration);
+        }
 
         if let Some(kind) = transcode {
             let decoded = match audio_decoder::decode_file(&render_path) {
@@ -381,6 +432,17 @@ impl Tool for RenderFinalTool {
                 out_path.display(),
             ),
         });
+        // The renderer stops at the end of the session, so the seconds
+        // written can be fewer than the range asked for: say which.
+        if let Some(r) = range {
+            let start = r.start_frame as f64 / f64::from(node.state.sample_rate);
+            let end = start + report.frames_written as f64 / f64::from(report.sample_rate);
+            out["range"] = json!([start, end]);
+            out["summary"] = json!(format!(
+                "{} (session seconds {start:.2} to {end:.2})",
+                out["summary"].as_str().unwrap_or_default()
+            ));
+        }
         if args.format == "mp3" {
             out["bitrate_kbps"] =
                 json!(args.bitrate_kbps.unwrap_or(audio_engine::MP3_DEFAULT_KBPS));

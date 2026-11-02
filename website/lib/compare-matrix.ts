@@ -225,9 +225,9 @@ export const matrix: readonly MatrixRow[] = [
         label: "Tools reference",
       },
       stems: {
-        text: "Not yet. The tool exists and returns an error today (#385).",
-        href: `${siteConfig.github}/issues/385`,
-        label: "Issue #385 on GitHub",
+        text: "Yes, on your computer, after a one-time download of the stem model (about 171 MB) that you start from Settings. The stems are estimates.",
+        href: "/docs/user-guide/speech",
+        label: "User guide",
       },
       transcription: {
         text: "Yes, on your computer, after a one-time download of the speech model (about 139 MB) that you start from Settings.",
@@ -254,5 +254,5 @@ export function shortDate(iso: string): string {
 /** The newest day any cell outside edytlab's row was read: the page's "last verified". */
 export function matrixCheckedOn(): string {
   const days = matrix.flatMap((row) => Object.values(row.cells).map((c) => c.checkedOn)).filter((d): d is string => Boolean(d));
-  return days.reduce((a, b) => (a > b ? a : b));
+  return days.reduce((a, b) => (a > b ? a : b), "");
 }

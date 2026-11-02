@@ -70,6 +70,7 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolBadge, toolLabel } from "./ToolBadge";
 import { SPEECH_SETUP } from "../lib/speechSetup";
 import type { SpeechProblem } from "../lib/tauri-bridge";
+import { focusOnMount } from "../lib/focusOnMount";
 
 export interface ChatProps {
   rendering?: boolean;
@@ -851,7 +852,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                     </span>
                     <textarea
                       data-testid="plan-step-editor"
-                      autoFocus
+                      ref={focusOnMount}
                       rows={2}
                       value={editDraft}
                       onChange={(e) => setEditDraft(e.target.value)}
