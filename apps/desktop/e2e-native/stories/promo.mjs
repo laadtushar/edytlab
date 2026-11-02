@@ -17,7 +17,7 @@
 // (fake-llm.mjs, free), to rehearse the screen work; that is a rehearsal, not
 // footage. `marketing/promo-v0.7.0/record/make-footage.mjs` turns what these
 // leave in $OUT (videos/, results.json, promo/) into the footage folder.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { x } from "../native.mjs";
@@ -272,7 +272,16 @@ function writeSection(ctx, dir, sections) {
   rmSync(folder, { recursive: true, force: true });
   const stemDir = audioDir(ctx, "stems");
   const stems = ["drums", "bass", "pad", "keys", "lead", "vocal"];
-  if (!existsSync(stemDir)) writeStems(stemDir, Object.fromEntries(stems.map((n) => [`${n}.wav`, n])), 8, 22050);
+  // The folder outlives the take, so a set is trusted only when every stem is
+  // there, and it is written beside the folder and renamed into place whole:
+  // a take stopped mid-write leaves no partial set for the next one to copy.
+  if (!stems.every((n) => existsSync(join(stemDir, `${n}.wav`)))) {
+    const staging = `${stemDir}.partial-${process.pid}`;
+    rmSync(staging, { recursive: true, force: true });
+    writeStems(staging, Object.fromEntries(stems.map((n) => [`${n}.wav`, n])), 8, 22050);
+    rmSync(stemDir, { recursive: true, force: true });
+    renameSync(staging, stemDir);
+  }
   mkdirSync(folder, { recursive: true });
   let n = 0;
   const names = [];
