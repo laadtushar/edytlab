@@ -247,13 +247,13 @@ describe("/videos", () => {
     expect(walkthroughs.cards).toBe(demoVideos.length);
   });
 
-  it("closes with a way to download, and the two limits a downloader meets", () => {
+  it("closes with a way to download, and the limit a downloader meets", () => {
     const close = text.slice(text.indexOf("Try it on your own audio"));
     expect(close).toContain("free and open source (MIT) for macOS, Windows and Linux");
     expect(close).toContain("Download edytlab");
     expect(close).toContain("Read the docs");
     expect(close).toContain("unsigned");
-    expect(close).toMatch(/Stem separation is not built yet/);
+    expect(close).not.toMatch(/Stem separation is not built yet/);
   });
 });
 

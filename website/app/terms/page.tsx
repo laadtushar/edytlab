@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalShell title="Terms of use" path="/terms" updated="2026-10-27">
+    <LegalShell title="Terms of use" path="/terms" updated="2026-11-02">
       <p>
         These terms govern your use of the edytlab desktop application and this
         marketing website. By installing or using the app you agree to these
@@ -72,6 +72,38 @@ export default function TermsPage() {
         . edytlab does not include or redistribute either: when you click
         Download, the app fetches the files from Hugging Face, whose terms
         apply to that download, and they are kept on your computer.
+      </p>
+      <p>
+        The stem model you can download from Settings is two files, the graph
+        and its weights, of Meta&apos;s{" "}
+        <a href="https://github.com/facebookresearch/demucs">HT-Demucs</a> v4
+        (Demucs is released under the MIT licence, &copy; Meta Platforms, Inc.
+        and affiliates), downloaded as the ONNX export{" "}
+        <a href="https://huggingface.co/Intel/demucs-openvino">
+          Intel/demucs-openvino
+        </a>{" "}
+        by Intel, which is also marked MIT. edytlab does not include or
+        redistribute it: when you click Download, the app fetches the files
+        from Hugging Face, whose terms apply to that download, and they are
+        kept on your computer. The model was trained on the MUSDB18-HQ
+        dataset and about 800 further songs; the licence of the weights is the
+        one the authors state, MIT.
+      </p>
+
+      <h2>Third-party licences</h2>
+      <p>
+        edytlab is built from open source libraries, fonts and code, each under
+        its own licence. Their licence texts and copyright notices ship with
+        every installer, are shown in the app under Settings, Account, Open
+        source licences, and are in the repository as{" "}
+        <a href="https://github.com/laadtushar/edytlab/blob/main/apps/desktop/src-tauri/licenses/THIRD_PARTY_NOTICES.txt">
+          THIRD_PARTY_NOTICES.txt
+        </a>
+        . The app&apos;s Geist and Geist Mono fonts (&copy; 2024 The Geist
+        Project Authors) and this website&apos;s Inter font (&copy; 2016 The
+        Inter Project Authors, from{" "}
+        <a href="https://github.com/rsms/inter/blob/master/LICENSE.txt">its licence</a>)
+        are under the SIL Open Font License 1.1.
       </p>
 
       <h2>Disclaimer</h2>
