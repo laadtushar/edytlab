@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 109 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 110 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -37,6 +37,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`compressor`](#compressor) — Apply dynamic compression to a track using an envelope follower.
 - [`copy_region`](#copy_region) — Copy a time range from a track into the in-memory clipboard.
 - [`create_bus`](#create_bus) — Create an effects bus.
+- [`crossfade`](#crossfade) — Crossfade two overlapping clips on one or two tracks over their shared session interval.
 - [`cut_range`](#cut_range) — Remove [start_sample, end_sample) from a track and shift the rest left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
@@ -337,6 +338,20 @@ Create an effects bus. Tracks send a scaled copy of themselves to a bus with `se
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `name` | string | yes | e.g. "Reverb" |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `crossfade`
+
+Crossfade two overlapping clips on one or two tracks over their shared session interval. Replaces both clip envelopes with editable curves; does not move clips or render audio. Equal-power default; equal-gain for correlated material. Position clips to overlap first. Endpoints use the lane's -60 dB floor.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `curve` | one of `equal_power`, `equal_gain` | no |  |
+| `from_clip` | integer | yes |  |
+| `from_track` | integer | yes |  |
+| `to_clip` | integer | yes |  |
+| `to_track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

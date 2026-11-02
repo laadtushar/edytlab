@@ -791,6 +791,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "compressor",
             "copy_region",
             "create_bus",
+            "crossfade",
             "cut_range",
             "cut_words",
             "de_esser",

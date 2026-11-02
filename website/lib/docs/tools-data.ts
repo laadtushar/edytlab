@@ -334,8 +334,15 @@ export const toolAreas: ToolArea[] = [
           {
             name: "fade",
             prompt: 'add a 3-second fade-out',
-            what: "Apply a linear fade-in or fade-out to a time range.",
+            what: "Apply a fade-in or fade-out to a time range, with linear (default), exponential, logarithmic or S-curve gain.",
             output: "node_id",
+          },
+          {
+            name: "crossfade",
+            prompt: "crossfade these overlapping clips",
+            what: "Crossfade overlapping clips on one or two tracks. Equal power by default; equal gain for correlated material.",
+            output: "node_id, start_sec, end_sec",
+            note: "Position clips first. Replaces envelopes with editable lane points (128 segments, −60 dB floor). Supports mixed sample rates.",
           },
           {
             name: "set_clip_envelope",
