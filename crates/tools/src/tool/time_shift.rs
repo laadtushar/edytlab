@@ -5,6 +5,7 @@ use crate::tool::util::{
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use session::TranscriptSource;
 
 #[cfg(test)]
 pub(crate) fn apply_time_shift(current: u64, delta_samples: u64) -> u64 {
@@ -88,6 +89,19 @@ impl Tool for TimeShiftTool {
 
         for clip in &mut track.clips {
             clip.start_in_track = apply_time_shift_signed(clip.start_in_track, delta);
+        }
+        let track_id = track.id.clone();
+        let moved_audio = !track.clips.is_empty();
+        if moved_audio {
+            if let Some(transcript) = state.transcript.as_mut() {
+                if transcript.source == Some(TranscriptSource::Track { track: track_id }) {
+                    let shift = delta as f64 / sr;
+                    for word in &mut transcript.words {
+                        word.start_s = (f64::from(word.start_s) + shift) as f32;
+                        word.end_s = (f64::from(word.end_s) + shift) as f32;
+                    }
+                }
+            }
         }
         // Recompute session length
         set_session_length(&mut state);
