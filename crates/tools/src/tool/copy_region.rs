@@ -147,7 +147,7 @@ impl Tool for CopyRegionTool {
             audio.sample_rate,
             audio.channels,
         ) {
-            Ok(hash) => Some(hash),
+            Ok(blob) => Some(blob.hash),
             Err(e) => {
                 // A copy that succeeded is not worth failing over a
                 // blob that could not be written; the paste that follows
