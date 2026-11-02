@@ -561,6 +561,20 @@ pub(crate) fn keep_timeline(clips: &[Clip], start: u64, end: u64) -> Vec<Clip> {
     out
 }
 
+/// Parse a tool's arguments and read the head state, the two steps nearly
+/// every editing tool opens with. Either failure is the `ToolResult::Error`
+/// the model is shown, so a tool writes
+/// `let (args, mut state) = match args_and_head::<Args>(args, ctx) { Ok(v) => v, Err(r) => return Ok(r) };`.
+pub(crate) fn args_and_head<T: serde::de::DeserializeOwned>(
+    args: Value,
+    ctx: &ToolContext,
+) -> Result<(T, SessionState), ToolResult> {
+    let args = serde_json::from_value(args)
+        .map_err(|e| ToolResult::Error(format!("invalid arguments: {e}")))?;
+    let state = load_head_state(ctx).map_err(ToolResult::Error)?;
+    Ok((args, state))
+}
+
 /// Load the current head's [`SessionState`]. Returns `Err(message)`
 /// shaped for [`crate::ToolResult::Error`] when there is no head or the
 /// store can't materialise the node.
