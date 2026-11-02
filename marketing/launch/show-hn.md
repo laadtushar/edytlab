@@ -19,7 +19,7 @@ Pick one. Counts include the `Show HN: ` prefix.
 
 1. `Show HN: edytlab – edit audio by chatting with an agent, DSP runs locally` (73)
 2. `Show HN: edytlab – an open-source audio editor you drive in plain English` (73)
-3. `Show HN: edytlab – desktop audio editor where an LLM calls 99 DSP tools` (71)
+3. `Show HN: edytlab – desktop audio editor where an LLM calls 110 DSP tools` (72)
 
 Recommended: **3**. It names the architecture (an LLM calling deterministic
 tools), which is the part HN will want to argue about.
@@ -37,7 +37,7 @@ happen.
 
 It's a desktop audio editor for macOS, Windows and Linux, MIT licensed. An LLM
 reads a summary of your session, plus what its analysis tools report, like
-tempo, key and loudness, and calls the editing tools it needs, 99 of them. The tools do the signal processing, in
+tempo, key and loudness, and calls the editing tools it needs, 110 of them. The tools do the signal processing, in
 Rust, on your computer. The model only chooses them and puts them in order. It
 never sees a sample.
 
@@ -70,14 +70,16 @@ dense mixes, and the further the factor is from 1.0, the more it smears.
 Every state of your session is a node in a content-addressed graph, so instead
 of one undo stack you can fork, name, compare two versions by ear and go back.
 There's also an optional "plan first" mode, where the agent shows its steps and
-you approve them before anything runs. Export is WAV, FLAC or MP3.
+you approve them before anything runs. Export is WAV, AIFF, FLAC, MP3 or OGG (Opus).
 
 **What's missing.**
 
-- Stem separation doesn't work yet. The tool is registered and returns an
-  error. The installers carry the ONNX Runtime, but there's no stem model in the
-  app and the inference isn't built. If you find a place in the app or the docs
-  that suggests otherwise, that's a bug.
+- Stem separation works from v0.9.4, after a one-time download of the stem
+  model (HT-Demucs, about 171 MB), which you start yourself in Settings. It
+  runs on your CPU, needs about 4 GB of free memory and takes about half the
+  length of the audio. It splits a track into vocals, drums, bass and other,
+  and the stems are estimates, not clean studio parts. No audio leaves your
+  computer for it.
 - Transcription works from v0.8.0, after a one-time download of the Whisper
   base model, about 139 MB, which you start yourself in Settings. Nothing
   downloads on its own. It runs on your CPU. I've only checked it on English:
@@ -116,7 +118,7 @@ commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
 3. If you do DSP: the vocoder and the limiter are the two places I expect the
    most justified criticism.
 
-Download (unsigned v0.9.3): https://github.com/laadtushar/edytlab/releases/latest
+Download (unsigned v0.9.4): https://github.com/laadtushar/edytlab/releases/latest
 Source: https://github.com/laadtushar/edytlab
 
 ---
@@ -131,4 +133,4 @@ Source: https://github.com/laadtushar/edytlab
 | "Is the audio really never uploaded?" | Yes. There's no server in the loop. The privacy page lists the network traffic: chat requests to your chosen provider, plus the request Settings makes for its model list, which carries your key or sign-in and no prompt or audio. You can watch it yourself in your OS network tools. |
 | "Why Tauri and not Electron?" | The back end is Rust, so the UI process and the DSP crates share one workspace. I haven't measured size or speed against Electron, so I won't claim any. |
 | "Is there a web version?" | No. I've looked at a browser version (#389) and haven't decided. |
-| "99 tools is a lot for a model" | It is. For Ollama the app sends a core set of about 15 tools plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them, because Anthropic's prompt cache needs a fixed list. The Capabilities menu and agent profiles can narrow the list, and plan first keeps a person in the loop. |
+| "110 tools is a lot for a model" | It is. For Ollama the app sends a core set of about 15 tools plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them, because Anthropic's prompt cache needs a fixed list. The Capabilities menu and agent profiles can narrow the list, and plan first keeps a person in the loop. |

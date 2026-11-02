@@ -187,7 +187,8 @@ const picks: { need: string; body: ReactNode }[] = [
     body: (
       <>
         Audionaut lists it as a built-in feature, and Audacity lists a music separation plugin, if the plugin supports the
-        version of Audacity you run. edytlab has not shipped stem separation.
+        version of Audacity you run. edytlab splits a track into vocals, drums, bass and other on your computer too, after you
+        download its stem model once (about 171 MB); the stems are estimates.
       </>
     ),
   },
@@ -231,8 +232,8 @@ export default function ComparePage() {
       lead={
         <>
           Eight other tools that edit or clean up audio with AI help, set beside edytlab: where each runs, its license and
-          price, and whether it takes chat or agent control, splits stems or transcribes speech. edytlab has not shipped stem
-          separation, and its row says so.
+          price, and whether it takes chat or agent control, splits stems or transcribes speech. edytlab&apos;s row says what it does,
+          and the note beneath says what it does not.
         </>
       }
     >

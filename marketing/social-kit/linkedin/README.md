@@ -38,6 +38,8 @@ Posts 1, 2, 3 (the square), 5 and the carousel were re-rendered on 2026-10-26 to
 
 Post 5 was re-rendered on 2026-10-27 (v0.9.3): its machine-learning card said "Stems and transcripts: Not shipped yet", #383 to #385, but transcription works since v0.8.0 (#383 and #384 are closed), so the card now names stem separation alone (#385). The file it replaces is in [`../../archive/linkedin/2026-10-27-v0.9.3/`](../../archive/README.md).
 
+**Post 5 is out of date from v0.9.4 and needs new text and a re-render** (found 2026-11-02, not yet done). Its machine-learning card says stem separation is "ported; the model is not wired in yet" (#385), but v0.9.4 ships it (`separate_stems`, after the user downloads the stem model; #385 is closed). Its #497 card points at an issue that is now closed, and its effects card says "seven more" where there are eight (`wah_wah`, v0.9.4, joined `NOT_YET_STREAMING`). Which invitations replace them is the owner's choice; open issues that fit the cards include #868 (stem separation keeps about 2.4 GB resident after a run) and #867 (M4A on Windows: HE-AAC untested, N editions not run). The file was not re-rendered from the session that found this, because that checkout had no `node_modules`, Playwright or Chromium; edit `templates/post-5-help-wanted.html`, run `render.mjs --only post-5-help-wanted`, and move the old file to `../../archive/linkedin/<date>-v0.9.4/` as the earlier re-renders did.
+
 Post 1 and the carousel were re-rendered once more on 2026-10-26 for v0.9.2, which is being
 released that day (the version is again the only change: the pill and the carousel's last page
 say v0.9.2, and the file sizes are the same to the kilobyte). The render read the version from a
@@ -177,20 +179,20 @@ Chromium builds (the plan card wraps one word differently), so the files from
 ## What the slides claim, and where each claim comes from
 
 Under the rules in [`../../README.md`](../../README.md). No slide says anything
-about transcription or text editing; post 5 names stem separation only as not wired in yet (#385), and none carries a user
+about transcription or text editing; post 5 names stem separation only as not wired in yet (#385), which is out of date from v0.9.4 (above), and none carries a user
 count, a quote or a benchmark.
 
 | Claim on a slide | Source |
 |---|---|
-| "Dozens of tools" and "Deterministic tools"; fade / EQ / time-stretch / loudness / export are among them; they are Rust functions with no model in the audio path. There are 99 (`docs/tools-reference.md`); the slides give no count, so a new tool changes none of them. `separate_stems` only returns an error today and `transcribe` and `diarize` run only on a model the user downloads; tools an MCP server adds are not counted | `docs/tools-reference.md`, `crates/tools/src/tool/` |
+| "Dozens of tools" and "Deterministic tools"; fade / EQ / time-stretch / loudness / export are among them; they are Rust functions with no model in the audio path. There are 110 (`docs/tools-reference.md`, v0.9.4); the slides give no count, so a new tool changes none of them. `separate_stems`, `transcribe` and `diarize` run only on a model the user downloads; tools an MCP server adds are not counted | `docs/tools-reference.md`, `crates/tools/src/tool/` |
 | 6 API providers, one local, plus the ChatGPT plan (v0.9.0, a preview); 0 bytes of audio uploaded | `website/components/landing/stats-strip.tsx`, `website/app/privacy/page.tsx` |
 | The model reads text (tempo, key, loudness), never receives the audio; the DSP runs in Rust on your machine | marketing `README.md` accuracy table; `docs/architecture.md` |
 | Only the chat leaves; Ollama needs no key and runs on your machine | `website/app/privacy/page.tsx`; the dialog's own text in `shots/ollama.png` |
 | Plan first: no edit runs without approval | `docs/architecture.md`, "Plan first" |
 | Every edit is a node; fork, A/B, go back; undo follows the path you took | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, `apps/desktop/src/lib/headTrail.ts` |
 | Rubber Band was dropped for a pure-Rust phase vocoder; the cost is smearing on dense material at large changes | `crates/audio-time/src/vocoder.rs`, `README.md` |
-| Eleven effects cannot yet run on a master or bus chain | `NOT_YET_STREAMING` in `crates/audio-engine/src/effect_chain.rs` |
-| #464 (macOS microphone), #497 (Linux keyring), #385 (stem separation) on post 5 | GitHub, checked 2026-10-27: all three are open. The #385 card says the Demucs pipeline is ported and the model is not wired in, which is true of v0.9.3 (`separate_stems` answers "not implemented in this build"); re-render post 5 when a release ships stem separation |
+| Eleven effects cannot yet run on a master or bus chain (post 5: "Reverb, echo, EQ, compressor and seven more"). Twelve from v0.9.4, which adds `wah_wah`, so post 5's "seven more" is out of date (above) | `NOT_YET_STREAMING` in `crates/audio-engine/src/effect_chain.rs` |
+| #464 (macOS microphone), #497 (Linux keyring), #385 (stem separation) on post 5 | GitHub, checked 2026-10-27: all three were open then. Checked again 2026-11-02: #464 is open, #385 and #497 are closed. The #385 card says the Demucs pipeline is ported and the model is not wired in, which was true of v0.9.3 and is **false from v0.9.4**, which ships `separate_stems` after a model download. Post 5 needs new text and a re-render (above) |
 | For macOS, Windows and Linux; MIT | `tauri.conf.json` bundle targets, `LICENSE`. No canvas names a version or says whether the installers are signed, so a release changes none of them |
 
 ## Files

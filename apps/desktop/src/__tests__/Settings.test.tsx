@@ -73,6 +73,9 @@ vi.mock("../lib/tauri-bridge", () => ({
   setEffortFor: (provider: string, effort: string | null) =>
     setEffortForMock(provider, effort),
   mlRuntimeStatus: () => mlRuntimeStatusMock(),
+  // The Send crash reports row (#958), off in a build that cannot send.
+  getCrashReports: () => Promise.resolve({ enabled: false, available: false }),
+  setCrashReports: vi.fn(),
   // The Account tab's speech model row (#383): not downloaded, and nothing
   // to hear. Plain functions, so a test's `mockReset` leaves them alone.
   mlModelStatus: () =>
