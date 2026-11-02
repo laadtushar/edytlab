@@ -164,16 +164,19 @@ describe("the repository README", () => {
   });
 
   it("opens with what ships, not a mashup or stems", () => {
-    // `marketing/README.md`: no "mashup A's vocals over B's drums", no
-    // stems, until `separate_stems` does something (#385).
+    // `marketing/README.md`: no "mashup A's vocals over B's drums", and no
+    // "drop stems" pitch: stems are estimates (#385).
     expect(opening).not.toMatch(/mashup/i);
     expect(opening).not.toMatch(/drop stems/i);
   });
 
   it("says near the top what it does not do yet", () => {
     expect(opening).toMatch(/does not do yet/i);
+    // Stem separation shipped in v0.9.4 (#385): the opening says it needs
+    // its model and that stems are estimates.
     expect(opening).toMatch(/stem separation/i);
-    expect(opening).toMatch(/not shipped/i);
+    expect(opening).toMatch(/stem model from v0\.9\.4/i);
+    expect(opening).toMatch(/estimates/i);
     expect(opening).toContain("/issues/385");
     // Transcription shipped in v0.8.0 and says what it needs: the download.
     expect(opening).toMatch(/transcription/i);
