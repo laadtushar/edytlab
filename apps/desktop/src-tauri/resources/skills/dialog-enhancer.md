@@ -17,9 +17,9 @@ Run steps 1 to 7 on each speaker's track N in turn, then step 8. Keep each speak
 5. **Presence.** `eq` track=N bands=[{"freq_hz": 2500, "gain_db": 3, "q": 0.7}] lifts the 1 to 4 kHz range where consonants sit. Done when it returns a node.
 6. **Compress.** `compressor` track=N threshold_db=-20 ratio=3.0 attack_ms=15 release_ms=100 evens out the loud and quiet words of one speaker. Done when `measure` track=N reads a lower `loudness.range_lu` than step 2; if it does not, the threshold sat above the speech: say so rather than compressing twice.
 7. **Gate.** `noise_gate` track=N threshold_db=-45 closes between sentences, where the other speakers bleed into this microphone. It is the last edit to this track's audio: denoise only before it, since a gated pause is exact silence and no longer a noise print. For an audiobook, skip it: ACX wants room tone in the pauses. Done when it returns a node.
-8. **Match the speakers.** `normalize_loudness` track=N target_lufs=<one value, -16 unless the user named another> on every speaker track, so each speaks at the same loudness. Done when each result's `achieved_lufs` is within 1 LU of that value. A result with `capped_by_ceiling` true fell short for its peaks: `set_track_gain` track=N db=<its `requested_gain_db`>, and hold the peaks with one limiter on the master bus (`add_effect` scope=master kind=limiter params={"ceiling_db": -1.0}, once).
+8. **Match the speakers.** `normalize_loudness` track=N target_lufs=<one value, -16 unless the user named another> on every speaker track, so each speaks at the same loudness. Done when each result's `achieved_lufs` is within 1 LU of that value, or the track was capped and set as follows. A result with `capped_by_ceiling` true fell short for its peaks: if `requested_gain_db` minus `applied_gain_db` is over about 6 dB, tell the user and ask before going on; otherwise `set_track_gain` track=N db=<its `requested_gain_db`>, and hold the peaks with one limiter on the master bus (`add_effect` scope=master kind=limiter params={"ceiling_db": -1.0}, once).
 
-Report the contrast and loudness of each track.
+Report each track's contrast from step 4 (a measurement after the gate reads the gated pauses, not the room) and its loudness from step 8.
 
 ## Reference
 
