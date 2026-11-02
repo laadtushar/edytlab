@@ -35,6 +35,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
+use crate::tool::util::parse_args;
 use crate::{Tool, ToolContext, ToolResult};
 
 /// How much history to keep by default: enough that ordinary undo is
@@ -96,9 +97,9 @@ impl Tool for CompactSessionTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let keep_last = args.keep_last.unwrap_or(DEFAULT_KEEP_LAST).max(1);
 

@@ -1,6 +1,7 @@
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, dropped_labels_field, remap_after_cut, source_channels, Moved,
+    destructive_edit_then, dropped_labels_field, parse_args, remap_after_cut, source_channels,
+    Moved,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -112,9 +113,9 @@ impl Tool for TruncateSilenceTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let min_ms = args.min_silence_ms.unwrap_or(500.0).max(1.0);
         let channels = match source_channels(ctx, args.track) {

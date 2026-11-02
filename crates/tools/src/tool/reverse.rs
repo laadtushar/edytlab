@@ -2,7 +2,7 @@
 //! when no range is provided.
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit, track_channels};
+use crate::tool::util::{destructive_edit, parse_args, track_channels};
 use crate::util::range_resolver::{resolve as resolve_range, RangeError};
 use crate::{Range, Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -111,9 +111,9 @@ impl Tool for ReverseTool {
             range: Option<Range>,
         }
 
-        let parsed: Args = match serde_json::from_value(args) {
+        let parsed: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let range =

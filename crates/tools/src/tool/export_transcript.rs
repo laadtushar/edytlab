@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::transcript_cues::{cues, source_info, BoundaryMode, Grouping, TIME_NOTE};
+use crate::tool::util::parse_args;
 use crate::{Tool, ToolContext, ToolResult};
 
 const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -116,9 +117,9 @@ impl Tool for ExportTranscriptTool {
     // Default mutates=true retains plan approval for an arbitrary file write.
     // Default runs_off_the_lock=false prevents retrying that external write.
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
-            Ok(args) => args,
-            Err(error) => return Ok(ToolResult::Error(format!("invalid arguments: {error}"))),
+        let args: Args = match parse_args(args) {
+            Ok(a) => a,
+            Err(r) => return Ok(r),
         };
         let result = export(args, ctx);
         Ok(match result {

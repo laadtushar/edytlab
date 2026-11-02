@@ -27,7 +27,7 @@ use crate::schema::anthropic_tool;
 use crate::session_lines::{
     bus_line, marker_line, markers_by_time, session_rate, track_line, BusBrief, TrackBrief,
 };
-use crate::tool::util::load_head_state;
+use crate::tool::util::args_and_head;
 use crate::{Tool, ToolContext, ToolResult};
 
 /// The most a page may take, in bytes of the result as the model receives
@@ -108,13 +108,9 @@ impl Tool for ListSessionTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
-        };
-        let state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
+        let (args, state) = match args_and_head::<Args>(args, ctx) {
+            Ok(v) => v,
+            Err(r) => return Ok(r),
         };
         let limit = args
             .limit

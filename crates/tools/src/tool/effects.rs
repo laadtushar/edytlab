@@ -92,7 +92,7 @@ use uuid::Uuid;
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     append_state, check_effect_kind, check_effect_params, check_track_index, effect_param_names,
-    load_head_state,
+    load_head_state, parse_args,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -400,9 +400,9 @@ impl Tool for AddEffectTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: AddArgs = match serde_json::from_value(args) {
+        let args: AddArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let target = match Target::resolve(args.scope, args.track, args.bus.as_deref()) {
             Ok(t) => t,
@@ -486,9 +486,9 @@ impl Tool for RemoveEffectTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: IndexArgs = match serde_json::from_value(args) {
+        let args: IndexArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let target = match Target::resolve(args.scope, args.track, args.bus.as_deref()) {
             Ok(t) => t,
@@ -564,9 +564,9 @@ impl Tool for ReorderEffectsTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: ReorderArgs = match serde_json::from_value(args) {
+        let args: ReorderArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let target = match Target::resolve(args.scope, args.track, args.bus.as_deref()) {
             Ok(t) => t,
@@ -680,9 +680,9 @@ impl Tool for SetEffectParamsTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: ParamsArgs = match serde_json::from_value(args) {
+        let args: ParamsArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let target = match Target::resolve(args.scope, args.track, args.bus.as_deref()) {
             Ok(t) => t,
@@ -785,9 +785,9 @@ impl Tool for SetEffectBypassedTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: BypassArgs = match serde_json::from_value(args) {
+        let args: BypassArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let target = match Target::resolve(args.scope, args.track, args.bus.as_deref()) {
             Ok(t) => t,

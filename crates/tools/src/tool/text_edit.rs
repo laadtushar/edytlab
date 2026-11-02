@@ -33,7 +33,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, cut_annotations, cut_timeline, load_head_state, set_session_length,
+    append_state, args_and_head, cut_annotations, cut_timeline, set_session_length,
     track_clip_rate, transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
@@ -78,14 +78,9 @@ impl Tool for CutWordsTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
-        };
-
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
+        let (args, mut state) = match args_and_head::<Args>(args, ctx) {
+            Ok(v) => v,
+            Err(r) => return Ok(r),
         };
         let track_index = match transcript_edit_track(&state, args.track) {
             Ok(t) => t,

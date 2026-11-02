@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, check_track_index, load_head_state, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -41,9 +41,9 @@ impl Tool for RenameTrackTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if let Err(e) = validate_name(&args.name) {
             return Ok(ToolResult::Error(e));

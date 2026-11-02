@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::EffectEdit;
+use crate::tool::util::{parse_args, EffectEdit};
 use crate::{Tool, ToolContext, ToolResult};
 
 pub(crate) use audio_dsp::effects::distortion::apply_distortion;
@@ -44,9 +44,9 @@ impl Tool for DistortionTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let drive = args.drive.unwrap_or(3.0).max(1.0);
         let tone = args.tone.unwrap_or(0.5).clamp(0.0, 1.0);

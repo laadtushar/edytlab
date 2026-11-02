@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::move_clip::recompute_length;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, args_and_head, check_track_index};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -42,13 +42,9 @@ impl Tool for RemoveClipTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
-        };
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
+        let (args, mut state) = match args_and_head::<Args>(args, ctx) {
+            Ok(v) => v,
+            Err(r) => return Ok(r),
         };
         if let Err(e) = check_track_index(&state.tracks, args.track) {
             return Ok(ToolResult::Error(e));

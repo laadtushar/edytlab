@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::load_head_state;
+use crate::tool::util::args_and_head;
 use crate::{Tool, ToolContext, ToolResult};
 use session::annotation::{Annotation, AnnotationKind};
 
@@ -48,13 +48,9 @@ impl Tool for ExportLabelsTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let _args: Args = match serde_json::from_value(args) {
-            Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
-        };
-        let state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
+        let (_args, state) = match args_and_head::<Args>(args, ctx) {
+            Ok(v) => v,
+            Err(r) => return Ok(r),
         };
         let count = state.annotations.len();
         let label_text = format_labels(&state.annotations);

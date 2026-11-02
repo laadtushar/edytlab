@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    check_track_index, destructive_edit_then, flatten_track, load_head_state, TrackAudio,
+    check_track_index, destructive_edit_then, flatten_track, load_head_state, parse_args,
+    TrackAudio,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -315,9 +316,9 @@ impl Tool for NoiseReductionTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let parsed: Args = match serde_json::from_value(args) {
+        let parsed: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let range = match (parsed.noise_from, parsed.noise_to) {

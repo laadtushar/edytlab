@@ -23,7 +23,9 @@ use session::{Bus, Send};
 use uuid::Uuid;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{
+    append_state, args_and_head, check_track_index, load_head_state, parse_args,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -63,14 +65,9 @@ impl Tool for CreateBusTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: CreateArgs = match serde_json::from_value(args) {
-            Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
-        };
-
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
+        let (args, mut state) = match args_and_head::<CreateArgs>(args, ctx) {
+            Ok(v) => v,
+            Err(r) => return Ok(r),
         };
 
         let id = Uuid::new_v4();
@@ -139,9 +136,9 @@ impl Tool for SetSendTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: SendArgs = match serde_json::from_value(args) {
+        let args: SendArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let bus_id = match Uuid::parse_str(&args.bus_id) {
@@ -245,9 +242,9 @@ impl Tool for RemoveSendTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: RemoveArgs = match serde_json::from_value(args) {
+        let args: RemoveArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let bus_id = match Uuid::parse_str(&args.bus_id) {

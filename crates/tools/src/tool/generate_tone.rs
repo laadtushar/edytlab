@@ -6,7 +6,7 @@ use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state_or_empty, set_session_length};
+use crate::tool::util::{append_state, load_head_state_or_empty, parse_args, set_session_length};
 use crate::{Tool, ToolContext, ToolResult};
 
 pub(crate) fn synthesize_tone(
@@ -71,9 +71,9 @@ impl Tool for GenerateToneTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if args.frequency_hz <= 0.0 {
             return Ok(ToolResult::Error("frequency_hz must be positive".into()));

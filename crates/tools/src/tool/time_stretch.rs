@@ -22,7 +22,7 @@ use serde_json::Value;
 
 use crate::schema::{anthropic_tool, object_schema};
 
-use crate::tool::util::{destructive_edit_then, remap_after_scale, Moved};
+use crate::tool::util::{destructive_edit_then, parse_args, remap_after_scale, Moved};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -59,9 +59,9 @@ impl Tool for TimeStretchTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         // Argument validation goes through the same path as the

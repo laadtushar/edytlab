@@ -40,7 +40,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, cut_annotations, cut_timeline, load_head_state, set_session_length,
+    append_state, cut_annotations, cut_timeline, load_head_state, parse_args, set_session_length,
     track_clip_rate, transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
@@ -118,9 +118,9 @@ impl Tool for RemoveFillersTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let keep_gap_s = args.keep_gap_ms.unwrap_or(DEFAULT_KEEP_GAP_MS).max(0.0) / 1000.0;
 

@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::EffectEdit;
+use crate::tool::util::{parse_args, EffectEdit};
 use crate::{Tool, ToolContext, ToolResult};
 
 pub(crate) use audio_dsp::effects::phaser::apply_phaser;
@@ -46,9 +46,9 @@ impl Tool for PhaserTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let rate = args.rate_hz.unwrap_or(0.5).max(0.01);
         let depth = args.depth.unwrap_or(0.5).clamp(0.0, 1.0);

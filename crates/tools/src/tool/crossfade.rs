@@ -4,7 +4,9 @@ use serde_json::{json, Value};
 use session::{Clip, EnvelopePoint};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state, seconds_to_frames, track_clip_rate};
+use crate::tool::util::{
+    append_state, load_head_state, parse_args, seconds_to_frames, track_clip_rate,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
@@ -99,9 +101,9 @@ impl Tool for CrossfadeTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if (args.from_track, args.from_clip) == (args.to_track, args.to_clip) {
             return Ok(ToolResult::Error(
