@@ -27,6 +27,9 @@ vi.mock("../lib/tauri-bridge", () => ({
   openChatgptUsage: vi.fn(),
   onChatGptStatus: () => Promise.resolve(() => undefined),
   mlRuntimeStatus: vi.fn().mockResolvedValue({ state: "missing", searched: [] }),
+  // The Send crash reports row (#958), off in a build that cannot send.
+  getCrashReports: () => Promise.resolve({ enabled: false, available: false }),
+  setCrashReports: vi.fn(),
   mlModelStatus: vi.fn().mockResolvedValue({ model: "whisper-base", state: "not_downloaded", bytes: 0, size: 1 }),
   onMlModelProgress: () => Promise.resolve(() => undefined),
   downloadMlModel: vi.fn(),

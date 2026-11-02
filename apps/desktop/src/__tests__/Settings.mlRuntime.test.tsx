@@ -15,8 +15,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mlRuntimeStatusMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", async () => {
-  const { restingAccount, speechRow } = await import("./settingsBridge");
-  return { ...restingAccount(), ...speechRow(), mlRuntimeStatus: () => mlRuntimeStatusMock() };
+  const { crashReportsRow, restingAccount, speechRow } = await import("./settingsBridge");
+  return { ...restingAccount(), ...speechRow(), ...crashReportsRow(), mlRuntimeStatus: () => mlRuntimeStatusMock() };
 });
 
 import { Settings } from "../components/Settings";

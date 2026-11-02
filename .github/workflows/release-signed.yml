@@ -416,6 +416,8 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          # Opt-in crash reports (#958): see release-dev.yml.
+          EDYTLAB_SENTRY_DSN: ${{ vars.EDYTLAB_SENTRY_DSN || secrets.EDYTLAB_SENTRY_DSN }}
         with:
           projectPath: apps/desktop
           args: ${{ matrix.platform.args }}

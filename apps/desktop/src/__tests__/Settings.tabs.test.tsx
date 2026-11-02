@@ -19,8 +19,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/tauri-bridge", async () => {
-  const { bareAccount, speechRow } = await import("./settingsBridge");
-  return { ...bareAccount(), mlRuntimeStatus: vi.fn(), ...speechRow() };
+  const { bareAccount, crashReportsRow, speechRow } = await import("./settingsBridge");
+  return { ...bareAccount(), mlRuntimeStatus: vi.fn(), ...speechRow(), ...crashReportsRow() };
 });
 
 import {
