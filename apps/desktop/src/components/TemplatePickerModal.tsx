@@ -24,13 +24,15 @@ export function TemplatePickerModal({
   const { mounted, leaving, onAnimationEnd } = usePresence(open);
   const cancelRef = useRef<HTMLButtonElement>(null);
   // Keyboard focus moves into the picker when it opens and goes back to
-  // whatever had it when it closes.
+  // whatever had it when it closes. Opened from closed, the picker mounts a
+  // render after `open` turns true (usePresence), so this waits for `mounted`:
+  // Cancel does not exist before then.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !mounted) return;
     const previous = document.activeElement as HTMLElement | null;
     cancelRef.current?.focus();
     return () => previous?.focus();
-  }, [open]);
+  }, [open, mounted]);
   // Escape closes it, as it does the shortcuts overlay. App's own Escape
   // (clear the selection) stands down while the picker is open, because
   // window listeners cannot stop one another.

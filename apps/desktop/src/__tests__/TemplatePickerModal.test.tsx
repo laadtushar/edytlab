@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TemplatePickerModal } from "../components/TemplatePickerModal";
@@ -60,6 +60,21 @@ describe("TemplatePickerModal", () => {
     const props = { templates: TEMPLATES, onSelect: vi.fn(), onClose: vi.fn() };
     const { rerender } = render(<TemplatePickerModal open {...props} />);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+    rerender(<TemplatePickerModal open={false} {...props} />);
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
+  it("takes focus when opened from closed, as the app opens it", async () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const props = { templates: TEMPLATES, onSelect: vi.fn(), onClose: vi.fn() };
+    const { rerender } = render(<TemplatePickerModal open={false} {...props} />);
+    rerender(<TemplatePickerModal open {...props} />);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" })),
+    );
     rerender(<TemplatePickerModal open={false} {...props} />);
     expect(document.activeElement).toBe(trigger);
     trigger.remove();
