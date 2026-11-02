@@ -521,7 +521,9 @@ function AppSession() {
         setPaletteOpen((open) => !open);
         return;
       }
-      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
+      // Not over the template picker: window listeners cannot stop one
+      // another, so one Escape would close both overlays.
+      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping && !showTemplatePicker) {
         e.preventDefault();
         if (!showShortcuts) setShowShortcuts(true);
         return;
