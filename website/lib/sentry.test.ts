@@ -5,7 +5,8 @@
  * "Off" is checked where it happens: the browser's `instrumentation-client.ts`
  * and the server's `instrumentation.ts` are imported with
  * `NEXT_PUBLIC_SENTRY_DSN` unset and set, against stand-ins for
- * `@sentry/react` and `@sentry/node`, and without a DSN neither initialises
+ * `@sentry/react` (which the browser reaches through `lib/sentry-browser.ts`)
+ * and `@sentry/node`, and without a DSN neither initialises
  * Sentry or reports anything. The SDK makes a request only after `init` with a
  * DSN, so no `init` is no request.
  */
@@ -36,8 +37,15 @@ const WEBSITE = join(__dirname, "..");
 const read = (file: string) => readFileSync(join(WEBSITE, file), "utf8");
 const DSN = "https://0123456789abcdef0123456789abcdef@reports.example.invalid/4500000000000000";
 
-/** Let the dynamic `import()`s and their `then`s run. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+/**
+ * Let the dynamic `import()`s and their `then`s run: the browser's import of
+ * `lib/sentry-browser.ts` is loaded here first, so a `then` that was going to
+ * run has had the time it needs.
+ */
+const settle = async () => {
+  await import("./sentry-browser");
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
 
 const REQUEST_ERROR = [
   new Error("boom"),
@@ -78,6 +86,7 @@ describe("the DSN", () => {
       "lib/sentry.ts",
       "instrumentation.ts",
       "instrumentation-client.ts",
+      "lib/sentry-browser.ts",
       "app/global-error.tsx",
       "next.config.mjs",
       "vercel.json",
@@ -206,7 +215,7 @@ describe("with a DSN", () => {
 
   it("the root error page reports through the browser SDK, and only with a DSN", () => {
     const page = read("app/global-error.tsx");
-    expect(page).toMatch(/if \(!SENTRY_DSN\) return;\s*void import\("@sentry\/react"\)\.then\(\(Sentry\) => Sentry\.captureException\(error\)\)/);
+    expect(page).toMatch(/if \(!SENTRY_DSN\) return;\s*void import\("@\/lib\/sentry-browser"\)\.then\(\(Sentry\) => Sentry\.captureException\(error\)\)/);
   });
 
   it("the edge runtime starts nothing and reports nothing", async () => {
@@ -217,6 +226,27 @@ describe("with a DSN", () => {
     await instrumentation.onRequestError(...REQUEST_ERROR);
     expect(server.init).not.toHaveBeenCalled();
     expect(server.captureException).not.toHaveBeenCalled();
+  });
+});
+
+describe("the browser's chunk", () => {
+  // A dynamic `import("@sentry/react")` loads the whole namespace, which the
+  // bundler cannot trim: replay, feedback and tracing came along (471 KB
+  // minified against 82 KB). The browser goes through one local module that
+  // names what it uses.
+  it("is the local module, which imports the SDK by name", async () => {
+    const source = read("lib/sentry-browser.ts");
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+    expect(code).toBe('export { captureException, init } from "@sentry/react";');
+    expect(Object.keys(await import("./sentry-browser")).sort()).toEqual(["captureException", "init"]);
+  });
+
+  it("is the only way the browser loads the SDK", () => {
+    expect(read("instrumentation-client.ts")).toContain('import("./lib/sentry-browser")');
+    expect(read("app/global-error.tsx")).toContain('import("@/lib/sentry-browser")');
+    for (const file of ["instrumentation-client.ts", "app/global-error.tsx"]) {
+      expect(read(file), file).not.toMatch(/["']@sentry\//);
+    }
   });
 });
 

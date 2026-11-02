@@ -14,7 +14,7 @@ import { SENTRY_DSN } from "@/lib/sentry";
 export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
   useEffect(() => {
     if (!SENTRY_DSN) return;
-    void import("@sentry/react").then((Sentry) => Sentry.captureException(error));
+    void import("@/lib/sentry-browser").then((Sentry) => Sentry.captureException(error));
   }, [error]);
 
   return (

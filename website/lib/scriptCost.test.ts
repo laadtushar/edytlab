@@ -197,8 +197,8 @@ describe("the polyfills Next puts in every page", () => {
 
 describe("Sentry's browser code and the polyfills Next leaves out (#958)", () => {
   /**
-   * The browser SDK, `@sentry/react` (loaded only when the build has a DSN,
-   * `instrumentation-client.ts`), does mention `URL.canParse`, which the
+   * The browser SDK, `@sentry/react` (loaded through `lib/sentry-browser.ts`
+   * only when the build has a DSN), does mention `URL.canParse`, which the
    * alias above leaves unpolyfilled for Chrome 111 to 119, Firefox 111 to 114
    * and Safari 16.4 to 16.x. Every mention is behind `"canParse" in URL`, so
    * on those browsers it falls back to `new URL` and nothing throws.

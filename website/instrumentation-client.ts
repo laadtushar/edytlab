@@ -1,6 +1,6 @@
 /**
- * Sentry in the browser (#958), errors only, through `@sentry/react`. See
- * `lib/sentry.ts`.
+ * Sentry in the browser (#958), errors only, through the part of
+ * `@sentry/react` that `lib/sentry-browser.ts` imports. See `lib/sentry.ts`.
  *
  * Without `NEXT_PUBLIC_SENTRY_DSN` nothing here runs: the SDK is not loaded
  * and no request is made. With it, the SDK is fetched as a chunk of its own
@@ -12,5 +12,5 @@ import { SENTRY_DSN, sentryOptions } from "./lib/sentry";
 
 if (SENTRY_DSN) {
   const dsn = SENTRY_DSN;
-  void import("@sentry/react").then((Sentry) => Sentry.init(sentryOptions(dsn)));
+  void import("./lib/sentry-browser").then((Sentry) => Sentry.init(sentryOptions(dsn)));
 }
