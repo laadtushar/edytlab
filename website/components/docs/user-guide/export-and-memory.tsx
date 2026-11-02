@@ -3,7 +3,7 @@ export function ExportAndMemory() {
   return (
     <>
       <h2 id="export">Export</h2>
-      <p>Export the session to a WAV, FLAC or MP3 file:</p>
+      <p>Ask the agent to export the whole session or a range to WAV, AIFF, FLAC, MP3 or OGG:</p>
       <ul>
         <li>
           <strong>Full session:</strong>{" "}
@@ -19,7 +19,7 @@ export function ExportAndMemory() {
         </li>
       </ul>
       <p>
-        Exports do not change the session graph, so you can export any node.
+        The Export Selection button also saves the selected region as WAV. Exports do not change the session graph, so you can export any node. Choose a destination outside the project audio folders and away from files the project reads.
       </p>
 
       <h2 id="memory">Memory</h2>
