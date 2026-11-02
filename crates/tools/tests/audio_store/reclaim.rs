@@ -11,9 +11,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use tools::{ToolDispatcher, ToolResult};
 
-#[path = "support/harness.rs"]
-mod harness;
-use harness::{ok, write_sine, Session};
+use crate::harness::{ok, write_sine, Session};
 use tempfile::TempDir;
 
 const SR: u32 = 48_000;
