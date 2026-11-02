@@ -278,10 +278,11 @@ pub(crate) fn sweep_orphaned_audio_listed(store: &Store, nodes: &[SessionNode]) 
 
 fn log_orphan_sweep(swept: std::io::Result<tools::reclaim::SweepReport>) {
     match swept {
-        Ok(r) if r.removed_files > 0 => tracing::info!(
+        Ok(r) if r.removed_files > 0 || r.removed_stale_staging > 0 => tracing::info!(
             removed = r.removed_files,
             freed_bytes = r.freed_bytes,
-            "removed derived audio no node names"
+            stale_staging = r.removed_stale_staging,
+            "removed derived audio no node names, and writers' day-old staging files"
         ),
         Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "orphaned-audio sweep failed"),
