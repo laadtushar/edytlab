@@ -16,7 +16,8 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ai::chatgpt::session::{ChatGptSession, ChatGptStatus, Clock, SessionConfig, SignInError};
@@ -45,6 +46,74 @@ pub const FULL_SCOPE: &str =
 pub fn key() -> &'static TestRsaKey {
     static KEY: OnceLock<TestRsaKey> = OnceLock::new();
     KEY.get_or_init(TestRsaKey::generate)
+}
+
+// --- Holding a request in flight --------------------------------------------------
+
+/// How long a held request, or a test waiting for one, waits before giving
+/// up: long enough for a loaded CI runner, short enough that a broken test
+/// fails rather than hangs.
+const HOLD_LIMIT: Duration = Duration::from_secs(10);
+
+/// Holds the fake's requests at its endpoint until the test lets them go:
+/// the condition "while the request is in flight", in place of a sleep
+/// long enough for the test to act in. The endpoint calls [`Hold::here`]
+/// on wiremock's own server thread (it runs its own runtime there), so the
+/// wait blocks that thread, never the test's runtime. Once released, later
+/// requests pass straight through.
+#[derive(Clone, Default)]
+pub struct Hold(Arc<HoldState>);
+
+#[derive(Default)]
+struct HoldState {
+    arrived: AtomicUsize,
+    released: Mutex<bool>,
+    let_go: Condvar,
+}
+
+impl Hold {
+    /// Called by the endpoint: counts the request, then waits until the
+    /// test releases it (at most [`HOLD_LIMIT`], after which it answers and
+    /// the test's own assertions say what went wrong).
+    pub fn here(&self) {
+        self.0.arrived.fetch_add(1, Ordering::SeqCst);
+        let released = self.0.released.lock().unwrap();
+        drop(
+            self.0
+                .let_go
+                .wait_timeout_while(released, HOLD_LIMIT, |released| !*released)
+                .unwrap(),
+        );
+    }
+
+    /// How many requests have reached the endpoint.
+    pub fn arrivals(&self) -> usize {
+        self.0.arrived.load(Ordering::SeqCst)
+    }
+
+    /// Waits until `n` requests have reached the endpoint (and are held
+    /// there, until [`Hold::release`]).
+    pub async fn arrived(&self, n: usize) {
+        until("a request to reach the fake", || self.arrivals() >= n).await;
+    }
+
+    /// Lets every held request, and every later one, through.
+    pub fn release(&self) {
+        *self.0.released.lock().unwrap() = true;
+        self.0.let_go.notify_all();
+    }
+}
+
+/// Polls `condition` until it holds, failing the test after [`HOLD_LIMIT`].
+pub async fn until(what: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + HOLD_LIMIT;
+    while !condition() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "gave up waiting for {what}"
+        );
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
 }
 
 // --- The clock ------------------------------------------------------------------
@@ -292,6 +361,24 @@ impl Fake {
 
     pub fn knobs(&self) -> std::sync::MutexGuard<'_, Knobs> {
         self.knobs.lock().unwrap()
+    }
+
+    /// Holds every refresh at the token endpoint until the returned
+    /// [`Hold`] is released.
+    pub fn hold_refreshes(&self) -> Hold {
+        let hold = Hold::default();
+        let held = hold.clone();
+        *self.on_refresh.lock().unwrap() = Some(Box::new(move |_| held.here()));
+        hold
+    }
+
+    /// Holds every code exchange at the token endpoint until the returned
+    /// [`Hold`] is released.
+    pub fn hold_exchanges(&self) -> Hold {
+        let hold = Hold::default();
+        let held = hold.clone();
+        *self.on_exchange.lock().unwrap() = Some(Box::new(move || held.here()));
+        hold
     }
 
     /// A session config pointed at this server, with its files in `dir`.

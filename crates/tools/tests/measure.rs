@@ -505,7 +505,9 @@ fn the_acx_block_cites_the_requirements_and_the_rules_it_leaves_out() {
     );
     let not_checked = r["acx"]["not_checked"].as_str().unwrap();
     assert!(
-        not_checked.contains("MP3") && not_checked.contains("room tone"),
+        not_checked.contains("MP3")
+            && not_checked.contains("1 to 5 s of room tone")
+            && not_checked.contains("120 minutes"),
         "{not_checked}"
     );
     // Without `check` there is no verdict at all.
