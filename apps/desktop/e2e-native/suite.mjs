@@ -1,7 +1,10 @@
 // Runs every user story against the real desktop binary and writes
 // screenshots, results.json and an HTML report to $OUT.
 //
-//   OUT=/tmp/edytlab-native node suite.mjs [story-id-substring ...]
+//   node suite.mjs [story-id-substring ...]
+//
+// $OUT is out-dir.mjs's: unset, a checked owner-only folder per user in the
+// temp folder, the same every run.
 //
 // A story that talks to a model also leaves $OUT/shots/<id>-tool-calls.json:
 // every turn's tool calls, with their arguments and the result the model

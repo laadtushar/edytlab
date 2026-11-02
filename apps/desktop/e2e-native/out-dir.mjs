@@ -13,12 +13,19 @@ import { join } from "node:path";
 
 export function outDir(env = process.env) {
   if (env.OUT) return env.OUT;
+  return ownedTempDir("edytlab-native", "set OUT to a folder you own");
+}
+
+/** `<temp folder>/<name>-<uid>`: made owner-only if missing, the same path on
+ * every run, and refused (with `hint` in the error) when the name is a link,
+ * not a folder, or another user's. */
+export function ownedTempDir(name, hint = "remove it or run as its owner") {
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
-  const dir = join(tmpdir(), `edytlab-native-${uid ?? "user"}`);
+  const dir = join(tmpdir(), `${name}-${uid ?? "user"}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const found = lstatSync(dir);
   if (!found.isDirectory() || (uid !== undefined && found.uid !== uid)) {
-    throw new Error(`${dir} is not a folder of yours; set OUT to a folder you own`);
+    throw new Error(`${dir} is not a folder of yours; ${hint}`);
   }
   return dir;
 }

@@ -17,11 +17,11 @@
 // (fake-llm.mjs, free), to rehearse the screen work; that is a rehearsal, not
 // footage. `marketing/promo-v0.7.0/record/make-footage.mjs` turns what these
 // leave in $OUT (videos/, results.json, promo/) into the footage folder.
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { x } from "../native.mjs";
+import { ownedTempDir } from "../out-dir.mjs";
 import { assert, dismissKeychainNotice, head, K, onboard, sleep, waitForNewHead, waitForWaveform } from "./helpers.mjs";
 import { onboardClaude, askThrough, lastReply, okBadges, tracks } from "./claude.mjs";
 import { toolBadges } from "./agent.mjs";
@@ -84,9 +84,13 @@ async function connect(ctx) {
 
 /** Where a shot's audio lives. */
 // A short path, because the History graph prints the path of a loaded file on its node.
-// One folder of its own per run, made when first asked for (not a fixed name in the shared temp folder, S5443).
+// The same short path on every take, so each recording shows the same path and the next take finds
+// the stems `writeSection` wrote once (`stems/`) instead of writing them again; one folder, reused,
+// so takes leave nothing behind: `<temp>/edytlab-promo-<uid>`, owner-only and checked as out-dir.mjs
+// checks $OUT (a fixed name in the shared temp folder is somewhere another user can plant a link,
+// S5443). Made when first asked for; each load clears its own subfolder before writing.
 let audioRoot;
-const audioDir = (ctx, name) => join((audioRoot ??= mkdtempSync(join(tmpdir(), "promo-"))), name);
+const audioDir = (ctx, name) => join((audioRoot ??= ownedTempDir("edytlab-promo")), name);
 
 /** Load `files` ({ "Name.wav": parts }) as tracks through the real file chooser, as Open Audio does:
  * the files are alone in a folder of their own, which is opened and everything in it selected, so
