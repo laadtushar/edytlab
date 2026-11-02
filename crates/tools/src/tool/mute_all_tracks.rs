@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state};
+use crate::tool::util::{append_state, args_and_head};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -29,13 +29,9 @@ impl Tool for MuteAllTracksTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
-        };
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
+        let (args, mut state) = match args_and_head::<Args>(args, ctx) {
+            Ok(v) => v,
+            Err(r) => return Ok(r),
         };
         if state.tracks.is_empty() {
             return Ok(ToolResult::Ok(
