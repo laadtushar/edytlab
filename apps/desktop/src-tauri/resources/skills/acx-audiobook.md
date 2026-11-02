@@ -1,34 +1,29 @@
 ---
 name: acx-audiobook
-description: Measure, clean, level and re-measure an audiobook narration against ACX's rules
+description: ACX audiobook: a narration measured, fixed and exported to ACX's rules
 trigger: regex
 pattern: \b(acx|audible|audio ?books?|narrat(or|ion)s?)\b
 enabled: true
 ---
 
-## ACX audiobook check
+## ACX audiobook
 
-ACX (Audible, Amazon, Apple Books) rejects a narration file that breaks one of these. These are its published limits (https://help.acx.com/s/article/acx-audio-submission-requirements):
+Track 0 is the narration. `measure` track=0 check="acx" grades ACX's four rules: RMS, peak, noise floor and digital silence. Tell the user the numbers after each measurement.
 
-- **RMS** between -23 and -18 dBFS
-- **Peak** at or below -3 dBFS
-- **Noise floor** at or below -60 dBFS RMS
-- **No digital silence**: pauses and both ends carry room tone, never exact zeros
+1. **Measure.** `measure` track=0 check="acx". Done when you have told the user each rule's measured value and pass or fail, any `clipping` events, and `sample_rate`, and have asked whether the book is mono or stereo (every file in it must match).
+   - `digital_silence` fails: `silence_finder` track=0 threshold_db=-120 min_silence_ms=10 lists where. Tell the user ACX wants room tone there and ask for room tone or a re-record to fill it; carry on with the other rules meanwhile.
+2. **Clean** (noise floor fails). `noise_reduction` track=0 noise_from=<`noise_floor.at_sec`> noise_to=<that + 0.5> strength=1.0: it learns the noise from the quietest half second the measurement found. Done when it returns a node.
+3. **Measure again**, and repeat step 2 with the new `noise_floor.at_sec`. Done when the noise floor plus the RMS rule's `gain_to_centre_db` is at or under -60, because levelling raises the noise by the same gain. Four passes at most; when a pass lowers the floor by less than 2 dB, stop and tell the user the recording is too noisy to fix here.
+4. **Level.** `gain` track=0 db=<the RMS rule's `gain_to_centre_db`>. Done when it returns a node.
+5. **Hold the peaks.** `add_effect` track=0 kind=limiter params={"ceiling_db": -3.5}, or `set_effect_params` on the limiter the session block already lists there. Done when the session block lists one limiter, last in track 0's chain.
+6. **Measure again.** `measure` track=0 check="acx". Done when `acx.pass` is true. The limiter lowers the RMS slightly: if RMS left its band, `gain` track=0 db=<the new `gain_to_centre_db`> and measure once more. After two rounds, report the numbers and stop.
+7. **Export.** ACX takes MP3 at 192 kbps or more, 44.1 kHz. When `sample_rate` is not 44100, first `resample_track` track=0 target_sample_rate=44100 (it sets the session's rate too, and resamples by linear interpolation: tell the user, and offer to leave the conversion to their own tool when quality matters), then repeat step 6. Then `render_final` node_id=<the session block's head node> format="mp3" bitrate_kbps=192 out_path=<the user's path>. Done when the result's `sample_rate` is 44100.
 
-`measure` reports all four, with the measured value and a pass or fail for each, when it is called with check="acx". It also reports integrated loudness, true peak, clipping (the count and the first times) and the contrast between speech and background. It only reads the session, so it is safe to run as often as needed.
+Report the final value of each rule, then the measurement's `not_checked` list: those are the user's to check.
 
-Workflow, in order. Tell the user the numbers after each measurement.
+## Reference
 
-1. **Measure**: `measure` track=0 check="acx". Say which rules fail, by how much, and where `clipping` found anything. `sample_rate` in the result is the session's: if it is not 44100, see the export step. ACX takes mono or stereo as long as every file in the book matches; the tool does not check that, so ask which the book uses.
-   If the `digital_silence` rule fails (a gap, a clip that starts late, a gated pause), say where it is and that ACX wants room tone there, not silence. Fill it with the recording's own room tone, or ask the user for some; do not leave it. The noise floor then reads the room tone, and `gain_to_centre_db` is worked out from the audio outside the silence, because that is what the file will read once the gaps are filled. If the noise floor reads `found: false`, there is no room tone anywhere to measure.
-2. **Clean**: if the noise floor fails, `noise_reduction` track=0 noise_duration_sec=1.0 strength=1.0. It learns the noise from the first seconds of the track, so that stretch must be room tone with no speech in it (`noise_floor` in the measurement says where the quietest half second is). If the track does not begin with room tone, ask the user before going on.
-3. **Measure again** and repeat step 2 until the noise floor is at least as far under -60 as the level step will add. Raising the level raises the noise by the same amount: a floor of -65 that needs +8 dB of gain ends at -57 and fails. Allow up to four passes; stop early if a pass gains less than 2 dB, and say that the recording is too noisy to fix here.
-4. **Level**: the RMS rule carries `gain_to_centre_db` when it fails. Apply it with `gain` track=0 and the value as db. Do not use `normalize_loudness`: ACX measures RMS, not LUFS, and the two differ.
-5. **Hold the peaks**: `add_effect` track=0 kind="limiter" with ceiling_db -3.5 in its params. Use the effect, not the `limiter` tool: the effect runs after the track's gain and the tool only sees the file, so it would not see the gain from step 4. The limiter lowers the RMS slightly.
-6. **Measure again**: `measure` track=0 check="acx". If the RMS fell out of its band, adjust with `gain` and measure once more. If any rule still fails after two rounds, report the numbers and stop.
-
-7. **Export**: ACX takes a 192 kbps or higher CBR MP3 at 44.1 kHz, and `render_final` has no sample-rate argument: it writes the session's rate. If `measure` showed a `sample_rate` other than 44100, run `resample_track` track=0 target_sample_rate=44100 first (it sets the session's rate too; it resamples by linear interpolation, so tell the user, and offer to leave the conversion to their own tool if quality matters), then measure once more, since resampling can move the numbers. Then `render_final` with format="mp3" and bitrate_kbps=192 (or higher). Whether the MP3 is constant bitrate is not something edytlab checks.
-
-Report the final numbers as pass or fail, and what ACX does not get checked here: the MP3 format above, every file in the book in the same channel format (mono or stereo, as long as they all match), 0.5 to 1 second of room tone at the start and 1 to 5 seconds at the end, and no clicks, pops or outtakes.
-
-Do not gate or silence the pauses to lower the noise floor. ACX wants natural room tone, and a floor made by gating can pass the number and still be rejected by ear.
+- **Level by RMS.** ACX measures RMS, so level with `gain` and the measurement's `gain_to_centre_db`. `normalize_loudness` sets LUFS, which is a different number.
+- **The limiter effect, not the limiter tool.** The effect runs after the track's gain; the tool bakes into the file and never sees the gain from step 4.
+- **Pauses keep their room tone.** Lower the floor with `noise_reduction` only. Leave `noise_gate` out: a gated floor can pass the number and still fail ACX's listening check.
+- Source of the rules: https://help.acx.com/s/article/acx-audio-submission-requirements

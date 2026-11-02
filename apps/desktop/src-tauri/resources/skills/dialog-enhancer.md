@@ -1,24 +1,24 @@
 ---
 name: dialog-enhancer
-description: Dialog and interview clarity enhancement
+description: Dialog clarity for interviews and conversations
 trigger: regex
 pattern: \b(dialog(ue)?s?|interviews?|conversations?|clarity|intelligibility)\b
 enabled: true
 ---
 
-## Dialog Enhancement
+## Dialog enhancement
 
-For interview and dialog recordings:
+Run steps 1 to 6 on each speaker's track N in turn. Keep each speaker on their own track; `render_final` exports their mix.
 
-1. **High-pass**: `high_pass_filter` cutoff_hz=120 — remove handling noise and low rumble
-2. **Noise reduction**: `noise_reduction` noise_duration_sec=1.0 — clean background (it learns the noise from the first second, so that stretch must be room tone)
-3. **Mid-frequency EQ**: `eq` — boost 1–4 kHz for intelligibility (where consonants live)
-4. **Compression**: `compressor` threshold_db=-20, ratio=3.0, attack_ms=15 — even out speaker level differences
-5. **Noise gate**: `noise_gate` threshold_db=-45 — clean between sentences. Higher than the podcast gate (-50) because speakers bleed into each other's microphones between sentences. Skip the gate for an ACX audiobook, which needs natural room tone.
+1. **Measure.** `measure` track=N. Done when you have `noise_floor.dbfs`, `noise_floor.at_sec`, `rms_dbfs`, `loudness.range_lu` and `contrast.difference_db`.
+2. **High-pass.** `high_pass_filter` track=N cutoff_hz=120 takes out handling noise and rumble. Done when it returns a node.
+3. **Denoise.** `noise_reduction` track=N noise_from=<`noise_floor.at_sec`> noise_to=<that + 0.5>. Done when `measure` track=N reads a lower `noise_floor.dbfs` than step 1. Skip when step 1 found no noise floor.
+4. **Presence.** `eq` track=N bands=[{"freq_hz": 2500, "gain_db": 3, "q": 0.7}] lifts the 1 to 4 kHz range where consonants sit. Done when it returns a node.
+5. **Compress.** `compressor` track=N threshold_db=-20 ratio=3.0 attack_ms=15 release_ms=100 evens out the speakers' levels. Done when `measure` track=N reads a lower `loudness.range_lu` than step 1; if it does not, the threshold sat above the speech: say so rather than compressing twice.
+6. **Gate.** `noise_gate` track=N threshold_db=-45 closes between sentences, where the other speakers bleed into this microphone. For an audiobook, skip it: ACX wants room tone in the pauses. Done when it returns a node.
+7. **Check.** `measure` track=N for each track. Done when every track's `contrast.wcag_20db_pass` is true (speech at least 20 dB over the background). A track that fails gets step 3 once more; then report the numbers, two denoise passes at most.
 
-For multi-speaker interviews:
-- Process each speaker track separately before mixing
-- Use `stereo_to_mono` if needed for consistent panning
-- Use `mix_to_new_track` to create the final combined track
+## Reference
 
-Stop: `measure` track=N and read `contrast.wcag_20db_pass` (speech at least 20 dB over the background). If it is false, repeat step 2 once more, then report the numbers; two passes at most.
+- Steps 2 to 6 rewrite the track's own audio, which plays before its track gain. Thresholds are against that audio: for a recording much quieter than speech usually is, lower threshold_db by how far step 1's `rms_dbfs` (less the track's gain in the session block) sits under -20 dBFS.
+- `noise_reduction` learns the noise from noise_from to noise_to, so that stretch must hold no speech; when the quietest stretch is speech, ask the user for a pause.
