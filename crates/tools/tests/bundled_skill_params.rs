@@ -273,7 +273,7 @@ fn add_effect_calls(body: &str) -> Vec<EffectCall> {
         let mut rest = line;
         while let Some(at) = rest.find(NAME) {
             let after = &rest[at + NAME.len()..];
-            let call = &after[..after.find('`').unwrap_or(after.len())];
+            let call = after.find('`').map_or(after, |end| &after[..end]);
             let kind = call.split_whitespace().find_map(|word| {
                 word.strip_prefix("kind=")
                     .map(|k| k.trim_end_matches(|c: char| !is_ident(c)).to_string())
@@ -283,7 +283,7 @@ fn add_effect_calls(body: &str) -> Vec<EffectCall> {
                 .find("params={")
                 .map(|at| {
                     let object = &call[at + "params={".len()..];
-                    let object = &object[..object.find('}').unwrap_or(object.len())];
+                    let object = object.find('}').map_or(object, |end| &object[..end]);
                     let parts: Vec<&str> = object.split('"').collect();
                     (1..parts.len())
                         .step_by(2)
