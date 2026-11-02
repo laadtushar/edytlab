@@ -129,6 +129,8 @@ const TOOL_LABELS: Record<string, string> = {
   // Repair
   noise_reduction: "Noise reduction",
   click_removal: "Click removal",
+  declip: "Declip",
+  repair_span: "Repair span",
   de_esser: "De-esser",
   vocal_reduction: "Vocal reduction",
 

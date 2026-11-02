@@ -249,7 +249,7 @@ impl ToolDispatcher {
             AnalyzeTrackTool, ApplyDiffTool, ApplyRecipeTool, AuditionEffectTool, BatchApplyTool,
             ChangeSpeedTool, ClickRemovalTool, CompactSessionTool, CompareNodesTool,
             CompressorTool, CopyRegionTool, CreateBusTool, CrossfadeTool, CutRangeTool,
-            CutWordsTool, DeEsserTool, DeleteMarkersTool, DiarizeTool, DistortionTool,
+            CutWordsTool, DeEsserTool, DeclipTool, DeleteMarkersTool, DiarizeTool, DistortionTool,
             DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EditMarkersTool, EqTool,
             ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool, FadeTool,
             FindMarkersTool, ForkNodeTool, GainTool, GenerateChirpTool, GenerateClickTrackTool,
@@ -261,12 +261,12 @@ impl ToolDispatcher {
             NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
             PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
             RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            ReorderEffectsTool, ReorderTracksTool, RepeatSelectionTool, ResampleTrackTool,
-            ReverbTool, ReverseTool, RevertToTool, SelectRegionTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
-            SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool,
-            SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
-            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            ReorderEffectsTool, ReorderTracksTool, RepairSpanTool, RepeatSelectionTool,
+            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SelectRegionTool,
+            SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
+            SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool,
+            SilenceRegionTool, SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool,
+            StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
             TranscriptToMarkersTool, TremoloTool, TrimTool, TruncateSilenceTool,
             VocalReductionTool, WahWahTool,
         };
@@ -312,6 +312,8 @@ impl ToolDispatcher {
         d.register(Box::new(ReverbTool));
         d.register(Box::new(InsertSilenceTool));
         d.register(Box::new(ClickRemovalTool));
+        d.register(Box::new(DeclipTool));
+        d.register(Box::new(RepairSpanTool));
         d.register(Box::new(EchoTool));
         // D4-D6: copy/paste + labels.
         d.register(Box::new(CopyRegionTool));
