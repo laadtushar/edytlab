@@ -254,37 +254,36 @@ fn part_of(rel: &Path, is_dir: bool) -> Part {
 }
 
 /// What a copy of the project cannot be without, relative to it: the
-/// head's node file, and the files the head plays from any folder of the
-/// project's audio store (`derived/`, `clipboard/`, `generated/`: every
+/// head's node file, and the files the head plays that the project's audio
+/// store owns, in any of its folders (`derived/`, `clipboard/`,
+/// `generated/`: `AudioStore::owns` asks every
 /// [`session::audio_store::AudioFolder`], so a folder added later is
-/// covered too). Only what is there now counts, so a copy is never
-/// refused for a file the project had already lost (history audio a sweep
-/// removed, which a replay puts back). Read under the store's lock.
+/// covered too, and compares folders by identity, not by how a clip spells
+/// them). Only what is there now counts, so a copy is never refused for a
+/// file the project had already lost (history audio a sweep removed, which a
+/// replay puts back). Read under the store's lock.
 fn needed_by_head(store: &Store) -> Vec<PathBuf> {
     let Some(head) = store.head() else {
         return Vec::new();
     };
     let src = store.project_dir();
-    let mut needed = vec![session::store::node_path(src, &head.to_hex())];
+    let node_file = session::store::node_path(src, &head.to_hex());
+    let mut needed = Vec::new();
+    if let (true, Ok(rel)) = (node_file.is_file(), node_file.strip_prefix(src)) {
+        needed.push(rel.to_path_buf());
+    }
     if let Ok(node) = store.get(head) {
-        let audio: Vec<PathBuf> = session::audio_store::AudioFolder::ALL
-            .iter()
-            .map(|folder| folder.dir(src))
-            .collect();
+        let audio = store.audio_store();
         needed.extend(
             node.state
                 .tracks
                 .iter()
                 .flat_map(|t| &t.clips)
-                .map(|c| c.source_path.clone())
-                .filter(|path| audio.iter().any(|dir| path.starts_with(dir))),
+                .filter_map(|c| audio.owns(&c.source_path))
+                .map(|file| file.in_project()),
         );
     }
     needed
-        .into_iter()
-        .filter(|path| path.is_file())
-        .filter_map(|path| path.strip_prefix(src).ok().map(Path::to_path_buf))
-        .collect()
 }
 
 /// One copy in progress, from the project at `src` to `dest`.
@@ -1160,6 +1159,33 @@ mod tests {
                 folder.name()
             );
         }
+    }
+
+    /// Which head files the copy needs is asked of the audio store, which
+    /// compares folders by identity: a project opened through a link whose
+    /// head names its audio by the real path still has that audio checked
+    /// (a check by spelling left it out, #719).
+    #[cfg(unix)]
+    #[test]
+    fn a_head_file_spelled_another_way_is_checked_too() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("original");
+        let audio = session::relocate::derived_dir(&dir).join("played.wav");
+        std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
+        std::fs::write(&audio, vec![3u8; 256]).unwrap();
+        let linked = tmp.path().join("linked");
+        std::os::unix::fs::symlink(&dir, &linked).unwrap();
+        let mut store = session::Store::open(&linked).unwrap();
+        store
+            .append(playing(std::slice::from_ref(&audio), 1))
+            .unwrap();
+        assert!(
+            needed_by_head(&store)
+                .iter()
+                .any(|rel| rel.ends_with(Path::new("derived").join("played.wav"))),
+            "{:?}",
+            needed_by_head(&store)
+        );
     }
 
     #[test]

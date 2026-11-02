@@ -129,7 +129,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::audio_store::AudioFolder;
+use crate::audio_store::{AudioFolder, Counterpart};
 use crate::state::SessionState;
 use crate::store::STORE_DIR;
 
@@ -152,7 +152,7 @@ pub fn rebind(state: &mut SessionState, project_dir: &Path) -> usize {
 /// Where this project keeps the file `path` names, if `path` is a file in
 /// a content-named folder of *another* project, whether or not either
 /// file exists. See [`Rebinder::counterpart`].
-pub fn counterpart(project_dir: &Path, path: &Path) -> Option<PathBuf> {
+pub fn counterpart(project_dir: &Path, path: &Path) -> Option<Counterpart> {
     Rebinder::new(project_dir).counterpart(path)
 }
 
@@ -183,8 +183,9 @@ fn kept_folder(path: &Path) -> Option<(AudioFolder, &Path)> {
 enum Place {
     /// In one of this project's own content-named folders.
     Own,
-    /// In one of another project's: where this project keeps that name.
-    Theirs(PathBuf),
+    /// In one of another project's: where this project keeps that name, in
+    /// its folder of that kind.
+    Theirs(AudioFolder, PathBuf),
     /// Anywhere else.
     Elsewhere,
 }
@@ -233,10 +234,11 @@ impl Rebinder {
     /// for anything else.
     ///
     /// Neither file need exist: the rebuild of a gone file asks this for
-    /// where to put it, and the repair of a copy for where to copy to.
-    pub fn counterpart(&self, path: &Path) -> Option<PathBuf> {
+    /// where to put it, and the repair of a copy for where to copy to
+    /// ([`Counterpart::copy_in`]).
+    pub fn counterpart(&self, path: &Path) -> Option<Counterpart> {
         match self.place(path) {
-            Place::Theirs(local) => Some(local),
+            Place::Theirs(kept, local) => Some(Counterpart::new(kept, local)),
             Place::Own | Place::Elsewhere => None,
         }
     }
@@ -258,7 +260,7 @@ impl Rebinder {
         if kept == AudioFolder::Generated && !project.join(STORE_DIR).is_dir() {
             return Place::Elsewhere;
         }
-        Place::Theirs(local)
+        Place::Theirs(kept, local)
     }
 
     /// Where a clip naming `path` should read instead, if anywhere: always
@@ -269,9 +271,9 @@ impl Rebinder {
             // not: a gone one is rebuilt where it is named.
             Place::Own => None,
             // Rule 1.
-            Place::Theirs(local) if local.is_file() => Some(local),
+            Place::Theirs(_, local) if local.is_file() => Some(local),
             // Rule 2.
-            Place::Theirs(_) | Place::Elsewhere => {
+            Place::Theirs(..) | Place::Elsewhere => {
                 if path.exists() {
                     return None;
                 }
