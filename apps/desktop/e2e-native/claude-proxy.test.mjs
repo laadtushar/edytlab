@@ -22,6 +22,7 @@ let upstream;
 let proxy;
 let base;
 const seen = []; // what the stand-in API received: { url, key, body }
+let redirectTo = "http://127.0.0.1:9/"; // where the stand-in's /v1/redirect points
 
 const freePort = () =>
   new Promise((resolve) => {
@@ -36,6 +37,10 @@ before(async () => {
     let data = "";
     for await (const c of req) data += c;
     seen.push({ url: req.url, key: req.headers["x-api-key"], body: JSON.parse(data || "{}") });
+    if (req.url === "/v1/redirect") {
+      res.writeHead(307, { location: redirectTo }).end();
+      return;
+    }
     const stream = JSON.parse(data || "{}").stream === true;
     if (stream) {
       res.writeHead(200, { "content-type": "text/event-stream" });
@@ -69,6 +74,20 @@ after(() => {
 
 const post = (body) =>
   fetch(`${base}/v1/messages`, { method: "POST", headers: { "x-api-key": KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.text());
+
+// A raw request, so a 3xx is seen as it is and a request target is sent as
+// written (fetch would follow the one and normalise the other).
+const send = (port, path) =>
+  new Promise((resolve, reject) => {
+    const req = httpRequest({ host: "127.0.0.1", port, method: "POST", path, headers: { "x-api-key": KEY, "content-type": "application/json" } }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (c) => (body += c));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body }));
+    });
+    req.on("error", reject);
+    req.end("{}");
+  });
 
 const tools = [{ name: "set_track_gain" }];
 const first = [{ role: "user", content: [{ type: "text", text: "Make track 0 louder by 3 dB." }] }];
@@ -127,19 +146,38 @@ test("a request line that is not a path on the upstream is refused, and the key 
   await new Promise((r) => other.listen(0, "127.0.0.1", r));
   try {
     const port = new URL(base).port;
-    for (const path of [`@127.0.0.1:${other.address().port}/v1/messages`, `//127.0.0.1:${other.address().port}/v1/messages`, `http://127.0.0.1:${other.address().port}/v1/messages`]) {
-      const status = await new Promise((resolve, reject) => {
-        const req = httpRequest({ host: "127.0.0.1", port, method: "POST", path, headers: { "x-api-key": KEY, "content-type": "application/json" } }, (res) => {
-          res.resume();
-          res.on("end", () => resolve(res.statusCode));
-        });
-        req.on("error", reject);
-        req.end("{}");
-      });
+    const to = `127.0.0.1:${other.address().port}/v1/messages`;
+    // `@host/x` never reaches the proxy's own check: Node's HTTP parser
+    // answers 400 to a request target that is neither a path nor an absolute
+    // URL before the handler runs. It is kept because it is the form S5144
+    // names; the other two reach `upstreamUrl` and get the proxy's refusal.
+    for (const [path, byProxy] of [[`@${to}`, false], [`//${to}`, true], [`http://${to}`, true]]) {
+      const { status, body } = await send(port, path);
       assert.equal(status, 400, `${path} is refused`);
+      if (byProxy) assert.match(body, /proxy: only paths on the upstream are forwarded/, `${path} is refused by the proxy`);
     }
     assert.deepEqual(hits, [], "nothing reached the other host");
     assert.equal(seen.length, before, "nothing reached the upstream either");
+  } finally {
+    other.close();
+  }
+});
+
+test("a redirect from the upstream goes back to the client unfollowed, so the key does not go with it", async () => {
+  const hits = [];
+  const other = createHttp((req, res) => {
+    hits.push({ url: req.url, key: req.headers["x-api-key"] });
+    res.end("{}");
+  });
+  await new Promise((r) => other.listen(0, "127.0.0.1", r));
+  try {
+    redirectTo = `http://127.0.0.1:${other.address().port}/v1/messages`;
+    const before = seen.length;
+    const { status, headers } = await send(new URL(base).port, "/v1/redirect");
+    assert.equal(seen.length, before + 1, "the request reached the upstream once");
+    assert.equal(status, 307, "the client gets the upstream's redirect");
+    assert.equal(headers.location, redirectTo, "with its Location untouched");
+    assert.deepEqual(hits, [], "the proxy did not follow it to the other host");
   } finally {
     other.close();
   }

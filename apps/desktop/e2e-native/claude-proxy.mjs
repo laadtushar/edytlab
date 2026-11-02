@@ -146,6 +146,10 @@ const server = createServer(async (req, res) => {
       method: req.method,
       headers,
       body: ["GET", "HEAD"].includes(req.method) ? undefined : body,
+      // Never follow a redirect: fetch would send the x-api-key on to wherever
+      // it points, another origin included. A 3xx goes back to the client as
+      // it came, Location and all, and the client decides.
+      redirect: "manual",
     });
     status = up.status;
     const out = {};
