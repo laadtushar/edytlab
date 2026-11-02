@@ -4577,9 +4577,9 @@ checksum = "46604e6809c06441da1cfdde1f0cc25a4f2bf42c7d005aa387c2875c02d78762"
 
 [[package]]
 name = "rusty_mp3"
-version = "0.7.0"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fd89ed8a368cceb87ffcc9f3f128fff535ff1cd3ad27e4e64406c29d307a956"
+checksum = "eda7c6c82285d2bc3f1e6aded40ca6f7572fe9eec77f18fb10efc1d03aed3877"
 
 [[package]]
 name = "ryu"
