@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::schema::anthropic_tool;
 use crate::tool::util::EffectEdit;
 use crate::{Tool, ToolContext, ToolResult};
-use audio_dsp::effects::wah_wah::apply_wah_wah;
+use audio_dsp::effects::wah_wah::{apply_wah_wah, clamp_base_freq};
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -32,7 +32,7 @@ impl Tool for WahWahTool {
                     "track": { "type": "integer" },
                     "rate_hz": { "type": "number", "default": 1.0, "description": "LFO rate in Hz (0.1 to 10)" },
                     "depth": { "type": "number", "default": 0.5, "description": "Sweep depth (0 to 1)" },
-                    "base_freq_hz": { "type": "number", "default": 1000.0, "description": "Centre frequency in Hz" },
+                    "base_freq_hz": { "type": "number", "default": 1000.0, "description": "Centre frequency in Hz (200 to 5000)" },
                     "resonance": { "type": "number", "default": 2.0, "description": "Filter Q (0.1 to 10)" }
                 },
                 "required": ["track"]
@@ -51,7 +51,7 @@ impl Tool for WahWahTool {
         };
         let rate = args.rate_hz.unwrap_or(1.0).clamp(0.1, 10.0);
         let depth = args.depth.unwrap_or(0.5).clamp(0.0, 1.0);
-        let base = args.base_freq_hz.unwrap_or(1000.0).max(1.0);
+        let base = clamp_base_freq(args.base_freq_hz.unwrap_or(1000.0));
         let resonance = args.resonance.unwrap_or(2.0).clamp(0.1, 10.0);
         Ok(EffectEdit::on(args.track).run(
             ctx,

@@ -1403,7 +1403,7 @@ Apply a wah-wah effect with an LFO-swept band-pass filter. Depth controls the sw
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `base_freq_hz` | number | no | Centre frequency in Hz |
+| `base_freq_hz` | number | no | Centre frequency in Hz (200 to 5000) |
 | `depth` | number | no | Sweep depth (0 to 1) |
 | `rate_hz` | number | no | LFO rate in Hz (0.1 to 10) |
 | `resonance` | number | no | Filter Q (0.1 to 10) |

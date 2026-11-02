@@ -5,8 +5,8 @@
 //! the same arithmetic in the same order, so filtered output is
 //! bit-identical to before the move.
 //!
-//! Four tools share this (`low_pass_filter`, `high_pass_filter`,
-//! `notch_filter`, `de_esser`), and the render path will want it too,
+//! Five tools share this (`low_pass_filter`, `high_pass_filter`,
+//! `notch_filter`, `de_esser`, `wah_wah`), and the render path will want it too,
 //! which is exactly why it could not stay `pub(crate)` in `tools`.
 
 /// Direct Form II biquad state, one per channel.
@@ -97,21 +97,33 @@ impl BiquadCoeffs {
     }
 
     /// RBJ band-pass filter with unity gain at the centre frequency.
+    ///
+    /// Computed in f64 and rounded once at the end: at a low centre `w0`
+    /// is small enough that an f32 `cos(w0)` rounds to 1 and puts a pole
+    /// on or outside the unit circle (#846's review measured `inf` at
+    /// 192 kHz with a 2 Hz centre).
     pub fn band_pass(center_hz: f32, q: f32, sample_rate: u32) -> Self {
-        let w0 = safe_w0(center_hz, sample_rate);
+        let sr = f64::from(sample_rate.max(1));
+        let ceiling = sr * 0.45;
+        let center = if center_hz.is_finite() {
+            f64::from(center_hz).clamp(1.0, ceiling.max(1.0))
+        } else {
+            ceiling.max(1.0)
+        };
+        let w0 = 2.0 * std::f64::consts::PI * center / sr;
         let q = if q.is_finite() {
-            q.clamp(0.1, 10.0)
+            f64::from(q.clamp(0.1, 10.0))
         } else {
             1.0
         };
         let alpha = w0.sin() / (2.0 * q);
         let a0 = 1.0 + alpha;
         Self {
-            b0: alpha / a0,
+            b0: (alpha / a0) as f32,
             b1: 0.0,
-            b2: -alpha / a0,
-            a1: -2.0 * w0.cos() / a0,
-            a2: (1.0 - alpha) / a0,
+            b2: (-alpha / a0) as f32,
+            a1: (-2.0 * w0.cos() / a0) as f32,
+            a2: ((1.0 - alpha) / a0) as f32,
         }
     }
 
