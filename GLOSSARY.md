@@ -47,8 +47,10 @@ under sync-lock, labels, words (ADR 0004).
 **Audio store.** The project's own audio files: the three folders whose files are named by their
 content (`derived/` and `clipboard/` under `.audiograph/`, `generated/` at the project's root), the
 names (an `AudioName`, which only the store makes) and the one way a file is put under a name, whole
-or not at all (`session::audio_store`, #719; ADR 0008, stages 1–2: every writer goes through it, the
-sweeps and repair still live elsewhere).
+or not at all, and the one way a file is deleted: only a regular file directly in one of those folders
+(`AudioStore::owns`), and only while no handle on the project is staged (`Store::audio_deleter`)
+(`session::audio_store`, #719; ADR 0008, stages 1–3a: every writer and every deleter goes through it,
+while repair's copies, Save As and `rederive`'s put-back still live elsewhere).
 
 **Derived file.** Audio the project wrote under a name made from its samples, in
 `.audiograph/derived/` (#620; ADR 0008). See **Audio store**.

@@ -30,10 +30,13 @@
 //!    tool writes its output before the node that names it is committed,
 //!    so for that stretch the output is an orphan, and rule 3 would take
 //!    it. The audio it is reading may also stop being the head's if the
-//!    user edits meanwhile. [`apply_sweep`] and [`sweep_orphans`] check
-//!    `Store::staged_in_flight` under the store's lock, where it cannot
-//!    change for runs staged from that store, and do nothing if it is not
-//!    zero; [`apply_compaction`] refuses, and changes nothing. Save As holds
+//!    user edits meanwhile. Every delete here goes through the audio store's
+//!    `AudioDeleter` (`session::Store::audio_deleter`, #719), which is handed
+//!    out only while `Store::staged_in_flight` is zero, read under the
+//!    store's lock where it cannot change for runs staged from that store,
+//!    and asked again at each delete: [`apply_sweep`] and [`sweep_orphans`]
+//!    do nothing without one, and [`apply_compaction`] refuses, and changes
+//!    nothing. Save As holds
 //!    a staged handle too, writing nothing, while it copies the project's
 //!    audio with no lock held, so that nothing the copied nodes name is
 //!    deleted under the copy (#571), and so does the copy of a project's
@@ -43,6 +46,10 @@
 //!    through a freshly opened handle (a project opened again, the
 //!    reclaimer's reader) sees a run staged from another. The sweep runs
 //!    again every minute, so this defers it; it does not lose it.
+//!
+//!    And only a file the store owns is deleted: a regular file directly in
+//!    its `derived/` (`AudioStore::owns`), never one a node names from
+//!    anywhere else (#589).
 //! 1. **Never touch a file the current head names.** Whatever the
 //!    policy, the session you are looking at keeps working.
 //! 2. **Never touch a file no op can rebuild.** A node written before
@@ -63,9 +70,10 @@
 //!    one you are most likely to want back.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
-use crate::provenance::derived_dir;
+use session::audio_store::{AudioDeleter, AudioFolder, OwnedFile};
 
 /// How much derived audio a project keeps before the history sweep runs:
 /// 2 GiB, about 36 five-minute stereo edits of undo history kept on disk,
@@ -260,13 +268,10 @@ pub fn plan_sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<Swe
         cap_bytes,
         ..Default::default()
     };
-    let dir = derived_dir(store.project_dir());
-    if !dir.is_dir() {
-        return Ok(plan);
-    }
     // Under the cap costs one directory listing, and nothing else: this
     // runs every minute an app is open.
-    let (mut files, total) = list_files(&dir)?;
+    let mut files = store.audio_store().files(AudioFolder::Derived)?;
+    let total = total_bytes(&files);
     if total <= cap_bytes {
         return Ok(plan);
     }
@@ -296,7 +301,7 @@ pub fn plan_sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<Swe
             }
         }
     }
-    let mut verifier = Verifier::new(&dir);
+    let mut verifier = Verifier::default();
 
     // Pure garbage goes before anything somebody might want, and a lane
     // copy — rebuilt from its sources in one pass — before audio that
@@ -315,14 +320,14 @@ pub fn plan_sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<Swe
         Kind::LaneCopy => 1,
         Kind::History => 2,
     };
-    files.sort_by_key(|(path, _, mtime)| (rank(kind_of(&key(path))), *mtime));
+    files.sort_by_key(|f| (rank(kind_of(&key(f.path()))), f.modified()));
 
     let mut remaining = total;
-    for (path, bytes, _) in files {
+    for file in files {
         if remaining <= cap_bytes {
             break;
         }
-        let k = key(&path);
+        let k = key(file.path());
         if protected.contains(&k) {
             continue;
         }
@@ -338,7 +343,7 @@ pub fn plan_sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<Swe
                 plan.kept_unrebuildable += 1;
                 continue;
             }
-            if !verifier.rebuilds(store, &k, naming.get(&k).map(Vec::as_slice)) {
+            if !verifier.rebuilds(store, file.name(), naming.get(&k).map(Vec::as_slice)) {
                 // The record says it can come back; a replay says
                 // otherwise. The replay is what `materialize` will run,
                 // so it is the one to believe (#356).
@@ -346,8 +351,8 @@ pub fn plan_sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<Swe
                 continue;
             }
         }
-        plan.candidates.push((path, kind));
-        remaining -= bytes;
+        remaining -= file.bytes();
+        plan.candidates.push((file.path().to_path_buf(), kind));
     }
     Ok(plan)
 }
@@ -370,14 +375,17 @@ pub fn apply_sweep(store: &session::Store, plan: &SweepPlan) -> std::io::Result<
     // Not while a tool is running without the lock (rule 0): the output it
     // has written so far is named by no node, and this would take it for
     // an orphan. The next check, a minute on, plans again.
-    if store.staged_in_flight() > 0 {
+    let Some(deleter) = store.audio_deleter() else {
+        return Ok(report);
+    };
+    if key(store.project_dir()) != key(&plan.project_dir) {
         return Ok(report);
     }
-    let dir = derived_dir(store.project_dir());
-    if key(store.project_dir()) != key(&plan.project_dir) || !dir.is_dir() {
+    let files = deleter.audio().files(AudioFolder::Derived)?;
+    if files.is_empty() {
         return Ok(report);
     }
-    let (_, total) = list_files(&dir)?;
+    let total = total_bytes(&files);
     report.remaining_bytes = total;
     if plan.candidates.is_empty() || total <= plan.cap_bytes {
         return Ok(report);
@@ -411,40 +419,36 @@ pub fn apply_sweep(store: &session::Store, plan: &SweepPlan) -> std::io::Result<
         if !still {
             continue;
         }
-        let Ok(meta) = std::fs::metadata(path) else {
+        let Some(file) = owned_derived(&deleter, path) else {
             continue;
         };
-        if std::fs::remove_file(path).is_ok() {
+        if deleter.remove(&file) {
             report.removed_files += 1;
             match kind {
                 Kind::Orphan => report.removed_orphans += 1,
                 Kind::LaneCopy => report.removed_lane_copies += 1,
                 Kind::History => {}
             }
-            report.freed_bytes += meta.len();
-            report.remaining_bytes = report.remaining_bytes.saturating_sub(meta.len());
+            report.freed_bytes += file.bytes();
+            report.remaining_bytes = report.remaining_bytes.saturating_sub(file.bytes());
         }
     }
     Ok(report)
 }
 
-/// `(path, bytes, mtime)` for every file in `dir`, and their total size.
-#[allow(clippy::type_complexity)]
-fn list_files(dir: &Path) -> std::io::Result<(Vec<(PathBuf, u64, std::time::SystemTime)>, u64)> {
-    let mut files = Vec::new();
-    let mut total = 0u64;
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let meta = entry.metadata()?;
-        let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
-        total += meta.len();
-        files.push((path, meta.len(), mtime));
-    }
-    Ok((files, total))
+/// The size of `files` together.
+fn total_bytes(files: &[OwnedFile]) -> u64 {
+    files.iter().map(OwnedFile::bytes).sum()
+}
+
+/// `path` as a file the store owns in `derived/`, the one folder the sweeps
+/// and compaction delete from; `None` for anything else, including a file
+/// the store owns in another of its folders.
+fn owned_derived(deleter: &AudioDeleter<'_>, path: &Path) -> Option<OwnedFile> {
+    deleter
+        .audio()
+        .owns(path)
+        .filter(|f| f.folder() == AudioFolder::Derived)
 }
 
 /// Proof, before a delete, that a file can be put back (#356).
@@ -456,38 +460,33 @@ fn list_files(dir: &Path) -> std::io::Result<(Vec<(PathBuf, u64, std::time::Syst
 /// such gap in the record, the sweep asks the replay itself: it runs the
 /// node's own step on its parent's audio in a scratch project — exactly
 /// the step a rebuild runs (`rederive`) — and a file is verified only if
-/// the replay wrote a file of the same name: the same bytes, since names
-/// are content hashes. A node written before #620 records the name its
+/// the replay wrote a file of the same name in `derived/`: the same bytes,
+/// since names are content hashes. Every file the sweep asks about is in
+/// `derived/` (it lists that folder), so a name is all it compares. A node written before #620 records the name its
 /// samples had without their rate and channel count, so the name a replay
 /// would have given the file then counts as well (`rederive`).
 ///
 /// Each node is replayed at most once, and each replay is one step, so a
 /// sweep costs about one edit's work per file it verifies. That is why
 /// this runs only when the directory is over its cap.
+#[derive(Default)]
 struct Verifier {
-    dir: PathBuf,
-    verified: BTreeSet<PathBuf>,
+    /// Names of `derived/` files a replay has rebuilt.
+    verified: BTreeSet<OsString>,
     replayed: HashSet<session::NodeId>,
 }
 
 impl Verifier {
-    fn new(dir: &Path) -> Self {
-        Self {
-            dir: dir.to_path_buf(),
-            verified: BTreeSet::new(),
-            replayed: HashSet::new(),
-        }
-    }
-
-    /// Whether a replay of one of `nodes` rebuilds the file at `k`.
+    /// Whether a replay of one of `nodes` rebuilds the `derived/` file
+    /// called `name`.
     fn rebuilds(
         &mut self,
         store: &session::Store,
-        k: &Path,
+        name: &OsStr,
         nodes: Option<&[session::NodeId]>,
     ) -> bool {
         for &id in nodes.unwrap_or_default() {
-            if self.verified.contains(k) {
+            if self.verified.contains(name) {
                 break;
             }
             if !self.replayed.insert(id) {
@@ -498,12 +497,10 @@ impl Verifier {
                 // the names its samples had then: either is a file the
                 // replay rebuilds, and a rebuild writes it under the one
                 // that is recorded (`rederive`).
-                for name in replay.names() {
-                    self.verified.insert(key(&self.dir.join(name)));
-                }
+                self.verified.extend(replay.names().cloned());
             }
         }
-        self.verified.contains(k)
+        self.verified.contains(name)
     }
 }
 
@@ -535,10 +532,11 @@ impl Verifier {
 /// verifies each file by replaying it before deleting it.
 pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
     // Rule 0: not while a tool runs without the lock.
-    if store.staged_in_flight() > 0 {
+    let Some(deleter) = store.audio_deleter() else {
         return Ok(SweepReport::default());
-    }
-    if !derived_dir(store.project_dir()).is_dir() {
+    };
+    let files = deleter.audio().files(AudioFolder::Derived)?;
+    if files.is_empty() {
         return Ok(SweepReport::default());
     }
 
@@ -547,7 +545,7 @@ pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
     let Ok(nodes) = store.list_nodes() else {
         return Ok(SweepReport::default());
     };
-    sweep_orphans_listed(store, &nodes)
+    Ok(remove_unnamed(store, &deleter, files, &nodes))
 }
 
 /// [`sweep_orphans`] for the nodes the caller has listed from `store`,
@@ -560,44 +558,44 @@ pub fn sweep_orphans_listed(
     nodes: &[session::SessionNode],
 ) -> std::io::Result<SweepReport> {
     // Rule 0: not while a tool runs without the lock.
-    if store.staged_in_flight() > 0 {
+    let Some(deleter) = store.audio_deleter() else {
         return Ok(SweepReport::default());
-    }
-    let dir = derived_dir(store.project_dir());
-    if !dir.is_dir() {
-        return Ok(SweepReport::default());
-    }
+    };
+    let files = deleter.audio().files(AudioFolder::Derived)?;
+    Ok(remove_unnamed(store, &deleter, files, nodes))
+}
 
+/// Remove the `files` of `derived/` that none of `nodes` names, nor any of
+/// their clip lists' lane copies.
+fn remove_unnamed(
+    store: &session::Store,
+    deleter: &AudioDeleter<'_>,
+    files: Vec<OwnedFile>,
+    nodes: &[session::SessionNode],
+) -> SweepReport {
+    let mut report = SweepReport::default();
+    if files.is_empty() {
+        return report;
+    }
     // Only a store that really has no history may have everything in
     // `derived/` counted as unnamed — and a head with no nodes behind it is
     // not that.
     if nodes.is_empty() && store.head().is_some() {
-        return Ok(SweepReport::default());
+        return report;
     }
     let mut named = all_refs(nodes);
     named.extend(lane_copies(store.project_dir(), nodes));
 
-    let mut report = SweepReport::default();
-    for entry in std::fs::read_dir(&dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let bytes = entry.metadata()?.len();
-        if named.contains(&key(&path)) {
-            report.remaining_bytes += bytes;
-            continue;
-        }
-        if std::fs::remove_file(&path).is_ok() {
+    for file in files {
+        if !named.contains(&key(file.path())) && deleter.remove(&file) {
             report.removed_files += 1;
             report.removed_orphans += 1;
-            report.freed_bytes += bytes;
+            report.freed_bytes += file.bytes();
         } else {
-            report.remaining_bytes += bytes;
+            report.remaining_bytes += file.bytes();
         }
     }
-    Ok(report)
+    report
 }
 
 // =============================================================================
@@ -649,28 +647,6 @@ fn chain_from(store: &session::Store, head: session::NodeId) -> Vec<session::Nod
         cursor = node.parent;
     }
     out
-}
-
-/// The one directory compaction may delete from: this project's
-/// `.audiograph/derived/`, the same folder [`sweep`] works in, resolved
-/// so that every comparison against it is between real paths.
-///
-/// `None` when the folder does not exist, and then nothing is derived.
-fn derived_root(project_dir: &Path) -> Option<PathBuf> {
-    std::fs::canonicalize(derived_dir(project_dir)).ok()
-}
-
-/// `path` resolved (`..` and symlinks followed), if it is a file inside
-/// `root`; `None` for anything else.
-///
-/// A node can name any file: `load` references the user's own WAV where
-/// it lies, a paste names a clipboard blob, a render a cached preview.
-/// Only a file that really lives in `derived/` is the project's, and a
-/// path that merely reads as one — `derived/../../take.wav`, or a link
-/// in `derived/` to a file elsewhere — resolves out of it here.
-fn owned_file(root: &Path, path: &Path) -> Option<PathBuf> {
-    let real = std::fs::canonicalize(path).ok()?;
-    (real.starts_with(root) && real.is_file()).then_some(real)
 }
 
 /// Work out what a compaction would remove.
@@ -736,17 +712,21 @@ pub fn plan_compaction(
         }
     }
 
+    // A node can name any file: `load` references the user's own WAV where
+    // it lies, a paste names a clipboard blob, a render a cached preview.
+    // Only a file the store owns in `derived/` is listed (`AudioStore::owns`:
+    // a regular file directly in the folder, so `derived/../../take.wav` and
+    // a link in `derived/` are not).
+    let audio = store.audio_store();
     let mut files = Vec::new();
     let mut bytes = 0u64;
-    if let Some(root) = derived_root(store.project_dir()) {
-        for path in doomed_refs.difference(&kept_refs) {
-            let Some(real) = owned_file(&root, path) else {
-                continue;
-            };
-            if let Ok(meta) = std::fs::metadata(&real) {
-                bytes += meta.len();
-                files.push(real);
-            }
+    for path in doomed_refs.difference(&kept_refs) {
+        if let Some(file) = audio
+            .owns(path)
+            .filter(|f| f.folder() == AudioFolder::Derived)
+        {
+            bytes += file.bytes();
+            files.push(file.path().to_path_buf());
         }
     }
 
@@ -766,8 +746,8 @@ pub fn plan_compaction(
 /// — which still works. The other order would leave nodes pointing at
 /// files that are gone.
 ///
-/// A file in the plan is removed only if it is a file inside this
-/// project's `.audiograph/derived/` (#589). [`plan_compaction`] lists
+/// A file in the plan is removed only if the audio store owns it in this
+/// project's `.audiograph/derived/` (#589, `AudioStore::owns`). [`plan_compaction`] lists
 /// only those, and this checks again, because a plan is plain data that
 /// anything can build: a path outside `derived/` is left where it is and
 /// counted in [`CompactionReport::kept_files`], and the rest of the plan
@@ -783,7 +763,7 @@ pub fn apply_compaction(
     store: &mut session::Store,
     plan: &CompactionPlan,
 ) -> Result<CompactionReport, String> {
-    if store.staged_in_flight() > 0 {
+    if store.audio_deleter().is_none() {
         return Err(
             "nothing was compacted: the project's files are in use without the \
                     session's lock (an edit still running, Save As copying the project, or \
@@ -810,21 +790,24 @@ pub fn apply_compaction(
             .map_err(|e| format!("failed to make {} a root: {e}", root.to_hex()))?;
     }
 
-    let root = derived_root(store.project_dir());
+    // A handle staged since the check above (from another `Store` on the
+    // folder) leaves the audio for the orphan sweep: the nodes are gone, so
+    // nothing names it any more.
+    let Some(deleter) = store.audio_deleter() else {
+        return Ok(report);
+    };
     for path in &plan.files {
         // Already gone: nothing to remove, and nothing refused.
         if std::fs::symlink_metadata(path).is_err() {
             continue;
         }
-        let Some(real) = root.as_deref().and_then(|r| owned_file(r, path)) else {
+        let Some(file) = owned_derived(&deleter, path) else {
             report.kept_files += 1;
             continue;
         };
-        if let Ok(meta) = std::fs::metadata(&real) {
-            if std::fs::remove_file(&real).is_ok() {
-                report.removed_files += 1;
-                report.freed_bytes += meta.len();
-            }
+        if deleter.remove(&file) {
+            report.removed_files += 1;
+            report.freed_bytes += file.bytes();
         }
     }
 

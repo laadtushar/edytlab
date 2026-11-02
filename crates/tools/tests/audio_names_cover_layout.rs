@@ -291,7 +291,8 @@ fn the_sweep_and_a_rebuild_treat_a_shared_file_as_one_file() {
 // other crate can construct) and every write (`put_with`, `put_verified`,
 // `put_then_name`). The type stops a tool from naming a file itself; what it
 // cannot stop is a tool building a path into the store's folders by hand and
-// writing there. These two scans hold that line.
+// writing there. These two scans hold that line, and the delete scan below
+// holds the same line for deleting.
 
 /// Source files that may hash with blake3 outside their tests, and why: none
 /// of them names audio.
@@ -301,14 +302,14 @@ const MAY_HASH: &[(&str, &str)] = &[(
 )];
 
 /// Source files that may spell a path into the store's folders outside their
-/// tests, and why: each reads, lists, checks, or (the stage 3 callers) moves
-/// files the store wrote; none writes a new one.
+/// tests, and why: each reads, lists, checks, or (the stage 3b callers) moves
+/// files the store wrote; none writes a new one, and none deletes one (the
+/// sweeps and compaction list and delete through the store, stage 3a).
 const MAY_SPELL_STORE_PATHS: &[(&str, &str)] = &[
     (
         "tools/src/provenance.rs",
         "re-exports the folders and finds a clipboard blob to read it back",
     ),
-    ("tools/src/reclaim.rs", "the sweeps (stage 3a)"),
     ("tools/src/rederive.rs", "a replay's put-back (stage 3b)"),
     ("tools/src/repair.rs", "repair (stage 3b)"),
     (
@@ -448,6 +449,58 @@ fn only_the_store_spells_paths_into_its_folders() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Only the audio store deletes the project's audio (#719, stage 3a)
+// ---------------------------------------------------------------------------
+//
+// The sweeps, compaction and a repair's leftovers delete through
+// `session::Store::audio_deleter`: only a file `AudioStore::owns` places in
+// one of its folders, and never while a handle on the project is staged. A
+// delete written by hand anywhere else could skip either check, and a path
+// does not say lexically where it points, so every delete in these crates'
+// shipped code is listed here with what it deletes.
+
+/// Source files that may delete files outside their tests, and why: none of
+/// them deletes in the store's folders.
+const MAY_DELETE: &[(&str, &str)] = &[
+    (
+        "tools/src/preview_cache.rs",
+        "the preview cache's own entries and staging files",
+    ),
+    (
+        "tools/src/tool/render_preview.rs",
+        "a cached preview that does not decode",
+    ),
+    (
+        "desktop/commands.rs",
+        "a skill or an agent profile the user deletes",
+    ),
+    ("desktop/state.rs", "the active agent profile's sidecar"),
+];
+
+/// What deletes a file or a folder.
+const DELETES: &[&str] = &["remove_file(", "remove_dir(", "remove_dir_all("];
+
+fn deletes(line: &str) -> bool {
+    let code = line.split("//").next().unwrap_or("");
+    DELETES.iter().any(|d| code.contains(d))
+}
+
+#[test]
+fn only_the_store_deletes_the_projects_audio() {
+    let offenders: Vec<String> = writer_sources()
+        .into_iter()
+        .filter(|(rel, lines)| !allowed(MAY_DELETE, rel) && lines.iter().any(|l| deletes(l)))
+        .map(|(rel, _)| rel)
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "these delete files by hand; delete the project's audio through \
+         `session::Store::audio_deleter` (or add the file to MAY_DELETE with what it \
+         deletes, which must not be in the store's folders): {offenders:?}"
+    );
+}
+
 #[test]
 fn every_allowance_is_still_needed() {
     // An allowance nothing uses any more is a door left open.
@@ -462,6 +515,13 @@ fn every_allowance_is_still_needed() {
         assert!(
             lines.iter().any(|l| spells_store_path(l)),
             "{rel} no longer spells a store path ({why})"
+        );
+    }
+    for (rel, why) in MAY_DELETE {
+        let lines = find(rel).unwrap_or_else(|| panic!("{rel} is gone ({why})"));
+        assert!(
+            lines.iter().any(|l| deletes(l)),
+            "{rel} no longer deletes ({why})"
         );
     }
 }
@@ -482,4 +542,16 @@ fn the_scan_sees_code_and_not_tests_or_comments() {
     assert_eq!(flagged.len(), 2, "{flagged:?}");
     assert!(flagged[0].contains("derived_dir(x); }"));
     assert!(flagged[1].contains("Generated.dir("));
+
+    let source = "fn a() { std::fs::remove_file(&p).ok(); }\n\
+                  // std::fs::remove_file(&p) in a comment\n\
+                  fn b() { fs::remove_dir_all(&d)?; }\n\
+                  #[cfg(test)]\n\
+                  mod tests { fn t() { std::fs::remove_file(&p).unwrap(); } }\n";
+    let flagged: Vec<String> = production_lines(source)
+        .into_iter()
+        .filter(|l| deletes(l))
+        .map(String::from)
+        .collect();
+    assert_eq!(flagged.len(), 2, "{flagged:?}");
 }
