@@ -830,6 +830,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "mix_to_new_track",
             "mono_to_stereo",
             "move_clip",
+            "mute_all_tracks",
             "mute_track",
             "name_node",
             "noise_gate",
