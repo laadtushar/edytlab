@@ -172,11 +172,12 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    let existing: Vec<PathBuf> = destinations
+    let destinations: Vec<PathBuf> = destinations
         .into_iter()
         .map(|d| d.as_ref().to_path_buf())
-        .filter(|d| d.is_file())
         .collect();
+    refuse_inside_store(store.project_dir(), &destinations)?;
+    let existing: Vec<PathBuf> = destinations.into_iter().filter(|d| d.is_file()).collect();
     let Some(first) = existing.first() else {
         return Ok(());
     };
@@ -195,6 +196,40 @@ where
     for destination in &existing {
         if let Some((source, reads)) = files.find(destination) {
             return Err(refusal(destination, source, *reads));
+        }
+    }
+    Ok(())
+}
+
+/// Refuse a destination inside the project's own `.audiograph/` folder
+/// (#719): the content-addressed audio, the node files, the caches. An export
+/// written into `derived/` would sit under a name its bytes do not hash to,
+/// and a sweep could delete it; nothing else in there is the user's to write.
+///
+/// Compared by folder identity, the same way projects are told apart
+/// ([`session::live::identify`]), so a symlink or another spelling of the
+/// path is caught; a destination that does not exist yet is judged by the
+/// nearest folder above it that does.
+fn refuse_inside_store(project_dir: &Path, destinations: &[PathBuf]) -> Result<(), String> {
+    let store_dir = project_dir.join(session::STORE_DIR);
+    let Ok(store) = identify(&store_dir) else {
+        // No store folder on disk yet: nothing can be inside it.
+        return Ok(());
+    };
+    let store_id = store.id();
+    for destination in destinations {
+        let absolute = std::path::absolute(destination).unwrap_or_else(|_| destination.clone());
+        let inside = absolute
+            .ancestors()
+            .filter_map(|folder| identify(folder).ok())
+            .any(|folder| folder.id() == store_id);
+        if inside {
+            return Err(format!(
+                "not written: {} is inside the project's own {} folder, which holds the \
+                 project's history and the audio it plays. Choose a file name or folder outside it.",
+                destination.display(),
+                session::STORE_DIR
+            ));
         }
     }
     Ok(())

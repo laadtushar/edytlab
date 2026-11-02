@@ -531,3 +531,47 @@ fn export_multiple_will_not_write_over_a_loaded_original() {
 
     assert!(msg.contains("0_vox.wav"), "{msg}");
 }
+
+/// Nothing is exported into the project's own `.audiograph/` folder (#719):
+/// a render written into `derived/` would sit under a content name its bytes
+/// do not hash to, and a sweep could delete it. A fresh path there is refused
+/// as well, and so is one reached through a symlink to the folder; the
+/// project folder itself, beside `.audiograph/`, is still fine.
+#[test]
+fn render_final_will_not_write_into_the_project_store() {
+    let mut s = Session::new();
+    let original = write_take(&s.user_dir("music").join("take1.wav"), 440.0);
+    ok(s.call("load", json!({ "path": original.to_string_lossy() })));
+    let head = s.store.head().unwrap().to_hex();
+    let store_dir = s.store.project_dir().join(session::STORE_DIR);
+
+    let render = |s: &mut Session, out: &Path| {
+        s.call(
+            "render_final",
+            json!({ "node_id": head, "format": "wav", "out_path": out.to_string_lossy() }),
+        )
+    };
+
+    for out in [
+        store_dir.join("derived").join("export.wav"),
+        store_dir.join("export.wav"),
+        store_dir.join("not-yet").join("deeper").join("export.wav"),
+    ] {
+        let msg = err(render(&mut s, &out));
+        assert!(msg.contains(".audiograph"), "{}: {msg}", out.display());
+        assert!(!out.exists(), "{}", out.display());
+    }
+
+    #[cfg(unix)]
+    {
+        let link = s.user_dir("links").join("store");
+        std::os::unix::fs::symlink(&store_dir, &link).unwrap();
+        let out = link.join("export.wav");
+        let msg = err(render(&mut s, &out));
+        assert!(msg.contains(".audiograph"), "{msg}");
+    }
+
+    let beside = s.store.project_dir().join("export.wav");
+    ok(render(&mut s, &beside));
+    assert!(beside.exists());
+}
