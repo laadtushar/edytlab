@@ -61,6 +61,7 @@ import { ChatGptCard } from "./ChatGptCard";
 import { ChatGptLogo } from "./ChatGptLogo";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
+import { CrashReportsRow } from "./CrashReportsRow";
 import { MlRuntimeLine } from "./MlRuntimeLine";
 import { OpenSourceLicencesRow } from "./OpenSourceLicencesRow";
 import { RecordingLatencyRow } from "./RecordingLatencyRow";
@@ -1664,13 +1665,16 @@ export function Settings({
               model's row follows it (#383): the one place a model is
               downloaded, and only when Download is pressed. The speaker
               model's row (#168) follows the speech model's, and the stem
-              model's (#385) the speaker model's, on the same terms. */}
+              model's (#385) the speaker model's, on the same terms. Send
+              crash reports (#958), off by default, comes before the
+              licences. */}
           {mode === "panel" ? (
             <>
               <MlRuntimeLine />
               <SpeechModelRow />
               <SpeakerModelRow />
               <StemModelRow />
+              <CrashReportsRow />
               <OpenSourceLicencesRow />
             </>
           ) : null}

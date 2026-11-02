@@ -388,6 +388,47 @@ export const thirdPartyNotices = (): Promise<string> =>
   invoke<string>("third_party_notices");
 
 /**
+ * Settings → Account → Send crash reports (#958). `enabled` is the person's
+ * choice, off on a fresh install; `available` says whether this build can
+ * send at all (it was built with a reporting address). With either false,
+ * nothing is sent.
+ */
+export interface CrashReportsStatus {
+  enabled: boolean;
+  available: boolean;
+}
+
+/** Whether Send crash reports is on, and whether this build can send. */
+export const getCrashReports = (): Promise<CrashReportsStatus> =>
+  invoke<CrashReportsStatus>("get_crash_reports");
+
+/**
+ * Turn Send crash reports on or off, at once and for later launches (saved
+ * in `~/.edytlab/settings.json`, never the keychain). Rejects with "could not
+ * save the crash reports setting" when it applies to this launch only.
+ */
+export const setCrashReports = (enabled: boolean): Promise<CrashReportsStatus> =>
+  invoke<CrashReportsStatus>("set_crash_reports", { enabled });
+
+/** An uncaught webview error, as `lib/crashReports.ts` forwards it. */
+export interface WebviewErrorReport {
+  /** `"error"` (`window.onerror`) or `"unhandledrejection"`. */
+  kind: "error" | "unhandledrejection";
+  name: string;
+  message: string;
+  stack: string | null;
+}
+
+/**
+ * Hand an uncaught webview error to the backend's crash reporter. It is sent
+ * only when Send crash reports is on in a build that can send, and scrubbed
+ * of paths, quoted text, keys and email addresses first; otherwise it is
+ * dropped. Always resolves.
+ */
+export const reportWebviewError = (report: WebviewErrorReport): Promise<void> =>
+  invoke<void>("report_webview_error", { report });
+
+/**
  * Where a downloadable model is, tagged by `state` (#383). The same object
  * is the answer of every model command and the payload of the
  * `ml-model-progress` event.

@@ -389,6 +389,7 @@ src/
 ├── chatgpt.rs     # Sign in with ChatGPT in the desktop: the session, its commands' state, keychain token store, `chatgpt://status` (#474)
 ├── commands.rs    # The #[tauri::command] functions (~110 of them)
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
+├── crash_reports.rs # Opt-in crash reports: the Sentry client, its scrubber and transport, the panic hook (#958)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup
 ├── main.rs        # Entry point
@@ -396,7 +397,7 @@ src/
 ├── pre_manifest_skills.json # Hashes of the bundled skills shipped before the manifest; frozen
 ├── project.rs     # Project metadata, view state, recents, Save As's copy
 ├── reclaimer.rs   # Background cap on a project's derived audio
-├── settings.rs    # ~/.edytlab/settings.json: Plan first, kept across a restart (#569)
+├── settings.rs    # ~/.edytlab/settings.json: Plan first (#569) and Send crash reports (#958), kept across a restart
 ├── state.rs       # AppState
 └── window_mix.rs  # The mix the window plays and the preview-cache entry it holds (#607)
 ```

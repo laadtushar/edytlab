@@ -61,9 +61,9 @@ export function VideoActions({ className }: { className?: string }) {
 
 /**
  * The close of a videos page: where to go after watching. Says what the
- * app costs and where it runs, and the two things a visitor meets right
- * after downloading (the installers are unsigned, and stem
- * separation is not built yet), in small type under the buttons.
+ * app costs and where it runs, and the thing a visitor meets right
+ * after downloading (the installers are unsigned), in small type
+ * under the buttons.
  */
 export function VideosCta({ heading = "Try it on your own audio" }: { heading?: string }) {
   return (
@@ -83,7 +83,7 @@ export function VideosCta({ heading = "Try it on your own audio" }: { heading?: 
         <Link href="/docs/getting-started" className="text-primary underline underline-offset-4">
           setup guide
         </Link>{" "}
-        has the steps. Stem separation is not built yet.
+        has the steps.
       </p>
     </section>
   );

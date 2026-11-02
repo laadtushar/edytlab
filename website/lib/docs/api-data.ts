@@ -805,7 +805,7 @@ export const apiAreas: ApiArea[] = [
   {
     slug: "speech-model",
     title: "Speech Model and Runtime",
-    summary: "Check the ONNX Runtime, download, cancel or remove the speech and speaker models, and read the open source licences.",
+    summary: "Check the ONNX Runtime, download, cancel or remove the speech, speaker and stem models, read the open source licences, and turn opt-in crash reports on or off.",
     sections: [
       {
         kind: "commands",
@@ -814,7 +814,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlRuntimeStatus()",
             returns: "MlRuntimeStatus",
-            desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library runs nothing by itself: no model ships with it, transcribe uses the speech model only once it is downloaded (see Speech Model), and stem separation has not shipped. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
+            desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library runs nothing by itself: no model ships with it, transcribe, diarize and separate_stems each use their model only once it is downloaded (see the model commands). The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
           },
         ],
       },
@@ -825,12 +825,12 @@ export const apiAreas: ApiArea[] = [
           {
             name: "mlModelStatus(model)",
             returns: "MlModelStatus",
-            desc: "Where a downloadable model is, for the Speech model and Speaker model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, and speaker-diarization, about 33 MB in two files, both from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
+            desc: "Where a downloadable model is, for the Speech model, Speaker model and Stem model rows in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB, speaker-diarization, about 33 MB in two files, and htdemucs, about 171 MB in two files, all from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
           },
           {
             name: "downloadMlModel(model)",
             returns: "MlModelStatus",
-            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base and speaker-diarization); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe tool uses: it finds the files, never downloads, and says the model is not downloaded when they are not there.",
+            desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Only a model Settings offers can be started (today whisper-base, speaker-diarization and htdemucs); another model of the manifest answers an error that says it is not offered, with no request made. A model on disk is what the transcribe, diarize and separate_stems tools use: each finds the files, never downloads, and says the model is not downloaded when they are not there.",
           },
           {
             name: "cancelMlModelDownload(model)",
@@ -852,6 +852,27 @@ export const apiAreas: ApiArea[] = [
             name: "thirdPartyNotices()",
             returns: "string",
             desc: "The text of the third-party notices file the installer carries (licenses/THIRD_PARTY_NOTICES.txt in the app's resource directory): the licence texts and copyright lines of the Rust crates, JavaScript packages and fonts edytlab is built from, the code its Rust files were derived from, and where to get the source of the MPL-2.0 libraries. Settings shows it under Account → Open source licences when Show is pressed; opening Settings reads nothing. Read-only: it opens that one fixed file and takes no argument, so the window cannot name a path. Rejects with a sentence, never a path, when the file is not in the build.",
+          },
+        ],
+      },
+      {
+        kind: "commands",
+        title: "Crash Reports",
+        items: [
+          {
+            name: "getCrashReports()",
+            returns: "CrashReportsStatus",
+            desc: "Unreleased: arrives after v0.9.4. Whether Send crash reports (Settings → Account) is on, as enabled (off on a fresh install), and whether this build can send at all, as available (it was built with a reporting address; no build from source is). Reads memory only.",
+          },
+          {
+            name: "setCrashReports(enabled)",
+            returns: "CrashReportsStatus",
+            desc: "Turn opt-in crash reports on or off, at once and for later launches: saved as crash_reports in ~/.edytlab/settings.json, never the keychain. On makes the reporting client; off closes it, so nothing more is sent. Reports go to Sentry (sentry.io) with the error, where in edytlab's code it happened, the app version and the OS, after paths, quoted text such as chat and tool calls, API keys, tokens and email addresses are taken out; never audio. Rejects with \"could not save the crash reports setting\" when the file could not be written, and the choice still applies until the app quits.",
+          },
+          {
+            name: "reportWebviewError(report)",
+            returns: "void",
+            desc: "Hand an uncaught webview error (its kind, name, message and stack) to the crash reporter, which sends it only when Send crash reports is on in a build that can send, scrubbed first. The window calls it from its error and unhandledrejection events, each distinct error once and at most 20 a launch. Rejects only if the IPC call fails.",
           },
         ],
       },

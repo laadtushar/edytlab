@@ -72,7 +72,7 @@ Lines with a Listen moment are lead-ins only (the cue says `voice_end`): the app
 ### Facts the narration keeps to
 
 Only what the recordings show: the DJ asks, the agent runs the tools, the timeline changes, the mix is exported. Stem
-separation and transcription are never mentioned (neither is shipped), nor is any AI model name or version.
+separation and transcription are never mentioned (the recordings show neither), nor is any AI model name or version.
 
 ### Usage on the free plan
 

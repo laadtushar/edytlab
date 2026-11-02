@@ -11,6 +11,7 @@ import {
   pageBreadcrumbs,
 } from "@/lib/seo";
 import { GA_MEASUREMENT_ID } from "@/lib/consent";
+import { SENTRY_DSN } from "@/lib/sentry";
 import { localOllama } from "@/lib/blog-posts-audio-2/local-ollama";
 import { siteConfig } from "@/lib/site";
 
@@ -122,6 +123,19 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
+              <td>The stem model (about 171 MB)</td>
+              <td>
+                Downloaded from Hugging Face (huggingface.co) only when you
+                click its Download in Settings, never automatically. Hugging
+                Face sees your IP address, the files you asked for and that
+                the request comes from edytlab (and which version), and
+                nothing about your audio. Splitting a track into stems with it
+                runs on your computer and makes no request of its own; the
+                stems are files in your project, and the assistant is told
+                where they are, like any tool result.
+              </td>
+            </tr>
+            <tr>
               <td>Usage data from the app</td>
               <td>None. The app sends no telemetry.</td>
             </tr>
@@ -130,7 +144,7 @@ export default function LocalAiUseCasePage() {
               <td>
                 Recorded by anonymous Vercel analytics (Web Analytics and
                 Speed Insights){GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}, which the
-                website loads and the app does not. See the <Link href="/privacy">privacy page</Link>.
+                website loads and the app does not.{SENTRY_DSN ? " An error on a page of this site is reported to Sentry, with nothing about you attached." : ""} See the <Link href="/privacy">privacy page</Link>.
               </td>
             </tr>
           </tbody>
@@ -182,9 +196,9 @@ export default function LocalAiUseCasePage() {
             smaller models.
           </li>
           <li>
-            Stem separation is not built yet, locally or otherwise, so
-            nothing here offers it. Transcription runs on your computer&apos;s
-            CPU, whichever model you chat with.
+            Transcription and stem separation run on your computer&apos;s
+            CPU, whichever model you chat with. Stem separation needs about 4
+            GB of free memory and takes roughly half the length of the audio.
           </li>
         </ul>
 

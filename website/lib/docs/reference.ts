@@ -131,6 +131,27 @@ export function hashTargets(
 }
 
 /**
+ * The ids of `hashTargets` that live on a page other than `slug`'s, for that
+ * area's own page. An entry moved between areas leaves old links such as
+ * `/docs/tools/speech#separate_stems` on a page without it; this map sends
+ * them on, and leaves the ids the page itself has alone.
+ */
+export function hashTargetsElsewhere(
+  areas: readonly AreaOutline[],
+  slug: string,
+): Record<string, string> {
+  const here = areas.find((a) => a.slug === slug);
+  const own = new Set<string>([slug]);
+  for (const section of here?.sections ?? []) {
+    own.add(section.id);
+    for (const entry of section.entries) own.add(entry.id);
+  }
+  return Object.fromEntries(
+    Object.entries(hashTargets(areas)).filter(([id, to]) => !own.has(id) && !to.startsWith(`${slug}#`)),
+  );
+}
+
+/**
  * The id `hashTargets` resolves, or undefined. Own properties only, so a
  * hash like `#constructor` or `#__proto__` is not a lookup into
  * `Object.prototype`.

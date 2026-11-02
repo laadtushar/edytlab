@@ -3,15 +3,16 @@
 All in your voice, the warm one from [`brand-voice.md`](../brand-voice.md):
 a scene first, one idea a post, plain words. Technical channels (Show HN)
 go deeper on how it works, but still as a maker explaining what was hard and
-what is missing. Same accuracy rules as the other files: no stem separation
-claims, transcription only as v0.8.0 describes it (a one-time model download,
-checked on English only), installers described as unsigned wherever a
+what is missing. Same accuracy rules as the other files: stem separation
+only as v0.9.4 describes it (a one-time model download, the stems are
+estimates), transcription only as v0.8.0 describes it (a one-time model
+download, checked on English only), installers described as unsigned wherever a
 download appears, the demo tracks are synthetic loops, no invented numbers.
 
 **Links:**
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.3 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.3> ·
+v0.9.4 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.4> ·
 DJ recordings <https://edytlab.com/use-cases/dj>
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
@@ -63,7 +64,7 @@ The part I like best: it shows its work. Every edit appears in the chat as a ste
 **6/7**
 
 ```
-It never hears your music. The AI reads a summary and the tools' readings, like tempo and loudness, and picks from 99 editing tools. The tools run on your computer. Only the chat goes out, to the AI you choose, or stays home with a local model.
+It never hears your music. The AI reads a summary and the tools' readings, like tempo and loudness, and picks from 110 editing tools. The tools run on your computer. Only the chat goes out, to the AI you choose, or stays home with a local model.
 ```
 
 **7/7**
@@ -274,12 +275,12 @@ What happens in each
 3. A warm-up mix at 124 BPM. Two tracks are time-stretched to 124, keeping their pitch, and all three are lined up so each comes in about 4 bars before the one before it ends, with a crossfade over each overlap. Each is brought to a similar loudness, the master gets a limiter, and the mix is exported as a WAV.
 
 How it works
-The AI never hears the audio. It chooses from 99 editing tools, and they run on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI you pick, or stays home with a local model (Ollama).
+The AI never hears the audio. It chooses from 110 editing tools, and they run on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI you pick, or stays home with a local model (Ollama).
 
 Get it
 It's free and open source (MIT), for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch, and the release notes have the steps.
 Website and docs: https://edytlab.com
-Download v0.9.3: https://github.com/laadtushar/edytlab/releases/tag/v0.9.3
+Download v0.9.4: https://github.com/laadtushar/edytlab/releases/tag/v0.9.4
 Source: https://github.com/laadtushar/edytlab
 The DJ walkthrough: https://edytlab.com/use-cases/dj
 
@@ -294,14 +295,14 @@ edytlab, AI audio editor, beatmatching, DJ prep, extended intro, time stretch, o
 
 ---
 
-## 6. Show HN (refreshed for v0.9.3)
+## 6. Show HN (refreshed for v0.9.4)
 
 Submit <https://edytlab.com>. Post the first comment as soon as it is up and
 stay for several hours. Do not ask anyone to upvote.
 
 **Title options** (counts include the `Show HN: ` prefix; all 80 or under):
 
-1. `Show HN: edytlab – desktop audio editor where an LLM calls 99 DSP tools` (71)
+1. `Show HN: edytlab – desktop audio editor where an LLM calls 110 DSP tools` (72)
 2. `Show HN: edytlab – an audio editor you talk to, with the DSP in Rust` (68)
 3. `Show HN: edytlab – edit audio by describing it, with every step undoable` (72)
 
@@ -312,7 +313,7 @@ Recommended: 1.
 ```
 Hi HN. I wanted an audio editor I could just tell what to do, so I built one. edytlab is a desktop app for macOS, Windows and Linux, under the MIT licence. You load some audio and ask for something like "bring the second track in 8 bars before the first one ends, crossfade them, keep the levels sensible and export a WAV". An LLM works through it by calling editing tools, and every step shows up in the chat.
 
-The part I'd most like you to look at is the boundary between the model and the audio. The model never receives samples. It gets text: the state of the session, and measurements like tempo, key, beat grid and loudness. It chooses from 99 tools and puts them in order, and the tools do the signal processing, in Rust, on your machine.
+The part I'd most like you to look at is the boundary between the model and the audio. The model never receives samples. It gets text: the state of the session, and measurements like tempo, key, beat grid and loudness. It chooses from 110 tools and puts them in order, and the tools do the signal processing, in Rust, on your machine.
 
 There are three screen recordings of DJ jobs on the site, with sound: https://edytlab.com/#demos. Two things about them that the captions don't say. The tracks are short synthetic loops, about 32 seconds each, that a script generated. And a test script types the requests into the real app: the replies and edits are live, with Claude as the model, and I only published runs that passed my checks. The model isn't deterministic, so your run will differ, and the filter settings you see in mine aren't a spec.
 
@@ -326,7 +327,6 @@ A project is a history, not a file. The session is a content-addressed graph, wh
 
 What isn't there yet:
 
-- Stem separation. The tool is registered and returns an error today, because the inference isn't built (#385).
 - The installers are unsigned (#386). macOS needs one xattr command after you drag the app to Applications, and Windows shows a SmartScreen warning. The release notes have the steps.
 - It edits files. It isn't a live DJ tool or a DAW, so no MIDI and no plugin hosting. Only gain, the limiter and three filters can sit live on a track, a bus or the master. Reverb, EQ or a compressor gets baked into the track's audio instead.
 - Local models are what I've tested least. In one measurement the first request was about 15,000 tokens (#395), too big for a model with an 8,192-token context, so Ollama now gets a smaller tool set. I haven't run a local model through a full job, and the recordings used a hosted model.
@@ -337,7 +337,7 @@ I develop this with Claude Code. Many commits carry a Co-Authored-By trailer, an
 
 If you try it, I'd love to know which edit you'd ask for that isn't in the tool list in docs/tools-reference.md. If you run local models, which ones can drive a tool list this size without losing the thread? And if you do DSP, the vocoder and the limiter are where I expect the sharpest criticism.
 
-Download v0.9.3 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.9.3
+Download v0.9.4 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.9.4
 Source: https://github.com/laadtushar/edytlab
 ```
 
@@ -351,7 +351,7 @@ Answers to have ready:
 | Is the audio really never uploaded? | There is no server of mine in the loop. What leaves your machine is the chat to the provider you chose, plus the request Settings makes to that provider for its model list (your key or sign-in, no prompt or audio). You can watch it with your OS network tools. |
 | Why Tauri and not Electron? | The back end is Rust, so the UI process and the DSP crates share one workspace. I haven't measured size or speed against Electron, so I won't claim either. |
 | Is there a web version? | No. A browser version is something I'm weighing in #389, and it's undecided. |
-| 99 tools is a lot for a model. | It is. For Ollama the app sends a core set of about 15 plus the ones your message names, and lists the rest by name (#395, #479). Hosted providers get all of them, partly because Anthropic's prompt cache needs a fixed list. Agent profiles and a capabilities blacklist can narrow the list, and plan first keeps you in the loop. |
+| 110 tools is a lot for a model. | It is. For Ollama the app sends a core set of about 15 plus the ones your message names, and lists the rest by name (#395, #479). Hosted providers get all of them, partly because Anthropic's prompt cache needs a fixed list. Agent profiles and a capabilities blacklist can narrow the list, and plan first keeps you in the loop. |
 
 ---
 
@@ -361,30 +361,29 @@ Answers to have ready:
 
 Subject options:
 
-1. `edytlab v0.9.3: check loudness, find who's speaking, open more file types`
+1. `edytlab v0.9.4: punch in over a take, split a track into stems, open M4A`
 2. `Three DJ jobs, described in plain English`
 
 Body:
 
 ```
-You finish a recording and the same questions come up. Is it loud enough? Is there noise under the quiet bits? Will it pass? edytlab v0.9.3 can answer them now. It's out for macOS, Windows and Linux, and it's the free, open-source audio editor you talk to.
+The take was good except for one line. edytlab v0.9.4 lets you record that line again over just that part, while you hear the rest of the mix. It's out for macOS, Windows and Linux, and it's the free, open-source audio editor you talk to.
 
-The new measure tool reports loudness, peaks, noise floor and clipping, for the whole mix or one track. Ask it to check against ACX and it gives a pass or fail for each ACX rule.
+Punch replaces one region of a track with a new take. Before the first one, set the delay between your speakers and your microphone once in Settings → Audio: measure it, or type it in. If you measured it in an earlier version, measure it again, because the audio library underneath changed.
 
-The other new thing is for interviews. The assistant can now work out who is speaking when, on your computer, and hand that to the tool that splits a track by speaker. It needs a speaker model, about 33 MB from Hugging Face, which you download once with the Download button under the speech model in Settings → Account. Nothing downloads at launch, when Settings opens or when the assistant asks, and no audio is sent anywhere.
+The assistant can also split a track into vocals, drums, bass and other, on your computer. It needs the stem model, about 171 MB from Hugging Face, which you download once with its Download button in Settings → Account. It wants about 4 GB of free memory and takes about half the length of the audio, and no audio is sent anywhere. The stems are estimates, so listen before you build on them.
 
-Also in this release: a click track, a chirp and DTMF tones you can generate, and AIFF and Opus (mono and stereo) files now open.
+Also in this release: M4A files with AAC audio open on macOS and Windows, through the system's own decoder. Exports can be AIFF or OGG (Opus), and can cover just a range. A transcript can be saved as SRT, WebVTT or text, or turned into markers on the timeline. And there are new tools for markers, joining clips, reordering and muting tracks, and a wah-wah effect.
 
 If you last tried it around v0.7.0, a few more things have landed since:
 
+- It can check a mix: the measure tool reports loudness, peaks, noise floor and clipping, with a pass or fail for each ACX rule. And it can work out who is speaking when, on your computer, once you've downloaded its speaker model (about 33 MB) in Settings → Account.
 - It can transcribe. Ask the assistant to transcribe a track, or cut words in the Transcript tab. It runs on your computer once you've downloaded the speech model from Settings → Account (about 139 MB). Nothing downloads by itself. I've checked it on English only, on a short recording and about 16 minutes of audiobook speech, so read the words before you cut on them. The words reach your AI provider as text, never the audio.
 - Sign in with ChatGPT is a preview. Choose ChatGPT plan in Settings, press Continue with ChatGPT, and the assistant uses your Plus or Pro plan instead of an API key. Your browser opens OpenAI's sign-in page, and edytlab never sees your password. If your plan's limit runs out, the chat says so and stops. It may not work on workspace plans, which depends on OpenAI and your admin. If your first message failed on v0.9.0, update: v0.9.1 fixed that.
 - On macOS, the login password prompt now comes at most once per launch, because your keys and the ChatGPT sign-in share one keychain entry. The first launch after updating may ask once for each old entry while it moves your keys over.
 - Edits to a track recorded at a different sample rate than the project now land in the right place, and noise reduction no longer clicks at the start and end of a track.
 
 One thing worth doing: if you're on v0.7.0 or older, please update, because a batch run could render onto its own inputs. And if you're on v0.6.0 or older, update before you compact a project or delete the original of a Save As copy, because those versions could lose audio.
-
-Stem separation still isn't there.
 
 The three DJ demos have sound now: a beatmatched blend, an extended club intro and a three-track mini-mix. The tracks are short synthetic loops. https://edytlab.com/#demos
 
@@ -397,13 +396,13 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.9.3 is out (macOS, Windows, Linux). The new measure tool reports loudness, peaks, noise floor and clipping, with an ACX pass or fail. The new diarize tool labels who speaks when, on your computer, once you've downloaded its 33 MB speaker model in Settings. You can also generate click tracks, chirps and DTMF tones, and open AIFF and Opus files.
+edytlab v0.9.4 is out (macOS, Windows, Linux). Punch replaces one region of a track with a new take while you hear the rest of the mix; set your recording delay once in Settings → Audio first. separate_stems splits a track into vocals, drums, bass and other, on your computer, once you've downloaded the stem model (about 171 MB) in Settings; the stems are estimates. M4A files open on macOS and Windows, and exports can be AIFF or OGG.
 
-Since v0.8.0 it can transcribe too, on your computer, after you download the speech model in Settings (checked on English only). And Sign in with ChatGPT is a preview: the assistant can use your Plus or Pro plan instead of an API key. If your first message failed on v0.9.0, update, v0.9.1 fixed it.
+v0.9.3 added loudness checks with an ACX pass or fail and who-speaks-when labels. Since v0.8.0 it can transcribe too, on your computer, after you download the speech model in Settings (checked on English only). And Sign in with ChatGPT is a preview: the assistant can use your Plus or Pro plan instead of an API key. If your first message failed on v0.9.0, update, v0.9.1 fixed it.
 
 Worth updating if you're on v0.7.0 or older (a batch run could render onto its own inputs) or v0.6.0 or older (compacting a project or deleting a Save As original could lose audio).
 
-Stem separation still isn't there. Three DJ demos, with sound: https://edytlab.com/#demos
+Three DJ demos, with sound: https://edytlab.com/#demos
 Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 Tell me which edit you'd ask for first.
 ```
@@ -412,10 +411,14 @@ Tell me which edit you'd ask for first.
 
 ## Notes (not part of the posts)
 
-- Release facts (Sign in with ChatGPT as a preview, transcription and its
-  download, the sample-rate fix, the render-over-source fix, the noise
-  reduction click, and "stem separation is still not available") are from the
-  v0.9.3, v0.9.2, v0.9.1 and v0.9.0 entries in `website/app/changelog/page.tsx` and the
+- Release facts (punch-in and its recording delay, stem separation and its
+  download, M4A import, the new export formats and transcript exports, Sign
+  in with ChatGPT as a preview, transcription and its download, the
+  sample-rate fix, the render-over-source fix and the noise reduction click)
+  are from the v0.9.4, v0.9.3, v0.9.2, v0.9.1 and v0.9.0 entries in
+  `website/app/changelog/page.tsx` (v0.9.4's on the release branch until it
+  merges), the stem model's Settings text (`apps/desktop/src/lib/stemModel.ts`)
+  and the
   v0.8.1 and v0.8.0 release notes on GitHub. The
   v0.7.0 version of this section (controls that stay put, the History graph,
   bundled skills, the ONNX Runtime in the installers with no model) and the

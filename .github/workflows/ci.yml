@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A fresh run on a branch's head commit, for when a re-run cannot get a
+  # runner: GitHub cancels a job its hosted pool never picks up ("The job was
+  # not acquired by Runner of type hosted"), and re-running that job keeps it
+  # in the same old run. The checks of a dispatched run land on the same
+  # commit under the same names, so they satisfy the PR's required checks.
+  # Every leg runs in full (`changes` only skips on pull_request), and
+  # auto-release.yml ignores it (it requires `event == 'push'`).
+  #   gh workflow run ci.yml --ref <branch>
+  workflow_dispatch:
 
 # Cancel superseded PR runs to save runner minutes, but NEVER cancel a
 # main-branch run — auto-release.yml hangs off CI's `workflow_run`

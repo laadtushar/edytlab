@@ -82,12 +82,14 @@ describe("the landing comparison", () => {
     expect(src).not.toMatch(names);
   });
 
-  it("still states the thing edytlab does not do yet", () => {
-    expect(src).toMatch(/Stem separation/);
-    expect(src).toMatch(/Not yet/);
-    // Transcription shipped in v0.8.0 (#384): its row says so, not "Not yet".
-    const row = src.match(/label: "Transcription and text-based editing",\s*\n\s*edytlab: "([^"]+)"/)?.[1];
-    expect(row, "the transcription row moved; update this test").toBe("yes");
+  it("lists stem separation and transcription as shipped, each with its one-time model download", () => {
+    // Transcription shipped in v0.8.0 (#384) and stem separation in v0.9.4 (#385): their rows say so, not "Not yet".
+    expect(src).not.toMatch(/Not yet/);
+    for (const label of ["Stem separation", "Transcription and text-based editing"]) {
+      const m = src.match(new RegExp(`label: "${label}",\\s*\\n\\s*edytlab: "([^"]+)",\\s*\\n\\s*detail: "([^"]+)"`));
+      expect(m?.[1], `the ${label} row moved; update this test`).toBe("yes");
+      expect(m?.[2]).toMatch(/after a one-time model download/);
+    }
   });
 
   it("does not hang the section on a verdict about other tools", () => {
@@ -140,8 +142,9 @@ describe("claims about other tools", () => {
     // Each tool it names is linked to that tool's own page.
     expect(text).toMatch(/\[LALAL\.AI\]\(https:\/\/www\.lalal\.ai\//);
     expect(text).toMatch(/\[Moises\]\(https:\/\/moises\.ai\//);
-    // The not-shipped statement stays where a reader sees it first.
-    expect(post!.description).toMatch(/not shipped yet|has not shipped/i);
+    // What edytlab does with it, and since when, stays where a reader sees it first.
+    expect(post!.description).toMatch(/how edytlab runs it on your computer \(from v0\.9\.4\)/i);
+    expect(textOf(post!.body)).not.toMatch(/has not shipped|returns an error/i);
   });
 
   it("keeps the URLs of the retitled posts", () => {
@@ -161,16 +164,19 @@ describe("the repository README", () => {
   });
 
   it("opens with what ships, not a mashup or stems", () => {
-    // `marketing/README.md`: no "mashup A's vocals over B's drums", no
-    // stems, until `separate_stems` does something (#385).
+    // `marketing/README.md`: no "mashup A's vocals over B's drums", and no
+    // "drop stems" pitch: stems are estimates (#385).
     expect(opening).not.toMatch(/mashup/i);
     expect(opening).not.toMatch(/drop stems/i);
   });
 
   it("says near the top what it does not do yet", () => {
     expect(opening).toMatch(/does not do yet/i);
+    // Stem separation shipped in v0.9.4 (#385): the opening says it needs
+    // its model and that stems are estimates.
     expect(opening).toMatch(/stem separation/i);
-    expect(opening).toMatch(/not shipped/i);
+    expect(opening).toMatch(/stem model from v0\.9\.4/i);
+    expect(opening).toMatch(/estimates/i);
     expect(opening).toContain("/issues/385");
     // Transcription shipped in v0.8.0 and says what it needs: the download.
     expect(opening).toMatch(/transcription/i);
