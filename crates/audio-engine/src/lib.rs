@@ -39,6 +39,8 @@ pub enum Error {
     ResamplerInit(rubato::ResamplerConstructionError),
     #[error("rubato resampler process failed: {0}")]
     ResamplerProcess(rubato::ResampleError),
+    #[error("resampler buffers have the wrong shape: {0}")]
+    ResamplerBuffer(rubato::audioadapter_buffers::SizeError),
     #[error("decode error: {0}")]
     Decode(#[from] audio_decoder::DecodeError),
     #[error("wav writer error: {0}")]
