@@ -82,7 +82,7 @@ const stories = [
       // holds only gain, limiter and the filters. Either would count.
       const chain = await effectsOf(ctx, 0);
       ctx.note(`track 0 effect chain: ${chain.join(", ") || "empty"}`);
-      assert(ran(badges, /equali[sz]er|\beq\b|shelf/i) || chain.some((k) => /^eq|shelf/i.test(k)), `an EQ ran (${summary(badges)})`);
+      assert(ran(badges, /equali[sz]er|\beq\b|shelf/i) || chain.some((k) => /(?:^eq)|shelf/i.test(k)), `an EQ ran (${summary(badges)})`);
       assert(ran(badges, /compressor|leveler/i) || chain.some((k) => /compress|level/i.test(k)), `a compressor or leveler ran (${summary(badges)})`);
 
       const now = voiceStats(await headMix(ctx));

@@ -6,7 +6,9 @@
 # Every process of the run (the driver, the app, a restarted app) must
 # see the same session keyring for a restart to find its settings.
 #
-#   OUT=/tmp/edytlab-native ./run-suite.sh [story-id-substring ...]
+#   ./run-suite.sh [story-id-substring ...]
+#
+# $OUT, unset, is out-dir.mjs's checked per-user folder (suite.mjs).
 set -euo pipefail
 cd "$(dirname "$0")"
 exec keyctl session edytlab-e2e node suite.mjs "$@"

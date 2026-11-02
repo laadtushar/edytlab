@@ -70,6 +70,7 @@ import {
   type GraphSummary,
   type NodeId,
 } from "../lib/tauri-bridge";
+import { focusOnMount } from "../lib/focusOnMount";
 
 export interface GraphViewProps {
   /** The session's head node id; rendered with a highlight ring. */
@@ -556,6 +557,8 @@ export function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps)
   return (
     <div
       data-testid="graph-rename-overlay"
+      // A pointer-only way out; the form inside closes on its Cancel button.
+      role="presentation"
       className="absolute inset-0 z-40 flex items-center justify-center bg-black/40"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -578,7 +581,7 @@ export function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps)
         </label>
         <input
           id="rename-input"
-          autoFocus
+          ref={focusOnMount}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="new label"

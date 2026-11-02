@@ -52,7 +52,7 @@ export function ageText(measuredAt: number, now: number): string {
 
 /** 44100 as "44.1 kHz", 48000 as "48 kHz". */
 export function rateText(hz: number): string {
-  return `${parseFloat((hz / 1000).toFixed(2))} kHz`;
+  return `${Number.parseFloat((hz / 1000).toFixed(2))} kHz`;
 }
 
 /** Which devices a latency is for. */

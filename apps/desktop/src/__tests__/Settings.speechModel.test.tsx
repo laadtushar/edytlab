@@ -18,6 +18,9 @@ const downloadMock = vi.fn();
 vi.mock("../lib/tauri-bridge", async () => ({
   ...(await import("./settingsBridge")).restingAccount(),
   mlRuntimeStatus: vi.fn().mockResolvedValue({ state: "missing", searched: [] }),
+  // The Send crash reports row (#958), off in a build that cannot send.
+  getCrashReports: () => Promise.resolve({ enabled: false, available: false }),
+  setCrashReports: vi.fn(),
   mlModelStatus: (model: string) => mlModelStatusMock(model),
   onMlModelProgress: () => Promise.resolve(() => undefined),
   downloadMlModel: (model: string) => downloadMock(model),

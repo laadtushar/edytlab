@@ -2055,11 +2055,11 @@ the copyright.
 
 Licences in use
 ---------------
-442 x MIT License (MIT)
+460 x MIT License (MIT)
 19 x ISC License (ISC)
 19 x Unicode License v3 (Unicode-3.0)
 17 x Mozilla Public License 2.0 (MPL-2.0)
-14 x Apache License 2.0 (Apache-2.0)
+15 x Apache License 2.0 (Apache-2.0)
 8 x BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 2 x zlib License (Zlib)
 1 x Creative Commons Zero v1.0 Universal (CC0-1.0)
@@ -3986,6 +3986,7 @@ Apache License 2.0 (Apache-2.0)
 --------------------------------------------------------------------------------
 
 Used by:
+  * debugid 0.8.0 - declared: Apache-2.0 - https://github.com/getsentry/rust-debugid
   * ring 0.17.14 - declared: Apache-2.0 AND ISC - https://github.com/briansmith/ring
 
                               Apache License
@@ -5541,6 +5542,7 @@ Used by:
   * windows-result 0.4.1 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-strings 0.5.1 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-sys 0.52.0 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
+  * windows-sys 0.59.0 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-sys 0.60.2 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-sys 0.61.2 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-targets 0.52.6 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
@@ -6072,7 +6074,9 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
+  * backtrace 0.3.76 - declared: MIT OR Apache-2.0 - https://github.com/rust-lang/backtrace-rs
   * cfg-if 1.0.4 - declared: MIT OR Apache-2.0 - https://github.com/rust-lang/cfg-if
+  * rustc-demangle 0.1.28 - declared: MIT OR Apache-2.0 - https://github.com/rust-lang/rustc-demangle
   * socket2 0.6.5 - declared: MIT OR Apache-2.0 - https://github.com/rust-lang/socket2
   * toml_datetime 0.6.3 - declared: MIT OR Apache-2.0 - https://github.com/toml-rs/toml
 
@@ -6672,7 +6676,42 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
+  * object 0.37.3 - declared: Apache-2.0 OR MIT - https://github.com/gimli-rs/object
+
+Copyright (c) 2015 The Gimli Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
   * fs4 1.1.0 - declared: MIT OR Apache-2.0 - https://github.com/al8n/fs4
+  * gimli 0.32.3 - declared: MIT OR Apache-2.0 - https://github.com/gimli-rs/gimli
   * heck 0.4.1 - declared: MIT OR Apache-2.0 - https://github.com/withoutboats/heck
   * heck 0.5.0 - declared: MIT OR Apache-2.0 - https://github.com/withoutboats/heck
   * unicode-segmentation 1.13.2 - declared: MIT OR Apache-2.0 - https://github.com/unicode-rs/unicode-segmentation
@@ -7170,6 +7209,40 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
+  * uname 0.1.1 - declared: MIT OR Apache-2.0 - https://github.com/icorderi/rust-uname
+
+Copyright (c) 2016 rust-uname Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
   * dbus-secret-service 4.1.0 - declared: MIT OR Apache-2.0 - https://github.com/brotskydotcom/dbus-secret-service.git
 
 Copyright (c) 2016 secret-service Developers
@@ -7241,6 +7314,40 @@ Used by:
   * equivalent 1.0.2 - declared: Apache-2.0 OR MIT - https://github.com/indexmap-rs/equivalent
 
 Copyright (c) 2016--2023
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
+  * addr2line 0.25.1 - declared: Apache-2.0 OR MIT - https://github.com/gimli-rs/addr2line
+
+Copyright (c) 2016-2018 The gimli Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -8290,6 +8397,40 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
+  * rand_core 0.10.1 - declared: MIT OR Apache-2.0 - https://github.com/rust-random/rand_core
+
+Copyright (c) 2018-2026 The Rand Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
   * getrandom 0.4.2 - declared: MIT OR Apache-2.0 - https://github.com/rust-random/getrandom
 
 Copyright (c) 2018-2026 The rust-random Project Developers
@@ -8570,6 +8711,40 @@ Used by:
   * http-body-util 0.1.3 - declared: MIT - https://github.com/hyperium/http-body
 
 Copyright (c) 2019-2025 Sean McArthur & Hyper Contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
+  * chacha20 0.10.2 - declared: MIT OR Apache-2.0 - https://github.com/RustCrypto/stream-ciphers
+
+Copyright (c) 2019-2026 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -9496,6 +9671,41 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
+  * rand 0.10.3 - declared: MIT OR Apache-2.0 - https://github.com/rust-random/rand
+
+Copyright 2018 Developers of the Rand project
+Copyright (c) 2014 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
   * extended 0.1.0 - declared: MIT - https://github.com/depp/extended-rs
 
 Copyright 2022 Dietrich Epp
@@ -9656,6 +9866,37 @@ Used by:
 MIT License
 
 Copyright (c) 2016 Luka Zakrajšek
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
+  * hostname 0.4.2 - declared: MIT - https://github.com/djc/hostname
+
+MIT License
+
+Copyright (c) 2016 fengcen
+Copyright (c) 2019 svartalf
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -10408,6 +10649,41 @@ Used by:
 MIT License
 
 Copyright (c) 2021 Chip Reed
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
+  * sentry-backtrace 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-contexts 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-core 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-panic 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-types 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
+
+MIT License
+
+Copyright (c) 2021 Functional Software, Inc. dba Sentry
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -11752,6 +12028,36 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
+  * os_info 3.15.0 - declared: MIT - https://github.com/stanislav-tkach/os_info
+
+The MIT License (MIT)
+
+Copyright (c) 2017 Stanislav Tkach
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 --------------------------------------------------------------------------------

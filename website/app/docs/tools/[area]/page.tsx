@@ -8,7 +8,8 @@ import {
   AreaPager,
   ToolSection,
 } from "@/components/docs/reference-parts";
-import { areaByPath, areaPath } from "@/lib/docs/reference";
+import { HashRedirect } from "@/components/docs/hash-redirect";
+import { areaByPath, areaPath, hashTargetsElsewhere } from "@/lib/docs/reference";
 import { TOOLS_BASE, toolsReference } from "@/lib/docs/references";
 import { toolAreas } from "@/lib/docs/tools-data";
 import { pageAlternates, pageSocial } from "@/lib/seo-core";
@@ -54,6 +55,7 @@ export default async function ToolsAreaPage({ params }: Props) {
       parent={{ name: toolsReference.name, path: TOOLS_BASE }}
       aside={<AreaOutlineAside reference={toolsReference} area={outline} />}
     >
+      <HashRedirect base={TOOLS_BASE} targets={hashTargetsElsewhere(toolsReference.areas, slug)} />
       <AreaJump reference={toolsReference} area={outline} />
 
       {data.sections.map((section) => (

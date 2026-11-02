@@ -410,7 +410,7 @@ const stories = [
       const text = await reply(ctx);
       await ctx.shot("The measured loudness");
       ctx.note(`tools: ${badges.map((b) => `${b.text}:${b.status}`).join(", ")}`);
-      assert(/-?\d+(\.\d+)?\s*LUFS/i.test(text), `the answer has a LUFS figure (${text.slice(0, 160)})`);
+      assert(/(?<!\d)-?\d+(?:\.\d+)?\s*LUFS/i.test(text), `the answer has a LUFS figure (${text.slice(0, 160)})`);
       assert((await head(ctx)) === before, "nothing was edited");
     },
   },

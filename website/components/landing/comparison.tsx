@@ -61,8 +61,8 @@ const rows: Row[] = [
   },
   {
     label: "Stem separation",
-    edytlab: "Not yet",
-    detail: "Split stems elsewhere, then load each as a track.",
+    edytlab: "yes",
+    detail: "On your computer, after a one-time model download.",
   },
   {
     label: "Transcription and text-based editing",
@@ -85,7 +85,7 @@ function Cell({ value }: { value: CellValue }) {
 }
 
 /**
- * What edytlab does today, and what it does not yet, in one section.
+ * What edytlab does today, in one section.
  *
  * This was two: a "Problem" band that said DAWs are hard and AI tools
  * are shallow, and then a table that said the same thing again row by
@@ -130,7 +130,7 @@ export function Comparison() {
       <div className="container">
         <SectionHeading
           eyebrow="What it does"
-          title="What edytlab does today, and what it does not yet."
+          title="What edytlab does today."
           lead="edytlab is an agent layer over a real audio engine: it plans, runs tools and iterates, in a session you can steer."
         />
 

@@ -197,15 +197,15 @@ const DAYS = [
     id: "prep", title: "Before Tue 27 Oct (this weekend and Monday)",
     note: "From calendar.md, README.md (\"Before the first post\") and issue #728, step 0 and 1.",
     items: [
-      ["prep-install", "Install v0.9.3 on one machine per OS you will claim (not v0.9.0: its first message after Continue with ChatGPT failed). Check the macOS xattr step in the release notes works as written.", {}],
-      ["prep-chatgpt", "Sign in with a real ChatGPT plan on v0.9.3 and send a message before any post that names the ChatGPT plan. (Recorded as working on a Plus account in #727.)", {}],
+      ["prep-install", "Install v0.9.4 on one machine per OS you will claim (not v0.9.0: its first message after Continue with ChatGPT failed). Check the macOS xattr step in the release notes works as written.", {}],
+      ["prep-chatgpt", "Sign in with a real ChatGPT plan on v0.9.4 and send a message before any post that names the ChatGPT plan. (Recorded as working on a Plus account in #727.)", {}],
       ["prep-accounts", "Decide which accounts exist and are yours to post on: LinkedIn Showcase page, X, Instagram, TikTok, YouTube, Bluesky, Threads, Facebook, Pinterest, Reddit, Hacker News, Product Hunt.", {}],
       ["prep-media", "Download the videos and images you need into one folder, and play each video once.", { jump: "videos" }],
       ["prep-youtube", "Upload launch-video.mp4 to YouTube with the theme 1 YouTube title and description. Product Hunt takes video as a YouTube link only.", { jump: "cap-1-youtube", links: [vid("launch-video")] }],
       ["prep-ph-account", "Create the Product Hunt maker account and read the live submission form (limits and topic names change).", { jump: "dest-ph" }],
-      ["prep-ph-gallery", "Make the Product Hunt gallery: five images of 1280x720 (themes 1, 2, 3, 5, 4) or screenshots from the running v0.9.3 app at 1280x776.", { jump: "ph-gallery" }],
+      ["prep-ph-gallery", "Make the Product Hunt gallery: five images of 1280x720 (themes 1, 2, 3, 5, 4) or screenshots from the running v0.9.4 app at 1280x776.", { jump: "ph-gallery" }],
       ["prep-claude-line", "Decide the Claude Code disclosure (LinkedIn post 3, Show HN, r/rust and r/opensource include it; the kit says keep it).", {}],
-      ["prep-gfi", "Re-check that #846 to #850 (labelled good first issue, open on 2026-10-27) are still open, so LinkedIn post 5 and r/opensource can name real ones (or edit that paragraph).", {}],
+      ["prep-gfi", "#846 to #848 were done in v0.9.4, and no open issue had the good first issue label on 2026-11-02. If new issues get the label, name them in r/opensource and LinkedIn post 5; until then leave that sentence out.", {}],
       ["prep-rules", "Read the sidebars of r/rust, r/LocalLLaMA, r/DJs, r/opensource, r/edmproduction and r/WeAreTheMusicMakers. Drop or move any post a sub forbids.", { jump: "rd-rules" }],
       ["prep-ig-bio", "Set the Instagram bio link and bio line.", { jump: "ig-bio" }],
       ["prep-repo", "Repo topics and social preview image (needs repo admin; README.md, \"Before the first post\").", {}],
@@ -284,7 +284,7 @@ const DAYS = [
     items: [
       ["w3-t6", "Mon 9 Nov: theme 6 (free and open source) on own feeds except LinkedIn; link GitHub.", { jump: "theme-6" }],
       ["w3-wtmm", "Mon 9 Nov: r/WeAreTheMusicMakers (reel-extended-club-intro.mp4 or text).", { jump: "rd-wtmm" }],
-      ["w3-li5", "Tue 10 Nov: LinkedIn page L5 at 11:00 ET / 16:00 UK: post 5 with reel-teaser.mp4, thumbnail post-5-help-wanted.png.", { when: "11:00 ET", jump: "li-5", links: [vid("reel-teaser"), pub("linkedin/post-5-help-wanted.png")] }],
+      ["w3-li5", "Tue 10 Nov: LinkedIn page L5 at 11:00 ET / 16:00 UK: post 5 with reel-teaser.mp4, thumbnail post-5-help-wanted.png. Out of date from v0.9.4: re-render the image and pick new invitations before posting (see post 5 below).", { when: "11:00 ET", jump: "li-5", links: [vid("reel-teaser"), pub("linkedin/post-5-help-wanted.png")] }],
       ["w3-li5-pin", "Pin L5's first comment.", { jump: "li-5-comment" }],
       ["w3-opensource", "Wed 11 Nov: r/opensource contributors wanted, if the sidebar allows it (link GitHub, not a reel).", { jump: "rd-opensource" }],
       ["w3-li6", "Thu 12 Nov: LinkedIn page L6 at 11:00 ET / 16:00 UK: the theme 5 LinkedIn caption without its link line, with the 1200x627 image.", { when: "11:00 ET", jump: "li-6", links: [lk("5-every-edit-is-a-version__linkedin-1200x627.png", "img/5-every-edit-is-a-version__linkedin-1200x627.png")] }],
@@ -335,7 +335,7 @@ ${h3("Gallery plan", "ph-gallery")}
 <h4>Option A: the theme images at 1280x720, in this order</h4>
 <div class="gal">${galleryOptionA}</div>
 <p class="sub">Keep the "Real app, real Claude" labels. Put the launch video's YouTube link in the video slot. Expect a little letterboxing: none of the images is exactly 1270x760.</p>
-<h4>Option B: capture from the running v0.9.3 app (1280x776), as product-hunt.md plans</h4>
+<h4>Option B: capture from the running v0.9.4 app (1280x776), as product-hunt.md plans</h4>
 ${table(gal)}
 <h4>Topics</h4>${ul(topics)}
 <h4>Launch-day notes</h4>${ul(notes)}</div>`;
@@ -349,7 +349,7 @@ function hnHtml() {
   const hnaTitles = bullets(section("launch/show-hn.md", /^Title/).filter((l) => /^\d\. `/.test(l)));
   const raw = [...hnaTitles, ...moreTitles].map((l) => /^`(.+)` \((\d+)\)$/.exec(l)).filter(Boolean).map((m) => m[1]);
   const titles = [...new Set(raw)];
-  const REC = "Show HN: edytlab – desktop audio editor where an LLM calls 99 DSP tools";
+  const REC = "Show HN: edytlab – desktop audio editor where an LLM calls 110 DSP tools";
   if (!titles.includes(REC)) throw new Error("recommended HN title not found");
   const first = pick(MORE, { h2: /^6\. Show HN/, label: /^First comment/ });
   const qa = tableRows(section("social-kit/more.md", /^6\. Show HN/));
@@ -359,7 +359,7 @@ function hnHtml() {
     return ls.slice(a + 1, b).join("\n").trim();
   })();
   const altQa = tableRows(section("launch/show-hn.md", /^Questions/));
-  return `<div class="dest" id="dest-hn">${h3("Show HN")}${sourceNote("social-kit/more.md", "(section 6, refreshed for v0.9.3), with launch/show-hn.md as the alternate")}
+  return `<div class="dest" id="dest-hn">${h3("Show HN")}${sourceNote("social-kit/more.md", "(section 6, refreshed for v0.9.4), with launch/show-hn.md as the alternate")}
 <div class="note info"><strong>Where it goes:</strong> submit ${ext("https://edytlab.com", "https://edytlab.com")} with no UTM, at <strong>12:00 UTC</strong>. Post the first comment as soon as it is up and stay for several hours. Never on the same day as a Reddit post. Do not ask anyone to upvote.</div>
 ${titles.map((t, i) => card("hn-title-" + (i === titles.indexOf(REC) ? 0 : i + 1), "Title" + (t === REC ? "" : " option"), t, { limit: 80, badge: t === REC ? "recommended" : "" })).join("")}
 ${card("hn-comment", "First comment (post it yourself, right after submitting)", first, { nolimit: true })}
@@ -405,6 +405,9 @@ function linkedinHtml() {
     const pin = pick(LI, { h2, label: /^Pin this comment/ });
     const meta = `<p><strong>${esc(sched[i])}.</strong> Attach ${esc(attach[i])}${thumbs[i] ? `; thumbnail <a href="${thumbs[i]}" target="_blank" rel="noopener">${thumbs[i].split("/").pop()}</a>` : ""}. Link goes in the pinned comment, not the body (post 1 has one in the body).</p>`;
     out += `<div id="li-${n}">${h3(`LinkedIn ${n}: ${heads[i].replace(/^\d\. /, "")}`)}`;
+    if (n === 5) {
+      out += `<div class="note"><strong>Out of date from v0.9.4: do not post this text or image as they are.</strong> The good first issues it names (#846 to #848) and stem separation (#385) are done and ship in v0.9.4. Pick new invitations and re-render the image first (<code>linkedin-posts.md</code>, <code>linkedin/README.md</code>).</div>`;
+    }
     out += card(`li-${n}-post`, `Post ${n}`, post, { limit: 3000, meta });
     if (n === 3) {
       const SENT = " The video shows it sequencing a three-track mix with them.";
@@ -538,7 +541,7 @@ function imagesHtml() {
   }).join("");
   const liFiles = [
     ["post-1-launch.png", "Post 1: launch", "L1"], ["post-2-before-after.png", "Post 2: before and after", "L2"],
-    ["post-3-model-never-touches-a-sample.png", "Post 3: the model never touches a sample", "L3 (alongside the carousel)"], ["post-4-privacy.png", "Post 4: privacy", "L4"], ["post-5-help-wanted.png", "Post 5: help wanted", "L5"],
+    ["post-3-model-never-touches-a-sample.png", "Post 3: the model never touches a sample", "L3 (alongside the carousel)"], ["post-4-privacy.png", "Post 4: privacy", "L4"], ["post-5-help-wanted.png", "Post 5: help wanted (out of date from v0.9.4: re-render before posting)", "L5"],
   ];
   const lig = liFiles.map(([f, t, l]) => `<figure><a href="linkedin/${f}" target="_blank" rel="noopener"><img src="linkedin/${f}" alt="${esc(t)}" loading="lazy" width="1200" height="1200" style="--ar:1"></a><figcaption><b>${esc(t)}</b>${esc(l)}, 1200x1200<div class="links"><a href="linkedin/${f}" target="_blank" rel="noopener">Open</a></div></figcaption></figure>`).join("")
     + `<figure><a href="linkedin/post-3-carousel.pdf" target="_blank" rel="noopener"><div class="pdf" aria-hidden="true">PDF</div></a><figcaption><b>Post 3 carousel</b>Seven 1080x1350 pages; post as a document, title "How edytlab is built"<div class="links"><a href="linkedin/post-3-carousel.pdf" target="_blank" rel="noopener">Open</a></div></figcaption></figure>`;
@@ -620,7 +623,7 @@ ${table([["#", "Date", "ET", "UK", "Post", "Attach", "Thumbnail"], ...li])}
 <section class="sec" id="rules"><h2>Rules</h2>
 <h3 style="margin-top:8px">Don't</h3>${ul(dont)}
 <h3>Principles of the calendar</h3>${ul(principles)}
-<p class="sub">Facts every post respects: free and open source (MIT); macOS, Windows and Linux; the installers are unsigned; audio is edited on your computer and never uploaded, only the chat goes to the provider you choose; 6 API providers plus your ChatGPT plan, Ollama runs locally with no key; 99 tools; every edit is a node in a history graph. Stem separation is not shipped.</p></section>`;
+<p class="sub">Facts every post respects: free and open source (MIT); macOS, Windows and Linux; the installers are unsigned; audio is edited on your computer and never uploaded, only the chat goes to the provider you choose; 6 API providers plus your ChatGPT plan, Ollama runs locally with no key; 110 tools; every edit is a node in a history graph. Stem separation runs on your computer only after you download the stem model in Settings, and the stems are estimates.</p></section>`;
 }
 
 // ---------------------------------------------------------------- assemble
@@ -662,10 +665,10 @@ function build() {
 ${css}</style>
 <div class="wrap">
 <header>
-<p class="eyebrow">edytlab / launch kit / v0.9.3</p>
+<p class="eyebrow">edytlab / launch kit / v0.9.4</p>
 <h1>Launch edytlab with <span>real footage</span>.</h1>
 <p class="lede">Every post, image and video for the relaunch, and the checklist to run it, in one place. Each text has a copy button and a count against its platform's limit. Nothing here posts anywhere by itself, and nobody is asked to upvote, star or share.</p>
-<div class="facts" aria-label="Facts every post respects"><span>Free and open source (MIT)</span><span>macOS, Windows, Linux</span><span>99 tools</span><span>6 API providers plus your ChatGPT plan</span><span>Unsigned installers</span><span>Audio never uploaded</span><span>No stem separation yet</span></div>
+<div class="facts" aria-label="Facts every post respects"><span>Free and open source (MIT)</span><span>macOS, Windows, Linux</span><span>110 tools</span><span>6 API providers plus your ChatGPT plan</span><span>Unsigned installers</span><span>Audio never uploaded</span><span>Stems after a model download</span></div>
 </header>
 <nav class="top" aria-label="Sections"><div class="navrow"><a href="#checklist" aria-current="true">Checklist</a><a href="#posts">Posts</a><a href="#images">Images</a><a href="#videos">Videos</a><a href="#where">Where it goes</a><a href="#when">When to post</a><a href="#rules">Rules</a></div></nav>
 <section class="sec" id="checklist"><h2>Checklist</h2>

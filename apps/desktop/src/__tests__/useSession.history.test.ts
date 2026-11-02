@@ -13,15 +13,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const bridge = vi.hoisted(() => ({
   nodeCreated: [] as ((nodeId: string) => void)[],
   getSessionHead: vi.fn(),
+  getHeadTrail: vi.fn(),
 }));
 
 vi.mock("../lib/tauri-bridge", async () => ({
   getSessionHead: bridge.getSessionHead,
   ...(await import("./sessionBridge")).sessionBridgeCommon(bridge),
+  getHeadTrail: bridge.getHeadTrail,
 }));
 
 import { useSession } from "../hooks/useSession";
 import { SessionQueryProvider } from "../lib/sessionQueries";
+import { held } from "./held";
 
 /** Mount the hook on a project whose head is "A", once that head has arrived. */
 async function mountOnA() {
@@ -33,9 +36,58 @@ async function mountOnA() {
 beforeEach(() => {
   bridge.nodeCreated = [];
   bridge.getSessionHead.mockReset().mockResolvedValue("A");
+  bridge.getHeadTrail.mockReset().mockResolvedValue({ head: null, trail: [], redo: [] });
 });
 
 describe("useSession: the path taken", () => {
+  it("adopts a head read when only the saved trail was restored while it waited", async () => {
+    const saved = held<{ head: string; trail: string[]; redo: string[] }>();
+    bridge.getHeadTrail.mockReturnValueOnce(saved.promise);
+    const { result } = await mountOnA();
+    const read = held<string>();
+    bridge.getSessionHead.mockReturnValueOnce(read.promise);
+    const pending = result.current.reconcileHead();
+    await saved.resolve({ head: "A", trail: ["X"], redo: [] });
+    expect(result.current.peekUndo()).toEqual({ from: "A", to: "X" });
+    await read.resolve("B");
+    expect(await pending).toBe("B");
+    expect(result.current.peekUndo()).toEqual({ from: "B", to: "A" });
+  });
+
+  it("rejects a head read after a same-head project reset", async () => {
+    const { result } = await mountOnA();
+    const read = held<string>();
+    bridge.getSessionHead.mockReturnValueOnce(read.promise);
+    const pending = result.current.reconcileHead();
+    act(() => result.current.resetHead("A"));
+    await read.resolve("B");
+    expect(await pending).toBeNull();
+    expect(result.current.peekUndo()).toEqual({ from: "A", to: null });
+  });
+
+  it("rejects a head read after moving away and back to the same head", async () => {
+    const { result } = await mountOnA();
+    const read = held<string>();
+    bridge.getSessionHead.mockReturnValueOnce(read.promise);
+    const pending = result.current.reconcileHead();
+    act(() => {
+      result.current.setHeadLocal("C");
+      result.current.setHeadLocal("A");
+    });
+    await read.resolve("B");
+    expect(await pending).toBeNull();
+    expect(result.current.peekUndo()).toEqual({ from: "A", to: "C" });
+  });
+  it("does not adopt a head read overtaken by an agent event", async () => {
+    const { result } = await mountOnA();
+    const read = held<string>();
+    bridge.getSessionHead.mockReturnValueOnce(read.promise);
+    const pending = result.current.reconcileHead();
+    act(() => bridge.nodeCreated.forEach((callback) => callback("C")));
+    await read.resolve("B");
+    expect(await pending).toBeNull();
+    expect(result.current.peekUndo()).toEqual({ from: "C", to: "A" });
+  });
   it("sees a move the moment it is made, before React renders it", async () => {
     const { result } = await mountOnA();
     expect(result.current.peekUndo()).toEqual({ from: "A", to: null });

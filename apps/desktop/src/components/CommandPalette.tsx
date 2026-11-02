@@ -295,6 +295,8 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
   return (
     <div
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]`}
+      // A pointer-only way out; Escape closes the palette (the key handler above).
+      role="presentation"
       onClick={handleBackdrop}
       onAnimationEnd={onAnimationEnd}
     >

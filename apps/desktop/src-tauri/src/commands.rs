@@ -89,6 +89,10 @@ pub enum CommandError {
     #[error("could not save the Plan first setting ({0}); it applies until edytlab quits")]
     PlanFirstNotSaved(std::io::Error),
 
+    /// Send crash reports was applied for this launch but not saved (#958).
+    #[error("could not save the crash reports setting ({0}); it applies until edytlab quits")]
+    CrashReportsNotSaved(std::io::Error),
+
     #[error("invalid node id: {0}")]
     InvalidNodeId(String),
 
@@ -750,15 +754,15 @@ fn open_project_with(
 ///   ([`AppState::release_open_project_if_exclusive`]): the slot's, this
 ///   function's and the agent's, if the agent was built on it.
 ///
-/// **Lock order**, the only path that holds a store's lock across the window's
-/// slots: the agent's (`try_lock_owned`, never waited for) → the registry
-/// (`Store::replaced_holder`, a leaf, released before the next) → the old
-/// store's (`try_lock`, never waited for) → the `store` slot → `project_dir`,
-/// and then, with all of them let go, the window-mix lock, which is taken
-/// alone. Nothing takes a store's lock while holding the slot (`store_handle()`
-/// drops it before its caller locks the store), and the agent's lock is
-/// taken before the slot everywhere (`rebuild_agent_into` does the same), so
-/// no order is reversed and the two `try_lock`s cannot wait.
+/// **Lock order** for project replacement: the agent's (`try_lock_owned`,
+/// never waited for) → the registry (`Store::replaced_holder`, a leaf,
+/// released before the next) → the old store's (`try_lock`, never waited for)
+/// → the `store` slot → `project_dir`, and then, with all of them let go,
+/// the window-mix lock, which is taken alone. The punch apply path also takes
+/// store then slot for its identity check, but releases the slot before engine
+/// and dispatcher. Nothing takes a store's lock while holding the slot
+/// (`store_handle()` drops it before its caller locks the store), and the
+/// agent's lock is taken before the slot everywhere.
 fn release_replaced_project(state: &AppState, path: &Path) -> bool {
     let Ok(mut agent) = Arc::clone(&state.agent).try_lock_owned() else {
         return false;
@@ -1708,6 +1712,60 @@ pub async fn third_party_notices(app: tauri::AppHandle) -> CmdResult<String> {
     tauri::async_runtime::spawn_blocking(move || read_third_party_notices(&resource_dir))
         .await
         .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?
+}
+
+// ---------------------------------------------------------------------------
+// crash reports (#958)
+// ---------------------------------------------------------------------------
+
+/// Settings → Account → Send crash reports: whether the person turned it on
+/// (off on a fresh install) and whether this build can send at all (it was
+/// built with an `EDYTLAB_SENTRY_DSN`). Reads memory only.
+#[tauri::command]
+pub async fn get_crash_reports(
+    state: State<'_, AppState>,
+) -> CmdResult<crate::crash_reports::CrashReportsStatus> {
+    Ok(state.crash_reports.status())
+}
+
+/// Turn Send crash reports on or off, at once and for later launches: it is
+/// saved to `~/.edytlab/settings.json`, never the keychain. On makes the
+/// reporting client (nothing is sent until something goes wrong, and only
+/// in a build with a DSN); off closes it, after waiting up to two seconds
+/// for a report already on its way, so it runs on the blocking pool.
+///
+/// The choice applies to this launch whatever the disk does. If it could not
+/// be saved the answer is an error that says so, and Settings reads the
+/// status again rather than assuming the click failed.
+#[tauri::command]
+pub async fn set_crash_reports(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> CmdResult<crate::crash_reports::CrashReportsStatus> {
+    let app_state = state.inner().clone();
+    let saved = tauri::async_runtime::spawn_blocking(move || app_state.save_crash_reports(enabled))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?;
+    if let Err(e) = saved {
+        tracing::warn!(error = %e, "could not save the crash reports setting");
+        return Err(CommandError::CrashReportsNotSaved(e).to_string());
+    }
+    Ok(state.crash_reports.status())
+}
+
+/// An uncaught error in the webview (`window.onerror`, an unhandled
+/// rejection), forwarded by `lib/crashReports.ts` so the app has one
+/// reporting client and one consent check, and the CSP stays as it is. Does
+/// nothing unless Send crash reports is on in a build that can send; the
+/// report is scrubbed before it leaves (`crash_reports::scrub_event`).
+/// Never fails: a report that cannot be made is not the window's problem.
+#[tauri::command]
+pub async fn report_webview_error(
+    state: State<'_, AppState>,
+    report: crate::crash_reports::WebviewErrorReport,
+) -> CmdResult<()> {
+    state.crash_reports.report_webview_error(&report);
+    Ok(())
 }
 
 /// [`third_party_notices`]' file work: the notices under `resource_dir`.
@@ -2742,14 +2800,26 @@ fn default_true() -> bool {
     true
 }
 
+// The skill and profile commands below read and write files in the user's
+// home directory, and the writes reload the whole library from disk, so
+// that file work runs on the blocking pool rather than on an async worker.
+// They take none of the turn locks (only the leaf `skills_dir`, `skills`,
+// `agent_profiles_dir`, `agent_profiles` and active-profile mutexes, each
+// for an instant and in the order they always have), and nothing awaits
+// while one is held: a profile change that rebuilds the agent does so after
+// its file work has come back.
 #[tauri::command]
 pub async fn read_skill(state: State<'_, AppState>, name: String) -> CmdResult<SkillContent> {
+    blocking(&state, move |state| read_skill_inner(state, name)).await
+}
+
+fn read_skill_inner(state: &AppState, name: String) -> CmdResult<SkillContent> {
     // Before any join (#266). `upsert_skill` and `delete_skill` have
     // always validated; this one did not, and the asymmetry was the
     // defect — `Path::join` with an *absolute* argument discards the
     // base entirely, so `name = "/etc/hosts"` resolved to
     // `/etc/hosts.md`, well outside the skills directory.
-    let dir = skills_dir(&state)?;
+    let dir = skills_dir(state)?;
     let path = skill_path(&dir, &name)?;
     if !path.exists() {
         // The name, not `path.display()`: echoing the resolved absolute
@@ -2786,11 +2856,15 @@ pub async fn upsert_skill(
         .into());
     }
     validate_skill_content(&content)?;
+    blocking(&state, move |state| write_skill(state, &name, &content)).await
+}
 
-    let dir = skills_dir(&state)?;
+/// [`upsert_skill`]'s file work, after the content has been validated.
+fn write_skill(state: &AppState, name: &str, content: &SkillContent) -> CmdResult<()> {
+    let dir = skills_dir(state)?;
     std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
-    let path = skill_path(&dir, &name)?;
-    let serialised = serialise_skill_file(&content);
+    let path = skill_path(&dir, name)?;
+    let serialised = serialise_skill_file(content);
 
     // Atomic write — tempfile in the same dir, then persist.
     let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(CommandError::from)?;
@@ -2808,8 +2882,12 @@ pub async fn upsert_skill(
 
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, AppState>, name: String) -> CmdResult<()> {
-    let dir = skills_dir(&state)?;
-    let path = skill_path(&dir, &name)?;
+    blocking(&state, move |state| delete_skill_inner(state, &name)).await
+}
+
+fn delete_skill_inner(state: &AppState, name: &str) -> CmdResult<()> {
+    let dir = skills_dir(state)?;
+    let path = skill_path(&dir, name)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(CommandError::from)?;
     }
@@ -4743,7 +4821,7 @@ pub(crate) fn run_track_tool(
 /// Why [`run_track_tool_at`] did not make its edit.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ApplyError {
-    /// The head was not the one the caller named, so nothing was changed.
+    /// The head or project was not the one the caller named; nothing changed.
     HeadMoved,
     /// The tool refused, or failed; the text is what the window shows.
     Failed(String),
@@ -4764,12 +4842,52 @@ pub(crate) fn run_track_tool_at(
     args: serde_json::Value,
     expected: Option<NodeId>,
 ) -> Result<String, ApplyError> {
+    run_track_tool_at_inner(state, tool, args, expected, None)
+}
+
+/// Apply a punch to the store and head it was recorded on, provided that
+/// store is still open at the identity check. A later switch cannot redirect
+/// dispatch, which stays on the captured store.
+pub(crate) fn run_track_tool_at_project(
+    state: &AppState,
+    tool: &str,
+    args: serde_json::Value,
+    expected_store: &std::sync::Weak<Mutex<Store>>,
+    expected_head: NodeId,
+) -> Result<String, ApplyError> {
+    let captured = expected_store.upgrade().ok_or(ApplyError::HeadMoved)?;
+    run_track_tool_at_inner(state, tool, args, Some(expected_head), Some(&captured))
+}
+
+fn run_track_tool_at_inner(
+    state: &AppState,
+    tool: &str,
+    args: serde_json::Value,
+    expected: Option<NodeId>,
+    expected_store: Option<&Arc<Mutex<Store>>>,
+) -> Result<String, ApplyError> {
     let failed = |m: String| ApplyError::Failed(m);
-    let store_arc = state
-        .store_handle()
-        .ok_or_else(|| failed(CommandError::NoSession.to_string()))?;
+    let store_arc = match expected_store {
+        Some(store) => Arc::clone(store),
+        None => state
+            .store_handle()
+            .ok_or_else(|| failed(CommandError::NoSession.to_string()))?,
+    };
     let head_hex = {
         let mut store = lock_std(&store_arc, "store").map_err(|e| failed(e.to_string()))?;
+        // Store before slot, matching `release_replaced_project`. Once the
+        // identity check passes, dispatch stays on this captured store even
+        // if another project opens; release the global slot before waiting
+        // for the engine or dispatcher.
+        if let Some(want) = expected_store {
+            let slot = lock_std(&state.store, "store slot").map_err(|e| failed(e.to_string()))?;
+            if !slot
+                .as_ref()
+                .is_some_and(|live| Arc::ptr_eq(live.as_arc(), want))
+            {
+                return Err(ApplyError::HeadMoved);
+            }
+        }
         if let Some(want) = expected {
             if store.head() != Some(want) {
                 return Err(ApplyError::HeadMoved);
@@ -5217,8 +5335,18 @@ pub async fn list_templates(app_handle: tauri::AppHandle) -> CmdResult<Vec<Templ
         .resource_dir()
         .map_err(|e| format!("resource dir: {e}"))?;
     let templates_dir = resource_dir.join("templates");
+    // Reads every bundled template file: file work, and it takes no lock,
+    // so it runs on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || read_templates(&templates_dir))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?
+}
+
+/// [`list_templates`]' file work: the name and description of each
+/// `.json` file in `templates_dir`.
+fn read_templates(templates_dir: &Path) -> CmdResult<Vec<TemplateInfo>> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&templates_dir) else {
+    let Ok(entries) = std::fs::read_dir(templates_dir) else {
         return Ok(out); // dev mode: no bundled resources
     };
     for entry in entries.flatten() {
@@ -5377,9 +5505,13 @@ pub async fn read_agent_profile(
     state: State<'_, AppState>,
     name: String,
 ) -> CmdResult<AgentProfileContent> {
+    blocking(&state, move |state| read_agent_profile_inner(state, name)).await
+}
+
+fn read_agent_profile_inner(state: &AppState, name: String) -> CmdResult<AgentProfileContent> {
     // Same gap as `read_skill`, same fix (#266): the write and delete
     // siblings validate, this one did not.
-    let dir = agent_profiles_dir(&state)?;
+    let dir = agent_profiles_dir(state)?;
     let path = agent_profile_path(&dir, &name)?;
     if !path.exists() {
         return Err(CommandError::InvalidPath(format!("profile `{name}` not found")).into());
@@ -5408,10 +5540,30 @@ pub async fn upsert_agent_profile(
         ))
         .into());
     }
-    let dir = agent_profiles_dir(&state)?;
+    let is_active = blocking(&state, move |state| {
+        write_agent_profile(state, &name, &content)?;
+        Ok(state.active_agent_profile().as_deref() == Some(name.as_str()))
+    })
+    .await?;
+    // If the user is editing the currently active profile, rebuild
+    // the agent so the override takes effect on the next turn.
+    if is_active {
+        rebuild_agent(&state).await?;
+    }
+    Ok(())
+}
+
+/// [`upsert_agent_profile`]'s file work: write the profile, then reload
+/// the library from disk.
+fn write_agent_profile(
+    state: &AppState,
+    name: &str,
+    content: &AgentProfileContent,
+) -> CmdResult<()> {
+    let dir = agent_profiles_dir(state)?;
     std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
-    let path = agent_profile_path(&dir, &name)?;
-    let serialised = serialise_agent_profile(&content);
+    let path = agent_profile_path(&dir, name)?;
+    let serialised = serialise_agent_profile(content);
     let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(CommandError::from)?;
     std::io::Write::write_all(&mut tmp, serialised.as_bytes()).map_err(CommandError::from)?;
     tmp.flush().map_err(CommandError::from)?;
@@ -5422,35 +5574,45 @@ pub async fn upsert_agent_profile(
             CommandError::InvalidAgentProfile(format!("saved but reload failed: {e}")).into(),
         );
     }
-    // If the user is editing the currently active profile, rebuild
-    // the agent so the override takes effect on the next turn.
-    if state.active_agent_profile().as_deref() == Some(name.as_str()) {
-        rebuild_agent(&state).await?;
-    }
     Ok(())
 }
 
 #[tauri::command]
 pub async fn delete_agent_profile(state: State<'_, AppState>, name: String) -> CmdResult<()> {
-    let dir = agent_profiles_dir(&state)?;
-    let path = agent_profile_path(&dir, &name)?;
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(CommandError::from)?;
-    }
-    // If the deleted profile was active, drop the selection and
-    // rebuild the agent against the default config.
-    if state.active_agent_profile().as_deref() == Some(name.as_str()) {
-        state
-            .set_active_agent_profile(None)
-            .map_err(CommandError::from)?;
+    // The file work on the blocking pool, in two parts around the agent
+    // rebuild, which awaits and so stays on the task: the order of the
+    // steps is the one this command has always taken.
+    let was_active = blocking(&state, move |state| {
+        let dir = agent_profiles_dir(state)?;
+        let path = agent_profile_path(&dir, &name)?;
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(CommandError::from)?;
+        }
+        // If the deleted profile was active, drop the selection (which
+        // removes its sidecar file) before the agent is rebuilt.
+        let was_active = state.active_agent_profile().as_deref() == Some(name.as_str());
+        if was_active {
+            state
+                .set_active_agent_profile(None)
+                .map_err(CommandError::from)?;
+        }
+        Ok(was_active)
+    })
+    .await?;
+    // Rebuild the agent against the default config.
+    if was_active {
         rebuild_agent(&state).await?;
     }
-    if let Err(e) = state.reload_agent_profiles_from_disk() {
-        return Err(
-            CommandError::InvalidAgentProfile(format!("deleted but reload failed: {e}")).into(),
-        );
-    }
-    Ok(())
+    blocking(&state, |state| {
+        if let Err(e) = state.reload_agent_profiles_from_disk() {
+            return Err(CommandError::InvalidAgentProfile(format!(
+                "deleted but reload failed: {e}"
+            ))
+            .into());
+        }
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]

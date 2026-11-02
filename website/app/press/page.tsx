@@ -65,7 +65,7 @@ export default function PressPage() {
             edytlab is a free, open-source desktop audio editor where you edit
             by chatting with an AI agent. The agent turns a request such as
             &ldquo;time-stretch the second track to match the first, crossfade,
-            and export a WAV&rdquo; into calls to 111 deterministic audio tools.
+            and export a WAV&rdquo; into calls to 113 deterministic audio tools.
             The tools run locally in a Rust engine on the user&apos;s own
             computer, so audio files are never uploaded; only the chat goes to
             the language-model provider the user selects (Anthropic, OpenAI,
@@ -111,7 +111,7 @@ export default function PressPage() {
             <tr>
               <th scope="row">Tools</th>
               <td>
-                111 deterministic tools the agent can call (
+                113 deterministic tools the agent can call (
                 <Link href="/docs/tools">full reference</Link>)
               </td>
             </tr>
@@ -152,19 +152,22 @@ export default function PressPage() {
             </tr>
             <tr>
               <th scope="row">Export formats</th>
-              <td>WAV, FLAC, MP3</td>
+              <td>WAV, AIFF, FLAC, MP3, OGG (Opus)</td>
             </tr>
           </tbody>
         </table>
 
+        <h2>Local models</h2>
+        <p>
+          Stem separation and speech transcription work on your computer,
+          once the user has downloaded each model in Settings (about 171 MB
+          and 139 MB). Stems are estimates: each carries a little of the
+          others.
+        </p>
+
         <h2>What is not shipped</h2>
         <p>Please state this plainly if you cover edytlab.</p>
         <ul>
-          <li>
-            Stem separation is not implemented in any build. Speech
-            transcription works on your computer, once the user
-            has downloaded the speech model in Settings.
-          </li>
           <li>
             It edits files offline. It is not a live DJ tool and it is not a
             DAW: there is no MIDI and no VST or CLAP plugin hosting.

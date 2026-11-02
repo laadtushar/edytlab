@@ -19,6 +19,7 @@ pub mod compact;
 pub mod compare_nodes;
 pub mod compressor;
 pub mod copy_region;
+pub mod crossfade;
 pub mod cut_range;
 pub mod de_esser;
 pub mod diarize;
@@ -112,6 +113,7 @@ pub mod truncate_silence;
 /// re-exported from the crate root — everything else in here is
 /// `pub(crate)` and stays inside the crate.
 pub mod util;
+pub mod wah_wah;
 
 pub mod vocal_reduction;
 
@@ -129,6 +131,7 @@ pub use compact::CompactSessionTool;
 pub use compare_nodes::CompareNodesTool;
 pub use compressor::CompressorTool;
 pub use copy_region::CopyRegionTool;
+pub use crossfade::CrossfadeTool;
 pub use cut_range::CutRangeTool;
 pub use de_esser::DeEsserTool;
 pub use diarize::DiarizeTool;
@@ -217,3 +220,4 @@ pub use tremolo::TremoloTool;
 pub use trim::TrimTool;
 pub use truncate_silence::TruncateSilenceTool;
 pub use vocal_reduction::VocalReductionTool;
+pub use wah_wah::WahWahTool;

@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { focusOnMount } from "../lib/focusOnMount";
 
 export interface TrackMenuProps {
   /** Session track index — not the lane's position. */
@@ -130,7 +131,7 @@ export function TrackMenu({
         >
           {renaming ? (
             <input
-              autoFocus
+              ref={focusOnMount}
               data-testid={`track-rename-input-${trackIndex}`}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

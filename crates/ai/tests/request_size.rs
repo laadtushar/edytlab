@@ -203,9 +203,11 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // #771's snap_to_zero_crossing adds 57 B on top.
 // #771's reorder_tracks adds 289 B on top.
 // #771's mute_all_tracks (#848) adds 133 B on top.
-// #769's declip and repair_span add 1,209 B: measured 77,002 B.
-// Retain the existing 34 B margin; no slim or MCP guard changes.
-const FULL_TOOLS_MAX_BYTES: usize = 77_036;
+// #942's render_final range adds 279 B on top.
+// #846's wah_wah adds 663 B on top.
+// #768's crossfade adds 735 B on top.
+// #769's declip and repair_span add 1,209 B on top.
+const FULL_TOOLS_MAX_BYTES: usize = 78_713; // main ratchet 77,504 + 1,209 B of #769's declip and repair_span
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -805,9 +807,11 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #771's snap_to_zero_crossing adds 57 B on top.
 // #771's reorder_tracks adds 320 B on top.
 // #771's mute_all_tracks (#848) adds 164 B on top.
-// #769's two repair tools add 1,271 B: measured 80,504 B, plus the
-// existing 34 B margin.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 80_538;
+// #942's render_final range adds 279 B on top.
+// #846's wah_wah adds 694 B on top.
+// #768's crossfade adds 766 B on top.
+// #769's declip and repair_span add 1,271 B on top.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 82_277; // main ratchet 81,006 + 1,271 B of #769's declip and repair_span
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

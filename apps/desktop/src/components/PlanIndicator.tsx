@@ -25,6 +25,15 @@ import {
 } from "../lib/tauri-bridge";
 import { ChatGptLogo } from "./ChatGptLogo";
 
+/**
+ * Runs a bridge call so that a throw before it returns a promise (a bridge
+ * that is not there, or an export it lacks) is a rejection like any other.
+ * Runs `call` at once, in the caller's turn, so pass a function that reads
+ * the bridge export itself, not the export.
+ */
+const attempt = <T,>(call: () => T | Promise<T>): Promise<T> =>
+  new Promise<T>((resolve) => resolve(call()));
+
 export function PlanIndicator({ refreshKey = 0 }: { refreshKey?: number }) {
   const [active, setActive] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -46,44 +55,39 @@ export function PlanIndicator({ refreshKey = 0 }: { refreshKey?: number }) {
     const refresh = (known?: ChatGptStatus) => {
       const mine = ++seq;
       const current = () => live && mine === seq;
-      try {
-        Promise.resolve(getActiveProvider())
-          .then((provider) => {
-            if (provider !== "chatgpt") return { active: false, signedIn: false };
-            if (known) return { active: true, signedIn: known.state === "signed_in" };
-            return Promise.resolve(chatgptStatus()).then((s) => ({
-              active: true,
-              signedIn: s?.state === "signed_in",
-            }));
-          })
-          .then(
-            (next) => {
-              if (current()) show(next.active, next.signedIn);
-            },
-            () => {
-              if (current()) show(false, false);
-            },
-          );
-      } catch {
-        show(false, false);
-      }
+      attempt(() => getActiveProvider())
+        .then((provider) => {
+          if (provider !== "chatgpt") return { active: false, signedIn: false };
+          if (known) return { active: true, signedIn: known.state === "signed_in" };
+          return attempt(() => chatgptStatus()).then((s) => ({
+            active: true,
+            signedIn: s?.state === "signed_in",
+          }));
+        })
+        .then(
+          (next) => {
+            if (current()) show(next.active, next.signedIn);
+          },
+          () => {
+            if (current()) show(false, false);
+          },
+        );
     };
 
-    try {
-      const subscribed = onChatGptStatus((next: ChatGptStatus) => {
+    // No event channel (a throw or a rejection): the line is read on mount and
+    // when `refreshKey` moves.
+    attempt(() =>
+      onChatGptStatus((next: ChatGptStatus) => {
         if (live) refresh(next);
-      });
-      Promise.resolve(subscribed).then(
-        (fn) => {
-          if (typeof fn !== "function") return;
-          if (live) unlisten = fn;
-          else fn();
-        },
-        () => undefined,
-      );
-    } catch {
-      // No event channel: the line is read on mount and when `refreshKey` moves.
-    }
+      }),
+    ).then(
+      (fn) => {
+        if (typeof fn !== "function") return;
+        if (live) unlisten = fn;
+        else fn();
+      },
+      () => undefined,
+    );
     refresh();
 
     return () => {
@@ -109,11 +113,8 @@ export function PlanIndicator({ refreshKey = 0 }: { refreshKey?: number }) {
         type="button"
         data-testid="plan-indicator-manage-usage"
         onClick={() => {
-          try {
-            openChatgptUsage().catch(() => undefined);
-          } catch {
-            // Nothing to show here; Settings' card reports a failure.
-          }
+          // Nothing to show on a failure here; Settings' card reports it.
+          attempt(() => openChatgptUsage()).catch(() => undefined);
         }}
         className="shrink-0 rounded px-1 text-[var(--text-faint)] underline-offset-2 transition hover:text-[var(--accent-text)] hover:underline"
       >
