@@ -205,7 +205,7 @@ const DAYS = [
       ["prep-ph-account", "Create the Product Hunt maker account and read the live submission form (limits and topic names change).", { jump: "dest-ph" }],
       ["prep-ph-gallery", "Make the Product Hunt gallery: five images of 1280x720 (themes 1, 2, 3, 5, 4) or screenshots from the running v0.9.4 app at 1280x776.", { jump: "ph-gallery" }],
       ["prep-claude-line", "Decide the Claude Code disclosure (LinkedIn post 3, Show HN, r/rust and r/opensource include it; the kit says keep it).", {}],
-      ["prep-gfi", "Re-check that #846 to #850 (labelled good first issue, open on 2026-10-27) are still open, so LinkedIn post 5 and r/opensource can name real ones (or edit that paragraph).", {}],
+      ["prep-gfi", "#846 to #848 were done in v0.9.4, and no open issue had the good first issue label on 2026-11-02. If new issues get the label, name them in r/opensource and LinkedIn post 5; until then leave that sentence out.", {}],
       ["prep-rules", "Read the sidebars of r/rust, r/LocalLLaMA, r/DJs, r/opensource, r/edmproduction and r/WeAreTheMusicMakers. Drop or move any post a sub forbids.", { jump: "rd-rules" }],
       ["prep-ig-bio", "Set the Instagram bio link and bio line.", { jump: "ig-bio" }],
       ["prep-repo", "Repo topics and social preview image (needs repo admin; README.md, \"Before the first post\").", {}],
