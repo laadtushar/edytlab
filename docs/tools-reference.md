@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 107 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 108 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -37,7 +37,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`compressor`](#compressor) — Apply dynamic compression to a track using an envelope follower.
 - [`copy_region`](#copy_region) — Copy a time range from a track into the in-memory clipboard.
 - [`create_bus`](#create_bus) — Create an effects bus.
-- [`cut_range`](#cut_range) — Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left.
+- [`cut_range`](#cut_range) — Remove [start_sample, end_sample) from a track and shift the rest left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
 - [`delete_markers`](#delete_markers) — Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range.
@@ -45,9 +45,9 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
-- [`echo`](#echo) — Add a single echo (delay + decay).
+- [`echo`](#echo) — Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).
 - [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
-- [`eq`](#eq) — Apply a parametric equalizer (chain of biquad peak filters) to a track.
+- [`eq`](#eq) — EQ a track with biquad bands.
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
@@ -79,7 +79,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`mute_track`](#mute_track) — Mute or unmute a track.
 - [`name_node`](#name_node) — Set or replace the human-readable label on a session node.
 - [`noise_gate`](#noise_gate) — Apply a noise gate: audio below threshold_db is silenced.
-- [`noise_reduction`](#noise_reduction) — Apply spectral noise reduction (spectral subtraction, overlap-add) to a track.
+- [`noise_reduction`](#noise_reduction) — Denoise a track.
 - [`normalize`](#normalize) — Scan a track for its peak amplitude and set its gain so the peak equals target_dbfs.
 - [`normalize_loudness`](#normalize_loudness) — Set a track's gain so its integrated loudness (EBU R128) reaches target_lufs.
 - [`notch_filter`](#notch_filter) — Apply a notch (band-reject) filter to a track, attenuating frequencies near center_hz.
@@ -97,6 +97,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`render_final`](#render_final) — Render a session node to a final audio file at the user's chosen path.
 - [`render_preview`](#render_preview) — Render a session node to a WAV file in the project's preview cache and return its path.
 - [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus").
+- [`reorder_tracks`](#reorder_tracks) — Move a track to new_index; the tracks between shift by one, so indices change.
 - [`repeat_selection`](#repeat_selection) — Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
@@ -115,7 +116,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`silence_region`](#silence_region) — Zero out audio samples between start_sec and end_sec on a track.
 - [`solo_track`](#solo_track) — Solo or un-solo a track.
 - [`split_by_speaker`](#split_by_speaker) — Split one track into a separate track per speaker, given speaker segments in seconds.
-- [`split_clip`](#split_clip) — Split a clip into two at the specified time position.
+- [`split_clip`](#split_clip) — Split a clip in two at a time position.
 - [`stereo_to_mono`](#stereo_to_mono) — Convert a stereo (or multi-channel) track to mono by averaging all channels.
 - [`stereo_widener`](#stereo_widener) — Widen or narrow the stereo field using M/S processing.
 - [`storage_report`](#storage_report) — Report what this session is costing on disk.
@@ -198,8 +199,8 @@ _Read-only — never held for approval._
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `path` | string | no | An audio file that is not in the session. |
-| `track` | integer | no | Index of a track in the session. |
+| `path` | string | no | An audio file outside the session. |
+| `track` | integer | no | A track's index. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -254,7 +255,7 @@ Run an exported edit chain across every audio file in a folder. Each file become
 | `input_dir` | string | yes | Folder of audio to process |
 | `output_dir` | string | no | Where the per-file projects and renders go. Defaults to input_dir, beside the originals. |
 | `recipe_path` | string | yes | Recipe JSON from export_recipe |
-| `render_format` | one of `wav`, `flac`, `mp3` | no | Also render each result to this format, in output_dir under the input's name (take1.wav to take1.mp3). |
+| `render_format` | one of `wav`, `aiff`, `flac`, `mp3`, `ogg` | no | Also render each result to this format, in output_dir under the input's name (take1.wav to take1.mp3). |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -340,11 +341,12 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `cut_range`
 
-Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left. Appends a new session node parented to the current head.
+Remove [start_sample, end_sample) from a track and shift the rest left. Appends a new session node parented to the current head.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `end_sample` | integer | yes |  |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `start_sample` | integer | yes |  |
 | `track` | integer | yes |  |
 
@@ -439,14 +441,16 @@ Create an exact copy of a track (same clips, gain, pan, effects). The duplicate 
 
 ## `echo`
 
-Add a single echo (delay + decay). delay_ms is the echo offset in milliseconds; decay (0..1) is the echo amplitude. Appends a new session node.
+Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65). Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `decay` | number | no | Echo amplitude 0..1 |
-| `delay_ms` | number | yes | Echo delay in milliseconds |
+| `decay` | number | no |  |
+| `delay_ms` | number | no |  |
 | `end_sec` | number | no |  |
+| `feedback` | number | no |  |
 | `start_sec` | number | no |  |
+| `taps` | array of array | no |  |
 | `track` | integer | yes |  |
 
 ## `edit_markers`
@@ -461,7 +465,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `eq`
 
-Apply a parametric equalizer (chain of biquad peak filters) to a track. Each band specifies a centre frequency, gain in dB, and optional Q factor (default 1.0). Appends a new session node.
+EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -829,12 +833,15 @@ Apply a noise gate: audio below threshold_db is silenced. attack_ms and release_
 
 ## `noise_reduction`
 
-Apply spectral noise reduction (spectral subtraction, overlap-add) to a track. The first `noise_duration_sec` seconds of the clip are used as the noise profile. `strength` controls how aggressively noise is subtracted (default 0.85); `floor` sets the minimum fraction of the original magnitude retained to avoid musical-noise artefacts (default 0.05). Appends a new session node.
+Denoise a track. It uses spectral subtraction with overlap-add; the first `noise_duration_sec` seconds of the clip are used as the noise profile. `strength` controls how aggressively noise is subtracted (default 0.85); `floor` sets the minimum fraction of the original magnitude retained to avoid musical-noise artefacts (default 0.05). To learn the noise from somewhere else, pass `noise_from` and `noise_to` (seconds on the track's timeline, both together; `noise_duration_sec` is then not needed) and optionally `noise_track` (another track at the same sample rate, e.g. separately recorded room tone; default: the track itself). The range must be at least 2048 frames long. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `floor` | number | no |  |
-| `noise_duration_sec` | number | yes |  |
+| `noise_duration_sec` | number | no |  |
+| `noise_from` | number | no |  |
+| `noise_to` | number | no |  |
+| `noise_track` | integer | no |  |
 | `strength` | number | no |  |
 | `track` | integer | yes |  |
 
@@ -1000,14 +1007,14 @@ Rename a track. Appends a new session node.
 
 ## `render_final`
 
-Render a session node to a final audio file at the user's chosen path. format="wav" is uncompressed, "flac" is lossless at roughly half the size and identical audio, "mp3" is lossy but plays anywhere — prefer flac when the user wants to send a file somewhere and quality matters, mp3 when size or compatibility matters. bitrate_kbps applies to mp3 only and defaults to 192. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another.
+Render a session node to a final audio file at the user's chosen path. wav and aiff are uncompressed, flac is lossless at about half the size, mp3 and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `bitrate_kbps` | integer | no | MP3 CBR target; snapped to the nearest valid Layer III rate. Ignored for wav and flac. |
-| `format` | one of `wav`, `flac`, `mp3` | yes |  |
+| `bitrate_kbps` | integer | no | MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats. |
+| `format` | one of `wav`, `aiff`, `flac`, `mp3`, `ogg` | yes |  |
 | `markers_as_chapters` | boolean | no | Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping. |
-| `metadata` | object | no | Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export. |
+| `metadata` | object | no | Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export. |
 | `node_id` | string | yes |  |
 | `out_path` | string | yes |  |
 
@@ -1036,6 +1043,17 @@ Reorder a track's effect chain, the master bus's (scope "master") or a bus's (sc
 | `order` | array of integer | yes | A permutation of the current indices. Must list every effect exactly once. |
 | `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
 | `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
+
+## `reorder_tracks`
+
+Move a track to new_index; the tracks between shift by one, so indices change.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `new_index` | integer | yes |  |
+| `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `repeat_selection`
 
@@ -1248,12 +1266,13 @@ Split one track into a separate track per speaker, given speaker segments in sec
 
 ## `split_clip`
 
-Split a clip into two at the specified time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.
+Split a clip in two at a time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `at_sec` | number | yes | Position to split at, in seconds from track start |
-| `clip_index` | integer | yes | Zero-based clip index within the track |
+| `at_sec` | number | yes | Split position, seconds from track start |
+| `clip_index` | integer | yes | Zero-based clip index |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `track` | integer | yes |  |
 
 ## `stereo_to_mono`
@@ -1342,6 +1361,7 @@ Keep only the half-open sample range [start_sample, end_sample) of a track and d
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `end_sample` | integer | yes |  |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `start_sample` | integer | yes |  |
 | `track` | integer | yes |  |
 

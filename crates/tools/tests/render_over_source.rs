@@ -33,6 +33,31 @@ fn write_mp3_sine(path: &Path, freq: f32) -> PathBuf {
     path.to_path_buf()
 }
 
+/// An AIFF and an Ogg Opus of a sine, made by the app's own encoders.
+fn write_aiff_sine(path: &Path) -> PathBuf {
+    let samples: Vec<f32> = (0..SAMPLE_RATE as usize)
+        .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / SAMPLE_RATE as f32).sin() * 0.25)
+        .collect();
+    audio_engine::write_aiff(&samples, SAMPLE_RATE, 1, path).expect("aiff");
+    path.to_path_buf()
+}
+
+fn write_ogg_sine(path: &Path) -> PathBuf {
+    let samples: Vec<f32> = (0..SAMPLE_RATE as usize)
+        .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / SAMPLE_RATE as f32).sin() * 0.25)
+        .collect();
+    audio_engine::write_ogg_opus(
+        &samples,
+        SAMPLE_RATE,
+        1,
+        None,
+        &audio_engine::Tags::default(),
+        path,
+    )
+    .expect("ogg");
+    path.to_path_buf()
+}
+
 impl Session {
     fn new() -> Self {
         Session::in_subfolder("project")
@@ -357,6 +382,30 @@ fn render_final_will_not_re_encode_over_the_mp3_that_was_loaded() {
     assert!(msg.contains("a.mp3"), "{msg}");
 }
 
+/// The two formats `render_final` writes since #764 are refused over a
+/// loaded original just as the older three are.
+#[test]
+fn render_final_will_not_re_encode_over_a_loaded_aiff_or_ogg() {
+    for (format, name, write) in [
+        ("aiff", "a.aiff", write_aiff_sine as fn(&Path) -> PathBuf),
+        ("ogg", "a.ogg", write_ogg_sine),
+    ] {
+        let mut s = Session::new();
+        let original = write(&s.user_dir("music").join(name));
+        let before = bytes(&original);
+        s.load_quietened(&original);
+        let head = s.store.head().unwrap().to_hex();
+
+        let result = s.call(
+            "render_final",
+            json!({ "node_id": head, "format": format, "out_path": original.to_string_lossy() }),
+        );
+        assert_unchanged(&original, &before);
+        let msg = err(result);
+        assert!(msg.contains(name), "{format}: {msg}");
+    }
+}
+
 /// What still works: a fresh path, and an earlier export of the project's
 /// own (a file that exists but is nobody's source).
 #[test]
@@ -530,4 +579,57 @@ fn export_multiple_will_not_write_over_a_loaded_original() {
     let msg = err(result);
 
     assert!(msg.contains("0_vox.wav"), "{msg}");
+}
+
+/// Nothing is exported into the folders the project owns (#719), its
+/// `.audiograph/` folder and `generated/` beside it:
+/// a render written into `derived/` would sit under a content name its bytes
+/// do not hash to, and a sweep could delete it. A fresh path there is refused
+/// as well, and so is one reached through a symlink to the folder; the
+/// project folder itself, beside `.audiograph/`, is still fine.
+#[test]
+fn render_final_will_not_write_into_the_project_store() {
+    let mut s = Session::new();
+    let original = write_take(&s.user_dir("music").join("take1.wav"), 440.0);
+    ok(s.call("load", json!({ "path": original.to_string_lossy() })));
+    let head = s.store.head().unwrap().to_hex();
+    let store_dir = s.store.project_dir().join(session::STORE_DIR);
+
+    let render = |s: &mut Session, out: &Path| {
+        s.call(
+            "render_final",
+            json!({ "node_id": head, "format": "wav", "out_path": out.to_string_lossy() }),
+        )
+    };
+
+    for out in [
+        store_dir.join("derived").join("export.wav"),
+        store_dir.join("export.wav"),
+        store_dir.join("not-yet").join("deeper").join("export.wav"),
+    ] {
+        let msg = err(render(&mut s, &out));
+        assert!(msg.contains(".audiograph"), "{}: {msg}", out.display());
+        assert!(!out.exists(), "{}", out.display());
+    }
+
+    #[cfg(unix)]
+    {
+        let link = s.user_dir("links").join("store");
+        std::os::unix::fs::symlink(&store_dir, &link).unwrap();
+        let out = link.join("export.wav");
+        let msg = err(render(&mut s, &out));
+        assert!(msg.contains(".audiograph"), "{msg}");
+    }
+
+    // `generated/` is the store's too, though it sits beside `.audiograph/`.
+    let generated = session::audio_store::AudioFolder::Generated.dir(s.store.project_dir());
+    std::fs::create_dir_all(&generated).unwrap();
+    let out = generated.join("export.wav");
+    let msg = err(render(&mut s, &out));
+    assert!(msg.contains("generated"), "{msg}");
+    assert!(!out.exists());
+
+    let beside = s.store.project_dir().join("export.wav");
+    ok(render(&mut s, &beside));
+    assert!(beside.exists());
 }

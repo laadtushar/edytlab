@@ -31,6 +31,19 @@ pub struct EqBand {
     pub freq_hz: f32,
     pub gain_db: f32,
     pub q: f32,
+    pub kind: BandKind,
+}
+
+/// Which Audio-EQ-Cookbook filter a band is. `Peak` is the original (and
+/// default) behaviour; the shelves were added for #765.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BandKind {
+    #[default]
+    Peak,
+    /// Boosts or cuts everything below `freq_hz` (the cookbook's lowShelf).
+    LowShelf,
+    /// Boosts or cuts everything above `freq_hz` (the cookbook's highShelf).
+    HighShelf,
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +51,7 @@ pub struct EqBand {
 // ---------------------------------------------------------------------------
 
 /// Coefficients for one biquad peak-EQ band, pre-normalised by a0.
+#[derive(Debug, Clone, Copy)]
 struct BiquadCoeffs {
     b0: f64,
     b1: f64,
@@ -70,6 +84,46 @@ fn safe_w0(freq_hz: f32, sample_rate: u32) -> f64 {
 }
 
 impl BiquadCoeffs {
+    fn for_band(b: &EqBand, sample_rate: u32) -> Self {
+        match b.kind {
+            BandKind::Peak => Self::peak_eq(b.freq_hz, b.gain_db, b.q, sample_rate),
+            BandKind::LowShelf => Self::shelf(false, b.freq_hz, b.gain_db, b.q, sample_rate),
+            BandKind::HighShelf => Self::shelf(true, b.freq_hz, b.gain_db, b.q, sample_rate),
+        }
+    }
+
+    /// RBJ Audio-EQ-Cookbook low/high shelf, with Q in place of the
+    /// cookbook's S: `alpha = sin(w0) / (2Q)`.
+    fn shelf(high: bool, freq_hz: f32, gain_db: f32, q: f32, sample_rate: u32) -> Self {
+        let a = 10f64.powf(gain_db as f64 / 40.0);
+        let w0 = safe_w0(freq_hz, sample_rate);
+        let cos = w0.cos();
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * (w0.sin() / (2.0 * q as f64));
+        let (b0, b1, b2, a0, a1, a2);
+        if high {
+            b0 = a * ((a + 1.0) + (a - 1.0) * cos + two_sqrt_a_alpha);
+            b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos);
+            b2 = a * ((a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha);
+            a0 = (a + 1.0) - (a - 1.0) * cos + two_sqrt_a_alpha;
+            a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos);
+            a2 = (a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha;
+        } else {
+            b0 = a * ((a + 1.0) - (a - 1.0) * cos + two_sqrt_a_alpha);
+            b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * cos);
+            b2 = a * ((a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha);
+            a0 = (a + 1.0) + (a - 1.0) * cos + two_sqrt_a_alpha;
+            a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cos);
+            a2 = (a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha;
+        }
+        BiquadCoeffs {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
+    }
+
     fn peak_eq(freq_hz: f32, gain_db: f32, q: f32, sample_rate: u32) -> Self {
         let a = 10f64.powf(gain_db as f64 / 40.0);
         let w0 = safe_w0(freq_hz, sample_rate);
@@ -102,7 +156,7 @@ impl BiquadState {
     }
 }
 
-/// Apply a chain of peak-EQ bands to an interleaved f32 buffer.
+/// Apply a chain of EQ bands (peak or shelf) to an interleaved f32 buffer.
 ///
 /// `channels` is the interleave stride. Each channel gets independent
 /// biquad state so the filter is correct regardless of channel count.
@@ -114,7 +168,7 @@ pub fn apply_eq(samples: &mut [f32], channels: usize, sample_rate: u32, bands: &
     // Pre-compute coefficients for each band.
     let coeffs: Vec<BiquadCoeffs> = bands
         .iter()
-        .map(|b| BiquadCoeffs::peak_eq(b.freq_hz, b.gain_db, b.q, sample_rate))
+        .map(|b| BiquadCoeffs::for_band(b, sample_rate))
         .collect();
 
     // One state vector per (band, channel).
@@ -158,6 +212,7 @@ mod tests {
             freq_hz: 1000.0,
             gain_db: 0.0,
             q: 1.0,
+            kind: BandKind::Peak,
         }];
         apply_eq(&mut samples, 1, sr, &bands);
 
@@ -183,6 +238,7 @@ mod tests {
             freq_hz: 1000.0,
             gain_db: 6.0,
             q: 1.0,
+            kind: BandKind::Peak,
         }];
         apply_eq(&mut samples, 1, sr, &bands);
 
@@ -208,6 +264,7 @@ mod tests {
             freq_hz: 30_000.0,
             gain_db: 6.0,
             q: 1.0,
+            kind: BandKind::Peak,
         }];
         apply_eq(&mut samples, 1, sr, &bands);
 
@@ -215,6 +272,110 @@ mod tests {
         assert!(
             peak.is_finite() && peak < 4.0,
             "a band above Nyquist must stay bounded, got peak {peak}"
+        );
+    }
+
+    // ---- shelves: RBJ Audio-EQ-Cookbook, checked against its formulas ----
+
+    /// |H(e^{jw})| in dB of a biquad with a0 already normalised to 1.
+    fn response_db(c: &BiquadCoeffs, freq_hz: f64, sr: f64) -> f64 {
+        let w = 2.0 * std::f64::consts::PI * freq_hz / sr;
+        let (c1, s1, c2, s2) = (w.cos(), w.sin(), (2.0 * w).cos(), (2.0 * w).sin());
+        let (nr, ni) = (c.b0 + c.b1 * c1 + c.b2 * c2, -(c.b1 * s1 + c.b2 * s2));
+        let (dr, di) = (1.0 + c.a1 * c1 + c.a2 * c2, -(c.a1 * s1 + c.a2 * s2));
+        10.0 * ((nr * nr + ni * ni) / (dr * dr + di * di)).log10()
+    }
+
+    #[test]
+    fn low_shelf_coefficients_match_the_cookbook() {
+        // Hand-evaluated from the cookbook for fs=48000, f0=200, +6 dB,
+        // Q=1/sqrt(2) (S=1): A=10^(6/40), alpha=sin(w0)/(2Q).
+        let c = BiquadCoeffs::shelf(false, 200.0, 6.0, std::f32::consts::FRAC_1_SQRT_2, 48_000);
+        let a = 10f64.powf(6.0 / 40.0);
+        let w0 = 2.0 * std::f64::consts::PI * 200.0 / 48_000.0;
+        let al = w0.sin() / (2.0 * std::f64::consts::FRAC_1_SQRT_2);
+        let k = 2.0 * a.sqrt() * al;
+        let a0 = (a + 1.0) + (a - 1.0) * w0.cos() + k;
+        let want = [
+            a * ((a + 1.0) - (a - 1.0) * w0.cos() + k) / a0,
+            2.0 * a * ((a - 1.0) - (a + 1.0) * w0.cos()) / a0,
+            a * ((a + 1.0) - (a - 1.0) * w0.cos() - k) / a0,
+            -2.0 * ((a - 1.0) + (a + 1.0) * w0.cos()) / a0,
+            ((a + 1.0) + (a - 1.0) * w0.cos() - k) / a0,
+        ];
+        let got = [c.b0, c.b1, c.b2, c.a1, c.a2];
+        for (g, w) in got.iter().zip(want) {
+            assert!((g - w).abs() < 1e-6, "{got:?} vs {want:?}");
+        }
+    }
+
+    #[test]
+    fn shelves_have_the_stated_gain_at_dc_nyquist_and_corner() {
+        let sr = 48_000.0;
+        for gain in [6.0f64, -9.0] {
+            let low = BiquadCoeffs::shelf(false, 500.0, gain as f32, 0.707, 48_000);
+            // DC: the full gain. Far above the corner: unity. Corner: half the gain.
+            assert!(
+                (response_db(&low, 1.0, sr) - gain).abs() < 0.05,
+                "low DC {gain}"
+            );
+            assert!(
+                response_db(&low, 23_999.0, sr).abs() < 0.05,
+                "low Nyquist {gain}"
+            );
+            assert!(
+                (response_db(&low, 500.0, sr) - gain / 2.0).abs() < 0.05,
+                "low corner {gain}"
+            );
+
+            let high = BiquadCoeffs::shelf(true, 4_000.0, gain as f32, 0.707, 48_000);
+            assert!(response_db(&high, 1.0, sr).abs() < 0.05, "high DC {gain}");
+            assert!(
+                (response_db(&high, 23_999.0, sr) - gain).abs() < 0.3,
+                "high Nyquist {gain}"
+            );
+            assert!(
+                (response_db(&high, 4_000.0, sr) - gain / 2.0).abs() < 0.05,
+                "high corner {gain}"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_gain_shelf_is_a_passthrough() {
+        let c = BiquadCoeffs::shelf(true, 3_000.0, 0.0, 1.0, 44_100);
+        assert!((c.b0 - 1.0).abs() < 1e-12 && c.b1 == c.a1 && c.b2 == c.a2);
+    }
+
+    #[test]
+    fn processed_tone_matches_the_shelf_gain() {
+        let sr = 48_000u32;
+        let tone = |hz: f32| -> Vec<f32> {
+            (0..sr as usize * 2)
+                .map(|i| (2.0 * std::f32::consts::PI * hz * i as f32 / sr as f32).sin() * 0.1)
+                .collect()
+        };
+        let tail_rms = |v: &[f32]| rms(&v[v.len() / 2..]);
+        let band = EqBand {
+            freq_hz: 1_000.0,
+            gain_db: 12.0,
+            q: 0.707,
+            kind: BandKind::LowShelf,
+        };
+        let mut low = tone(100.0);
+        let before = tail_rms(&low);
+        apply_eq(&mut low, 1, sr, &[band]);
+        let db = 20.0 * (tail_rms(&low) / before).log10();
+        assert!(
+            (db - 12.0).abs() < 0.5,
+            "100 Hz under a 12 dB low shelf: {db}"
+        );
+        let mut hi = tone(10_000.0);
+        let before = tail_rms(&hi);
+        apply_eq(&mut hi, 1, sr, &[band]);
+        assert!(
+            (tail_rms(&hi) / before - 1.0).abs() < 0.05,
+            "10 kHz must pass a low shelf"
         );
     }
 }

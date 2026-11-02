@@ -1,6 +1,7 @@
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     append_state, check_track_index, load_head_state, seconds_to_clip_frames, slice_envelope,
+    snap_in_clip,
 };
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -55,6 +56,8 @@ struct Args {
     track: usize,
     clip_index: usize,
     at_sec: f64,
+    #[serde(default)]
+    snap_to_zero_crossing: bool,
 }
 
 pub struct SplitClipTool;
@@ -67,19 +70,20 @@ impl Tool for SplitClipTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "split_clip",
-            "Split a clip into two at the specified time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.",
+            "Split a clip in two at a time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "track": { "type": "integer" },
                     "clip_index": {
                         "type": "integer",
-                        "description": "Zero-based clip index within the track"
+                        "description": "Zero-based clip index"
                     },
                     "at_sec": {
                         "type": "number",
-                        "description": "Position to split at, in seconds from track start"
-                    }
+                        "description": "Split position, seconds from track start"
+                    },
+                    "snap_to_zero_crossing": { "type": "boolean" }
                 },
                 "required": ["track", "clip_index", "at_sec"]
             }),
@@ -114,6 +118,15 @@ impl Tool for SplitClipTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
         // Convert absolute track position to offset within clip
+        // Only the clip's own audio is split, so only it is searched; a
+        // crossing at the clip's edge would make an empty half, so the
+        // original point stands then.
+        let (at_frames, snap_note) = if args.snap_to_zero_crossing {
+            let s = snap_in_clip(&clip, at_frames);
+            (s.frame, s.note)
+        } else {
+            (at_frames, None)
+        };
         let clip_at = at_frames.saturating_sub(clip.start_in_track);
         let (left, right) = match split_at(&clip, clip_at) {
             Ok(pair) => pair,
@@ -134,13 +147,17 @@ impl Tool for SplitClipTool {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "node_id": new_id.to_hex(),
             "summary": format!(
                 "Split track {} clip {} at {:.3}s",
                 args.track, args.clip_index, args.at_sec
             )
-        })))
+        });
+        if let Some(note) = snap_note {
+            out["snap_note"] = note.into();
+        }
+        Ok(ToolResult::Ok(out))
     }
 }
 

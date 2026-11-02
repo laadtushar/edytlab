@@ -168,7 +168,8 @@ pub fn write_view(project_dir: &Path, view: &ViewState) -> std::io::Result<()> {
 ///
 /// The copy is checked before it is answered: its `head` is the head of
 /// part 1, that node is in the copy, and so is every file the head plays
-/// from `derived/` and `clipboard/` that was there in part 1. A copy that
+/// from the project's audio store (`derived/`, `clipboard/`, `generated/`)
+/// that was there in part 1. A copy that
 /// fails the check is an error naming what is missing, and `dest` is left
 /// as it is.
 pub fn copy_project(store: &Mutex<Store>, dest: &Path) -> io::Result<CopyReport> {
@@ -253,8 +254,10 @@ fn part_of(rel: &Path, is_dir: bool) -> Part {
 }
 
 /// What a copy of the project cannot be without, relative to it: the
-/// head's node file, and the files the head plays from `derived/` and
-/// `clipboard/`. Only what is there now counts, so a copy is never
+/// head's node file, and the files the head plays from any folder of the
+/// project's audio store (`derived/`, `clipboard/`, `generated/`: every
+/// [`session::audio_store::AudioFolder`], so a folder added later is
+/// covered too). Only what is there now counts, so a copy is never
 /// refused for a file the project had already lost (history audio a sweep
 /// removed, which a replay puts back). Read under the store's lock.
 fn needed_by_head(store: &Store) -> Vec<PathBuf> {
@@ -264,10 +267,10 @@ fn needed_by_head(store: &Store) -> Vec<PathBuf> {
     let src = store.project_dir();
     let mut needed = vec![session::store::node_path(src, &head.to_hex())];
     if let Ok(node) = store.get(head) {
-        let audio = [
-            session::relocate::derived_dir(src),
-            session::relocate::clipboard_dir(src),
-        ];
+        let audio: Vec<PathBuf> = session::audio_store::AudioFolder::ALL
+            .iter()
+            .map(|folder| folder.dir(src))
+            .collect();
         needed.extend(
             node.state
                 .tracks
@@ -1119,6 +1122,44 @@ mod tests {
 
         let err = result.expect_err("a copy without its head's audio was answered as a project");
         assert!(err.to_string().contains("first.wav"), "{err}");
+    }
+
+    /// Every folder of the project's audio store is checked, not only
+    /// `derived/` and `clipboard/`: a generated tone the head plays that is
+    /// gone from the copy is an error too (#719).
+    #[test]
+    fn a_copy_without_audio_from_any_store_folder_is_an_error() {
+        for folder in session::audio_store::AudioFolder::ALL {
+            let tmp = TempDir::new().unwrap();
+            let dir = tmp.path().join("original");
+            let audio = folder.dir(&dir).join("played.wav");
+            std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
+            std::fs::write(&audio, vec![3u8; 256]).unwrap();
+            let mut store = session::Store::open(&dir).unwrap();
+            store
+                .append(playing(std::slice::from_ref(&audio), 1))
+                .unwrap();
+            let store = std::sync::Mutex::new(store);
+            // `generated/` is beside `.audiograph/`, the others inside it.
+            let name = audio.strip_prefix(&dir).unwrap().to_path_buf();
+            let dest = tmp.path().join("copy");
+
+            let result = copy_project_with(&store, &dest, |file| {
+                if file == name {
+                    std::fs::remove_file(&audio).unwrap();
+                }
+            });
+
+            let err = result.expect_err(&format!(
+                "a copy without the head's {} audio was answered as a project",
+                folder.name()
+            ));
+            assert!(
+                err.to_string().contains("played.wav"),
+                "{}: {err}",
+                folder.name()
+            );
+        }
     }
 
     #[test]

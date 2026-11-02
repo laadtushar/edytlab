@@ -45,7 +45,7 @@ use crate::{Error, Result};
 /// holds if both formats round the same way. See the scale-factor note
 /// in the module docs for why this is `32_768.0`.
 #[inline]
-fn quantise(s: f32) -> i16 {
+pub(crate) fn quantise(s: f32) -> i16 {
     (s * 32_768.0)
         .round()
         .clamp(i16::MIN as f32, i16::MAX as f32) as i16

@@ -36,6 +36,13 @@
 use std::borrow::Cow;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+// The guard above is the reason this decoder is safe to ship: built with
+// `panic = "abort"` it would catch nothing (#908).
+const _: () = assert!(
+    cfg!(panic = "unwind"),
+    "audio-decoder relies on catch_unwind around the Opus decoder; build with panic = \"unwind\" (#908)"
+);
+
 use opus_decoder::OpusDecoder;
 use symphonia::core::audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec};
 use symphonia::core::codecs::{
