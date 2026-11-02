@@ -14,10 +14,10 @@ The website and `marketing/` describe the released app, so a feature's copy ther
 | Speaker diarization: `diarize` and the speaker model row (#168) | v0.9.3 |
 | Opus import (#764) | v0.9.3 |
 | Recording-latency calibration (#203) | v0.9.3 |
-| Stem separation: `separate_stems` and the stem model row (#385) | pending: v0.9.4 (#929) |
-| M4A/AAC import on macOS and Windows (#764) | pending: v0.9.4 (#929) |
-| Punch-in (#203) | pending: v0.9.4 (#929) |
-| Marker tools (#766) | pending: v0.9.4 (#929) |
+| Stem separation: `separate_stems` and the stem model row (#385) | v0.9.4 |
+| M4A/AAC import on macOS and Windows (#764) | v0.9.4 |
+| Punch-in (#203) | v0.9.4 |
+| Marker tools (#766) | v0.9.4 |
 
 ## CI
 
