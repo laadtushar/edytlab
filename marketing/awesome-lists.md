@@ -9,9 +9,9 @@ list's files on 2026-10-09 and can change.
 site <https://edytlab.com>.
 
 Entries are one plain sentence each, in the voice of `brand-voice.md`. Do not
-add claims beyond them. In particular, no mention of stem separation, and no
-mention of transcription unless it comes with its limits (see
-`marketing/README.md`).
+add claims beyond them. In particular, no mention of stem separation or
+transcription unless it comes with its limits (a model the user downloads;
+stems are estimates; see `marketing/README.md`).
 
 ## Summary
 
