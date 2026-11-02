@@ -1,7 +1,7 @@
 # edytlab press kit
 
-The same content is published at <https://edytlab.com/press>. If you edit one,
-edit the other.
+A shorter version is published at <https://edytlab.com/press>. If you change a
+fact here, change it there too.
 
 **Website:** <https://edytlab.com>
 **Download (newest versioned release):** <https://github.com/laadtushar/edytlab/releases/latest>
@@ -68,9 +68,7 @@ keys include the ChatGPT sign-in that arrived in v0.9.0.
 | Export | WAV, AIFF, FLAC, MP3 and OGG (Opus) for the whole session; WAV for a selection |
 | Maintainer | `@laadtushar` on GitHub |
 
-### What is not shipped
-
-State this plainly if asked.
+### Local models
 
 - Stem separation (HT-Demucs v4) works from 0.9.4, on the user's computer, once
   the user downloads the stem model (about 171 MB) in Settings. It needs about
@@ -83,6 +81,11 @@ State this plainly if asked.
   synthetic English recording and about 16 minutes of English audiobook speech,
   where 4% to 7% of the words were wrong. It has not been checked on a range of
   voices or languages.
+
+### What is not shipped
+
+State this plainly if asked.
+
 - edytlab edits files, offline. It is not a live DJ tool, and it is not a DAW:
   there is no MIDI and no VST or CLAP hosting.
 - There is no web or mobile version.

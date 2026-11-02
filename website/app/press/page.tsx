@@ -157,15 +157,17 @@ export default function PressPage() {
           </tbody>
         </table>
 
+        <h2>Local models</h2>
+        <p>
+          Stem separation and speech transcription work on your computer,
+          once the user has downloaded each model in Settings (about 171 MB
+          and 139 MB). Stems are estimates: each carries a little of the
+          others.
+        </p>
+
         <h2>What is not shipped</h2>
         <p>Please state this plainly if you cover edytlab.</p>
         <ul>
-          <li>
-            Stem separation and speech transcription work on your
-            computer, once the user has downloaded each model in Settings
-            (about 171 MB and 139 MB). Stems are estimates: each carries a
-            little of the others.
-          </li>
           <li>
             It edits files offline. It is not a live DJ tool and it is not a
             DAW: there is no MIDI and no VST or CLAP plugin hosting.

@@ -41,7 +41,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "load",
             prompt: 'load /path/to/file.wav',
-            what: "Decode an audio file (WAV, MP3, FLAC, Ogg Vorbis, Opus or AIFF everywhere, and M4A/AAC on macOS and Windows) and create a new track in the session.",
+            what: "Decode an audio file (WAV, MP3, FLAC, Ogg Vorbis, Opus or AIFF everywhere, and M4A files with AAC audio on macOS and Windows) and create a new track in the session.",
             output: "track_id, duration_sec",
           },
           {
@@ -678,9 +678,9 @@ export const toolAreas: ToolArea[] = [
           {
             name: "separate_stems",
             prompt: 'separate the stems on track 1',
-            what: "Split `track` or an audio file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. It writes four WAV files and returns their paths; the session is not changed, so `load` a stem to put it on a track. The audio never leaves the computer, and the tool never downloads the stem model. The user can cancel.",
-            output: "model, cached, duration_sec, sample_rate, channels, the four stem paths, summary",
-            note: "Plan first holds it for approval: a run writes about 40 MB for each minute of stereo. It takes about half the audio's length on the CPU and needs about 4 GB of free memory. The stems are 16-bit, at the audio's rate and length, and are estimates: each carries a little of the others. They are kept in the project's stem cache (up to about 1 GB, oldest-used first, though the newest set stays even when it alone is larger), so the same audio again is instant while its stems are still there. If the stem model or the ONNX Runtime library is missing, the result says so. The user downloads the stem model in Settings → Account. Only htdemucs is a recognised model id.",
+            what: "Split `track` or an audio file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. It writes four WAV files and returns their paths; the session is not changed, so `load` a stem to put it on a track. The audio never leaves the computer, and the tool never downloads the stem model. A file with more than two channels is separated from its first two, so downmix surround audio to stereo first. The user can cancel.",
+            output: "model, cached, duration_sec, sample_rate, channels, stems (the paths of vocals, drums, bass and other), summary",
+            note: "Plan first holds it for approval: a run writes about 40 MB for each minute of stereo at 44.1 kHz, more at higher rates. It takes about half the audio's length on the CPU and needs about 4 GB of free memory. The stems are 16-bit, at the audio's rate and length, and are estimates: each carries a little of the others. They are kept in the project's stem cache (up to about 1 GB, oldest-used first, though the newest set stays even when it alone is larger), so the same audio again is instant while its stems are still there. If the stem model or the ONNX Runtime library is missing, the result says so. The user downloads the stem model in Settings → Account. Only htdemucs is a recognised model id.",
           },
         ],
       },

@@ -63,7 +63,7 @@ export function SessionsAndTracks() {
         <li>
           <strong>Load audio</strong> — drag a file onto the timeline, click
           &ldquo;Open Audio&rdquo;, or type <code>load /path/to/file.mp3</code>.
-          Formats: WAV, MP3, FLAC, Ogg Vorbis, Opus (mono or stereo) and AIFF, and M4A/AAC on macOS and Windows, where the system decodes it.
+          Formats: WAV, MP3, FLAC, Ogg Vorbis, Opus (mono or stereo) and AIFF, and M4A files with AAC audio on macOS and Windows, where the system decodes it.
         </li>
         <li>
           <strong>Multi-track sessions</strong> — load several files or ask:{" "}
