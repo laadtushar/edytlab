@@ -117,12 +117,16 @@ env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: short
 
+# Read-only by default; each job below asks for the write scope it needs
+# (SonarCloud S8233).
 permissions:
-  contents: write  # needed to create the GitHub Release + upload assets
+  contents: read
 
 jobs:
   create-release:
     name: create draft release
+    permissions:
+      contents: write  # create the draft GitHub Release
     # A dry run creates nothing. On a tag push `inputs` is empty, so this
     # runs.
     if: ${{ !inputs.dry_run }}
@@ -136,17 +140,38 @@ jobs:
       - name: Resolve release tag and channel
         id: tag
         shell: bash
+        # Dispatch inputs are typed by whoever runs the workflow, so they
+        # reach the script as environment variables, never spliced into
+        # its text (SonarCloud S7630).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-            echo "channel=${{ inputs.channel }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+            CHANNEL="$INPUT_CHANNEL"
           else
             # github.ref on a tag push is `refs/tags/<tag>`. A tag push
             # only matches the dev/beta/rc patterns above, so it is
             # always the dev channel.
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-            echo "channel=dev" >> "$GITHUB_OUTPUT"
+            TAG="${GITHUB_REF#refs/tags/}"
+            CHANNEL="dev"
           fi
+          # The tag names the release, the draft and the target commit
+          # below, so it must be a version tag: v<version>, optionally
+          # with the -dev.N / -beta.N / -rc.N suffix the tag-push
+          # patterns above accept (auto-release.yml cuts v<version>-dev.N).
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(dev|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "::error::Release tag '$TAG' is not v<major>.<minor>.<patch>[-dev.N|-beta.N|-rc.N]"
+            exit 1
+          fi
+          if [[ "$CHANNEL" != "dev" && "$CHANNEL" != "release" ]]; then
+            echo "::error::Channel '$CHANNEL' is neither dev nor release"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
 
       - name: Find or create draft release
         id: create
@@ -286,6 +311,8 @@ jobs:
   build:
     name: build (${{ matrix.platform.name }})
     needs: create-release
+    permissions:
+      contents: write  # upload the checked installers to the draft release
     # A job whose need was skipped is skipped too unless its `if` says
     # otherwise, and in a dry run create-release is skipped on purpose.
     if: ${{ !cancelled() && (needs.create-release.result == 'success' || (inputs.dry_run && needs.create-release.result == 'skipped')) }}
@@ -382,6 +409,12 @@ jobs:
           # sources in deb822 `*.sources` files, so the rewrite covers all three:
           # rewriting only `*.list` left apt on the Azure mirror, and four runs
           # timed out on it on 2026-10-22 (#660, #661, #669).
+          # http:// is deliberate here (SonarCloud S5332 reviewed, safe): apt does
+          # not trust the transport, it verifies every package index and .deb
+          # against the distribution's signing keys (Release.gpg / InRelease), so a
+          # tampered mirror response fails the install instead of being used. The
+          # Ubuntu archive serves plain http for that reason, and the Azure
+          # mirror is the one that stalls (#660, #661, #669).
           sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
             /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
             /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
@@ -420,7 +453,7 @@ jobs:
         # Deliberately no `targets:` here — see the next step. Passing
         # them to this action installs them on **stable**, which is not
         # the toolchain the build runs on.
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       # The macOS leg died here for every dev release, and the reason is
       # worth spelling out because the previous fix looked correct.
@@ -458,7 +491,7 @@ jobs:
           rustup target list --installed
 
       - name: Cache cargo registry & target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: |
             .
@@ -468,7 +501,7 @@ jobs:
           key: release-dev-${{ matrix.platform.name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Install Node
         uses: actions/setup-node@v7
@@ -477,7 +510,12 @@ jobs:
           cache: pnpm
 
       - name: pnpm install
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts (SonarCloud S6505): the only dependencies with install
+        # scripts here are esbuild (a startup optimisation; the platform binary
+        # comes from its optional dependency), fsevents (ships its prebuilt
+        # .node) and unrs-resolver (a fallback for platforms with no binary).
+        # Browsers are fetched by an explicit step, not by an install script.
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       # Into the folder the overlay bundles from (gitignored). The script
       # checks the archive's size and SHA-256, and the library's own
@@ -502,7 +540,7 @@ jobs:
       # below sends exactly what was checked (see the header).
       - name: Build unsigned bundle via tauri-action
         id: build
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         with:
           projectPath: apps/desktop
           args: ${{ matrix.platform.args }}
@@ -611,6 +649,8 @@ jobs:
   publish:
     name: publish draft release
     needs: [create-release, build]
+    permissions:
+      contents: write  # flip the draft release to published
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Only publish if every matrix leg uploaded successfully. A
@@ -622,13 +662,19 @@ jobs:
       - name: Flip draft -> published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Outputs of create-release come from the dispatch inputs, so they
+          # are passed as variables, not spliced into the script (S7630).
+          CHANNEL: ${{ needs.create-release.outputs.channel }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+          REPO: ${{ github.repository }}
         # draft=false makes the release visible on the public Releases
         # page with the mac .dmg, win .msi/.exe and linux .deb/.AppImage
         # attached. `make_latest` follows the channel: a dev preview must
         # not move the "Latest" badge off a real release, and a real
         # release should take it.
         run: |
-          if [ "${{ needs.create-release.outputs.channel }}" = "release" ]; then
+          if [ "$CHANNEL" = "release" ]; then
             MAKE_LATEST=true
           else
             MAKE_LATEST=false
@@ -637,8 +683,8 @@ jobs:
           # GitHub releases API expects `draft: bool` and
           # `make_latest: string` ("true"|"false"|"legacy").
           gh api -X PATCH \
-            repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }} \
+            "repos/${REPO}/releases/${RELEASE_ID}" \
             -F draft=false \
             -f make_latest="$MAKE_LATEST" \
             >/dev/null
-          echo "Published ${{ needs.create-release.outputs.channel }} release ${{ needs.create-release.outputs.tag }} (latest=$MAKE_LATEST)"
+          echo "Published ${CHANNEL} release ${TAG} (latest=$MAKE_LATEST)"

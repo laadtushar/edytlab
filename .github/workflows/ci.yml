@@ -175,6 +175,12 @@ jobs:
           # sources in deb822 `*.sources` files, so the rewrite covers all three:
           # rewriting only `*.list` left apt on the Azure mirror, and four runs
           # timed out on it on 2026-10-22 (#660, #661, #669).
+          # http:// is deliberate here (SonarCloud S5332 reviewed, safe): apt does
+          # not trust the transport, it verifies every package index and .deb
+          # against the distribution's signing keys (Release.gpg / InRelease), so a
+          # tampered mirror response fails the install instead of being used. The
+          # Ubuntu archive serves plain http for that reason, and the Azure
+          # mirror is the one that stalls (#660, #661, #669).
           sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
             /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
             /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
@@ -280,13 +286,13 @@ jobs:
         # by rustup's shim on the first cargo invocation. The `@master`
         # ref of this action requires an explicit `toolchain:` input,
         # which would just duplicate the pin in two places.
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt, clippy
 
       - name: Cache cargo registry & target
         if: env.RUN_NATIVE == 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: |
             .
@@ -425,7 +431,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         # Version is read from packageManager in package.json (single source of truth).
 
       - name: Install Node
@@ -435,7 +441,12 @@ jobs:
           cache: pnpm
 
       - name: pnpm install
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts (SonarCloud S6505): the only dependencies with install
+        # scripts here are esbuild (a startup optimisation; the platform binary
+        # comes from its optional dependency), fsevents (ships its prebuilt
+        # .node) and unrs-resolver (a fallback for platforms with no binary).
+        # Browsers are fetched by an explicit step, not by an install script.
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       # The frontend test suite was not run by CI at all.
       #
@@ -487,7 +498,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Install Node
         uses: actions/setup-node@v7
@@ -496,7 +507,12 @@ jobs:
           cache: pnpm
 
       - name: pnpm install
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts (SonarCloud S6505): the only dependencies with install
+        # scripts here are esbuild (a startup optimisation; the platform binary
+        # comes from its optional dependency), fsevents (ships its prebuilt
+        # .node) and unrs-resolver (a fallback for platforms with no binary).
+        # Browsers are fetched by an explicit step, not by an install script.
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       # The browser binary only — no `--with-deps`. That flag runs
       # apt-get, which is the stalling azure mirror the build job's
@@ -540,7 +556,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Install Node
         uses: actions/setup-node@v7
@@ -552,7 +568,12 @@ jobs:
       # `--ignore-workspace`: without it pnpm walks up to the root
       # workspace, which excludes this directory, and installs nothing.
       - name: pnpm install
-        run: pnpm install --frozen-lockfile --ignore-workspace
+        # --ignore-scripts (SonarCloud S6505): the only dependencies with install
+        # scripts here are esbuild (a startup optimisation; the platform binary
+        # comes from its optional dependency), fsevents (ships its prebuilt
+        # .node) and unrs-resolver (a fallback for platforms with no binary).
+        # Browsers are fetched by an explicit step, not by an install script.
+        run: pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts
 
       - name: Unit tests
         run: pnpm test
