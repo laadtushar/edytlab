@@ -453,6 +453,18 @@ export const toolAreas: ToolArea[] = [
             output: "node_id",
           },
           {
+            name: "declip",
+            prompt: "repair the peaks clipped at minus 3 dBFS on track 0",
+            what: "Reconstruct clipped peaks using cubic interpolation. threshold_dbfs sets the clipping level (default -0.01 dBFS). Reports runs found and repaired per channel; runs without clean edges are left alone. Restored peaks above full scale apply a shared gain (reported as gain_db) to avoid re-clipping. Unclipped audio stays byte-identical and retains its node; repaired audio appends a new node.",
+            output: "node_id, runs_found, runs_repaired, gain_db",
+          },
+          {
+            name: "repair_span",
+            prompt: "repair the damaged span from 2.1 to 2.12 seconds on track 0",
+            what: "Interpolate a damaged span up to 100 ms with bidirectional tonal prediction, falling back to bounded cubic interpolation. start_sec and end_sec are session seconds; two clean samples are needed on each side. Preserves duration and channels. Appends a new node.",
+            output: "node_id",
+          },
+          {
             name: "click_removal",
             prompt: "remove the clicks",
             what: "Remove clicks and pops by detecting sample spikes (via median filter) and replacing them with interpolated values. threshold is the amplitude deviation that triggers detection.",

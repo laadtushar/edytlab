@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 109 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 111 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -40,6 +40,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`cut_range`](#cut_range) — Remove [start_sample, end_sample) from a track and shift the rest left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
+- [`declip`](#declip) — Reconstruct clipped peaks on a track with cubic interpolation.
 - [`delete_markers`](#delete_markers) — Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range.
 - [`diarize`](#diarize) — Find who spoke when, on this computer.
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
@@ -99,6 +100,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`render_preview`](#render_preview) — Render a session node to a WAV file in the project's preview cache and return its path.
 - [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus").
 - [`reorder_tracks`](#reorder_tracks) — Move a track to new_index; the tracks between shift by one, so indices change.
+- [`repair_span`](#repair_span) — Interpolate a damaged span of up to 100 ms on a track, in session seconds.
 - [`repeat_selection`](#repeat_selection) — Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
@@ -376,6 +378,17 @@ Reduce harsh sibilant 's' and 'sh' sounds. frequency_hz sets where sibilance det
 | `start_sec` | number | no |  |
 | `threshold_db` | number | yes | Detection threshold in dBFS (e.g. -20) |
 | `track` | integer | yes |  |
+
+## `declip`
+
+Reconstruct clipped peaks on a track with cubic interpolation. Set threshold_dbfs to the clipping level (default -0.01 dBFS, near full scale). Reports same-sign runs per channel, found and repaired; runs without clean edges are left alone. Unclipped audio is kept byte-identical. Restored peaks above full scale apply a shared gain (gain_db) to avoid re-clipping in PCM. Changed audio appends a new node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `threshold_dbfs` | number | no |  |
+| `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `delete_markers`
 
@@ -1060,6 +1073,18 @@ Move a track to new_index; the tracks between shift by one, so indices change.
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `new_index` | integer | yes |  |
+| `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `repair_span`
+
+Interpolate a damaged span of up to 100 ms on a track, in session seconds. Uses bidirectional tonal prediction, or bounded cubic interpolation when prediction is unstable. Needs two clean samples on each side. Preserves duration and channels and appends a new node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `end_sec` | number | yes |  |
+| `start_sec` | number | yes |  |
 | `track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
