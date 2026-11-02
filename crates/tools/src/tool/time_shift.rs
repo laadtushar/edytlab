@@ -1,6 +1,7 @@
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_track_index, load_head_state, set_session_length, track_clip_rate,
+    append_state, check_track_index, load_head_state, set_session_length, shift_track_transcript,
+    track_clip_rate,
 };
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -89,6 +90,11 @@ impl Tool for TimeShiftTool {
         for clip in &mut track.clips {
             clip.start_in_track = apply_time_shift_signed(clip.start_in_track, delta);
         }
+        // A transcript made from this track is in seconds of the track as it
+        // sits on the timeline (#384, #899): it goes by what the clips went
+        // by, the clamped `delta` and not the request, so no word moves
+        // before the clips do.
+        shift_track_transcript(&mut state, args.track, delta as f64 / sr, None);
         // Recompute session length
         set_session_length(&mut state);
         let new_id = match append_state(

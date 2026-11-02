@@ -1959,6 +1959,55 @@ pub(crate) fn scale_transcript(
     })
 }
 
+/// Move the words of a transcript that was made from track `track` by
+/// `shift_sec` seconds, because the track's clips moved by that much (#899).
+///
+/// A transcript made from a track holds seconds of that track as it sits on
+/// the timeline (#384), so a tool that moves the track's clips has to move the
+/// words with them, or `cut_words` accepts the track and cuts audio the words
+/// do not describe. A transcript of another track, of a file, or with no
+/// recorded source is left alone: its words are not seconds of this track.
+///
+/// `shift_sec` is the shift the clips *actually* took, in seconds (frames
+/// moved over the track's clip rate), so a clamped shift moves the words by
+/// the clamp, not by the request. Word times are seconds, so they are moved
+/// in seconds and the track's rate only matters to the caller that worked
+/// `shift_sec` out. A word never ends up before 0 s, as no clip does.
+///
+/// `only_starting_in` limits the move to the words that start in that span of
+/// seconds `[from, to)` (the old place of one clip, for `move_clip`); `None`
+/// moves every word. Returns whether the transcript was the track's.
+pub(crate) fn shift_track_transcript(
+    state: &mut SessionState,
+    track: usize,
+    shift_sec: f64,
+    only_starting_in: Option<(f64, f64)>,
+) -> bool {
+    let Some(id) = state.tracks.get(track).map(|t| t.id.clone()) else {
+        return false;
+    };
+    let Some(transcript) = state.transcript.as_mut() else {
+        return false;
+    };
+    if transcript.source != Some(session::TranscriptSource::Track { track: id }) {
+        return false;
+    }
+    if shift_sec == 0.0 {
+        return true;
+    }
+    for w in &mut transcript.words {
+        let start = f64::from(w.start_s);
+        if let Some((from, to)) = only_starting_in {
+            if start < from || start >= to {
+                continue;
+            }
+        }
+        w.start_s = (start + shift_sec).max(0.0) as f32;
+        w.end_s = (f64::from(w.end_s) + shift_sec).max(0.0) as f32;
+    }
+    true
+}
+
 // =============================================================================
 // Combined remapping
 // =============================================================================
