@@ -490,6 +490,44 @@ function AppSession() {
   // play/pause; Home/End jump to start/end; ←/→ seek 5 s; Shift+←/→
   // seek 1 s.
   useEffect(() => {
+    const handleTimelineKey = (e: KeyboardEvent) => {
+      const t = timelineRef.current;
+      if (!t) return;
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          // One press toggles once, even when the key is held (#431).
+          if (!e.repeat) t.togglePlay();
+          break;
+        case "Home": e.preventDefault(); t.seekTo(0); break;
+        case "End": e.preventDefault(); t.seekTo(t.getDuration()); break;
+        case "ArrowLeft": e.preventDefault(); t.seekBy(e.shiftKey ? -1 : -5); break;
+        case "ArrowRight": e.preventDefault(); t.seekBy(e.shiftKey ? 1 : 5); break;
+        default: handleViewKey(e, t);
+      }
+    };
+    const handleViewKey = (e: KeyboardEvent, t: NonNullable<typeof timelineRef.current>) => {
+      switch (e.key) {
+        case "Escape":
+          if (selection && !showShortcuts && !showTemplatePicker) {
+            e.preventDefault();
+            setSelection(null);
+          }
+          break;
+        case "+":
+        case "=": e.preventDefault(); setZoomPxPerSec((z) => Math.min(z + 40, 2000)); break;
+        case "-": e.preventDefault(); setZoomPxPerSec((z) => Math.max(z - 40, 0)); break;
+        case "0": e.preventDefault(); setZoomPxPerSec(0); break;
+        case "e":
+        case "E":
+          if (e.metaKey || e.ctrlKey) { e.preventDefault(); t.zoomToSelection(); }
+          break;
+        case "f":
+        case "F":
+          if (e.metaKey || e.ctrlKey) { e.preventDefault(); t.fitToWindow(); }
+          break;
+      }
+    };
     const onKey = (e: KeyboardEvent) => {
       if (hasOpenDialog()) return;
       const target = e.target as HTMLElement | null;
@@ -527,7 +565,8 @@ function AppSession() {
         setPaletteOpen((open) => !open);
         return;
       }
-      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
+      // The picker can be opening before its dialog has mounted.
+      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping && !showTemplatePicker) {
         e.preventDefault();
         setShowShortcuts(true);
         return;
@@ -537,59 +576,11 @@ function AppSession() {
         setLoopActive((v) => !v);
         return;
       }
-      const t = timelineRef.current;
-      if (!t) return;
-      if (e.key === " " && !isTyping) {
-        e.preventDefault();
-        // A held key repeats, and each repeat is a toggle: it would start
-        // a play, cancel it, and start a render again. One press, one
-        // toggle (#431).
-        if (!e.repeat) t.togglePlay();
-      } else if (e.key === "Home" && !isTyping) {
-        e.preventDefault();
-        t.seekTo(0);
-      } else if (e.key === "End" && !isTyping) {
-        e.preventDefault();
-        t.seekTo(t.getDuration());
-      } else if (e.key === "ArrowLeft" && !isTyping) {
-        e.preventDefault();
-        t.seekBy(e.shiftKey ? -1 : -5);
-      } else if (e.key === "ArrowRight" && !isTyping) {
-        e.preventDefault();
-        t.seekBy(e.shiftKey ? 1 : 5);
-      } else if (e.key === "Escape" && !isTyping && selection) {
-        e.preventDefault();
-        setSelection(null);
-      } else if ((e.key === "+" || e.key === "=") && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec((z) => Math.min(z + 40, 2000));
-      } else if (e.key === "-" && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec((z) => Math.max(z - 40, 0));
-      } else if (e.key === "0" && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec(0);
-      } else if (
-        (e.key === "e" || e.key === "E") &&
-        (e.metaKey || e.ctrlKey) &&
-        !isTyping
-      ) {
-        // Audacity's Ctrl+E. Frames the selection rather than leaving
-        // the user to zoom and then hunt for it.
-        e.preventDefault();
-        t.zoomToSelection();
-      } else if (
-        (e.key === "f" || e.key === "F") &&
-        (e.metaKey || e.ctrlKey) &&
-        !isTyping
-      ) {
-        e.preventDefault();
-        t.fitToWindow();
-      }
+      if (!isTyping) handleTimelineKey(e);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, handleUndo, handleRedo]);
+  }, [selection, showShortcuts, showTemplatePicker, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1398,10 +1389,12 @@ function AppSession() {
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
       setMixNodeId(null);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
     // Initial fetch. The backend reopens the default project at every
     // launch and restores its `HEAD`, so a returning user's tracks are
     // already there; a fresh project has no head yet and answers

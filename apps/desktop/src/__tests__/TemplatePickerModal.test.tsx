@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TemplatePickerModal } from "../components/TemplatePickerModal";
@@ -31,5 +31,64 @@ describe("TemplatePickerModal", () => {
     );
     await userEvent.click(screen.getByText("Podcast"));
     expect(onSelect).toHaveBeenCalledWith("Podcast");
+  });
+
+  it("closes on Escape and on Cancel", async () => {
+    const onClose = vi.fn();
+    render(
+      <TemplatePickerModal open={true} templates={TEMPLATES} onSelect={vi.fn()} onClose={onClose} />,
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("listens for Escape only while open", async () => {
+    const onClose = vi.fn();
+    render(
+      <TemplatePickerModal open={false} templates={TEMPLATES} onSelect={vi.fn()} onClose={onClose} />,
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes on a backdrop click but not a click inside the dialog", () => {
+    const onClose = vi.fn();
+    render(<TemplatePickerModal open templates={TEMPLATES} onSelect={vi.fn()} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog", { name: "Start from template" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    const backdrop = dialog.parentElement;
+    if (!backdrop) throw new Error("Missing backdrop");
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("takes focus when it opens and gives it back when it closes", async () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const props = { templates: TEMPLATES, onSelect: vi.fn(), onClose: vi.fn() };
+    const { rerender } = render(<TemplatePickerModal open {...props} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+    rerender(<TemplatePickerModal open={false} {...props} />);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    trigger.remove();
+  });
+
+  it("takes focus when opened from closed, as the app opens it", async () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const props = { templates: TEMPLATES, onSelect: vi.fn(), onClose: vi.fn() };
+    const { rerender } = render(<TemplatePickerModal open={false} {...props} />);
+    rerender(<TemplatePickerModal open {...props} />);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" })),
+    );
+    rerender(<TemplatePickerModal open={false} {...props} />);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    trigger.remove();
   });
 });

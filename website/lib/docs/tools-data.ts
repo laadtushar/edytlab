@@ -429,6 +429,12 @@ export const toolAreas: ToolArea[] = [
             output: "node_id",
           },
           {
+            name: "wah_wah",
+            prompt: "add a slow wah-wah effect",
+            what: "Sweep a band-pass filter around a base frequency, with adjustable rate, depth and resonance.",
+            output: "node_id",
+          },
+          {
             name: "tremolo",
             prompt: "add tremolo at 5 Hz",
             what: "Apply tremolo (LFO amplitude modulation). rate_hz controls oscillation speed; depth (0..1) controls modulation depth.",

@@ -298,6 +298,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]`}
       inert={!open}
       aria-hidden={!open ? true : undefined}
+      role="presentation"
       onClick={handleBackdrop}
       onAnimationEnd={onAnimationEnd}
     >

@@ -61,7 +61,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // The newest post moves the blog index; every other page has a date of
   // its own in `PAGE_UPDATED` (`lib/seo-core.ts`), the day its content
   // last changed, so a date moves only when its page does.
-  const blogUpdated = posts.map(modifiedOf).reduce((a, b) => (a > b ? a : b));
+  const blogUpdated = posts.map(modifiedOf).reduce((a, b) => (a > b ? a : b), "");
 
   const fixed: MetadataRoute.Sitemap = pages.map((p) => ({
     url: absoluteUrl(p.path),

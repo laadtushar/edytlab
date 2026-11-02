@@ -91,7 +91,7 @@ export function PunchRecord({
 
   // A click outside closes only the top dialog.
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
     const onDown = (e: MouseEvent) => {
       if (isTopDialog(dialogRef.current) && !rootRef.current?.contains(e.target as Node)) setOpen(false);
     };

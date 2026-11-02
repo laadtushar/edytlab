@@ -42,3 +42,44 @@ describe("stripInline / linksIn / isExternal", () => {
     expect(isExternal("/#demos")).toBe(false);
   });
 });
+
+// `parseInline` was one regular expression, which read to the end of the text
+// from every opener that never closed. It is written out now; this is the
+// expression it replaced, as the reference for what a string means.
+const OLD_TOKEN = /\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*/g;
+function parseInlineByRegex(source: string) {
+  const out: unknown[] = [];
+  let last = 0;
+  for (const m of source.matchAll(OLD_TOKEN)) {
+    const at = m.index ?? 0;
+    if (at > last) out.push({ type: "text", text: source.slice(last, at) });
+    if (m[1] !== undefined) out.push({ type: "link", text: m[1], href: m[2] });
+    else if (m[3] !== undefined) out.push({ type: "code", text: m[3] });
+    else out.push({ type: "bold", text: m[4] });
+    last = at + m[0].length;
+  }
+  if (last < source.length) out.push({ type: "text", text: source.slice(last) });
+  return out;
+}
+
+describe("parseInline against the expression it replaced", () => {
+  it("reads every string the way the expression did", () => {
+    const pieces = ["[", "]", "(", ")", "*", "**", "`", "a", "b", " ", "\n", "[a](", "](x)", "http://x/y"];
+    let seed = 7;
+    const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let n = 0; n < 40000; n++) {
+      let s = "";
+      for (let i = Math.floor(next() * 16); i > 0; i--) s += pieces[Math.floor(next() * pieces.length)];
+      expect(parseInline(s), JSON.stringify(s)).toEqual(parseInlineByRegex(s));
+    }
+  });
+
+  it("reads a long line of openers that never close in one pass", () => {
+    const started = Date.now();
+    for (const opener of ["[", "[a](", "`", "**", "[a]("]) {
+      parseInline(opener.repeat(40000));
+      parseInline("[a](b".repeat(20000));
+    }
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+});

@@ -204,7 +204,8 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // #771's reorder_tracks adds 289 B on top.
 // #771's mute_all_tracks (#848) adds 133 B on top.
 // #942's render_final range adds 279 B on top.
-const FULL_TOOLS_MAX_BYTES: usize = 76_106; // main ratchet 75,827 + 279 B of #942's range
+// #846's wah_wah adds 663 B on top.
+const FULL_TOOLS_MAX_BYTES: usize = 76_769; // main ratchet 76,106 + 663 B of #846's wah_wah
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -805,7 +806,8 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #771's reorder_tracks adds 320 B on top.
 // #771's mute_all_tracks (#848) adds 164 B on top.
 // #942's render_final range adds 279 B on top.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 79_546; // main ratchet 79,267 + 279 B of #942's range
+// #846's wah_wah adds 694 B on top.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 80_240; // main ratchet 79,546 + 694 B of #846's wah_wah
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

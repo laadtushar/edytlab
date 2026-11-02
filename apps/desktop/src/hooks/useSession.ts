@@ -286,13 +286,15 @@ export function useSession(options?: {
     let cancelled = false;
     onNodeCreated((nodeId) => {
       dispatchHead({ type: "advance", head: nodeId });
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
+    })
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      .catch(() => undefined);
     const saved = Promise.resolve()
       .then(() => getHeadTrail())
       .then(readSavedTrail, () => null);
@@ -384,13 +386,14 @@ export function useSession(options?: {
   useEffect(() => {
     let cancelled = false;
     const unlisten: (() => void)[] = [];
-    const keep = (listening: Promise<() => void>) =>
+    const keep = (listening: Promise<() => void>): void => {
       listening
         .then((fn) => {
           if (cancelled) fn();
           else unlisten.push(fn);
         })
         .catch(() => undefined);
+    };
     const compactions = new Set<string>();
     keep(
       onToolCall((name, id) => {

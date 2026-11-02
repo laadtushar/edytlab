@@ -44,16 +44,16 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
   return (
     <div
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
-      onClick={onClose}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       onAnimationEnd={onAnimationEnd}
       data-testid="shortcuts-overlay"
       inert={!open}
       aria-hidden={!open ? true : undefined}
+      role="presentation"
     >
       <div
         {...dialogProps}
         className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-96 p-6`}
-        onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
           <h2 id={headingId} className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase">

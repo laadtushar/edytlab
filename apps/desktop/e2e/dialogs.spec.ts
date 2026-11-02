@@ -11,7 +11,7 @@ test("template dialog traps focus, makes the background inert, and suppresses Ap
   await expect(dialog).toHaveAttribute("aria-modal", "true");
   const cancel = dialog.getByRole("button", { name: "Cancel" });
   await expect(cancel).toBeFocused();
-  await expect.poll(() => trigger.evaluate(el => !!el.closest("[inert]"))).toBe(true);
+  await expect.poll(() => trigger.evaluate(el => Boolean(el.closest("[inert]")))).toBe(true);
   await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button").first()).toBeFocused();
   await page.keyboard.press("Shift+Tab");
@@ -22,7 +22,7 @@ test("template dialog traps focus, makes the background inert, and suppresses Ap
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
-  await expect.poll(() => trigger.evaluate(el => !!el.closest("[inert]"))).toBe(false);
+  await expect.poll(() => trigger.evaluate(el => Boolean(el.closest("[inert]")))).toBe(false);
 });
 
 test("palette and shortcuts enter and restore focus", async ({ app }) => {

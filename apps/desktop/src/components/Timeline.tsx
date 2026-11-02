@@ -1098,6 +1098,9 @@ function isAbort(err: unknown): boolean {
       <div
         ref={waveformWrapperRef}
         data-testid="timeline-lane-surface"
+        // A drag marks a time range, a gesture over a point-by-point surface;
+        // the assistant selects a range by words ("select 10 to 20 seconds").
+        role="presentation"
         onMouseDown={beginSelection}
         style={{
           flex: 1,

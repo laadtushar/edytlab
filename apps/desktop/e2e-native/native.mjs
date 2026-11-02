@@ -5,6 +5,7 @@
 // stories go through the real dialog.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 const env = { ...process.env, DISPLAY: process.env.DISPLAY ?? ":99" };
@@ -81,7 +82,7 @@ export async function chooseThrough(d, selector, answer, { shotDialog } = {}) {
   } else if (answer.paths) {
     let dir = answer.dir;
     if (!dir) {
-      dir = mkdtempSync("/tmp/edytlab-pick-");
+      dir = mkdtempSync(join(tmpdir(), "edytlab-pick-"));
       for (const p of answer.paths) copyFileSync(p, join(dir, basename(p)));
     }
     x("key", "ctrl+l");

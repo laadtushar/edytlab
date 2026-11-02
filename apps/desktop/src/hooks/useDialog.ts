@@ -82,7 +82,7 @@ export function useDialog(open: boolean, onClose: () => void) {
 
   useLayoutEffect(() => {
     const node = ref.current;
-    if (!open || !node) return;
+    if (!open || !node) return undefined;
     const entry: Entry = {
       node,
       close: () => close.current(),

@@ -133,9 +133,9 @@ describe("choosing a command", () => {
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Search commands" }), { key: "ArrowDown" });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Search commands" }), { key: "Enter" });
 
-    expect(onSelect).toHaveBeenCalledWith(
-      COMMANDS.find((c) => c.label === labels[1])!.prompt,
-    );
+    const command = COMMANDS.find((c) => c.label === labels[1]);
+    if (!command) throw new Error("Highlighted command not found");
+    expect(onSelect).toHaveBeenCalledWith(command.prompt);
   });
 });
 
@@ -149,5 +149,7 @@ it("Enter on a tabbed-to command chooses that button rather than the search high
   buttons[1].focus();
   await user.keyboard("{Enter}");
   expect(onSelect).toHaveBeenCalledOnce();
-  expect(onSelect).toHaveBeenCalledWith(COMMANDS.find((c) => c.label === labels[1])!.prompt);
+  const command = COMMANDS.find((c) => c.label === labels[1]);
+  if (!command) throw new Error("Focused command not found");
+  expect(onSelect).toHaveBeenCalledWith(command.prompt);
 });
