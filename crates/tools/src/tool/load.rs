@@ -34,9 +34,8 @@ use session::{
 };
 
 use audio_decoder::{DecodedAudio, WavStreamReader};
-use session::audio_store::{AudioFolder, AudioStore};
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 
-use crate::provenance::{CLIPBOARD_DIR, DERIVED_DIR};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{copy_cas_wav, set_session_length, write_cas_wav};
 use crate::{Tool, ToolContext, ToolResult};
@@ -251,14 +250,7 @@ fn ensure_streamable_wav(
 
     // Inside the project (#156). A transcode is derived audio, and
     // derived audio that lives beside the user's source file is audio
-    // the project does not contain.
-    let derived_dir = crate::provenance::derived_dir(project_dir);
-    std::fs::create_dir_all(&derived_dir).map_err(|e| {
-        format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        )
-    })?;
+    // the project does not contain. The audio store makes the folder.
 
     // The source path is deliberately NOT hashed (#160). It used to be,
     // which meant the same audio imported from two locations — a copy, a
@@ -276,10 +268,9 @@ fn ensure_streamable_wav(
     // bytes — lives in `provenance::audio_hash` and is shared with the
     // hash `load` records in the node op, so the name a transcode lands
     // on and the identity a replay checks are the same number.
-    let stem =
-        crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels);
+    let stem = AudioName::of_samples(&decoded.samples, decoded.sample_rate, decoded.channels);
     let audio_store = AudioStore::new(project_dir);
-    let cas_path = audio_store.path(AudioFolder::Derived, &stem);
+    let cas_path = audio_store.path_of(AudioFolder::Derived, &stem);
 
     if streamable {
         // The same name a transcode of it would take, so a cache entry
@@ -344,7 +335,9 @@ fn is_unowned_store_file(project_dir: &Path, src: &Path) -> bool {
     let Ok(inside) = src.strip_prefix(&store) else {
         return false;
     };
-    let owned = [DERIVED_DIR, CLIPBOARD_DIR];
+    // The store's folders by name (`derived/`, `clipboard/`; `generated/`
+    // never sits under `.audiograph/`, so naming it here changes nothing).
+    let owned: Vec<&str> = AudioFolder::ALL.iter().map(|f| f.name()).collect();
     !inside
         .components()
         .next()

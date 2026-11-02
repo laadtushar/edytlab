@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde_json::Value;
-use session::audio_store::{AudioFolder, AudioStore};
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, EnvelopePoint, NodeId, SessionNode, SessionState, Track};
 
 use crate::{ToolContext, ToolResult};
@@ -148,19 +148,10 @@ pub(crate) fn slice_envelope(
 /// so the derived-audio sweep has to be told which ones the timeline is
 /// showing, or it would take them for orphans (#98).
 pub fn flattened_track_path(project_dir: &Path, clips: &[Clip]) -> PathBuf {
-    let mut hasher = blake3::Hasher::new();
-    for c in clips {
-        hasher.update(c.source_path.to_string_lossy().as_bytes());
-        hasher.update(&c.start_in_track.to_le_bytes());
-        hasher.update(&c.source_offset.to_le_bytes());
-        hasher.update(&c.length.to_le_bytes());
-    }
-    let hash_hex = hasher.finalize().to_hex().to_string();
-
     // Inside the project (#156), not beside whichever source happened to
     // be first: a project has to contain the audio it points at, or it
     // is not a thing anyone can copy or move.
-    crate::provenance::derived_dir(project_dir).join(format!("track-{hash_hex}.wav"))
+    AudioStore::new(project_dir).path_of(AudioFolder::Derived, &AudioName::of_lane(clips))
 }
 
 /// Materialise a track's timeline as one WAV and return its path.
@@ -186,39 +177,26 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
         return Err("track has no clips".to_string());
     }
 
-    let cas_path = flattened_track_path(project_dir, clips);
-    let derived_dir = crate::provenance::derived_dir(project_dir);
-    if cas_path.exists() {
-        return Ok(cas_path);
-    }
-
-    std::fs::create_dir_all(&derived_dir).map_err(|e| {
-        format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        )
-    })?;
-    // Written under a temporary name and renamed into place once whole.
-    // The name is trusted on sight above, so a write cut short — a crash,
-    // a full disk — must never be left under it: every later listing
-    // would hand the timeline a truncated file and never write it again.
-    let tmp = tempfile::Builder::new()
-        .prefix(".track-")
-        .suffix(".wav.part")
-        .tempfile_in(&derived_dir)
-        .map_err(|e| format!("failed to create a file in {}: {e}", derived_dir.display()))?;
-    let (file, tmp_path) = tmp.into_parts();
-    write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES)
-        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
-    match tmp_path.persist(&cas_path) {
-        Ok(()) => Ok(cas_path),
-        // Another writer of the same clip list got there first — `list_tracks`
-        // and an analysis tool running off the store lock can (#421). The
-        // name is the hash of the clip list, so what is there is what this
-        // would have put there.
-        Err(_) if cas_path.is_file() => Ok(cas_path),
-        Err(e) => Err(format!("failed to write {}: {e}", cas_path.display())),
-    }
+    // Through the store (#719): written to a temporary file and renamed
+    // into place once whole. The name is trusted on sight, so a write cut
+    // short (a crash, a full disk) must never be left under it: every later
+    // listing would hand the timeline a truncated file and never write it
+    // again. A lost race with another writer of the same clip list (a
+    // listing and an analysis tool running off the store lock can, #421) is
+    // not an error: the name is the hash of the clip list.
+    let name = AudioName::of_lane(clips);
+    let store = AudioStore::new(project_dir);
+    let cas_path = store.path_of(AudioFolder::Derived, &name);
+    store
+        .put_with(AudioFolder::Derived, &name, |tmp| {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(tmp)
+                .map_err(|e| e.to_string())?;
+            write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES).map_err(|e| e.to_string())
+        })
+        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))
 }
 
 /// The file a timeline lane draws for a track: its audio on the
@@ -950,12 +928,12 @@ pub(crate) fn render_warnings_for_tracks(state: &SessionState, tracks: &[usize])
 pub(crate) fn write_cas_wav(
     store: &AudioStore,
     folder: AudioFolder,
-    stem: &str,
+    name: &AudioName,
     samples: &[f32],
     sample_rate: u32,
     channels: u16,
 ) -> Result<PathBuf, String> {
-    store.put_with(folder, stem, |tmp| {
+    store.put_with(folder, name, |tmp| {
         audio_engine::write_wav(samples, sample_rate, channels, tmp).map_err(|e| e.to_string())
     })
 }
@@ -971,10 +949,10 @@ pub(crate) fn write_cas_wav(
 pub(crate) fn copy_cas_wav(
     store: &AudioStore,
     folder: AudioFolder,
-    stem: &str,
+    name: &AudioName,
     src: &Path,
 ) -> Result<PathBuf, String> {
-    store.put_with(folder, stem, |tmp| {
+    store.put_with(folder, name, |tmp| {
         let mut from = std::fs::File::open(src)
             .map_err(|e| format!("failed to read {}: {e}", src.display()))?;
         let mut to = std::fs::OpenOptions::new()
@@ -1390,15 +1368,8 @@ where
         state.sample_rate = rate_out;
     }
 
-    // CAS-address the result under `<project>/.audiograph/derived/`.
-    let derived_dir: PathBuf = crate::provenance::derived_dir(ctx.store.project_dir());
-    if let Err(e) = std::fs::create_dir_all(&derived_dir) {
-        return ToolResult::Error(format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        ));
-    }
-
+    // CAS-address the result under `<project>/.audiograph/derived/`; the
+    // audio store makes the folder.
     // Name the file for the post-edit samples *and* the rate and channel
     // count they are written with (#620): a name made from the samples
     // alone is shared by two buffers of a different layout, and a file under
@@ -1409,15 +1380,15 @@ where
     // under that name finds out from it that the file it has written stands
     // for the recorded one (`rederive`). Nothing is recomputed from a file,
     // which holds the samples as 16-bit PCM.
-    let hash_hex = crate::provenance::audio_hash(&window, rate_out, channels_out);
+    let name = AudioName::of_samples(&window, rate_out, channels_out);
     let content_hash = crate::provenance::legacy_sample_hash(&window);
     let audio_store = AudioStore::new(ctx.store.project_dir());
-    let cas_path = audio_store.path(AudioFolder::Derived, &hash_hex);
+    let cas_path = audio_store.path_of(AudioFolder::Derived, &name);
 
     if let Err(e) = write_cas_wav(
         &audio_store,
         AudioFolder::Derived,
-        &hash_hex,
+        &name,
         &window,
         rate_out,
         channels_out,
