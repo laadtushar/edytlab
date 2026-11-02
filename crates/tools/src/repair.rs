@@ -17,12 +17,15 @@
 //!
 //! It only adds: a file already here under a name is never replaced, the
 //! other project is only read, and nothing is deleted but its own staging
-//! files. A copy goes to a temporary file in the folder it is for, keeps
-//! the source's modification time, and is renamed into place only when it
-//! is whole, and not over a file that appeared meanwhile. A file that
-//! cannot be copied is counted and skipped; on a volume that has no rename
-//! that refuses to replace a file (and no hard links), that is every file,
-//! and the copy is left as it was.
+//! files. Where a file goes and the copy itself are the audio store's
+//! (#719): `Store::counterpart` gives this project's place for the name
+//! (`session::audio_store::Counterpart`), and `Counterpart::copy_in` copies
+//! to a temporary file in the folder it is for, keeps the source's
+//! modification time, and renames it into place only when it is whole, and
+//! not over a file that appeared meanwhile. A file that cannot be copied is
+//! counted and skipped; on a volume that has no rename that refuses to
+//! replace a file (and no hard links), that is every file, and the copy is
+//! left as it was.
 //!
 //! ## Room on the disk
 //!
@@ -62,13 +65,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::provenance::derived_dir;
+use session::audio_store::{AudioFolder, Counterpart, OwnedFile};
 
 /// One file to copy in.
 #[derive(Debug, Clone)]
 pub struct RepairFile {
     from: PathBuf,
-    to: PathBuf,
+    to: Counterpart,
     bytes: u64,
 }
 
@@ -80,7 +83,7 @@ impl RepairFile {
 
     /// Where this project keeps a file of that name.
     pub fn to(&self) -> &Path {
-        &self.to
+        self.to.path()
     }
 
     pub fn bytes(&self) -> u64 {
@@ -168,15 +171,15 @@ pub fn plan_repair(store: &session::Store, cap_bytes: u64) -> RepairPlan {
 /// It also removes staging files a repair left behind when the app was
 /// killed mid-copy, from `clipboard/` and `generated/` (the orphan sweep
 /// removes those in `derived/`), but only while no staged handle on the
-/// project is alive (`Store::audio_deleter`): a repair running now holds
-/// one, and its staging file is not a leftover.
+/// project is alive (`Store::audio_deleter`, `remove_copy_leftovers`): a
+/// repair running now holds one, and its staging file is not a leftover.
 pub fn plan_repair_listed(
     store: &session::Store,
     nodes: &[session::SessionNode],
     cap_bytes: u64,
 ) -> RepairPlan {
     if let Some(deleter) = store.audio_deleter() {
-        remove_leftovers(&deleter);
+        deleter.remove_copy_leftovers();
     }
 
     // What some clip names in another project, and this one lacks.
@@ -191,7 +194,7 @@ pub fn plan_repair_listed(
         let Some(to) = store.counterpart(from) else {
             continue;
         };
-        if !seen.insert(to.clone()) || to.exists() {
+        if !seen.insert(to.path().to_path_buf()) || to.path().exists() {
             continue;
         }
         let Ok(meta) = std::fs::metadata(from) else {
@@ -225,7 +228,6 @@ pub fn plan_repair_listed(
         })
         .unwrap_or_default();
     let rebuildable = crate::reclaim::rebuildable_paths(nodes);
-    let derived = derived_dir(store.project_dir());
 
     // The head's audio first, so a repair that stops for space has put
     // back what the session now plays; then what nothing could rebuild;
@@ -236,7 +238,7 @@ pub fn plan_repair_listed(
     for (file, mtime) in wanted {
         if head_named.contains(&file.from) {
             heads.push(file);
-        } else if file.to.parent() == Some(derived.as_path())
+        } else if file.to.folder() == AudioFolder::Derived
             && rebuildable.contains(&resolved(&file.from))
         {
             within_cap.push((mtime, file));
@@ -247,10 +249,16 @@ pub fn plan_repair_listed(
     heads.append(&mut always);
     let mut files = heads;
 
-    let mut total = folder_bytes(&derived)
+    // `derived/` as the history sweep measures it: the files the store owns
+    // there.
+    let mut total = store
+        .audio_store()
+        .files(AudioFolder::Derived)
+        .map(|files| files.iter().map(OwnedFile::bytes).sum())
+        .unwrap_or(0)
         + files
             .iter()
-            .filter(|f| f.to.parent() == Some(derived.as_path()))
+            .filter(|f| f.to.folder() == AudioFolder::Derived)
             .map(|f| f.bytes)
             .sum::<u64>();
     // Newest first: the history sweep takes the oldest first.
@@ -282,11 +290,11 @@ pub fn apply_repair_with(
 ) -> RepairReport {
     let mut report = RepairReport::default();
     for (i, file) in plan.files.iter().enumerate() {
-        if file.to.exists() {
+        if file.to.path().exists() {
             report.already_there += 1;
             continue;
         }
-        let room = existing_ancestor(&file.to).map(&mut space);
+        let room = existing_ancestor(file.to.path()).map(&mut space);
         let full = match room {
             Some(Ok(available)) => available < file.bytes.saturating_add(KEEP_FREE_BYTES),
             _ => false,
@@ -294,7 +302,7 @@ pub fn apply_repair_with(
         let copied = if full {
             Err(io::Error::from(io::ErrorKind::StorageFull))
         } else {
-            copy_in(&file.from, &file.to)
+            file.to.copy_in(&file.from)
         };
         match copied {
             Ok(Some(bytes)) => {
@@ -316,7 +324,7 @@ pub fn apply_repair_with(
             Err(e) => {
                 tracing::warn!(
                     from = %file.from.display(),
-                    to = %file.to.display(),
+                    to = %file.to.path().display(),
                     error = %e,
                     "could not copy a file this project names into it"
                 );
@@ -325,59 +333,6 @@ pub fn apply_repair_with(
         }
     }
     report
-}
-
-/// Copy `from` to `to` by way of a temporary file beside `to`, renamed
-/// into place only when whole and only if nothing is at `to` by then.
-/// `Ok(None)` when something was. The copy keeps the source's modification
-/// time, which is what the history sweep takes the oldest by.
-///
-/// The rename is `tempfile`'s no-replace rename, and a hard link where the
-/// volume refuses that; on a volume that allows neither (some FAT and
-/// network volumes) it is an error, and nothing is written.
-fn copy_in(from: &Path, to: &Path) -> io::Result<Option<u64>> {
-    let parent = to
-        .parent()
-        .ok_or_else(|| io::Error::other("the destination has no folder"))?;
-    std::fs::create_dir_all(parent)?;
-    let mut part = tempfile::Builder::new()
-        .prefix(STAGING_PREFIX)
-        .suffix(STAGING_SUFFIX)
-        .tempfile_in(parent)?;
-    let mut src = std::fs::File::open(from)?;
-    let bytes = io::copy(&mut src, part.as_file_mut())?;
-    if let Ok(mtime) = src.metadata().and_then(|m| m.modified()) {
-        let _ = part.as_file().set_modified(mtime);
-    }
-    part.as_file().sync_all()?;
-    match part.persist_noclobber(to) {
-        Ok(_) => Ok(Some(bytes)),
-        Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => Ok(None),
-        Err(e) => Err(e.error),
-    }
-}
-
-/// How a repair names its staging files.
-const STAGING_PREFIX: &str = ".repair-";
-const STAGING_SUFFIX: &str = ".wav.part";
-
-/// Remove the staging files a killed repair left in `clipboard/` and
-/// `generated/`, through the audio store, which deletes only a regular file
-/// directly in one of its folders. A file that cannot be removed is left for
-/// the next open.
-fn remove_leftovers(deleter: &session::audio_store::AudioDeleter<'_>) {
-    use session::audio_store::AudioFolder;
-    for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
-        let Ok(files) = deleter.audio().files(folder) else {
-            continue;
-        };
-        for file in files {
-            let name = file.name().to_string_lossy();
-            if name.starts_with(STAGING_PREFIX) && name.ends_with(STAGING_SUFFIX) {
-                deleter.remove(&file);
-            }
-        }
-    }
 }
 
 /// The nearest folder of `path` that exists, to ask its volume for room.
@@ -390,81 +345,24 @@ fn resolved(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// The total size of the files directly in `dir`.
-fn folder_bytes(dir: &Path) -> u64 {
-    std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter_map(|e| e.metadata().ok())
-                .filter(|m| m.is_file())
-                .map(|m| m.len())
-                .sum()
-        })
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// The rename never replaces a file: one that is at `to` by the time
-    /// the copy is whole stays as it was, and no staging file is left.
-    #[test]
-    fn copy_in_never_replaces_a_file() {
-        let tmp = TempDir::new().unwrap();
-        let from = tmp.path().join("from.wav");
-        std::fs::write(&from, b"the original's").unwrap();
-        let dir = tmp.path().join("derived");
-        std::fs::create_dir_all(&dir).unwrap();
-        let to = dir.join("abc.wav");
-        std::fs::write(&to, b"already here").unwrap();
-
-        assert_eq!(copy_in(&from, &to).unwrap(), None);
-        assert_eq!(std::fs::read(&to).unwrap(), b"already here");
-        let names: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name())
-            .collect();
-        assert_eq!(names, vec![std::ffi::OsString::from("abc.wav")]);
-    }
-
-    /// The copy keeps the source's modification time: the history sweep
-    /// takes the oldest first, and a repaired file stamped with the time of
-    /// the repair would read as the newest history there is.
-    #[test]
-    fn copy_in_keeps_the_sources_time() {
-        let tmp = TempDir::new().unwrap();
-        let from = tmp.path().join("from.wav");
-        std::fs::write(&from, b"audio").unwrap();
-        let then = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
-        std::fs::File::options()
-            .write(true)
-            .open(&from)
-            .unwrap()
-            .set_modified(then)
-            .unwrap();
-        let to = tmp.path().join("derived").join("abc.wav");
-
-        assert_eq!(copy_in(&from, &to).unwrap(), Some(5));
-        assert_eq!(std::fs::metadata(&to).unwrap().modified().unwrap(), then);
-    }
-
-    /// A plan of `n` files of `bytes` each, from one folder to another.
+    /// A plan of `n` files of `bytes` each, from one project's `derived/`
+    /// to another's.
     fn plan_of(tmp: &TempDir, n: usize, bytes: usize) -> RepairPlan {
-        let src = tmp.path().join("original");
-        let dest = tmp.path().join("copy");
+        let src = session::relocate::derived_dir(&tmp.path().join("original"));
+        let dest = session::Store::open(&tmp.path().join("copy")).unwrap();
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::create_dir_all(&dest).unwrap();
         let files = (0..n)
             .map(|i| {
                 let from = src.join(format!("{i}.wav"));
                 std::fs::write(&from, vec![0u8; bytes]).unwrap();
                 RepairFile {
+                    to: dest.counterpart(&from).expect("another project's"),
                     from,
-                    to: dest.join(format!("{i}.wav")),
                     bytes: bytes as u64,
                 }
             })

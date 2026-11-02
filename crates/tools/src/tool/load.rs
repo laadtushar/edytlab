@@ -275,13 +275,8 @@ fn ensure_streamable_wav(
     if streamable {
         // The same name a transcode of it would take, so a cache entry
         // and the file it was rendered from are one file here.
-        copy_cas_wav(&audio_store, AudioFolder::Derived, &stem, src).map_err(|e| {
-            format!(
-                "failed to copy {} -> {}: {e}",
-                src.display(),
-                cas_path.display()
-            )
-        })?;
+        copy_cas_wav(&audio_store, AudioFolder::Derived, &stem, src)
+            .map_err(|e| format!("failed to copy {} -> {cas_path}: {e}", src.display()))
     } else {
         write_cas_wav(
             &audio_store,
@@ -291,16 +286,8 @@ fn ensure_streamable_wav(
             decoded.sample_rate,
             decoded.channels,
         )
-        .map_err(|e| {
-            format!(
-                "failed to transcode {} -> {}: {e}",
-                src.display(),
-                cas_path.display()
-            )
-        })?;
+        .map_err(|e| format!("failed to transcode {} -> {cas_path}: {e}", src.display()))
     }
-
-    Ok(cas_path)
 }
 
 /// Whether `src` is a file inside this project's `.audiograph/` that the

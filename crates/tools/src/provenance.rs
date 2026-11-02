@@ -78,14 +78,14 @@ pub fn store_clipboard_blob(
 ) -> Result<ClipboardBlob, String> {
     let name = AudioName::of_samples(samples, sample_rate, channels);
     let store = AudioStore::new(project_dir);
-    let path = store.path_of(AudioFolder::Clipboard, &name);
+    let place = store.path_of(AudioFolder::Clipboard, &name);
     // Written as float so it reads back as exactly these samples: a paste
     // replayed from a lossy blob would splice in different audio, and its
     // output would never match the file it is meant to rebuild. A blob
     // already there is kept only if it does read back exactly; one written
     // as 16-bit before this was float is replaced, whole (#719: the one
     // folder whose files can be checked against their name).
-    store
+    let path = store
         .put_verified(
             AudioFolder::Clipboard,
             &name,
@@ -95,7 +95,7 @@ pub fn store_clipboard_blob(
                     .map_err(|e| e.to_string())
             },
         )
-        .map_err(|e| format!("failed to write clipboard blob {}: {e}", path.display()))?;
+        .map_err(|e| format!("failed to write clipboard blob {place}: {e}"))?;
     Ok(ClipboardBlob {
         hash: name.as_str().to_string(),
         path,

@@ -55,21 +55,25 @@
 //!
 //! The replay learns the older name from the clip it wrote, whose
 //! `content_hash` is the blake3 of the samples alone (what the writer has
-//! always stored there). Nothing is added to a stored node.
+//! always stored there). Nothing is added to a stored node. Which names a
+//! file answers to, and the put-back under the recorded one, are the audio
+//! store's (`session::audio_store::Rebuilt`, #719).
 //!
 //! ## Why it replays into a scratch project
 //!
 //! Replaying through the dispatcher appends nodes, and the caller wants
 //! a *file*, not history. So the step runs against a throwaway project,
 //! seeded with the parent's state, and the file it produces is copied
-//! into the real `derived/` under the name it was always going to have.
-//! The real store is never written to.
+//! into the real `derived/` under the name it was always going to have,
+//! through the audio store (`Rebuilt::put_back`, which writes with
+//! `AudioStore::put_with`). The real store's nodes are never written to.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::ffi::{OsStr, OsString};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use crate::provenance::derived_dir;
+use session::audio_store::{AudioFolder, Rebuilt};
+
 use crate::{ToolContext, ToolDispatcher};
 
 /// What replaying a node's step wrote: a scratch project holding the
@@ -86,35 +90,22 @@ use crate::{ToolContext, ToolDispatcher};
 /// what that name would have been (see the module docs), and answers to it
 /// the same way.
 pub struct Replay {
-    scratch: tempfile::TempDir,
-    produced: BTreeSet<OsString>,
-    /// For a file in `produced` that an older build would have called
-    /// something else: that older name, to the file's name.
-    legacy: BTreeMap<OsString, OsString>,
+    /// Holds the files `rebuilt` names, until the replay is dropped.
+    _scratch: tempfile::TempDir,
+    rebuilt: Rebuilt,
 }
 
 impl Replay {
     /// The derived files the replay wrote, by the names it gave them.
     pub fn produced(&self) -> &BTreeSet<OsString> {
-        &self.produced
+        self.rebuilt.produced()
     }
 
     /// Every name a node may record for what the replay wrote: the names it
     /// gave the files, and the names an older build would have given them.
     /// A recorded name in this list is a name the replay rebuilt.
     pub fn names(&self) -> impl Iterator<Item = &OsString> {
-        self.produced.iter().chain(self.legacy.keys())
-    }
-
-    /// Where the replay wrote what is recorded as `name`, if it did: the
-    /// file of that name, or the one an older build would have called that.
-    fn path(&self, name: &OsStr) -> Option<PathBuf> {
-        let written = if self.produced.contains(name) {
-            name
-        } else {
-            self.legacy.get(name)?.as_os_str()
-        };
-        Some(derived_dir(self.scratch.path()).join(written))
+        self.rebuilt.names()
     }
 }
 
@@ -227,55 +218,16 @@ pub fn replay(store: &session::Store, node: session::NodeId) -> Result<Replay, S
         }
     }
 
-    let produced: BTreeSet<OsString> = std::fs::read_dir(derived_dir(scratch.path()))
-        .map(|dir| {
-            dir.flatten()
-                .filter(|e| e.path().is_file())
-                .map(|e| e.file_name())
-                .collect()
-        })
-        .unwrap_or_default();
-    let legacy = legacy_names(&scratch_store, scratch.path(), &produced);
+    // What it wrote, by every name a node may record for each file: the
+    // names a clip the step wrote says the file had before #620 come from
+    // the scratch project's own nodes (see the module docs).
+    let rebuilt = scratch_store
+        .audio_store()
+        .rebuilt(&scratch_store.list_nodes().unwrap_or_default());
     Ok(Replay {
-        scratch,
-        produced,
-        legacy,
+        _scratch: scratch,
+        rebuilt,
     })
-}
-
-/// The names an older build would have given the files a replay wrote, to
-/// the names it gave them (#620).
-///
-/// Taken from the clips the replay's nodes hold, not worked out from the
-/// files: a clip an edit wrote carries the blake3 of the samples alone as
-/// its `content_hash`, which is what named the file before. Only clips of
-/// the scratch project's own `derived/` count, so the audio the step read
-/// (the real project's) is never taken for what it wrote.
-fn legacy_names(
-    scratch_store: &session::Store,
-    scratch: &Path,
-    produced: &BTreeSet<OsString>,
-) -> BTreeMap<OsString, OsString> {
-    let derived = key(&derived_dir(scratch));
-    let mut out = BTreeMap::new();
-    for node in scratch_store.list_nodes().unwrap_or_default() {
-        for clip in node.state.tracks.iter().flat_map(|t| &t.clips) {
-            let (Some(hash), Some(written)) = (clip.content_hash, clip.source_path.file_name())
-            else {
-                continue;
-            };
-            if clip.source_path.parent().map(key).as_ref() != Some(&derived)
-                || !produced.contains(written)
-            {
-                continue;
-            }
-            let older = OsString::from(format!("{}.wav", crate::provenance::legacy_stem(&hash)));
-            if older != written {
-                out.insert(older, written.to_os_string());
-            }
-        }
-    }
-    out
 }
 
 /// One rebuild: which nodes name each file, and which nodes it has
@@ -283,11 +235,9 @@ fn legacy_names(
 /// circle.
 struct Rebuild<'a> {
     store: &'a session::Store,
-    /// This project's `derived/`, resolved.
-    derived: PathBuf,
-    /// And as the store spells it, which is how `Store::counterpart`
-    /// spells this project's files.
-    derived_spelt: PathBuf,
+    /// This project's audio store, which says whether a path is in its
+    /// `derived/` and puts a rebuilt file back.
+    audio: session::audio_store::AudioStore,
     naming: HashMap<PathBuf, Vec<session::NodeId>>,
     tried: HashSet<session::NodeId>,
 }
@@ -307,8 +257,7 @@ impl<'a> Rebuild<'a> {
         }
         Self {
             store,
-            derived: key(&derived_dir(store.project_dir())),
-            derived_spelt: derived_dir(store.project_dir()),
+            audio: store.audio_store(),
             naming,
             tried: HashSet::new(),
         }
@@ -325,12 +274,15 @@ impl<'a> Rebuild<'a> {
     /// (`session::relocate`, rule 1).
     fn missing(&self, node: session::NodeId) -> Vec<Missing> {
         let mut out: Vec<Missing> = Vec::new();
+        let folders = self.audio.folders();
         for named in missing_paths(self.store, node) {
-            let target = if named.parent().is_some_and(|p| key(p) == self.derived) {
+            let target = if folders.folder_of(&named) == Some(AudioFolder::Derived) {
                 named.clone()
             } else {
                 match self.store.counterpart(&named) {
-                    Some(here) if here.parent() == Some(self.derived_spelt.as_path()) => here,
+                    Some(here) if here.folder() == AudioFolder::Derived => {
+                        here.path().to_path_buf()
+                    }
                     _ => continue,
                 }
             };
@@ -406,10 +358,12 @@ impl<'a> Rebuild<'a> {
             }
         }
         let replayed = replay(self.store, node)?;
+        // Each file under the name the node records, which for a node
+        // written before #620 is the older name (`Rebuilt::put_back`). A file
+        // the replay did not write is left missing, and `file` says so.
         for missing in self.missing(node) {
-            let target = &missing.target;
-            if let Some(rebuilt) = target.file_name().and_then(|name| replayed.path(name)) {
-                put_back(&rebuilt, target)?;
+            if let Some(name) = missing.target.file_name() {
+                replayed.rebuilt.put_back(name, &self.audio)?;
             }
         }
         Ok(())
@@ -488,33 +442,6 @@ pub fn materialize(store: &session::Store, node: session::NodeId) -> Result<Vec<
         rebuild.file(m, node)?;
     }
     Ok(missing.into_iter().map(|m| m.target).collect())
-}
-
-/// Copy a rebuilt file into place under its name, atomically.
-///
-/// The name is the content's hash and presence is all a reader checks, so
-/// a copy cut short under the final name would be wrong audio that every
-/// later check calls present. The copy goes to a temporary file beside it
-/// and is renamed into place only once it is whole.
-fn put_back(rebuilt: &Path, missing: &Path) -> Result<(), String> {
-    let could_not =
-        |e: &dyn std::fmt::Display| format!("could not put {} back: {e}", missing.display());
-    let parent = missing
-        .parent()
-        .ok_or_else(|| could_not(&"it has no parent directory"))?;
-    std::fs::create_dir_all(parent)
-        .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
-    let mut part = tempfile::Builder::new()
-        .prefix(".rebuilt-")
-        .suffix(".wav.part")
-        .tempfile_in(parent)
-        .map_err(|e| could_not(&e))?;
-    let mut src = std::fs::File::open(rebuilt).map_err(|e| could_not(&e))?;
-    std::io::copy(&mut src, part.as_file_mut()).map_err(|e| could_not(&e))?;
-    part.as_file().sync_all().map_err(|e| could_not(&e))?;
-    part.persist(missing)
-        .map(|_| ())
-        .map_err(|e| could_not(&e.error))
 }
 
 /// A path as the file system names it, so a clip path written through a
