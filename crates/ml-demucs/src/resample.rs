@@ -17,7 +17,8 @@
 //!   that push completed. The result does not depend on how the input was
 //!   split.
 
-use rubato::{FftFixedInOut, Resampler};
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+use rubato::{Fft, FixedSync, Resampler};
 
 use crate::{DemucsError, Result};
 
@@ -29,7 +30,7 @@ const BLOCK_FRAMES: usize = 1024;
 /// A converter from `from` Hz to `to` Hz for `channels` planar channels.
 pub struct RateConverter {
     /// `None` when the rates are equal: frames pass through.
-    resampler: Option<FftFixedInOut<f32>>,
+    resampler: Option<Fft<f32>>,
     from: u32,
     to: u32,
     channels: usize,
@@ -54,8 +55,14 @@ impl RateConverter {
             None
         } else {
             Some(
-                FftFixedInOut::<f32>::new(from as usize, to as usize, BLOCK_FRAMES, channels)
-                    .map_err(|e| DemucsError::Resample(e.to_string()))?,
+                Fft::<f32>::new(
+                    from as usize,
+                    to as usize,
+                    BLOCK_FRAMES,
+                    channels,
+                    FixedSync::Both,
+                )
+                .map_err(|e| DemucsError::Resample(e.to_string()))?,
             )
         };
         let (in_buf, out_buf, skip) = match &resampler {
@@ -158,8 +165,16 @@ impl RateConverter {
                 buf.clear();
                 buf.extend(p.drain(..needed));
             }
+            let input = SequentialSliceOfVecs::new(&self.in_buf, self.channels, needed)
+                .map_err(|e| DemucsError::Resample(e.to_string()))?;
+            let mut output = SequentialSliceOfVecs::new_mut(
+                &mut self.out_buf,
+                self.channels,
+                resampler.output_frames_next(),
+            )
+            .map_err(|e| DemucsError::Resample(e.to_string()))?;
             let (_, written) = resampler
-                .process_into_buffer(&self.in_buf, &mut self.out_buf, None)
+                .process_into_buffer(&input, &mut output, None)
                 .map_err(|e| DemucsError::Resample(e.to_string()))?;
             let skipped = self.skip.min(written);
             self.skip -= skipped;

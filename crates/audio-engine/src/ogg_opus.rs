@@ -29,7 +29,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use rubato::{FftFixedInOut, Resampler};
+use rubato::{Fft, FixedSync, Resampler};
 use rusty_opus::{Application, OpusEncoder};
 
 use crate::encode::quantise;
@@ -194,8 +194,14 @@ fn to_48k(samples: &[f32], rate: u32, channels: usize) -> Result<Vec<f32>> {
     let in_frames = samples.len() / channels;
     let wanted =
         ((in_frames as u128 * u128::from(RATE) + u128::from(rate) / 2) / u128::from(rate)) as usize;
-    let mut rs = FftFixedInOut::<f32>::new(rate as usize, RATE as usize, 1024, channels)
-        .map_err(Error::ResamplerInit)?;
+    let mut rs = Fft::<f32>::new(
+        rate as usize,
+        RATE as usize,
+        1024,
+        channels,
+        FixedSync::Both,
+    )
+    .map_err(Error::ResamplerInit)?;
     let delay = rs.output_delay();
     let mut in_buf: Vec<Vec<f32>> = vec![Vec::new(); channels];
     let mut out_buf = vec![vec![0.0f32; rs.output_frames_max()]; channels];
@@ -209,9 +215,7 @@ fn to_48k(samples: &[f32], rate: u32, channels: usize) -> Result<Vec<f32>> {
             buf.extend((0..avail).map(|f| samples[(pos + f) * channels + ch]));
             buf.resize(need, 0.0);
         }
-        let (_, written) = rs
-            .process_into_buffer(&in_buf, &mut out_buf, None)
-            .map_err(Error::ResamplerProcess)?;
+        let (_, written) = crate::render::process_planar(&mut rs, &in_buf, &mut out_buf)?;
         if written == 0 {
             break;
         }

@@ -23,7 +23,7 @@ audio-decoder = { path = "../audio-decoder" }
 # the ONNX Runtime library fails, so `WhisperModel::load` asks ml-pipeline
 # first.
 ml-pipeline = { path = "../ml-pipeline" }
-rubato = "0.16"
+rubato = "5.0"
 # The 400-point real FFT behind the log-mel spectrogram (`mel.rs`). The
 # workspace-blessed FFT path, as in audio-time, audio-analysis and ml-demucs.
 realfft = "3"
