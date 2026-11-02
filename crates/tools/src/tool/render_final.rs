@@ -275,12 +275,28 @@ impl Tool for RenderFinalTool {
             chapters.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
             tags.chapters = chapters;
         }
-        if !tags.is_empty() && matches!(transcode, None | Some(Encoded::Aiff)) {
-            return Ok(ToolResult::Error(
-                "WAV and AIFF have no standard tag container worth using; export as flac, mp3 \
-                 or ogg to carry metadata, or drop the metadata argument"
-                    .to_string(),
-            ));
+        if matches!(transcode, None | Some(Encoded::Aiff)) {
+            // Refused only for tags this call asked for. The project's own
+            // title, artist, album and year fill in on every export, so
+            // counting them made a WAV or AIFF export of any project that
+            // had one set impossible; for a format with no tags they are
+            // simply not written, as the schema says.
+            let asked = args.markers_as_chapters
+                || args.metadata.as_ref().is_some_and(|m| {
+                    m.title.is_some()
+                        || m.artist.is_some()
+                        || m.album.is_some()
+                        || m.year.is_some()
+                        || m.comment.is_some()
+                });
+            if asked && !tags.is_empty() {
+                return Ok(ToolResult::Error(
+                    "WAV and AIFF have no standard tag container worth using; export as flac, \
+                     mp3 or ogg to carry metadata, or drop the metadata argument"
+                        .to_string(),
+                ));
+            }
+            tags = audio_engine::Tags::default();
         }
         let mut tag_warning: Option<String> = None;
 

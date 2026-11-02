@@ -281,3 +281,34 @@ fn a_project_with_no_tags_set_behaves_as_it_did_before() {
     assert_eq!(flac_tag(&out, "ARTIST"), None, "invented an artist");
     assert_eq!(flac_tag(&out, "ALBUM"), None, "invented an album");
 }
+
+/// A project with its own title, artist, album and year still exports to WAV
+/// and AIFF: those fill in on every export, and a format with no tags simply
+/// does not write them. Only tags this call asked for are refused.
+#[test]
+fn a_tagged_project_still_exports_to_wav_and_aiff() {
+    for format in ["wav", "aiff"] {
+        let mut s = Session::with_sine(SAMPLE_RATE, 1);
+        set_project_tags(s.dir.path(), "Episode 12", "A Podcast", "Season 2", "2026");
+        let out = s.dir.path().join(format!("ep.{format}"));
+        let node = s.head();
+        ok(s.call(
+            "render_final",
+            json!({ "node_id": node, "format": format, "out_path": out.to_string_lossy() }),
+        ));
+        assert!(out.exists(), "{format}");
+
+        let out2 = s.dir.path().join(format!("ep2.{format}"));
+        let msg = err(s.call(
+            "render_final",
+            json!({
+                "node_id": node,
+                "format": format,
+                "out_path": out2.to_string_lossy(),
+                "metadata": { "artist": "Someone Else" },
+            }),
+        ));
+        assert!(msg.contains("flac, mp3"), "{format}: {msg}");
+        assert!(!out2.exists(), "{format}");
+    }
+}
