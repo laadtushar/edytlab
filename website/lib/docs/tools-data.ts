@@ -81,6 +81,12 @@ export const toolAreas: ToolArea[] = [
             output: "node_id",
           },
           {
+            name: "mute_all_tracks",
+            prompt: "mute everything",
+            what: "Mute or unmute every track in one call. Solo flags are left as they are.",
+            output: "node_id",
+          },
+          {
             name: "solo_track",
             prompt: "solo the vocals",
             what: "Solo or un-solo a track. When any track is soloed, only soloed tracks play in the mix.",

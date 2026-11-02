@@ -102,6 +102,11 @@ pub struct SweepReport {
     /// history holds. A cache: `list_tracks` writes one again from its
     /// clips' sources whenever the timeline shows that clip list.
     pub removed_lane_copies: usize,
+    /// A writer's staging files (`.cas-*.wav.part`) left in `clipboard/` or
+    /// `generated/` by a writer killed mid-write, a day old or more, removed
+    /// by the orphan sweep (`AudioDeleter::remove_stale_put_leftovers`). Not
+    /// in `removed_files` or the byte counts, which are `derived/`'s.
+    pub removed_stale_staging: usize,
 }
 
 fn key(path: &Path) -> PathBuf {
@@ -530,22 +535,32 @@ impl Verifier {
 /// `compact_session`, after a paste, a range taken from the chat message,
 /// `apply_diff`, and a moved source file), which is why [`sweep`] now
 /// verifies each file by replaying it before deleting it.
+///
+/// It also removes a writer's staging files (`.cas-*.wav.part`) left in
+/// `clipboard/` and `generated/` once they are a day old
+/// ([`SweepReport::removed_stale_staging`]); those in `derived/` are orphans
+/// like any other file no node names.
 pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
     // Rule 0: not while a tool runs without the lock.
     let Some(deleter) = store.audio_deleter() else {
         return Ok(SweepReport::default());
     };
+    let stale = remove_stale_staging(&deleter);
     let files = deleter.audio().files(AudioFolder::Derived)?;
-    if files.is_empty() {
-        return Ok(SweepReport::default());
-    }
-
-    // A store whose nodes could not be read names nothing, and sweeping it
-    // would empty the directory.
-    let Ok(nodes) = store.list_nodes() else {
-        return Ok(SweepReport::default());
+    let report = if files.is_empty() {
+        SweepReport::default()
+    } else {
+        // A store whose nodes could not be read names nothing, and sweeping
+        // it would empty the directory.
+        match store.list_nodes() {
+            Ok(nodes) => remove_unnamed(store, &deleter, files, &nodes),
+            Err(_) => SweepReport::default(),
+        }
     };
-    Ok(remove_unnamed(store, &deleter, files, &nodes))
+    Ok(SweepReport {
+        removed_stale_staging: stale,
+        ..report
+    })
 }
 
 /// [`sweep_orphans`] for the nodes the caller has listed from `store`,
@@ -561,8 +576,21 @@ pub fn sweep_orphans_listed(
     let Some(deleter) = store.audio_deleter() else {
         return Ok(SweepReport::default());
     };
+    let stale = remove_stale_staging(&deleter);
     let files = deleter.audio().files(AudioFolder::Derived)?;
-    Ok(remove_unnamed(store, &deleter, files, nodes))
+    Ok(SweepReport {
+        removed_stale_staging: stale,
+        ..remove_unnamed(store, &deleter, files, nodes)
+    })
+}
+
+/// The orphan sweep's removal of a writer's day-old staging files in
+/// `clipboard/` and `generated/` (#719 stage 4): a writer there may hold no
+/// staged handle (a punch-in's take, `store_clipboard_blob`), so a file is
+/// taken for a killed writer's only by its age, and the delete still asks
+/// that nothing is staged and that the file is the store's.
+fn remove_stale_staging(deleter: &AudioDeleter<'_>) -> usize {
+    deleter.remove_stale_put_leftovers(std::time::SystemTime::now())
 }
 
 /// Remove the `files` of `derived/` that none of `nodes` names, nor any of
