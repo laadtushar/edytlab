@@ -247,6 +247,32 @@ mod tests {
         assert_eq!(s.get(&other).unwrap(), None);
     }
 
+    /// A latency kept by a build on cpal 0.15 (a five-field key) was
+    /// measured with other buffers (`duplex::STREAM_SETUP`): this build
+    /// reads it as not measured, and keeps it in the file for that build.
+    #[test]
+    fn a_latency_from_another_stream_setup_is_not_measured_and_is_kept() {
+        let (d, s) = store();
+        let path = d.path().join("audio-latency.json");
+        std::fs::write(
+            &path,
+            r#"{ "version": 1, "entries": { "ALSA|Speakers|Mic|48000|48000": {
+                 "latency_ms": 75.6, "spread_ms": 0.2, "measured_at": 1700000000, "source": "measured"
+               } } }"#,
+        )
+        .unwrap();
+        assert_eq!(s.get(&pair("Speakers")).unwrap(), None);
+        s.put(&pair("Speakers"), entry(10.8, Source::Measured))
+            .unwrap();
+        assert_eq!(s.get(&pair("Speakers")).unwrap().unwrap().latency_ms, 10.8);
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            v["entries"]["ALSA|Speakers|Mic|48000|48000"]["latency_ms"],
+            75.6
+        );
+    }
+
     #[test]
     fn the_newest_write_for_a_pair_wins() {
         let (_d, s) = store();
@@ -266,7 +292,7 @@ mod tests {
         let text = std::fs::read_to_string(d.path().join("audio-latency.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["version"], 1);
-        let e = &v["entries"]["ALSA|Speakers|Mic|48000|48000"];
+        let e = &v["entries"]["ALSA|Speakers|Mic|48000|48000|cpal18"];
         assert_eq!(e["latency_ms"], 42.5);
         assert_eq!(e["source"], "measured");
         assert_eq!(e["measured_at"], 1_700_000_000u64);
@@ -344,11 +370,11 @@ mod tests {
     const MIXED: &str = r#"{
       "version": 1,
       "entries": {
-        "ALSA|bad|Mic|48000|48000": { "latency_ms": "soon" },
-        "ALSA|Speakers|Mic|48000|48000": {
+        "ALSA|bad|Mic|48000|48000|cpal18": { "latency_ms": "soon" },
+        "ALSA|Speakers|Mic|48000|48000|cpal18": {
           "latency_ms": 42.5, "spread_ms": 0.2, "measured_at": 1700000000, "source": "measured"
         },
-        "ALSA|odd|Mic|48000|48000": { "latency_ms": 7.0, "measured_at": 1, "source": "measured", "extra": [1, 2] }
+        "ALSA|odd|Mic|48000|48000|cpal18": { "latency_ms": 7.0, "measured_at": 1, "source": "measured", "extra": [1, 2] }
       }
     }"#;
 
@@ -377,14 +403,14 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let before: serde_json::Value = serde_json::from_str(MIXED).unwrap();
         for key in [
-            "ALSA|bad|Mic|48000|48000",
-            "ALSA|Speakers|Mic|48000|48000",
-            "ALSA|odd|Mic|48000|48000",
+            "ALSA|bad|Mic|48000|48000|cpal18",
+            "ALSA|Speakers|Mic|48000|48000|cpal18",
+            "ALSA|odd|Mic|48000|48000|cpal18",
         ] {
             assert_eq!(v["entries"][key], before["entries"][key], "{key} changed");
         }
         assert_eq!(
-            v["entries"]["ALSA|Headset|Mic|48000|48000"]["latency_ms"],
+            v["entries"]["ALSA|Headset|Mic|48000|48000|cpal18"]["latency_ms"],
             210.0
         );
         assert_eq!(s.get(&pair("Speakers")).unwrap().unwrap().latency_ms, 42.5);
