@@ -6068,7 +6068,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * uuid 1.28.0 - declared: Apache-2.0 OR MIT - https://github.com/uuid-rs/uuid
+  * uuid 1.29.0 - declared: Apache-2.0 OR MIT - https://github.com/uuid-rs/uuid
 
 Copyright (c) 2014 The Rust Project Developers
 Copyright (c) 2018 Ashley Mannix, Christopher Armstrong, Dylan DPC, Hunar Roop Kahlon
@@ -10492,7 +10492,7 @@ MIT License (MIT)
 
 Used by:
   * tokio-util 0.7.18 - declared: MIT - https://github.com/tokio-rs/tokio
-  * tokio 1.53.3 - declared: MIT - https://github.com/tokio-rs/tokio
+  * tokio 1.54.1 - declared: MIT - https://github.com/tokio-rs/tokio
 
 MIT License
 
@@ -10768,7 +10768,7 @@ Used by:
   * thiserror-impl 2.0.21 - declared: MIT OR Apache-2.0 - https://github.com/dtolnay/thiserror
   * thiserror 1.0.69 - declared: MIT OR Apache-2.0 - https://github.com/dtolnay/thiserror
   * thiserror 2.0.21 - declared: MIT OR Apache-2.0 - https://github.com/dtolnay/thiserror
-  * typed-path 0.12.3 - declared: MIT OR Apache-2.0 - https://github.com/chipsenkbeil/typed-path
+  * typed-path 0.13.0 - declared: MIT OR Apache-2.0 - https://github.com/chipsenkbeil/typed-path
   * typeid 1.0.3 - declared: MIT OR Apache-2.0 - https://github.com/dtolnay/typeid
   * unicode-ident 1.0.24 - declared: (MIT OR Apache-2.0) AND Unicode-3.0 - https://github.com/dtolnay/unicode-ident
   * utf-8 0.7.6 - declared: MIT OR Apache-2.0 - https://github.com/SimonSapin/rust-utf8
@@ -11020,7 +11020,7 @@ MIT License (MIT)
 
 Used by:
   * tracing-core 0.1.36 - declared: MIT - https://github.com/tokio-rs/tracing
-  * zip 9.0.5 - declared: MIT - https://github.com/zip-rs/zip2
+  * zip 9.1.2 - declared: MIT - https://github.com/zip-rs/zip2
 
 The MIT License (MIT)
 
