@@ -18,7 +18,7 @@ export function outDir(env = process.env) {
 
 /** `<temp folder>/<name>-<uid>`: made owner-only if missing, the same path on
  * every run, and refused (with `hint` in the error) when the name is a link,
- * not a folder, or another user's. */
+ * not a folder, or another user's, and refused when others could write to it. */
 export function ownedTempDir(name, hint = "remove it or run as its owner") {
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
   const dir = join(tmpdir(), `${name}-${uid ?? "user"}`);
@@ -27,9 +27,16 @@ export function ownedTempDir(name, hint = "remove it or run as its owner") {
   if (!found.isDirectory() || (uid !== undefined && found.uid !== uid)) {
     throw new Error(`${dir} is not a folder of yours; ${hint}`);
   }
-  // mkdirSync leaves an existing folder's mode alone, and one made by an
-  // older run (or under a looser umask) may be readable by others; the spend
-  // ledger and logs in it are this user's alone.
+  // mkdirSync leaves an existing folder's mode alone. One that others could
+  // write to may already hold a link planted at a log's name, which a later
+  // write would follow, so it is refused: tightening its mode now would not
+  // remove the link. One others could only read is set back to owner-only;
+  // the spend ledger and logs in it are this user's alone.
+  if ((found.mode & 0o022) !== 0) {
+    throw new Error(
+      `${dir} has been writable by other users, so a file in it may be a planted link; delete it and run again`,
+    );
+  }
   chmodSync(dir, 0o700);
   return dir;
 }

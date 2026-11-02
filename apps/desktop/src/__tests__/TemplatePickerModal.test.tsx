@@ -52,4 +52,16 @@ describe("TemplatePickerModal", () => {
     await userEvent.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("takes focus when it opens and gives it back when it closes", () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const props = { templates: TEMPLATES, onSelect: vi.fn(), onClose: vi.fn() };
+    const { rerender } = render(<TemplatePickerModal open {...props} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+    rerender(<TemplatePickerModal open={false} {...props} />);
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
 });

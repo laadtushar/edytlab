@@ -21,8 +21,13 @@ if [[ -z "${OUT:-}" ]]; then
     echo "run-env.sh: $OUT is not a folder of yours; set OUT to a folder you own" >&2
     exit 1
   fi
-  # mkdir -m applies only to a folder it makes; one left by an older run may
-  # be readable by others.
+  # mkdir -m applies only to a folder it makes. One others could write to may
+  # hold a link planted at a log's name, so it is refused; one they could only
+  # read is set back to owner-only.
+  if (( 8#$(stat -c %a "$OUT") & 8#022 )); then
+    echo "run-env.sh: $OUT has been writable by other users; delete it and run again" >&2
+    exit 1
+  fi
   chmod 700 "$OUT"
 else
   mkdir -p -m 700 "$OUT"
