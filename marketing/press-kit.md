@@ -17,7 +17,7 @@ AI what you want done.
 
 edytlab is a free, open-source desktop audio editor that you drive by telling an
 AI what you want done. A request such as "time-stretch the second track to match
-the first, crossfade between them, and export a WAV" becomes calls to 109
+the first, crossfade between them, and export a WAV" becomes calls to 110
 deterministic audio tools. The tools run in a Rust engine on the user's own
 computer, so audio files are never uploaded. Only the chat goes to the AI
 provider the user chooses, and with a local model through Ollama it stays on the
@@ -32,7 +32,7 @@ Four sentences that can be lifted as they are.
 - You describe an edit in plain English, and edytlab makes it and shows each
   step in the chat.
 - The AI never hears the audio. It reads a summary of the session and chooses
-  from 109 editing tools, and the tools run on the user's own computer.
+  from 110 editing tools, and the tools run on the user's own computer.
 - Nothing is lost: every edit can be undone, and the session is a history the
   user can branch and compare.
 - It is free and open source under the MIT license, for macOS, Windows and
@@ -57,7 +57,7 @@ keys include the ChatGPT sign-in that arrived in v0.9.0.
 | Built with | Tauri 2, Rust and React |
 | Audio engine | Written in Rust. Decoding uses `symphonia`, resampling uses `rubato`, and the effects are in a dependency-free `audio-dsp` crate made for the project. |
 | Time-stretch and pitch-shift | A phase vocoder written for the project |
-| Tools | 109 deterministic tools the AI can call. The generated list is `docs/tools-reference.md`. |
+| Tools | 110 deterministic tools the AI can call. The generated list is `docs/tools-reference.md`. |
 | AI providers | Six API providers plus the user's ChatGPT plan. The six are Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama, which runs locally and needs no key. Since 0.9.0 the user can instead continue with ChatGPT, which uses the included usage of a ChatGPT Plus or Pro plan in place of a key. That is OpenAI's Sign in with ChatGPT for open-source apps, and it is a preview. Available for ChatGPT Plus and Pro. May not be available on workspace plans; that depends on OpenAI and your admin. |
 | Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider. That includes the words a transcription finds, which are text, a limited amount per call and never audio, and which stay on the computer with Ollama. |
 | Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies). When it is enabled, the website also uses Google Analytics 4, only after a visitor accepts it in the cookie banner. That one sets cookies, and the Cookie settings link in the footer withdraws it. |
