@@ -45,9 +45,9 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
-- [`echo`](#echo) — Add a single echo (delay + decay).
+- [`echo`](#echo) — Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).
 - [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
-- [`eq`](#eq) — Apply a parametric equalizer (chain of biquad peak filters) to a track.
+- [`eq`](#eq) — EQ a track with biquad bands.
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
@@ -440,14 +440,16 @@ Create an exact copy of a track (same clips, gain, pan, effects). The duplicate 
 
 ## `echo`
 
-Add a single echo (delay + decay). delay_ms is the echo offset in milliseconds; decay (0..1) is the echo amplitude. Appends a new session node.
+Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65). Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `decay` | number | no | Echo amplitude 0..1 |
-| `delay_ms` | number | yes | Echo delay in milliseconds |
+| `decay` | number | no |  |
+| `delay_ms` | number | no |  |
 | `end_sec` | number | no |  |
+| `feedback` | number | no |  |
 | `start_sec` | number | no |  |
+| `taps` | array of array | no |  |
 | `track` | integer | yes |  |
 
 ## `edit_markers`
@@ -462,7 +464,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `eq`
 
-Apply a parametric equalizer (chain of biquad peak filters) to a track. Each band specifies a centre frequency, gain in dB, and optional Q factor (default 1.0). Appends a new session node.
+EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
