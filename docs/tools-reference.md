@@ -37,7 +37,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`compressor`](#compressor) — Apply dynamic compression to a track using an envelope follower.
 - [`copy_region`](#copy_region) — Copy a time range from a track into the in-memory clipboard.
 - [`create_bus`](#create_bus) — Create an effects bus.
-- [`cut_range`](#cut_range) — Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left.
+- [`cut_range`](#cut_range) — Remove [start_sample, end_sample) from a track and shift the rest left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
 - [`delete_markers`](#delete_markers) — Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range.
@@ -45,9 +45,9 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
-- [`echo`](#echo) — Add a single echo (delay + decay).
+- [`echo`](#echo) — Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).
 - [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
-- [`eq`](#eq) — Apply a parametric equalizer (chain of biquad peak filters) to a track.
+- [`eq`](#eq) — EQ a track with biquad bands.
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
@@ -116,7 +116,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`silence_region`](#silence_region) — Zero out audio samples between start_sec and end_sec on a track.
 - [`solo_track`](#solo_track) — Solo or un-solo a track.
 - [`split_by_speaker`](#split_by_speaker) — Split one track into a separate track per speaker, given speaker segments in seconds.
-- [`split_clip`](#split_clip) — Split a clip into two at the specified time position.
+- [`split_clip`](#split_clip) — Split a clip in two at a time position.
 - [`stereo_to_mono`](#stereo_to_mono) — Convert a stereo (or multi-channel) track to mono by averaging all channels.
 - [`stereo_widener`](#stereo_widener) — Widen or narrow the stereo field using M/S processing.
 - [`storage_report`](#storage_report) — Report what this session is costing on disk.
@@ -341,11 +341,12 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `cut_range`
 
-Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left. Appends a new session node parented to the current head.
+Remove [start_sample, end_sample) from a track and shift the rest left. Appends a new session node parented to the current head.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `end_sample` | integer | yes |  |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `start_sample` | integer | yes |  |
 | `track` | integer | yes |  |
 
@@ -440,14 +441,16 @@ Create an exact copy of a track (same clips, gain, pan, effects). The duplicate 
 
 ## `echo`
 
-Add a single echo (delay + decay). delay_ms is the echo offset in milliseconds; decay (0..1) is the echo amplitude. Appends a new session node.
+Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65). Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `decay` | number | no | Echo amplitude 0..1 |
-| `delay_ms` | number | yes | Echo delay in milliseconds |
+| `decay` | number | no |  |
+| `delay_ms` | number | no |  |
 | `end_sec` | number | no |  |
+| `feedback` | number | no |  |
 | `start_sec` | number | no |  |
+| `taps` | array of array | no |  |
 | `track` | integer | yes |  |
 
 ## `edit_markers`
@@ -462,7 +465,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `eq`
 
-Apply a parametric equalizer (chain of biquad peak filters) to a track. Each band specifies a centre frequency, gain in dB, and optional Q factor (default 1.0). Appends a new session node.
+EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1263,12 +1266,13 @@ Split one track into a separate track per speaker, given speaker segments in sec
 
 ## `split_clip`
 
-Split a clip into two at the specified time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.
+Split a clip in two at a time position. Both resulting clips reference the same source file with adjusted offsets. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `at_sec` | number | yes | Position to split at, in seconds from track start |
-| `clip_index` | integer | yes | Zero-based clip index within the track |
+| `at_sec` | number | yes | Split position, seconds from track start |
+| `clip_index` | integer | yes | Zero-based clip index |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `track` | integer | yes |  |
 
 ## `stereo_to_mono`
@@ -1357,6 +1361,7 @@ Keep only the half-open sample range [start_sample, end_sample) of a track and d
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `end_sample` | integer | yes |  |
+| `snap_to_zero_crossing` | boolean | no |  |
 | `start_sample` | integer | yes |  |
 | `track` | integer | yes |  |
 
