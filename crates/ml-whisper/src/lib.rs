@@ -141,6 +141,9 @@ pub enum WhisperError {
     #[error("rubato resampler process failed: {0}")]
     ResamplerProcess(#[from] rubato::ResampleError),
 
+    #[error("resampler buffers have the wrong shape: {0}")]
+    ResamplerBuffer(#[from] rubato::audioadapter_buffers::SizeError),
+
     #[error("invalid audio: {0}")]
     InvalidAudio(String),
 }
