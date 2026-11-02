@@ -71,5 +71,13 @@ all = { level = "warn", priority = -1 }
 [profile.release]
 codegen-units = 1
 lto = true
-panic = "abort"
+# Unwind, not abort (#908). The app decodes files from anywhere with young
+# crates (`opus-decoder`, `rusty-opus`) and guards each call with
+# `catch_unwind`, and the command runner, the model download and the preview
+# cache catch a panic the same way; with `abort` a shipped build ran none of
+# those guards and a bad packet closed the app. A poisoned lock is already an
+# error (`CommandError::Poisoned`), and the next open of a project builds a
+# fresh store (`session::live`). The crates that rely on this check it at
+# compile time (`cfg!(panic = "unwind")`).
+panic = "unwind"
 strip = true

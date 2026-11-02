@@ -13,7 +13,8 @@ use serde_json::{json, Value};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, cut_timeline, load_track_state_and_rate, remap_after_cut,
-    seconds_to_frames, set_session_length, sync_other_tracks, timeline_end, track_clip_rates,
+    seconds_to_frames, set_session_length, snap_range, sync_other_tracks, timeline_end,
+    track_clip_rates,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -22,6 +23,8 @@ struct Args {
     track: usize,
     start_sample: u64,
     end_sample: u64,
+    #[serde(default)]
+    snap_to_zero_crossing: bool,
 }
 
 pub struct CutRangeTool;
@@ -34,11 +37,12 @@ impl Tool for CutRangeTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "cut_range",
-            "Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left. Appends a new session node parented to the current head.",
+            "Remove [start_sample, end_sample) from a track and shift the rest left. Appends a new session node parented to the current head.",
             object_schema(&[
                 ("track", "integer", true),
                 ("start_sample", "integer", true),
                 ("end_sample", "integer", true),
+                ("snap_to_zero_crossing", "boolean", false),
             ]),
         )
     }
@@ -53,6 +57,7 @@ impl Tool for CutRangeTool {
             Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
+        // A sync-locked track gets the same seconds in its own frames.
         let rates = if state.sync_lock {
             match track_clip_rates(&state) {
                 Ok(r) => r,
@@ -72,6 +77,11 @@ impl Tool for CutRangeTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
+        let (start, end, snap_note) = if args.snap_to_zero_crossing {
+            snap_range(&track.clips, start, end, track_len)
+        } else {
+            (start, end, None)
+        };
         let cut_len = end - start;
 
         if track.clips.is_empty() {
@@ -114,16 +124,13 @@ impl Tool for CutRangeTool {
         let new_id = match append_state(
             ctx,
             state,
-            format!(
-                "cut_range track {} [{}..{})",
-                args.track, args.start_sample, args.end_sample
-            ),
+            format!("cut_range track {} [{}..{})", args.track, start, end),
         ) {
             Ok(id) => id,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "node_id": new_id.to_hex(),
             "removed_samples": cut_len,
             "synced_tracks": synced,
@@ -132,8 +139,8 @@ impl Tool for CutRangeTool {
             "dropped_labels": dropped,
             "summary": format!(
                 "Cut [{}, {}) ({} samples) from track {}{}; new head {}",
-                args.start_sample,
-                args.end_sample,
+                start,
+                end,
                 cut_len,
                 args.track,
                 if synced > 0 {
@@ -143,7 +150,11 @@ impl Tool for CutRangeTool {
                 },
                 new_id.to_hex(),
             ),
-        })))
+        });
+        if let Some(note) = snap_note {
+            out["snap_note"] = note.into();
+        }
+        Ok(ToolResult::Ok(out))
     }
 }
 

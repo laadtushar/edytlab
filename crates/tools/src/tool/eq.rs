@@ -14,7 +14,7 @@ use crate::{Tool, ToolContext, ToolResult};
 // Moved to `audio-dsp` so the render path can reach it (#127). The
 // tool keeps its argument parsing and session plumbing; the DSP is
 // shared.
-pub(crate) use audio_dsp::eq::{apply_eq, EqBand};
+pub(crate) use audio_dsp::eq::{apply_eq, BandKind, EqBand};
 
 // ---------------------------------------------------------------------------
 // Args
@@ -24,12 +24,28 @@ pub(crate) use audio_dsp::eq::{apply_eq, EqBand};
 struct Band {
     freq_hz: f32,
     gain_db: f32,
-    #[serde(default = "default_q")]
-    q: f32,
+    /// Peak default 1.0; shelves default 1/sqrt(2) (cookbook S = 1).
+    q: Option<f32>,
+    #[serde(default, rename = "type")]
+    kind: Kind,
 }
 
-fn default_q() -> f32 {
-    1.0
+#[derive(Debug, Default, Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum Kind {
+    #[default]
+    Peak,
+    LowShelf,
+    HighShelf,
+}
+
+impl Band {
+    fn q(&self) -> f32 {
+        self.q.unwrap_or(match self.kind {
+            Kind::Peak => 1.0,
+            _ => std::f32::consts::FRAC_1_SQRT_2,
+        })
+    }
 }
 
 impl From<&Band> for EqBand {
@@ -40,7 +56,12 @@ impl From<&Band> for EqBand {
         EqBand {
             freq_hz: b.freq_hz,
             gain_db: b.gain_db,
-            q: b.q,
+            q: b.q(),
+            kind: match b.kind {
+                Kind::Peak => BandKind::Peak,
+                Kind::LowShelf => BandKind::LowShelf,
+                Kind::HighShelf => BandKind::HighShelf,
+            },
         }
     }
 }
@@ -70,9 +91,9 @@ impl Tool for EqTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "eq",
-            "Apply a parametric equalizer (chain of biquad peak filters) to a track. \
-             Each band specifies a centre frequency, gain in dB, and optional Q factor \
-             (default 1.0). Appends a new session node.",
+            "EQ a track with biquad bands. Each band: freq_hz, \
+             gain_db, optional Q (default 1.0; 0.707 for shelves), optional type \
+             peak (default), low_shelf or high_shelf. Appends a new session node.",
             json!({
                 "type": "object",
                 "required": ["track", "bands"],
@@ -89,7 +110,8 @@ impl Tool for EqTool {
                             "properties": {
                                 "freq_hz": { "type": "number" },
                                 "gain_db": { "type": "number" },
-                                "q": { "type": "number" }
+                                "q": { "type": "number" },
+                                "type": { "type": "string", "enum": ["peak", "low_shelf", "high_shelf"] }
                             }
                         }
                     }
@@ -126,10 +148,10 @@ impl Tool for EqTool {
                     "band {i}: gain_db must be finite"
                 )));
             }
-            if b.q <= 0.0 {
+            if b.q() <= 0.0 {
                 return Ok(ToolResult::Error(format!(
                     "band {i}: q must be > 0 (got {})",
-                    b.q
+                    b.q()
                 )));
             }
         }
@@ -149,7 +171,14 @@ impl Tool for EqTool {
 fn invoke_eq(ctx: &mut ToolContext, track_idx: usize, bands: Vec<Band>) -> ToolResult {
     let band_summary: Vec<String> = bands
         .iter()
-        .map(|b| format!("{:.0}Hz {:+.1}dB Q{:.2}", b.freq_hz, b.gain_db, b.q))
+        .map(|b| {
+            // Peak labels stay as they were; only a shelf names its kind.
+            let kind = match b.kind {
+                Kind::Peak => String::new(),
+                k => format!(" {k:?}"),
+            };
+            format!("{:.0}Hz {:+.1}dB Q{:.2}{kind}", b.freq_hz, b.gain_db, b.q())
+        })
         .collect();
     let label = format!("eq [{}] on track {}", band_summary.join(", "), track_idx);
 

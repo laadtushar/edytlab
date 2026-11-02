@@ -12,8 +12,10 @@
 //! registry double) builds that store itself and does not use this.
 #![allow(dead_code)]
 
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
@@ -22,7 +24,7 @@ use session::{
     TranscriptWord,
 };
 use tempfile::TempDir;
-use tools::{Clipboard, ToolContext, ToolDispatcher, ToolResult};
+use tools::{Clipboard, Tool, ToolContext, ToolDispatcher, ToolResult};
 
 /// A project in a temp folder, with the engine and dispatcher the app uses.
 pub struct Session {
@@ -312,6 +314,49 @@ impl Session {
             prior_state,
             "refused call changed session state"
         );
+    }
+}
+
+/// The cancel switch and the progress sink belong to the process, as the
+/// window's one Cancel button does, so two runs of a tool that reads them in
+/// one test binary would press and clear each other's.
+static TURN: Mutex<()> = Mutex::new(());
+
+/// A [`Session`] that holds the process's one turn for as long as it lives,
+/// with one tool swapped for another (a model tool over a fake model). It
+/// derefs to the session, so `ok`, `err`, `call` and the fields are as they
+/// are there. Drop it before building another on the same thread.
+pub struct TurnSession {
+    session: Session,
+    // Fields drop in declaration order: the project is gone before the turn
+    // is released to the next test.
+    _turn: MutexGuard<'static, ()>,
+}
+
+impl TurnSession {
+    /// An empty project whose tool `name` is `tool`.
+    pub fn with_tool(name: &str, tool: Box<dyn Tool>) -> Self {
+        let turn = TURN.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut session = Session::empty();
+        assert!(session.dispatcher.unregister(name), "{name} is registered");
+        session.dispatcher.register(tool);
+        Self {
+            session,
+            _turn: turn,
+        }
+    }
+}
+
+impl Deref for TurnSession {
+    type Target = Session;
+    fn deref(&self) -> &Session {
+        &self.session
+    }
+}
+
+impl DerefMut for TurnSession {
+    fn deref_mut(&mut self) -> &mut Session {
+        &mut self.session
     }
 }
 

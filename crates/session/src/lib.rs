@@ -7,6 +7,7 @@
 //! forward-compatible from day one.
 
 pub mod annotation;
+pub mod audio_store;
 pub mod diff;
 pub mod live;
 pub mod meta;
@@ -16,7 +17,10 @@ pub mod state;
 pub mod store;
 pub mod trail;
 
-pub use annotation::{Annotation, AnnotationId, AnnotationKind};
+pub use annotation::{
+    check_marker_time, check_region, Annotation, AnnotationEdit, AnnotationId, AnnotationKind,
+    MAX_NAME_CHARS,
+};
 pub use diff::{
     diff as diff_nodes, diff_states, fork as fork_node, merge as merge_nodes,
     revert_to as revert_to_node, BusMeta, DiffOp, DiffTarget, EffectScope, SessionDiff,

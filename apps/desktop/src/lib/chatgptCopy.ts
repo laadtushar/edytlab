@@ -130,3 +130,23 @@ export const PLAN_ERROR_SENTENCES: Record<
   unsupported_request: "ChatGPT's plan route did not accept this request.",
   refused: "OpenAI refused this request.",
 };
+
+// ---------------------------------------------------------------------------
+// First use (#474, spec 4.5: "Show a welcome modal only the first time")
+// ---------------------------------------------------------------------------
+
+/**
+ * `localStorage` key for "the person has seen the first-use notice". The
+ * spec's `first_use` field on `chatgpt_status` is not built: CLAUDE.md keeps
+ * the status free of anything the window does not need, and this is a
+ * per-device courtesy, so the window keeps it as it keeps other one-time
+ * choices (`edytlab.model.<provider>`). No token or keychain slot is involved.
+ */
+export const FIRST_USE_STORAGE_KEY = "edytlab.chatgpt.firstUseSeen";
+
+export const FIRST_USE_TITLE = "You're using your ChatGPT plan";
+
+export const FIRST_USE_BODY =
+  "Requests in edytlab now count against your ChatGPT plan's usage. edytlab itself charges nothing. You can see your usage, or sign out, in Settings.";
+
+export const FIRST_USE_DISMISS = "Got it";

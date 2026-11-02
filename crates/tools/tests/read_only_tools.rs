@@ -42,6 +42,11 @@ use tools::{
 /// `materialize` (put back audio a history sweep removed): it reads only the
 /// head, whose audio a sweep keeps (#763).
 ///
+/// `find_markers` is here for what it reads: the head's markers and regions,
+/// filtered by name and time and paged like `list_session`, with the ids the
+/// marker editors take (#766). It writes nothing; `add_markers`,
+/// `edit_markers` and `delete_markers` append nodes and are held.
+///
 /// `list_session` is here for what it reads: the head's tracks, buses and
 /// markers, as text, one page at a time (#618). It writes nothing and opens
 /// no file, so it leaves no cache entry either.
@@ -62,12 +67,13 @@ use tools::{
 /// * `mute_track`, `solo_track` and `set_sync_lock` append state.
 /// * `apply_recipe` and `batch_apply` run nested edits.
 /// * `load` appends a node.
-const READ_ONLY: [&str; 12] = [
+const READ_ONLY: [&str; 13] = [
     "analyze_track",
     "audition_effect",
     "compare_nodes",
     "diarize",
     "export_labels",
+    "find_markers",
     "list_session",
     "measure",
     "plot_spectrum",
@@ -371,7 +377,7 @@ fn every_read_only_tool_leaves_the_session_untouched() {
     );
     let swept_hex = swept.to_hex();
 
-    let calls: [(&str, Value); 17] = [
+    let calls: [(&str, Value); 18] = [
         ("analyze_track", json!({ "track": 0 })),
         (
             "audition_effect",
@@ -380,6 +386,10 @@ fn every_read_only_tool_leaves_the_session_untouched() {
         ("compare_nodes", json!({ "a": hex, "b": hex })),
         ("diarize", json!({ "track": 0 })),
         ("export_labels", json!({})),
+        (
+            "find_markers",
+            json!({ "name": "a", "from": 0.0, "to": 9.0 }),
+        ),
         // One page of each list: the calls the session block's cut lines
         // tell the model to make.
         ("list_session", json!({ "what": "tracks" })),

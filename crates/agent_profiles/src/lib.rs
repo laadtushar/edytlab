@@ -11,6 +11,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use skills::md::{md_files, split_frontmatter, strip_quotes};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -61,20 +62,11 @@ impl ProfileLibrary {
         if !dir.exists() {
             return Ok(Self { profiles: vec![] });
         }
-        let entries = fs::read_dir(dir).map_err(|source| Error::Io {
+        let mut profiles = Vec::new();
+        for path in md_files(dir).map_err(|source| Error::Io {
             path: dir.to_path_buf(),
             source,
-        })?;
-        let mut profiles = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|source| Error::Io {
-                path: dir.to_path_buf(),
-                source,
-            })?;
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("md") {
-                continue;
-            }
+        })? {
             profiles.push(load_profile(&path)?);
         }
         profiles.sort_by(|a, b| a.name.cmp(&b.name));
@@ -104,24 +96,12 @@ fn load_profile(path: &Path) -> Result<Profile> {
         message,
     })?;
 
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| Error::Frontmatter {
+    let stem = skills::md::checked_stem(path, parsed.name.as_deref()).map_err(|message| {
+        Error::Frontmatter {
             path: path.to_path_buf(),
-            message: "filename has no UTF-8 stem".into(),
-        })?
-        .to_string();
-    if let Some(ref claimed) = parsed.name {
-        if claimed != &stem {
-            return Err(Error::Frontmatter {
-                path: path.to_path_buf(),
-                message: format!(
-                    "frontmatter name `{claimed}` does not match filename stem `{stem}`"
-                ),
-            });
+            message,
         }
-    }
+    })?;
 
     let model = match (parsed.model_provider, parsed.model_id) {
         (Some(provider), Some(id)) => Some(ModelChoice { provider, id }),
@@ -142,17 +122,6 @@ fn load_profile(path: &Path) -> Result<Profile> {
         body: body.to_string(),
         source_path: path.to_path_buf(),
     })
-}
-
-fn split_frontmatter(contents: &str) -> Option<(&str, &str)> {
-    let rest = contents
-        .strip_prefix("---\n")
-        .or_else(|| contents.strip_prefix("---\r\n"))?;
-    let end = rest.find("\n---")?;
-    let fm = &rest[..end];
-    let after = &rest[end + "\n---".len()..];
-    let body = after.trim_start_matches('\r').trim_start_matches('\n');
-    Some((fm, body))
 }
 
 #[derive(Default, Debug)]
@@ -228,17 +197,6 @@ fn parse_frontmatter(fm: &str) -> std::result::Result<Frontmatter, String> {
         }
     }
     Ok(out)
-}
-
-fn strip_quotes(s: &str) -> &str {
-    let s = s.trim();
-    if (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
-        || (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
-    {
-        &s[1..s.len() - 1]
-    } else {
-        s
-    }
 }
 
 fn parse_array(s: &str) -> Option<Vec<String>> {
