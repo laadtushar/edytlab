@@ -73,3 +73,16 @@ for (const [testId, name, field] of [
     await expect(page.getByTestId("punch-btn")).toBeEnabled();
   });
 }
+
+test("Ctrl+K closes the palette it opened and restores focus", async ({ app }) => {
+  await app.boot(readyToLoad());
+  const page = app.page;
+  const trigger = page.getByRole("button", { name: "Start from template", exact: true });
+  await trigger.focus();
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette.getByRole("textbox", { name: "Search commands" })).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});

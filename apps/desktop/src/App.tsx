@@ -525,6 +525,13 @@ function AppSession() {
       }
     };
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+K closes the palette as well as opening it, so it is
+      // answered before the open-dialog check below stands the app down.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K") && paletteOpen) {
+        e.preventDefault();
+        setPaletteOpen(false);
+        return;
+      }
       if (hasOpenDialog()) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName ?? "";
@@ -558,7 +565,7 @@ function AppSession() {
       // text-editing key, so intercepting it there costs nothing.
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setPaletteOpen((open) => !open);
+        setPaletteOpen(true);
         return;
       }
       // The picker can be opening before its dialog has mounted.
@@ -576,7 +583,7 @@ function AppSession() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, showShortcuts, showTemplatePicker, handleUndo, handleRedo]);
+  }, [selection, showShortcuts, showTemplatePicker, paletteOpen, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;

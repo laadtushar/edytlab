@@ -61,13 +61,6 @@ export function SkillsAndProfiles() {
       </ul>
 
       <h2 id="tips-and-keyboard-shortcuts">Tips and Keyboard Shortcuts</h2>
-      <p>
-        The template picker, keyboard shortcuts, command palette, Punch and
-        scheduled recording dialogs keep keyboard focus inside while open.
-        Tab and Shift+Tab move between their controls; Escape closes the top
-        dialog and returns focus to the control you came from. The app’s
-        playback and editing shortcuts pause while a dialog is open.
-      </p>
       <ul>
         <li>
           Press <code>?</code> for the full keyboard shortcut overlay.
