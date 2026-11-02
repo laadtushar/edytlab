@@ -104,12 +104,16 @@ jobs:
 
       # rust-toolchain.toml pins the channel and lists the components.
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned to a master commit with `toolchain:` given: the action's per-toolchain
+        # branches (`stable`, ...) are regenerated, so a commit pinned there can vanish.
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
       # Its own key: these are release-profile builds, which ci.yml's debug
       # ones cannot share. Saved only from main, as ci.yml does (#610).
       - name: Cache cargo registry & target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ml-linux-x86_64
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -251,7 +255,9 @@ jobs:
       # toolchain name in its ref, so it is given. rust-toolchain.toml still
       # decides the channel the build uses.
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        # Pinned to a master commit with `toolchain:` given: the action's per-toolchain
+        # branches (`stable`, ...) are regenerated, so a commit pinned there can vanish.
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
 
