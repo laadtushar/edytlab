@@ -162,6 +162,7 @@ function AppSession() {
     renderHead,
     head,
     setHeadLocal,
+    reconcileHead,
     resetHead,
     trail,
     peekUndo,
@@ -343,6 +344,9 @@ function AppSession() {
   const [isRecording, setIsRecording] = useState(false);
   // A punch-in is running (#203): the microphone and the speakers are its.
   const [punching, setPunching] = useState(false);
+  // A punch runs outside the edit queue. A successful open or Save As may
+  // therefore have installed another project before its answer arrives.
+  const projectGenerationRef = useRef(0);
   // A scheduled recording is armed (waiting or recording), which `isRecording`
   // also covers; named apart so the Punch control can say which it is.
   const [timerArmed, setTimerArmed] = useState(false);
@@ -1029,6 +1033,7 @@ function AppSession() {
         // left, and one made after it to the project being opened (#498).
         await inOrder(async () => {
           const info = await openProject(path);
+          projectGenerationRef.current += 1;
           // Whatever the last project had on screen is not this one's. A
           // rendered mix outlives a project change otherwise.
           setMixPath(null);
@@ -1140,7 +1145,11 @@ function AppSession() {
       if (!dir) return;
       persistView();
       // In line: it moves the session to the copy, as opening does (#498).
-      const report = await inOrder(() => saveProjectAs(dir));
+      const report = await inOrder(async () => {
+        const saved = await saveProjectAs(dir);
+        projectGenerationRef.current += 1;
+        return saved;
+      });
       setRecents(await listRecentProjects());
       await refreshTracks();
       // Not an error, so it does not go through the error banner — but
@@ -1530,8 +1539,10 @@ function AppSession() {
    * when the take is placed, tens of seconds later at most, and is not
    * inside the edit line (`inOrder`): that would hold every other edit for
    * its length. Only adopting the head is in the line, as for any command
-   * that changes the session. An edit made meanwhile makes the backend keep
-   * the take and refuse to apply it, so no older head is ever adopted.
+   * that changes the session. The backend refuses a take if its project or
+   * head changed before application. A later edit or project switch can
+   * still beat the reply, so adoption re-reads the current head in the line
+   * and lets a newer agent event win while that read is in flight.
    */
   const handlePunch = useCallback(
     async ({ track, prerollSec }: { track: number; prerollSec: number }) => {
@@ -1540,29 +1551,49 @@ function AppSession() {
       setPunchNotice(null);
       timelineRef.current?.pause();
       setPunching(true);
+      const projectGeneration = projectGenerationRef.current;
+      let applied = false;
       try {
         const outcome = await punchOutcome(() =>
           punchRecord(track, selection.start, selection.end, prerollSec),
         );
         if (outcome.kind === "applied") {
+          applied = true;
           await inOrder(async () => {
-            applyNewHead(outcome.head);
+            // The response may arrive after a later edit or project switch.
+            // Read the current head inside the line; never adopt the old
+            // response when that read fails or names a newer head.
+            const currentHead = await reconcileHead();
+            if (currentHead !== null) {
+              setMixPath(null);
+              setMixNodeId(null);
+            }
+            const sameProject = projectGenerationRef.current === projectGeneration;
+            if (sameProject && currentHead !== null) owned.clear();
+            await refreshTracks();
+            // Even if an agent event won the head read, the punch was applied
+            // in this project. Keep newer lane input but report the success.
+            if (sameProject) setPunchNotice(appliedText(outcome));
           });
-          // The session moved by itself: let go of what the lanes hold, and
-          // read the tracks again (the region's audio is new).
-          owned.clear();
-          await refreshTracks().catch((err) => setRenderError(String(err)));
-          setPunchNotice(appliedText(outcome));
-        } else if (outcome.kind !== "cancelled") {
+        } else if (outcome.kind === "failed") {
+          // A refused take can be saved in the project the user just left;
+          // the backend's message is the only place its recovery path appears.
+          const leftProject = projectGenerationRef.current !== projectGeneration;
+          setRenderError(leftProject ? `In the project you left: ${outcome.message}` : outcome.message);
+        } else if (outcome.kind === "uncalibrated" && projectGenerationRef.current === projectGeneration) {
           // A refusal or a failure says what to try; "not calibrated" also
           // gets the button that goes there.
           setRenderError(outcome.message);
         }
+      } catch (error) {
+        setRenderError(applied
+          ? `The punch was applied, but the current project could not be refreshed: ${String(error)}. Reopen the project before retrying.`
+          : String(error));
       } finally {
         setPunching(false);
       }
     },
-    [selection, punching, inOrder, applyNewHead, owned, refreshTracks],
+    [selection, punching, inOrder, reconcileHead, owned, refreshTracks],
   );
 
   // Renders what is shown: the previewed node when the graph has one, else
