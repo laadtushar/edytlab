@@ -1717,6 +1717,11 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * same way a file manager behaves.
      */
     const [selectedClip, setSelectedClip] = useState<string | null>(null);
+    // The key names a lane by position, so a change to the track order (the
+    // assistant's `reorder_tracks`, a removal) would move the highlight, and
+    // Remove, onto another track's clip. Drop the selection when it changes.
+    const trackOrder = tracks.map((t) => t.audioPath).join("\n");
+    useEffect(() => setSelectedClip(null), [trackOrder]);
 
     /** Session-level index for a lane — see `TrackDescriptor.index`. */
     const trackIndex = (idx: number) => laneStates[idx]?.index ?? idx;
