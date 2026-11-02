@@ -1,21 +1,18 @@
-/** The "export-and-memory" page of the user guide: moved from the one long page, unchanged. */
+/** The "export-and-memory" page of the user guide: moved from the one long page. */
 export function ExportAndMemory() {
   return (
     <>
       <h2 id="export">Export</h2>
-      <p>Export the session to a WAV, AIFF, FLAC, MP3 or OGG (Opus) file:</p>
       <ul>
         <li>
-          <strong>Full session:</strong>{" "}
-          <code>export to /Users/me/Desktop/final.wav</code>
+          <strong>Full session:</strong> ask for it, as a WAV, AIFF, FLAC,
+          MP3 or OGG (Opus) file:{" "}
+          <code>export to /Users/me/Desktop/final.mp3</code>
         </li>
         <li>
-          <strong>Selection only:</strong> select a region on the waveform, then{" "}
-          <code>export the selection to /path/output.wav</code>
-        </li>
-        <li>
-          <strong>Specific range:</strong>{" "}
-          <code>export seconds 30 to 90 to /path/chorus.wav</code>
+          <strong>Part of it:</strong> select a region on the waveform, then
+          click <strong>Export Selection</strong> above the chat. It writes
+          a WAV of that region.
         </li>
       </ul>
       <p>

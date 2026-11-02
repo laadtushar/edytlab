@@ -60,6 +60,7 @@ import {
   allIds,
   entriesAtoZ,
   hashTargets,
+  hashTargetsElsewhere,
   neighbours,
   resolveHash,
   slugify,
@@ -345,6 +346,20 @@ describe.each([
     expect(found).toHaveLength(1);
     expect(found[0].base).toBe(path);
     expect(Object.keys(found[0].targets).length).toBeGreaterThan(reference.areas.length);
+  });
+});
+
+describe("an area page's redirect", () => {
+  it("sends a hash for an entry on another area's page there, and keeps its own", () => {
+    const stems = toolsReference.areas.find((a) =>
+      a.sections.some((s) => s.entries.some((e) => e.id === "separate_stems")),
+    )!;
+    const other = toolsReference.areas.find((a) => a.slug !== stems.slug)!;
+    const fromOther = hashTargetsElsewhere(toolsReference.areas, other.slug);
+    expect(fromOther["separate_stems"]).toBe(`${stems.slug}#separate_stems`);
+    const own = hashTargetsElsewhere(toolsReference.areas, stems.slug);
+    expect(own["separate_stems"]).toBeUndefined();
+    expect(Object.values(own).every((to) => !to.startsWith(`${stems.slug}#`))).toBe(true);
   });
 });
 

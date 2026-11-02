@@ -91,11 +91,11 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Local-first means the DSP engine — the code that actually processes audio samples — runs entirely on your machine. Your stems never leave. The waveform analysis happens on your CPU. The only bytes that leave your machine are the text tokens you send to your chosen LLM provider to describe the edit you want.",
+        text: "Local-first means the DSP engine — the code that actually processes audio samples — runs entirely on your machine. Your stems never leave. The waveform analysis happens on your CPU. When you edit, what leaves your machine is the conversation with your chosen LLM provider: your words and the tools' text answers (a transcript, a loudness reading), never the audio. The models you choose to download are the other exception.",
       },
       {
         type: "callout",
-        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · rubato · realfft). Every cut, gain adjustment and pitch shift runs on-device, and stem separation runs there too, after you download its model once (from v0.9.4). Only the chat conversation hits the network — and you choose which LLM provider that goes to.",
+        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · rubato · realfft). Every cut, gain adjustment and pitch shift runs on-device, and stem separation runs there too, after you download its model once (from v0.9.4). Apart from that one download from Hugging Face, only the chat conversation hits the network — and you choose which LLM provider that goes to.",
       },
       {
         type: "h2",

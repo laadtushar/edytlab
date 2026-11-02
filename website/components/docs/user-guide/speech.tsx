@@ -44,8 +44,10 @@ export function Speech() {
         </li>
         <li>
           <strong>Disk.</strong> The stems are kept in the project&rsquo;s{" "}
-          <code>.audiograph</code> folder, up to 1 GB; the ones used longest ago
-          go first. Asking again for the same audio is instant. A stem you
+          <code>.audiograph</code> folder, up to about 1 GB: the ones used
+          longest ago go first, and the set just made is kept even when it
+          alone is larger. Asking again for audio whose stems are still
+          there is instant. A stem you
           have loaded is copied into the project, so clearing the cache never
           breaks a track.
         </li>
