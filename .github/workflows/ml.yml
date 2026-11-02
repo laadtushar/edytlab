@@ -102,10 +102,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # The pinned action specifies stable explicitly; rust-toolchain.toml
-      # pins the channel and lists the components used by the build.
+      # rust-toolchain.toml pins the channel and lists the components.
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        # Pinned to a master commit with `toolchain:` given: the action's per-toolchain
+        # branches (`stable`, ...) are regenerated, so a commit pinned there can vanish.
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
 
@@ -254,7 +255,9 @@ jobs:
       # toolchain name in its ref, so it is given. rust-toolchain.toml still
       # decides the channel the build uses.
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        # Pinned to a master commit with `toolchain:` given: the action's per-toolchain
+        # branches (`stable`, ...) are regenerated, so a commit pinned there can vanish.
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
 
