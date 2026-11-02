@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use session::NodeId;
 
 use crate::schema::anthropic_tool;
+use crate::tool::util::parse_args;
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -43,9 +44,9 @@ impl Tool for CompareNodesTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let a = match NodeId::from_hex(&args.a) {

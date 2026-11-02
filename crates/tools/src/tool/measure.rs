@@ -72,6 +72,7 @@ use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     attach_render_warnings, check_optional_seconds_order, check_track_index, load_head_state,
+    parse_args,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -174,9 +175,9 @@ impl Tool for MeasureTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if let Some(check) = args.check.as_deref() {
             if check != "acx" {

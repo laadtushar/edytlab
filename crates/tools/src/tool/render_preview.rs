@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 
 use crate::preview_cache::{excerpt_key, PreviewCache};
 use crate::schema::anthropic_tool;
-use crate::tool::util::attach_render_warnings;
+use crate::tool::util::{attach_render_warnings, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -180,9 +180,9 @@ impl Tool for RenderPreviewTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let node_id = match session::NodeId::from_hex(&args.node_id) {

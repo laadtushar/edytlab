@@ -37,7 +37,7 @@ use audio_decoder::{DecodedAudio, WavStreamReader};
 use session::audio_store::{AudioFolder, AudioName, AudioStore};
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{copy_cas_wav, set_session_length, write_cas_wav};
+use crate::tool::util::{copy_cas_wav, parse_args, set_session_length, write_cas_wav};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -68,9 +68,9 @@ impl Tool for LoadTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let path = PathBuf::from(&args.path);

@@ -5,7 +5,7 @@ use session::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, attach_render_warnings, load_head_state, render_warnings_for_tracks,
+    append_state, attach_render_warnings, load_head_state, parse_args, render_warnings_for_tracks,
     set_session_length,
 };
 use crate::{Tool, ToolContext, ToolResult};
@@ -55,9 +55,9 @@ impl Tool for MixToNewTrackTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         if args.track_indices.is_empty() {

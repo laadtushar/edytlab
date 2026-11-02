@@ -65,9 +65,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::tool::local_model::{
-    self, cache_key, decode_input, into_result, parse_args, resolve_audio_source, round2,
-    LoadedSlot, ModelLookup, ProgressStrip,
+    self, cache_key, decode_input, into_result, resolve_audio_source, round2, LoadedSlot,
+    ModelLookup, ProgressStrip,
 };
+use crate::tool::util::parse_args_message;
 use crate::{Tool, ToolContext, ToolResult};
 
 pub use crate::tool::local_model::ModelRef;
@@ -362,7 +363,7 @@ impl SeparateStemsTool {
     /// The call, ending at the first thing it must refuse (`Err` is the
     /// `ToolResult::Error`'s message).
     fn run(&self, args: Value, ctx: &ToolContext) -> Result<Value, String> {
-        let args: Args = parse_args(args)?;
+        let args: Args = parse_args_message(args)?;
         let model_id = args.model.as_deref().unwrap_or(ml_demucs::DEFAULT_MODEL_ID);
         if !ml_demucs::SUPPORTED_MODEL_IDS.contains(&model_id) {
             return Err(format!(

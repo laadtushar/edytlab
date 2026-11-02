@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::EffectEdit;
+use crate::tool::util::{parse_args, EffectEdit};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -53,9 +53,9 @@ impl Tool for EchoTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let taps: Option<Vec<(f32, f32)>> = match (&args.taps, args.delay_ms) {
             (Some(_), Some(_)) => {
