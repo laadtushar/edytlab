@@ -1,3 +1,5 @@
+import { withSentryConfig } from "@sentry/nextjs/config";
+
 /**
  * How long a browser or a CDN may keep the files in `public/`.
  *
@@ -96,4 +98,22 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * Sentry's build step (#958), as its Next.js guide sets it up. It sends
+ * nothing about the build to Sentry (`telemetry: false`), and without
+ * `SENTRY_AUTH_TOKEN` (a Vercel secret, optional) it uploads no source maps
+ * and creates no release, so a build makes no request to Sentry at all. The
+ * reports themselves are configured in `lib/sentry.ts` and are off unless
+ * `NEXT_PUBLIC_SENTRY_DSN` is set.
+ */
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN || undefined;
+
+export default withSentryConfig(nextConfig, {
+  org: "tushar-yb",
+  project: process.env.SENTRY_PROJECT || "edytlab-website",
+  authToken: sentryAuthToken,
+  telemetry: false,
+  silent: !process.env.CI,
+  sourcemaps: { disable: !sentryAuthToken },
+  release: { create: Boolean(sentryAuthToken) },
+});

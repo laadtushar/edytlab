@@ -11,6 +11,7 @@ import {
   pageBreadcrumbs,
 } from "@/lib/seo";
 import { GA_MEASUREMENT_ID } from "@/lib/consent";
+import { SENTRY_DSN } from "@/lib/sentry";
 import { localOllama } from "@/lib/blog-posts-audio-2/local-ollama";
 import { siteConfig } from "@/lib/site";
 
@@ -126,11 +127,26 @@ export default function LocalAiUseCasePage() {
               <td>None. The app sends no telemetry.</td>
             </tr>
             <tr>
+              <td>Crash reports from the app (optional)</td>
+              <td>
+                None unless you turn on Send crash reports in Settings, which
+                is off by default (from the release after v0.9.3). With it on,
+                an unexpected error sends a report to Sentry (sentry.io): the
+                error, where in edytlab&apos;s code it happened, the app
+                version and your operating system. Paths, quoted text such as
+                your chat and the assistant&apos;s tool calls, API keys, tokens
+                and email addresses are taken out first, and it never contains
+                audio. The{" "}
+                <Link href="/privacy#crash-reports">privacy page</Link> has the
+                details.
+              </td>
+            </tr>
+            <tr>
               <td>Visits to this website</td>
               <td>
                 Recorded by anonymous Vercel analytics (Web Analytics and
                 Speed Insights){GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}, which the
-                website loads and the app does not. See the <Link href="/privacy">privacy page</Link>.
+                website loads and the app does not.{SENTRY_DSN ? " An error on a page of this site is reported to Sentry, with nothing about you attached." : ""} See the <Link href="/privacy">privacy page</Link>.
               </td>
             </tr>
           </tbody>
