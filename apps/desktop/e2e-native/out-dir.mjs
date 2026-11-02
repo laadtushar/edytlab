@@ -4,10 +4,10 @@
 // same folder every time, which is why this is not a fresh `mkdtemp` per run.
 //
 // `OUT` names it. With none, it is `edytlab-native-<uid>` in the temp folder,
-// made owner-only, and refused if something else already holds the name (a
+// kept owner-only (an existing one is set back to 0700), and refused if something else already holds the name (a
 // folder or a link another user put there), because a shared folder with a
 // fixed name is somewhere another user can plant a link (S5443).
-import { lstatSync, mkdirSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,5 +27,9 @@ export function ownedTempDir(name, hint = "remove it or run as its owner") {
   if (!found.isDirectory() || (uid !== undefined && found.uid !== uid)) {
     throw new Error(`${dir} is not a folder of yours; ${hint}`);
   }
+  // mkdirSync leaves an existing folder's mode alone, and one made by an
+  // older run (or under a looser umask) may be readable by others; the spend
+  // ledger and logs in it are this user's alone.
+  chmodSync(dir, 0o700);
   return dir;
 }

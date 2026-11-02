@@ -32,4 +32,24 @@ describe("TemplatePickerModal", () => {
     await userEvent.click(screen.getByText("Podcast"));
     expect(onSelect).toHaveBeenCalledWith("Podcast");
   });
+
+  it("closes on Escape and on Cancel", async () => {
+    const onClose = vi.fn();
+    render(
+      <TemplatePickerModal open={true} templates={TEMPLATES} onSelect={vi.fn()} onClose={onClose} />,
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("listens for Escape only while open", async () => {
+    const onClose = vi.fn();
+    render(
+      <TemplatePickerModal open={false} templates={TEMPLATES} onSelect={vi.fn()} onClose={onClose} />,
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

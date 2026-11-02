@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { usePresence } from "../hooks/usePresence";
 
 export interface TemplateInfo {
@@ -21,11 +22,22 @@ export function TemplatePickerModal({
   // Held open for one --dur-2 on close so the exit animation can play
   // (#236); `mounted` is still false for a modal that was never open.
   const { mounted, leaving, onAnimationEnd } = usePresence(open);
+  // Escape closes it, as it does the shortcuts overlay. App's own Escape
+  // (clear the selection) stands down while the picker is open, because
+  // window listeners cannot stop one another.
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [open, onClose]);
   if (!mounted) return null;
   return (
     <div
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
-      // A pointer-only way out of the picker; its templates are buttons.
+      // A pointer way out of the picker; Escape and Cancel are the others.
       role="presentation"
       onClick={onClose}
       onAnimationEnd={onAnimationEnd}
@@ -53,6 +65,15 @@ export function TemplatePickerModal({
             </li>
           ))}
         </ul>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            className="ring-hover px-3 py-1.5 text-xs rounded-lg border border-[var(--border-strong)] text-[var(--text-muted)] hover:text-[var(--text)] transition"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

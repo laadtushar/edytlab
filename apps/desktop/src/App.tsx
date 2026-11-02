@@ -551,7 +551,7 @@ function AppSession() {
       } else if (e.key === "ArrowRight" && !isTyping) {
         e.preventDefault();
         t.seekBy(e.shiftKey ? 1 : 5);
-      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts) {
+      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts && !showTemplatePicker) {
         e.preventDefault();
         setSelection(null);
       } else if ((e.key === "+" || e.key === "=") && !isTyping) {
@@ -583,7 +583,7 @@ function AppSession() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, showShortcuts, handleUndo, handleRedo]);
+  }, [selection, showShortcuts, showTemplatePicker, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;

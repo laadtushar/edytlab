@@ -21,6 +21,9 @@ if [[ -z "${OUT:-}" ]]; then
     echo "run-env.sh: $OUT is not a folder of yours; set OUT to a folder you own" >&2
     exit 1
   fi
+  # mkdir -m applies only to a folder it makes; one left by an older run may
+  # be readable by others.
+  chmod 700 "$OUT"
 else
   mkdir -p -m 700 "$OUT"
 fi
