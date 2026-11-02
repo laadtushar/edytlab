@@ -157,11 +157,12 @@ export function TranscriptPane({
     <div
       data-testid="transcript-pane"
       className="fade-in"
-      // Read-only text with a keyboard selection model (arrows, Shift, Delete,
-      // Escape), which is what this role says; it is why the pane takes focus.
-      role="textbox"
-      aria-readonly="true"
-      aria-multiline="true"
+      // A focusable scroll container, so a keyboard user can scroll it and
+      // reach its keys: Backspace or Delete cuts the selected words' audio,
+      // Escape clears the selection (words are selected with the mouse; there
+      // is no caret). Not a textbox: that role makes a screen reader switch to
+      // focus mode, where the arrow keys would read nothing.
+      role="region"
       aria-label="Transcript"
       tabIndex={0}
       onKeyDown={handleKeyDown}

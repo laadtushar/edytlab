@@ -77,7 +77,9 @@ function formatDate(iso: string) {
   });
 }
 
-function renderBlock(block: Block, i: number) {
+// `codeNumber` counts the code blocks up to this one (1 for the first), so
+// each has a label of its own among the page's landmarks.
+function renderBlock(block: Block, i: number, codeNumber: number) {
   switch (block.type) {
     case "h2":
       return (
@@ -149,12 +151,11 @@ function renderBlock(block: Block, i: number) {
       return (
         <pre
           key={i}
-          // A read-only text field to a screen reader, which is what a focus
-          // stop on text that scrolls is for.
-          role="textbox"
-          aria-readonly="true"
-          aria-multiline="true"
-          aria-label="Code"
+          // A focusable scroll container: a named region, so the focus stop
+          // says what it is without making the code a text field to a
+          // screen reader.
+          role="region"
+          aria-label={`Code example ${codeNumber}`}
           tabIndex={0}
           className="mt-4 overflow-x-auto rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 font-mono text-sm leading-6 text-foreground"
         >
@@ -250,7 +251,13 @@ export default async function BlogPostPage({ params }: Props) {
               </LineDraw>
 
               <Cascade prose className="mt-8 border-t border-border/40 pt-8">
-                {post.body.map((block, i) => renderBlock(block, i))}
+                {post.body.map((block, i) =>
+                  renderBlock(
+                    block,
+                    i,
+                    post.body.slice(0, i + 1).filter((b) => b.type === "code").length,
+                  ),
+                )}
               </Cascade>
 
               <Reveal className="mt-14 border-t border-border/40 pt-8" distance={12}>
