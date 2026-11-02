@@ -226,6 +226,12 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// 1,177 B (1,176 B to 1,018 B for a plain request) with the budget as it
 /// was, so 582 B of it is free for MCP names (the test keeps 400 B) and
 /// about 180 B of new built-in names fit before it has to rise again.
+/// `find_markers`, `add_markers`, `edit_markers` and `delete_markers` (#766)
+/// add 53 B to that line (1,177 B to 1,230 B, measured), so 529 B of the
+/// budget is still free for MCP names, and the budget does not rise with them:
+/// the request with 60 MCP tools registered is the budget's size, and
+/// `tests/request_size.rs` holds that 500 B under the bound. About 129 B of
+/// new built-in names fit before the 400 B kept for MCP names is reached.
 /// `noise_reduction`'s three noise-range arguments (#769: `noise_from`,
 /// `noise_to`, `noise_track`) added 80 B to its slim descriptor, which took
 /// the 60-MCP-tool request inside the headroom it must keep (the request that
@@ -259,6 +265,11 @@ pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// tool, `vocal_reduction`, but they are what a message about the voice or
 /// about noise says, and the tool takes the vocals *out*. A message
 /// reaches it by a [`CUES`] entry ("remove the vocals", "karaoke").
+///
+/// "find", "edit" and "delete" are here because `find_markers`,
+/// `edit_markers` and `delete_markers` (#766) begin with them and every
+/// message uses them ("delete the first five seconds", "make an edit at
+/// 10 s", "find the loudest part"); only "marker" names those tools.
 const GENERIC_TOKENS: &[&str] = &[
     "track",
     "effect",
@@ -289,6 +300,9 @@ const GENERIC_TOKENS: &[&str] = &[
     "insert",
     "vocal",
     "reduction",
+    "find",
+    "edit",
+    "delete",
 ];
 
 /// Words that say a message is about an effect on a track: "effect", and
@@ -1473,6 +1487,48 @@ mod tests {
                 sent.iter().any(|n| n == wanted),
                 "{text:?} should send {wanted}: {sent:?}"
             );
+        }
+    }
+
+    /// `find_markers`, `edit_markers` and `delete_markers` (#766) begin
+    /// with verbs every message uses ("delete the first five seconds",
+    /// "make an edit at 10 s", "find the loudest part"). Only the word
+    /// "marker" names them, so the verbs alone send none of the four.
+    #[test]
+    fn a_plain_verb_does_not_send_the_marker_tools() {
+        let marker_tools = [
+            "find_markers",
+            "add_markers",
+            "edit_markers",
+            "delete_markers",
+        ];
+        for text in [
+            "delete the first five seconds of track 1",
+            "make an edit at 10 s",
+            "find the loudest part",
+        ] {
+            let sent = sent_for(text);
+            let wrongly: Vec<_> = marker_tools
+                .iter()
+                .filter(|t| sent.iter().any(|n| n == *t))
+                .collect();
+            assert!(
+                wrongly.is_empty(),
+                "{text:?} names no marker, yet sent {wrongly:?}"
+            );
+        }
+        for text in [
+            "find the marker called intro",
+            "rename my markers",
+            "mark the chorus",
+        ] {
+            let sent = sent_for(text);
+            for t in marker_tools {
+                assert!(
+                    sent.iter().any(|n| n == t),
+                    "{text:?} should send {t}: {sent:?}"
+                );
+            }
         }
     }
 

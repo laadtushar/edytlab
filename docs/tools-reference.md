@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 101 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 107 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -21,7 +21,9 @@ With Plan first on and no plan from the model, the first step that would change 
 ## Index
 
 - [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain, to the master bus with scope "master", or to a bus with scope "bus" and its name.
+- [`add_markers`](#add_markers) — Add markers/regions: `markers`, or one every `every` s from `from` (0) up to and including `to` (session end), named `name` with \{n\}=1,2,...
 - [`add_track`](#add_track) — Append a new empty track to the current session.
+- [`align_end_to_end`](#align_end_to_end) — Place tracks one after another in the order given: the first stays put, and each next track moves, clips and spacing together, to start where the previous one ends.
 - [`align_to_beat`](#align_to_beat) — Warp a track in time so the beats at source_beats land on beat_grid, without changing its pitch.
 - [`analyze_track`](#analyze_track) — Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
 - [`apply_diff`](#apply_diff) — Apply one or more SessionDiff specs to a parent node, producing one new sibling node per spec.
@@ -38,17 +40,20 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`cut_range`](#cut_range) — Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
+- [`delete_markers`](#delete_markers) — Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range.
 - [`diarize`](#diarize) — Find who spoke when, on this computer.
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
 - [`echo`](#echo) — Add a single echo (delay + decay).
+- [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
 - [`eq`](#eq) — Apply a parametric equalizer (chain of biquad peak filters) to a track.
 - [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
 - [`export_transcript`](#export_transcript) — Export the stored transcript as SRT, WebVTT, or plain text.
 - [`fade`](#fade) — Apply a fade-in or fade-out to a time range of a track.
+- [`find_markers`](#find_markers) — Find markers/regions by name and/or time range, in time order, with the ids edit_markers and delete_markers take.
 - [`fork_node`](#fork_node) — Branch the session DAG at the given node id (defaults to the current head when `from` is omitted).
 - [`gain`](#gain) — Apply a constant gain in decibels to a track.
 - [`generate_chirp`](#generate_chirp) — Generate a linear or logarithmic frequency sweep and add it as a new track.
@@ -60,6 +65,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`import_labels`](#import_labels) — Import Audacity-format label text into the session as annotations.
 - [`insert_silence`](#insert_silence) — Insert a region of silence at a time offset in a track.
 - [`invert`](#invert) — Invert (negate) audio polarity on a track, optionally within a time range.
+- [`join_clips`](#join_clips) — Join adjacent clips of one track into one clip.
 - [`label`](#label) — Place a named marker or region label in the session at the current head.
 - [`leveler`](#leveler) — Apply dynamic leveling: normalise each short window to a target RMS level.
 - [`limiter`](#limiter) — Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms.
@@ -137,6 +143,20 @@ Add a non-destructive effect to a track's chain, to the master bus with scope "m
 | `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
 | `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
 
+## `add_markers`
+
+Add markers/regions: `markers`, or one every `every` s from `from` (0) up to and including `to` (session end), named `name` with \{n\}=1,2,... Max 500.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `every` | number | no |  |
+| `from` | number | no |  |
+| `markers` | array of object | no |  |
+| `name` | string | no |  |
+| `to` | number | no |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
 ## `add_track`
 
 Append a new empty track to the current session. Returns the new session node id and the new track's index. The track contributes silence until a clip is loaded onto it.
@@ -144,6 +164,17 @@ Append a new empty track to the current session. Returns the new session node id
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `name` | string | no |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `align_end_to_end`
+
+Place tracks one after another in the order given: the first stays put, and each next track moves, clips and spacing together, to start where the previous one ends. Other tracks stay. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `gap_sec` | number | no | Silence between tracks. Default 0. |
+| `tracks` | array of integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -343,6 +374,19 @@ Reduce harsh sibilant 's' and 'sh' sounds. frequency_hz sets where sibilance det
 | `threshold_db` | number | yes | Detection threshold in dBFS (e.g. -20) |
 | `track` | integer | yes |  |
 
+## `delete_markers`
+
+Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range. Undo restores them.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `from` | number | no |  |
+| `ids` | array of string | no |  |
+| `name` | string | no |  |
+| `to` | number | no |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
 ## `diarize`
 
 Find who spoke when, on this computer. Returns speaker turns [start_sec, end_sec, "speaker_N"] (numbered by who speaks first) and changes nothing; pass them to split_by_speaker as segments to give each voice a track. Give `track` (session seconds) or `path` (a file's own). If the user said how many people speak, pass `num_speakers`: it is the best way to improve the result; else the count is estimated, bounded by `min_speakers` and `max_speakers`. Sound-alike voices can merge, and overlapping speech goes to one speaker. Needs the speaker model the user downloads once; if the call says the model or runtime is missing, tell the user and stop, and do not try to install anything. CPU, about a third of the audio's length; cancellable.
@@ -404,6 +448,16 @@ Add a single echo (delay + decay). delay_ms is the echo offset in milliseconds; 
 | `end_sec` | number | no |  |
 | `start_sec` | number | no |  |
 | `track` | integer | yes |  |
+
+## `edit_markers`
+
+Rename, move or resize markers by id (find_markers). `time` moves (a region keeps its length); `start`/`end` set a region's edges. All or nothing.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `edits` | array of object | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `eq`
 
@@ -469,6 +523,22 @@ Apply a fade-in or fade-out to a time range of a track. Requires a range (start_
 | `kind` | one of `in`, `out` | no |  |
 | `range` | object | no |  |
 | `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `find_markers`
+
+Find markers/regions by name and/or time range, in time order, with the ids edit_markers and delete_markers take. Read-only; paged.
+
+_Read-only — never held for approval._
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `from` | number | no | Seconds; overlapping regions count |
+| `limit` | integer | no |  |
+| `name` | string | no | Part of a name, any case |
+| `offset` | integer | no |  |
+| `to` | number | no |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -597,6 +667,18 @@ Invert (negate) audio polarity on a track, optionally within a time range. Appen
 | `end_sec` | number | no | End of invert region in seconds (exclusive). Omit to invert to end of track. |
 | `start_sec` | number | no | Start of invert region in seconds (inclusive). Omit to start at 0. |
 | `track` | integer | yes | Zero-based track index |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `join_clips`
+
+Join adjacent clips of one track into one clip. Back-to-back clips of the same source file merge with nothing rendered; any other join (a gap, a jump in the file) is rendered into a new file, and the result says so. Joins first_clip and the next clip, or the run to last_clip. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `first_clip` | integer | yes |  |
+| `last_clip` | integer | no | Last clip of the run, inclusive. Default first_clip + 1. |
+| `track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

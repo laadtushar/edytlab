@@ -6,6 +6,7 @@
 //! together.
 
 pub mod add_track;
+pub mod align_end_to_end;
 pub mod align_to_beat;
 pub mod analyze_track;
 pub mod apply_diff;
@@ -44,6 +45,7 @@ pub mod high_pass_filter;
 pub mod import_labels;
 pub mod insert_silence;
 pub mod invert;
+pub mod join_clips;
 pub mod label;
 pub mod leveler;
 pub mod limiter;
@@ -51,6 +53,7 @@ pub mod list_session;
 pub mod load;
 pub(crate) mod local_model;
 pub mod low_pass_filter;
+pub mod markers;
 pub mod measure;
 pub mod mix_to_new_track;
 pub mod mono_to_stereo;
@@ -110,6 +113,7 @@ pub mod util;
 pub mod vocal_reduction;
 
 pub use add_track::AddTrackTool;
+pub use align_end_to_end::AlignEndToEndTool;
 pub use align_to_beat::AlignToBeatTool;
 pub use analyze_track::AnalyzeTrackTool;
 pub use apply_diff::ApplyDiffTool;
@@ -149,12 +153,14 @@ pub use high_pass_filter::HighPassFilterTool;
 pub use import_labels::ImportLabelsTool;
 pub use insert_silence::InsertSilenceTool;
 pub use invert::InvertTool;
+pub use join_clips::JoinClipsTool;
 pub use label::LabelTool;
 pub use leveler::LevelerTool;
 pub use limiter::LimiterTool;
 pub use list_session::ListSessionTool;
 pub use load::LoadTool;
 pub use low_pass_filter::LowPassFilterTool;
+pub use markers::{AddMarkersTool, DeleteMarkersTool, EditMarkersTool, FindMarkersTool};
 pub use measure::MeasureTool;
 pub use mix_to_new_track::MixToNewTrackTool;
 pub use mono_to_stereo::MonoToStereoTool;
