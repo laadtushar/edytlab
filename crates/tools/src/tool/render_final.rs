@@ -68,7 +68,7 @@ impl Tool for RenderFinalTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "render_final",
-            "Render a session node to a final audio file at the user's chosen path. \
+            "Render a session node to an audio file at the chosen path. \
              wav and aiff are uncompressed, flac is lossless at about half the size, mp3 \
              and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for \
              compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. \
@@ -81,7 +81,7 @@ impl Tool for RenderFinalTool {
                     "node_id": { "type": "string" },
                     "format": { "type": "string", "enum": ["wav", "aiff", "flac", "mp3", "ogg"] },
                     "out_path": { "type": "string" },
-                    "range": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2, "description": "[start, end] in session seconds; end exclusive." },
+                    "range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[start, end] in session seconds. The end is exclusive; omit range for the whole session." },
                     "metadata": {
                         "type": "object",
                         "description": "Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export.",
@@ -96,13 +96,13 @@ impl Tool for RenderFinalTool {
                     },
                     "markers_as_chapters": {
                         "type": "boolean",
-                        "description": "Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping.",
+                        "description": "Write markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping.",
                     },
                     "bitrate_kbps": {
                         "type": "integer",
                         "minimum": MP3_MIN_KBPS,
                         "maximum": MP3_MAX_KBPS,
-                        "description": "MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats."
+                        "description": "MP3 or OGG target bitrate. MP3 is CBR, snapped to a valid Layer III rate; lossless formats ignore it."
                     },
                 },
                 "required": ["node_id", "format", "out_path"],
