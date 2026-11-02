@@ -280,6 +280,14 @@ jobs:
           ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
         run: cargo test -p ml-demucs --release --test onnx_split -- --ignored --nocapture --test-threads=1
 
+      # Counts cleanup requests on the real tool model boundary, including
+      # success, cancellation and errors, using the committed tiny model.
+      # The test builds a subprocess-only glibc interposer with cc.
+      - name: Stem allocator cleanup lifecycle
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+        run: cargo test -p tools --release --test stem_trim_lifecycle -- --ignored --nocapture --test-threads=1
+
       # The two files of the stem model, 171 MB. Keyed on the manifest, so a new
       # pin misses.
       - name: Cache the stem model
@@ -311,6 +319,14 @@ jobs:
           ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
           DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
         run: cargo test -p tools --release --test separate_stems_end_to_end -- --ignored --nocapture --test-threads=1
+
+      # RSS and timing are reported for comparison, not used as a threshold:
+      # allocator behavior varies between machines and workloads.
+      - name: Stem allocator RSS measurement
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs
+        run: cargo test -p tools --release --test stem_memory_probe -- --ignored --nocapture --test-threads=1
 
       - name: Summary (stems)
         if: always()
