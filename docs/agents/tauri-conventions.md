@@ -1,12 +1,16 @@
 # Tauri commands, locks and the agent loop
 
-Read before adding or changing a Tauri command, taking a lock, touching the plan gate, opening a project's store, replaying thinking blocks, or changing bundled skills.
+Read before adding, changing or documenting a Tauri command, taking a lock, touching the plan gate, opening a project's store, replaying thinking blocks, or changing bundled skills.
 
 ## Commands and locks
 
-- Return type alias: `CmdResult<T>` (= `Result<T, String>`) — all commands use it; never raw `Result<T, String>`.
+- Every command returns `CmdResult<T>` (= `Result<T, String>`), never a raw `Result<T, String>`.
 - Store and engine locks must be in separate scopes: acquire and drop store lock before opening engine lock to avoid double-borrow panics. Use `let state = { let store = lock_std(...); store.get(id)? };` pattern.
 - Lock order for the agent's dispatch: the dispatcher lock is taken alone, only to admit the call, and dropped before any other lock is taken, so do not wait on another lock while holding it there. `refresh_dispatcher_for_server` (`mcp_tool.rs`) does hold the dispatcher while it takes the MCP registry's lock; dispatcher then registry is the order in use, so do not add the reverse (the registry's lock held while asking for the dispatcher).
+
+## Documenting a command
+
+- Every command added or changed is documented in `docs/api-reference.md` and `website/lib/docs/api-data.ts` (the fake backend in `e2e/backend.ts` is already an acceptance gate). The site's API reference is one page per area, all made from that file (`/docs/api-reference/[area]`; a new area is an object in `apiAreas` plus a `PAGE_UPDATED` date, no page file), and lists every command, one row each, and so does the md. The data is guarded by `website/lib/apiReferencePage.test.ts` (each name in `generate_handler!` in `lib.rs`, camel-cased, has a row, and no row outlives its command); the md is checked against the bridge's exports by `apiReferenceCoverage.test.ts`, not against `lib.rs`. A changed return type or error is edited in both. The hand-written command count (compute it with `grep -c '#\[tauri::command' apps/desktop/src-tauri/src/commands.rs`) is not guarded: `docs/architecture.md` (the "~N commands" box), `docs/development-guide.md` ("~N of them") and `website/app/docs/developer-guide/page.tsx` all say about 110, which holds until the count passes 115 or drops below 105 (the recording-latency commands took it past 105, so all three copies moved to a new round number), and `docs/saas-evaluation.md` gives the exact count with its async and plain split and the line count of `commands.rs`, so it moves with every command.
 
 ## The plan gate
 

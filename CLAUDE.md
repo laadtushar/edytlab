@@ -1,22 +1,21 @@
 # CLAUDE.md
 
-Project-level instructions for Claude Code sessions in this repository. These persist across sessions; treat them as durable user preferences.
+Project-level instructions for Claude Code sessions in this repository. These persist across sessions; treat them as durable user preferences. This file holds what every task needs; each area's design notes and rules are in a guide under `docs/agents/` (index below).
 
 ## Workflow
 
 ### Pull requests
 
-- **Always squash-merge a PR you opened once its CI is green.** Don't wait for explicit approval each time. If CI fails, investigate the failure rather than merging anyway.
-- Open PRs as **drafts** by default; flip to ready when CI passes (squash-merge implies ready).
-- One concern per PR. If a follow-up touches different files / different reviewer focus, open a separate PR rather than tacking it onto the current one.
-- Reply to AI review comments (Gemini etc.) only when the suggestion is being declined or when noting a fix landed in a specific commit. Skip routine "fixed it" replies on threads that are already self-evident.
+- **Squash-merge a PR you opened once it is green** (defined below), without waiting for approval each time. A red check is a failure to investigate and fix before merging.
+- Open PRs as **drafts**; flip to ready when green (squash-merge implies ready).
+- One concern per PR. A follow-up with different files or a different reviewer focus is a separate PR.
 
 ### Branches
 
 - Feature branches: `claude/feature/<short-kebab-summary>`
 - Fix branches: `claude/fix/<short-kebab-summary>`
 - Docs and chores: `claude/docs/<…>`, `claude/chore/<…>` (a release bump is `claude/chore/release-<version>`).
-- Always branch off latest `origin/main`, not whatever the working tree happens to be on.
+- Branch off the latest `origin/main`, not whatever the working tree happens to be on.
 
 ### Commits
 
@@ -31,7 +30,45 @@ Project-level instructions for Claude Code sessions in this repository. These pe
 
 - Browse the web freely for any research: library and API docs, platform behaviour, prior art, model pricing, bug reports upstream. Prefer primary sources (official docs, specs, source code, release notes) and cite the URLs in the PR or issue that relies on them.
 
-## Repo specifics
+## Green
+
+A PR or a main commit is **green** when every required check on its head commit succeeded: `build (linux-x86_64)`, `build (macos-arm64)`, `build (windows-x86_64)`, `frontend (test)`, `e2e (chromium)` and `website (test)` (all from `ci.yml`). On a PR that touches only docs, site or marketing files the macOS and Windows legs skip their steps and report Success; that counts. The separate workflows (`Audit`, `Notices`, `Docs`, `ML`) are not part of green, but a red `Notices` or `Docs` run caused by your PR is yours to fix (`docs/agents/ci-release.md`). The bots below are advisory: they never block green.
+
+## Advisory bots
+
+| Bot | What it is | Its status |
+|---|---|---|
+| SonarCloud | Static analysis with a new-code quality gate | Its new-code duplication counts edited lines inside the boilerplate every tool shares, so a tool PR can fail it while adding no real duplication |
+| DeepSource | Static analysis (Rust, JavaScript) | Per-finding |
+| FOSSA | Licence and vulnerability scan | A repo-wide baseline, red on every PR: 38 quality, 6 licence, 1 vulnerability. Causes: the Remotion project under `marketing/` (FOSSA's GitHub import scans it despite `.fossa.yml`), ESLint 9's minimatch 3.x, and the licence classifications of gsap, next and tailwindcss-animate. Only a change in those counts is news |
+| Gitar, CodeRabbit (and Gemini) | AI reviewers | Per-comment |
+
+- **Verify a bot finding against the code before acting.** Fix one that holds; decline one that does not.
+- A repo-wide red status (FOSSA's baseline, SonarCloud's boilerplate duplication): explain it once per PR in one comment, then stay silent on it.
+- Reply to an AI review comment only to decline it (with the reason) or to name the commit that fixed it.
+
+## Release day
+
+Do these in order; each step is done only when its criterion holds.
+
+1. **Release PR merges first.** The `claude/chore/release-<version>` PR bumps every manifest and `Cargo.lock`, adds the changelog entry in `website/app/changelog/page.tsx`, and moves the version's rows in the "Shipped in" table (`docs/agents/ci-release.md`). Done when it is squash-merged green.
+2. **Hold other pushes while it waits on CI.** macOS runners are scarce, and every push to a PR queues another macOS leg ahead of it. Done when the release PR has merged.
+3. **Main is green.** Done when the `CI` run on the merge commit succeeded.
+4. **Dispatch the release.** `gh workflow run release-dev.yml --ref main -f tag=vX.Y.Z -f channel=release -f notes='…'`. Done when that run succeeded.
+5. **Verify it.** `gh api repos/laadtushar/edytlab/releases/latest` names `vX.Y.Z`, `prerelease` is false, and it carries 6 assets; the release list has no new draft (a failed leg leaves one; this session cannot delete a release, so list it on #366 for the owner). Done when all hold.
+6. **Merge the site and marketing PRs that describe the release** (they describe the released app, so they wait for it). Done when merged and the live site shows the version (`website/lib/releases.ts` reads GitHub, cached up to an hour).
+7. **Then tool PRs, one at a time.** Merge main into the next, re-run `cargo test -p ai --test request_size -- --nocapture` and update its ratchets, recompute the tool counts (Staleness sweep), wait for green, merge. Done when the queue is empty.
+
+## Cloud sessions
+
+In a Linux cloud session (claude.ai/code) the checkout is a normal Linux path and Bash runs git, pnpm and cargo directly; `docs/agents/windows-local.md` applies only on the owner's machine.
+
+- **Disk is a fixed allowance** shared by every agent in the session. Give each worktree a private `CARGO_TARGET_DIR` and build with `CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0`; run one cargo build at a time across parallel agents; delete the target dir when the branch is done.
+- **One worktree per branch** (`git worktree add <dir> -b <branch> origin/main`), removed once the branch merges.
+- **GitHub through REST.** GraphQL is refused here, so `gh pr list` and `gh pr view` fail: use `gh api repos/laadtushar/edytlab/...`, and the `/pulls/{n}/ccr/...` routes for draft, ready and auto-merge.
+- **Runner starvation** (a job queued with no runner, usually macOS): re-run it once (`gh run rerun <id>`). Once `ci.yml` has a `workflow_dispatch` trigger, dispatch a fresh run with `gh workflow run ci.yml --ref <branch>`.
+
+## Repo map
 
 - Tauri 2 desktop app under `apps/desktop/`. Frontend in `apps/desktop/src/`, Rust backend in `apps/desktop/src-tauri/`.
 - Architecture decisions are recorded in `docs/adr/` (one record per decision; read the record for an area before reshaping it, and supersede a record with a new one rather than editing it); domain terms are defined in `GLOSSARY.md`.
@@ -40,7 +77,7 @@ Project-level instructions for Claude Code sessions in this repository. These pe
 
 ## Area guides
 
-Each guide in `docs/agents/` holds the design notes and rules for one area. Read the guide before changing its area.
+Each guide in `docs/agents/` holds one area's design notes and rules. Read it before changing that area.
 
 - Running git, pnpm or cargo on the owner's Windows machine → `docs/agents/windows-local.md`
 - Touching a provider, the keychain, a provider slot, the slim tool set or the session block → `docs/agents/providers.md`
@@ -50,10 +87,10 @@ Each guide in `docs/agents/` holds the design notes and rules for one area. Read
 - Touching how project audio is named, written or deleted, a writer's destination, clip frames, envelopes or what a render reports → `docs/agents/audio-store.md`
 - Touching playback, recording, latency calibration or punch-in → `docs/agents/recording.md`
 - Touching undo/redo, the head trail, lane controls, the window's mix, WaveSurfer or dialogs → `docs/agents/frontend-state.md`
-- Adding a Tauri command, taking a lock, the plan gate, opening a store, thinking-block replay or bundled skills → `docs/agents/tauri-conventions.md`
+- Adding or documenting a Tauri command, taking a lock, the plan gate, opening a store, thinking-block replay or bundled skills → `docs/agents/tauri-conventions.md`
 - Adding or changing an agent tool → `docs/agents/agent-tools.md`
-- Touching a workflow, a release, a dependency's notices, the ML workflow or the Mintlify docs → `docs/agents/ci-release.md`
-- Touching `website/` → `docs/agents/website.md`
+- Touching a workflow, a release, a dependency's notices, the ML workflow, the Mintlify docs, or whether a feature has shipped → `docs/agents/ci-release.md`
+- Touching `website/`, a demo or a video → `docs/agents/website.md`
 
 ## Acceptance gates
 
@@ -65,12 +102,12 @@ Before merging anything:
 - `pnpm --filter @edytlab/desktop test:slow-scheduler` passes — the same suite with React's scheduler 40 ms late (#349). A failure here that `test` does not show is a test asserting on async React state without waiting for it: wait on the state under test, or hold the backend's answer with `src/__tests__/held.ts`.
 - `pnpm --filter @edytlab/desktop typecheck` clean — `tsc -b` over three programs: the app (no Node types, because it runs in a webview — #336), its tests (Node types, because vitest runs them in Node) and `vite.config.ts`. **Not** bare `tsc --noEmit`: the root `tsconfig.json` is a solution file with no inputs of its own, so that checks nothing and exits 0.
 - `pnpm --filter @edytlab/desktop typecheck:e2e` clean
-- Website changes: `pnpm test`, `pnpm typecheck` and `pnpm build` inside `website/` (see above).
+- Website changes: `pnpm test`, `pnpm typecheck` and `pnpm build` inside `website/` (`docs/agents/website.md`).
 - `pnpm --filter @edytlab/desktop test:e2e` passes — for anything that changes what mounts, draws, scrolls or decodes. jsdom cannot see those; `apps/desktop/e2e/` runs the real frontend in Chromium with only the IPC boundary replaced. Its fake backend answers from the Rust source (`e2e/backend.ts`), so a new command the app calls needs an answer there, taken from the command's own body.
 
 ## Staleness sweep
 
-Facts in this repo are copied by hand into many files, and most copies have no test. Run this sweep at the end of every working day, and for any trigger below inside the PR that causes it. Where a test already guards a copy, it is named, so the sweep covers the unguarded ones.
+Facts in this repo are copied by hand into many files, and most copies have no test. Run this sweep at the end of every working day, and for any trigger below inside the PR that causes it. Where a test already guards a copy, it is named, so the sweep covers the unguarded ones. A count is computed at the time of writing, never copied from another file.
 
 **Every day, before stopping:**
 - Tracking issue #366: rewrite it to the current state (released, in flight, queued, blocked, needs the owner) and bump its "Last updated" date.
@@ -78,17 +115,15 @@ Facts in this repo are copied by hand into many files, and most copies have no t
 - Leftovers: remove worktrees of merged branches, list any `claude/backup/*` branch in #366 until its work lands, and scan every diff for API keys (`sk-ant-`, `sk_`) before pushing.
 
 **When a change lands, update its copies in the same PR:**
-- A tool added, renamed or removed: regenerate `docs/tools-reference.md` (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`); the site copy is guarded by `website_tool_docs.rs`. The hand-written "110 tools" counts are not: `README.md` (architecture box and crate list), `docs/README.md`, `docs/architecture.md`, `marketing/press-kit.md`, `marketing/awesome-lists.md`, `marketing/launch/*`, `marketing/social/*`, `marketing/social-kit/**` (the captions, posts and image notes; marketing describes the released app, so these move with the release).
-- A crate added, removed or renamed: the `README.md` crate list and architecture box, the workspace layout in `docs/architecture.md`, its mirror in `website/app/docs/developer-guide/page.tsx`, "Repo specifics" above, and the hand-written crate counts in `marketing/social-kit/more.md` and `marketing/social-kit/reddit.md` ("a Rust workspace of N crates"; they too move with the release).
-- A Tauri command added or changed: `docs/api-reference.md` and `website/lib/docs/api-data.ts` (the fake backend in `e2e/backend.ts` is already an acceptance gate). The site's API reference is one page per area, all made from that file (`/docs/api-reference/[area]`; a new area is an object in `apiAreas` plus a `PAGE_UPDATED` date, no page file), and lists every command, one row each, and so does the md. The data is guarded by `website/lib/apiReferencePage.test.ts` (each name in `generate_handler!` in `lib.rs`, camel-cased, has a row, and no row outlives its command); the md is checked against the bridge's exports by `apiReferenceCoverage.test.ts`, not against `lib.rs`. A changed return type or error is edited in both. The hand-written command count (`grep -c '#\[tauri::command' apps/desktop/src-tauri/src/commands.rs`, 112 on 2026-11-02) is not guarded: `docs/architecture.md` (the "~N commands" box), `docs/development-guide.md` ("~N of them") and `website/app/docs/developer-guide/page.tsx` all say about 110, which holds until the count passes 115 or drops below 105 (the recording-latency commands took it past 105, so all three copies moved to a new round number), and `docs/saas-evaluation.md` gives the exact count with its async and plain split and the line count of `commands.rs`, so it moves with every command.
-- An effect kind starts to stream, a chain tool gains or loses a scope, or what a render reports changes: the five kinds are copied into `docs/architecture.md` ("What the Render Processes"), the Audio engine bullet above, the site's user guide ("Effects, Buses and the Master") and tools page, and `marketing/README.md`; the render tools' outputs are on the tools page.
-- A provider or keychain slot added or changed: `README.md`, the keychain bullet above, `docs/development-guide.md`, and the site's getting-started, user-guide and privacy pages.
+- A tool added, renamed or removed: regenerate `docs/tools-reference.md` (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`); its first line states the tool count. `website_tool_docs.rs` guards the site, `README.md` and `docs/` (a count within three words of "tools"). The `marketing/` counts are not guarded: `marketing/press-kit.md`, `marketing/awesome-lists.md`, `marketing/launch/*`, `marketing/social/*`, `marketing/social-kit/**` (the captions, posts and image notes; marketing describes the released app, so these move with the release).
+- A crate added, removed or renamed: the `README.md` crate list and architecture box, the workspace layout in `docs/architecture.md`, its mirror in `website/app/docs/developer-guide/page.tsx`, the Repo map above, and the hand-written crate counts in `marketing/social-kit/more.md` and `marketing/social-kit/reddit.md` ("a Rust workspace of N crates"; they too move with the release).
+- A Tauri command added or changed: a row in `docs/api-reference.md` and in `website/lib/docs/api-data.ts`, and the hand-written command counts; both are in "Documenting a command" in `docs/agents/tauri-conventions.md`.
+- An effect kind starts to stream, a chain tool gains or loses a scope, or what a render reports changes: the five kinds are copied into `docs/architecture.md` ("What the Render Processes"), "Effects a render cannot run" in `docs/agents/audio-store.md`, the site's user guide ("Effects, Buses and the Master") and tools page, and `marketing/README.md`; the render tools' outputs are on the tools page.
+- A provider or keychain slot added or changed: `README.md`, `docs/agents/providers.md`, `docs/development-guide.md`, and the site's getting-started, user-guide and privacy pages.
 - A provider ships a new model generation or retires one: the default in `crates/ai/src/prompt.rs` (`DEFAULT_MODEL`), the curated Anthropic list in `crates/ai/src/models.rs`, `CLASSIFIER_MODEL` in `crates/ai/src/lib.rs`, the OpenAI ranking in `models.rs`, and every doc or site line that names a model. Check ids against the provider's own models endpoint or docs; a retired id answers 404.
-- A caveat resolved (something documented as not shipped or unused, such as #383–#385, or as lost on reboot, as #394 was): `git grep` the issue number and rewrite every line that cites it, here included.
+- A caveat resolved (something documented as not shipped or unused, or as lost on reboot, as #394 was): `git grep` the issue number and rewrite every line that cites it, `docs/agents/` included.
 - A new outbound network request from the app (a downloader, an updater, a new provider host, a lookup such as a provider's model list): the "Network traffic" and "Updates" sections of `website/app/privacy/page.tsx`, the local-first table on `website/app/use-cases/local-ai-audio-editor/page.tsx`, and the privacy lines in `marketing/press-kit.md`.
 - A UI change: the site's user guide section that describes it, the `apps/desktop/e2e-native` stories that drive it (grep them for `"class"`, colours and `data-` attributes: a restyle breaks a story that reads a class name, which CI cannot see because the native suite is not in it), and any screenshot or recording that shows it: `docs/brand/`, the demo videos under `website/public/demos/`, `marketing/reels/`, `marketing/launch-video/`, and the LinkedIn screenshots and renders in `marketing/social-kit/linkedin/` (`shots/` and `out/`; `node render.mjs --shots` retakes and re-renders them).
-- A new site page: `website/app/sitemap.ts`, plus `lib/seo.test.ts` and `lib/marketing-pages.test.ts`.
-- A site page's content changes (or a page is added): set or bump its date in `PAGE_UPDATED` (`website/lib/seo-core.ts`), taken from `git log -1 --format=%cs -- <the page's source files>`. It is the sitemap's `lastmod` and the `dateModified` of the page's `Article` data. Move it for a change to what the page says, never to look fresh; `SITE_UPDATED` is only the fallback, and `seo.test.ts` fails when a page has no date of its own.
-- A demo re-recorded, or a reel or the launch video re-cut: a re-cut is copied to `website/public/videos/` too, with its `lib/videos.ts` entry (`seconds`, poster frame) and, for the launch video, its WebVTT captions; `lib/videos.test.ts` fails while a copy differs from its source under `marketing/`. For a demo: `website/lib/demos.ts` (guarded by `lib/demos.test.ts`) and the hand-written durations in the `README.md` demo list, `website/app/press/page.tsx`, `website/lib/blog-posts-*.ts`, `marketing/press-kit.md`, `marketing/launch/show-hn.md` and `marketing/social/x-thread.md`. The reels in `marketing/reels/` are cut from those videos at measured times (`marketing/reels/tools/spec.py`), so rebuild them too. Nothing is deleted: every video, caption, contact sheet, cue or timing file a re-recording or re-cut replaces moves to `marketing/archive/` in the same PR (layout in its README).
+- A new site page, a site page's content changed, a demo re-recorded, or a reel or the launch video re-cut: "Site pages" and "Videos" in `docs/agents/website.md`.
 
-**When a release ships:** follow "CI / release" above, then check the live site shows the new version (`website/lib/releases.ts` reads GitHub, cached up to an hour), update version mentions in `marketing/`, and check the release list has no new draft (a failed release leg leaves one). #387's 45 old drafts were deleted on 2026-10-25; a new one goes on #366 for the owner to delete, since this session gets HTTP 403 deleting a release.
+**When a release ships:** Release day above, then update version mentions in `marketing/`.
