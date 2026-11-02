@@ -53,8 +53,8 @@ impl Tool for AnalyzeTrackTool {
             json!({
                 "type": "object",
                 "properties": {
-                    "track": { "type": "integer", "description": "Index of a track in the session." },
-                    "path": { "type": "string", "description": "An audio file that is not in the session." }
+                    "track": { "type": "integer", "description": "A track's index." },
+                    "path": { "type": "string", "description": "An audio file outside the session." }
                 },
                 "additionalProperties": false
             }),

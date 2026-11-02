@@ -287,6 +287,17 @@ pub fn marker_line(a: &Annotation) -> String {
     }
 }
 
+/// [`marker_line`] with the label's id, which is what `edit_markers` and
+/// `delete_markers` take: `- <name> @ <time>s (id <uuid>)`. The session
+/// block leaves the id out to save bytes; `find_markers` writes it.
+pub fn marker_line_with_id(a: &Annotation) -> String {
+    format!(
+        "{} (id {})\n",
+        marker_line(a).trim_end_matches('\n'),
+        a.id.0
+    )
+}
+
 /// A chain's effects, in order, at most [`MAX_EFFECTS_LISTED`] of them.
 pub fn chain_text(effects: &[String]) -> String {
     let mut text = effects

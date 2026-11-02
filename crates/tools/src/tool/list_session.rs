@@ -173,6 +173,25 @@ fn items(
 /// the byte cap.
 fn page(state: &SessionState, what: What, offset: usize, limit: usize) -> Value {
     let (total, lines) = items(state, what, offset);
+    paged(what.as_str(), None, total, offset, limit, lines)
+}
+
+/// One page of a list called `name`, of `total` items, whose lines from
+/// `offset` on are `lines`: up to `limit` of them, ending early at
+/// [`PAGE_MAX_BYTES`]. `none` is what the summary says of an empty list,
+/// where the default is "no `name` in the session."
+///
+/// Shared with `find_markers`, which pages its matches the same way, so
+/// the cap, the cut of an over-long line and the `next_offset` rule are
+/// written once.
+pub(crate) fn paged(
+    name: &str,
+    none: Option<&str>,
+    total: usize,
+    offset: usize,
+    limit: usize,
+    lines: impl Iterator<Item = String>,
+) -> Value {
     let room = PAGE_MAX_BYTES - FRAME_BYTES;
     let mut text = String::new();
     let mut used = 0;
@@ -193,17 +212,23 @@ fn page(state: &SessionState, what: What, offset: usize, limit: usize) -> Value 
         text.push_str(&line);
         shown += 1;
     }
-    result(what, offset, shown, total, text)
+    result(name, none, offset, shown, total, text)
 }
 
 /// The result object for a page of `shown` items from `offset`, of `total`
 /// in the list, whose lines are `text`. Keys come out in alphabetical
 /// order: `next_offset` (absent on the last page), `summary`, `text`.
-fn result(what: What, offset: usize, shown: usize, total: usize, text: String) -> Value {
-    let name = what.as_str();
+fn result(
+    name: &str,
+    none: Option<&str>,
+    offset: usize,
+    shown: usize,
+    total: usize,
+    text: String,
+) -> Value {
     let next = offset.saturating_add(shown);
     let summary = if total == 0 {
-        format!("no {name} in the session.")
+        none.map_or_else(|| format!("no {name} in the session."), str::to_string)
     } else if shown == 0 {
         format!(
             "offset {offset} is past the end: the session has {total} {name}, at offsets 0-{}.",
@@ -271,9 +296,15 @@ mod tests {
                 (at_most - 2, 2, at_most),
                 (at_most, 0, at_most),
             ] {
-                let json =
-                    serde_json::to_string(&result(what, offset, shown, total, String::new()))
-                        .unwrap();
+                let json = serde_json::to_string(&result(
+                    what.as_str(),
+                    None,
+                    offset,
+                    shown,
+                    total,
+                    String::new(),
+                ))
+                .unwrap();
                 longest = longest.max(json.len());
             }
         }

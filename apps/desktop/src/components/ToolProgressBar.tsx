@@ -44,6 +44,7 @@ const PROGRESS_KINDS = new Set([
   "punch_record",
   "transcribe",
   "diarize",
+  "separate_stems",
 ]);
 
 /**

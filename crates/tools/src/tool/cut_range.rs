@@ -57,6 +57,7 @@ impl Tool for CutRangeTool {
             Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
+        // A sync-locked track gets the same seconds in its own frames.
         let rates = if state.sync_lock {
             match track_clip_rates(&state) {
                 Ok(r) => r,
