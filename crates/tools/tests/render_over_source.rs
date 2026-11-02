@@ -532,7 +532,8 @@ fn export_multiple_will_not_write_over_a_loaded_original() {
     assert!(msg.contains("0_vox.wav"), "{msg}");
 }
 
-/// Nothing is exported into the project's own `.audiograph/` folder (#719):
+/// Nothing is exported into the folders the project owns (#719), its
+/// `.audiograph/` folder and `generated/` beside it:
 /// a render written into `derived/` would sit under a content name its bytes
 /// do not hash to, and a sweep could delete it. A fresh path there is refused
 /// as well, and so is one reached through a symlink to the folder; the
@@ -570,6 +571,14 @@ fn render_final_will_not_write_into_the_project_store() {
         let msg = err(render(&mut s, &out));
         assert!(msg.contains(".audiograph"), "{msg}");
     }
+
+    // `generated/` is the store's too, though it sits beside `.audiograph/`.
+    let generated = session::audio_store::AudioFolder::Generated.dir(s.store.project_dir());
+    std::fs::create_dir_all(&generated).unwrap();
+    let out = generated.join("export.wav");
+    let msg = err(render(&mut s, &out));
+    assert!(msg.contains("generated"), "{msg}");
+    assert!(!out.exists());
 
     let beside = s.store.project_dir().join("export.wav");
     ok(render(&mut s, &beside));

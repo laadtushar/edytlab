@@ -201,34 +201,46 @@ where
     Ok(())
 }
 
-/// Refuse a destination inside the project's own `.audiograph/` folder
-/// (#719): the content-addressed audio, the node files, the caches. An export
-/// written into `derived/` would sit under a name its bytes do not hash to,
-/// and a sweep could delete it; nothing else in there is the user's to write.
+/// Refuse a destination inside the folders the project owns (#719): its
+/// `.audiograph/` folder (the history, the content-addressed audio, the
+/// caches) and every folder of its audio store that sits elsewhere
+/// (`generated/`, beside it). An export written into `derived/` or
+/// `generated/` would sit under a content name its bytes do not hash to, and
+/// a sweep could delete it; nothing in there is the user's to write.
 ///
 /// Compared by folder identity, the same way projects are told apart
 /// ([`session::live::identify`]), so a symlink or another spelling of the
 /// path is caught; a destination that does not exist yet is judged by the
 /// nearest folder above it that does.
 fn refuse_inside_store(project_dir: &Path, destinations: &[PathBuf]) -> Result<(), String> {
-    let store_dir = project_dir.join(session::STORE_DIR);
-    let Ok(store) = identify(&store_dir) else {
-        // No store folder on disk yet: nothing can be inside it.
+    let owned: Vec<(PathBuf, FolderId)> = std::iter::once(project_dir.join(session::STORE_DIR))
+        .chain(
+            session::audio_store::AudioFolder::ALL
+                .iter()
+                .map(|folder| folder.dir(project_dir)),
+        )
+        .filter_map(|dir| identify(&dir).ok().map(|id| (dir, id.id())))
+        .collect();
+    if owned.is_empty() {
+        // None of them is on disk yet: nothing can be inside one.
         return Ok(());
-    };
-    let store_id = store.id();
+    }
     for destination in destinations {
         let absolute = std::path::absolute(destination).unwrap_or_else(|_| destination.clone());
         let inside = absolute
             .ancestors()
             .filter_map(|folder| identify(folder).ok())
-            .any(|folder| folder.id() == store_id);
-        if inside {
+            .find_map(|folder| owned.iter().find(|(_, id)| *id == folder.id()));
+        if let Some((dir, _)) = inside {
+            let name = dir
+                .strip_prefix(project_dir)
+                .unwrap_or(dir)
+                .display()
+                .to_string();
             return Err(format!(
-                "not written: {} is inside the project's own {} folder, which holds the \
-                 project's history and the audio it plays. Choose a file name or folder outside it.",
-                destination.display(),
-                session::STORE_DIR
+                "not written: {} is inside the project's own {name} folder, which holds the \
+                 project's history or the audio it plays. Choose a file name or folder outside it.",
+                destination.display()
             ));
         }
     }
