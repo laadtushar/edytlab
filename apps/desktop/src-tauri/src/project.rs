@@ -1136,7 +1136,9 @@ mod tests {
             std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
             std::fs::write(&audio, vec![3u8; 256]).unwrap();
             let mut store = session::Store::open(&dir).unwrap();
-            store.append(playing(&[audio.clone()], 1)).unwrap();
+            store
+                .append(playing(std::slice::from_ref(&audio), 1))
+                .unwrap();
             let store = std::sync::Mutex::new(store);
             // `generated/` is beside `.audiograph/`, the others inside it.
             let name = audio.strip_prefix(&dir).unwrap().to_path_buf();
