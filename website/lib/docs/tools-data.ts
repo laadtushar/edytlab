@@ -694,8 +694,8 @@ export const toolAreas: ToolArea[] = [
   },
   {
     slug: "rendering",
-    title: "Rendering, Recipes and Batch",
-    summary: "Export the session to WAV, AIFF, FLAC, MP3 or OGG, render previews, and replay an edit chain on one file or a folder.",
+    title: "Rendering and Export",
+    summary: "Export the session, or a range of it, to WAV, AIFF, FLAC, MP3 or OGG, render previews, and write tracks and transcripts to files.",
     sections: [
       {
         title: "Rendering",
@@ -729,6 +729,13 @@ export const toolAreas: ToolArea[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    slug: "recipes-and-batch",
+    title: "Recipes and Batch",
+    summary: "Save an edit chain as a recipe, replay it on another recording, and run it over every file in a folder.",
+    sections: [
       {
         title: "Recipes and Batch",
         tools: [
