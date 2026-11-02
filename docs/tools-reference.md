@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 108 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 109 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -76,6 +76,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`mix_to_new_track`](#mix_to_new_track) — Offline-render the selected tracks together and add the result as a new mixed track.
 - [`mono_to_stereo`](#mono_to_stereo) — Convert a mono track to stereo by duplicating the channel to both L and R.
 - [`move_clip`](#move_clip) — Move one clip to a new start position within its track, leaving the other clips where they are.
+- [`mute_all_tracks`](#mute_all_tracks) — Mute or unmute every track at once.
 - [`mute_track`](#mute_track) — Mute or unmute a track.
 - [`name_node`](#name_node) — Set or replace the human-readable label on a session node.
 - [`noise_gate`](#noise_gate) — Apply a noise gate: audio below threshold_db is silenced.
@@ -797,6 +798,14 @@ Move one clip to a new start position within its track, leaving the other clips 
 | `clip_index` | integer | yes |  |
 | `start_sec` | number | yes | New start of the clip, in seconds from the top of the timeline. |
 | `track` | integer | yes |  |
+
+## `mute_all_tracks`
+
+Mute or unmute every track at once. Solo is untouched. New node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `muted` | boolean | yes |  |
 
 ## `mute_track`
 

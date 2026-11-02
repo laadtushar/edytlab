@@ -45,12 +45,20 @@
 //!   is in the copy is [`OwnedFile::in_project`].
 //! * **Which folder a path is in** ([`AudioStore::folder_of`]), for a rebuild
 //!   that asks about a file that is not there.
+//!
+//! Stage 4 removes what a writer left behind: a put's staging file
+//! (`.cas-*.wav.part`) in `clipboard/` or `generated/` whose writer was killed
+//! mid-write goes once it is a day old, while nothing is staged
+//! ([`AudioDeleter::remove_stale_put_leftovers`], run with the orphan sweep).
+//! The store's cases are tested once, here; `tools`' `tests/audio_store/`
+//! holds what only its callers (the sweeps, compaction, a rebuild, the repair)
+//! can show.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::node::SessionNode;
 use crate::state::Clip;
@@ -543,8 +551,8 @@ impl AudioStore {
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("failed to create {}: {e}", dir.display()))?;
         Ok(tempfile::Builder::new()
-            .prefix(".cas-")
-            .suffix(".wav.part")
+            .prefix(PUT_STAGING_PREFIX)
+            .suffix(STAGING_SUFFIX)
             .tempfile_in(&dir)
             .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
             .into_temp_path())
@@ -715,6 +723,20 @@ fn copy_whole(from: &Path, to: &Path) -> io::Result<u64> {
 /// is not: a writer may hold no handle on the project (a punch-in's take).
 const COPY_STAGING_PREFIX: &str = ".repair-";
 const STAGING_SUFFIX: &str = ".wav.part";
+
+/// How a put ([`AudioStore::put_with`] and the others) names its staging file:
+/// `.cas-*.wav.part`, removed on drop unless it is renamed into place, so one
+/// is left only by a writer that was killed mid-write.
+const PUT_STAGING_PREFIX: &str = ".cas-";
+
+/// How old a put's staging file in `clipboard/` or `generated/` must be before
+/// it counts as left behind ([`AudioDeleter::remove_stale_put_leftovers`]): a
+/// day. A writer there may hold no handle on the project (a punch-in stores its
+/// take with `store_clipboard_blob` while holding none), so the staged check
+/// cannot tell a file being written from a leftover; age can, since no write
+/// there lasts more than a few minutes (a punch-in's region is at most 300 s,
+/// with at most 30 s each side).
+pub const STALE_PUT_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Put what `fill` writes at `to`, by way of a staging file beside it
 /// (`.repair-*.wav.part`) synced and renamed over `to` once whole. Nothing is
@@ -917,11 +939,19 @@ impl AudioDeleter<'_> {
     /// project has been staged since. Whether it was deleted; a file that is
     /// not, for any reason, is left as it is.
     pub fn remove(&self, file: &OwnedFile) -> bool {
+        self.remove_if(file, |_| true)
+    }
+
+    /// [`remove`](Self::remove), when `still` holds for the file as it is at
+    /// the delete (its size and time read again, not as `file` found them).
+    fn remove_if(&self, file: &OwnedFile, still: impl FnOnce(&OwnedFile) -> bool) -> bool {
         if self.store.staged_in_flight() > 0 {
             return false;
         }
         match self.audio.owns(&file.path) {
-            Some(now) if now.folder == file.folder => std::fs::remove_file(&now.path).is_ok(),
+            Some(now) if now.folder == file.folder && still(&now) => {
+                std::fs::remove_file(&now.path).is_ok()
+            }
             _ => false,
         }
     }
@@ -943,6 +973,42 @@ impl AudioDeleter<'_> {
                 if name.starts_with(COPY_STAGING_PREFIX)
                     && name.ends_with(STAGING_SUFFIX)
                     && self.remove(&file)
+                {
+                    removed += 1;
+                }
+            }
+        }
+        removed
+    }
+
+    /// Remove the staging files a put ([`AudioStore::put_with`],
+    /// `.cas-*.wav.part`) left in `clipboard/` and `generated/` when its writer
+    /// was killed mid-write, once they are [`STALE_PUT_AGE`] old at `now`; how
+    /// many went. Run with the orphan sweep as a project opens (which removes
+    /// those in `derived/`, at any age, since no node names them).
+    ///
+    /// Age is the test because a writer there may hold no staged handle (a
+    /// punch-in's take), so a young file may be one being written now. Each
+    /// delete is [`remove`](Self::remove)'s, with the age read again from the
+    /// file at the delete: nothing goes while a handle is staged, and nothing
+    /// that is not this project's file in that folder. A file whose time is
+    /// after `now` (a clock set back) is not old, and is kept.
+    pub fn remove_stale_put_leftovers(&self, now: SystemTime) -> usize {
+        let stale = |file: &OwnedFile| {
+            now.duration_since(file.modified())
+                .is_ok_and(|age| age >= STALE_PUT_AGE)
+        };
+        let mut removed = 0;
+        for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
+            let Ok(files) = self.audio.files(folder) else {
+                continue;
+            };
+            for file in files {
+                let name = file.name().to_string_lossy();
+                if name.starts_with(PUT_STAGING_PREFIX)
+                    && name.ends_with(STAGING_SUFFIX)
+                    && stale(&file)
+                    && self.remove_if(&file, stale)
                 {
                     removed += 1;
                 }
@@ -1544,6 +1610,116 @@ mod tests {
             derived_dir(dir.path()).join(".repair-X.wav.part").is_file(),
             "the orphan sweep's, in `derived/`"
         );
+    }
+
+    /// `path`, written `age` before `now`.
+    fn aged(path: PathBuf, now: SystemTime, age: Duration) -> PathBuf {
+        let file = std::fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(now - age).unwrap();
+        path
+    }
+
+    const HOUR: Duration = Duration::from_secs(60 * 60);
+
+    /// A put's staging file in `clipboard/` or `generated/` goes once it is
+    /// a day old (#719 stage 4): a fresh one, which may be a punch-in's take
+    /// being written with no handle staged, stays, as does one 23 hours old
+    /// and one dated after `now`. Nothing else goes: not a file under a name,
+    /// not a copy's staging file (that is `remove_copy_leftovers`'), and not
+    /// one in `derived/` (the orphan sweep's).
+    #[test]
+    fn a_writers_staging_file_goes_once_it_is_a_day_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let now = SystemTime::now();
+        for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
+            let d = folder.dir(dir.path());
+            aged(file_at(&d, ".cas-OLD.wav.part", b"half"), now, 25 * HOUR);
+            file_at(&d, ".cas-FRESH.wav.part", b"half");
+            aged(file_at(&d, ".cas-DAYISH.wav.part", b"half"), now, 23 * HOUR);
+            let ahead = file_at(&d, ".cas-AHEAD.wav.part", b"half");
+            std::fs::File::options()
+                .write(true)
+                .open(&ahead)
+                .unwrap()
+                .set_modified(now + HOUR)
+                .unwrap();
+            aged(file_at(&d, "keep.wav", b"audio"), now, 25 * HOUR);
+            aged(file_at(&d, ".repair-X.wav.part", b"half"), now, 25 * HOUR);
+        }
+        let in_derived = aged(
+            file_at(&derived_dir(dir.path()), ".cas-OLD.wav.part", b"half"),
+            now,
+            25 * HOUR,
+        );
+
+        let deleter = store.audio_deleter().unwrap();
+        assert_eq!(deleter.remove_stale_put_leftovers(now), 2);
+        for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
+            let d = folder.dir(dir.path());
+            assert!(!d.join(".cas-OLD.wav.part").exists(), "{}", d.display());
+            for kept in [
+                ".cas-FRESH.wav.part",
+                ".cas-DAYISH.wav.part",
+                ".cas-AHEAD.wav.part",
+                "keep.wav",
+                ".repair-X.wav.part",
+            ] {
+                assert!(d.join(kept).is_file(), "{kept} in {}", d.display());
+            }
+        }
+        assert!(in_derived.is_file(), "the orphan sweep's, in `derived/`");
+        assert_eq!(deleter.remove_stale_put_leftovers(now), 0, "already gone");
+    }
+
+    /// Nothing goes while a handle on the project is staged, a stage begun
+    /// after the deleter was handed out included, since the delete is
+    /// `remove`'s.
+    #[test]
+    fn no_stale_staging_file_goes_while_a_handle_is_staged() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let now = SystemTime::now();
+        let old: Vec<PathBuf> = [AudioFolder::Clipboard, AudioFolder::Generated]
+            .into_iter()
+            .map(|f| {
+                aged(
+                    file_at(&f.dir(dir.path()), ".cas-OLD.wav.part", b"half"),
+                    now,
+                    25 * HOUR,
+                )
+            })
+            .collect();
+
+        let staged = store.stage().unwrap();
+        assert!(store.audio_deleter().is_none(), "no leave while staged");
+        drop(staged);
+        let deleter = store.audio_deleter().unwrap();
+        let staged = store.stage().unwrap();
+        assert_eq!(
+            deleter.remove_stale_put_leftovers(now),
+            0,
+            "not while staged"
+        );
+        assert!(old.iter().all(|p| p.is_file()));
+        drop(staged);
+        assert_eq!(deleter.remove_stale_put_leftovers(now), 2);
+        assert!(old.iter().all(|p| !p.exists()));
+    }
+
+    /// A put's staging file is the one the leftovers rule looks for.
+    #[test]
+    fn a_put_stages_under_the_prefix_the_leftovers_rule_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = AudioStore::new(dir.path());
+        audio
+            .put_with(AudioFolder::Clipboard, &x(), |tmp| {
+                let name = tmp.file_name().unwrap().to_string_lossy().into_owned();
+                assert!(name.starts_with(PUT_STAGING_PREFIX), "{name}");
+                assert!(name.ends_with(STAGING_SUFFIX), "{name}");
+                std::fs::write(tmp, b"whole").map_err(|e| e.to_string())
+            })
+            .unwrap();
     }
 
     /// A Save As copy of a store file that fails part-way (a full disk, a

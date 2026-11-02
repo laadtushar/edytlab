@@ -26,9 +26,7 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-#[path = "support/harness.rs"]
-mod harness;
-use harness::write_secs;
+use crate::harness::write_secs;
 
 const SR: u32 = 48_000;
 
