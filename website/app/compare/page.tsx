@@ -167,7 +167,8 @@ const sources: Source[] = [...new Set(leaned.map((l) => l.url))].map((u) => ({
   checkedOn: leaned
     .filter((l) => l.url === u)
     .map((l) => l.checkedOn)
-    .sort()
+    // ISO dates, so the text order is the date order.
+    .sort((a, b) => a.localeCompare(b))
     .at(-1) as string,
 }));
 

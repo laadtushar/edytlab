@@ -21,13 +21,28 @@
 // in the table at the highest rate in it, so the real bill is lower.
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { outDir } from "./out-dir.mjs";
 import { isAgentLoopRequest, turnsFromMessages } from "./tool-calls.mjs";
 
 const PORT = Number(process.env.PORT ?? 8788);
 const BUDGET = Number(process.env.BUDGET_USD ?? 12);
-const OUT = process.env.OUT ?? "/tmp/edytlab-native";
+const OUT = outDir();
 // Where requests go. Only a test of this file points it anywhere else.
 const UPSTREAM = process.env.ANTHROPIC_UPSTREAM ?? "https://api.anthropic.com";
+const UPSTREAM_ORIGIN = new URL(UPSTREAM).origin;
+// The request's own address, put after the upstream's. The app's x-api-key goes
+// with it, so a request line that is not a plain path ("@host/x", "//host/x",
+// "http://host/x") must not be able to move the host: it is refused, and so is
+// anything that resolves to another origin (S5144).
+function upstreamUrl(target) {
+  if (typeof target !== "string" || !/^\/(?!\/)/.test(target)) return null;
+  try {
+    const url = new URL(`${UPSTREAM}${target}`);
+    return url.origin === UPSTREAM_ORIGIN ? url : null;
+  } catch {
+    return null;
+  }
+}
 // $ per million tokens, input and output, by model id. A flat rate priced
 // Fable at half its cost, which let a Fable run spend twice its budget.
 const RATES = [
@@ -89,6 +104,13 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(conversation));
     return;
   }
+  const target = upstreamUrl(req.url);
+  if (!target) {
+    res.writeHead(400, { "content-type": "application/json" }).end(
+      JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "proxy: only paths on the upstream are forwarded" } }),
+    );
+    return;
+  }
   const chunks = [];
   for await (const c of req) chunks.push(c);
   const body = Buffer.concat(chunks);
@@ -120,10 +142,14 @@ const server = createServer(async (req, res) => {
   const used = { input: 0, output: 0, cache_read: 0, cache_create: 0 };
   let status = 0;
   try {
-    const up = await fetch(`${UPSTREAM}${req.url}`, {
+    const up = await fetch(target, {
       method: req.method,
       headers,
       body: ["GET", "HEAD"].includes(req.method) ? undefined : body,
+      // Never follow a redirect: fetch would send the x-api-key on to wherever
+      // it points, another origin included. A 3xx goes back to the client as
+      // it came, Location and all, and the client decides.
+      redirect: "manual",
     });
     status = up.status;
     const out = {};

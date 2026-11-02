@@ -556,12 +556,13 @@ function checkDays(c: Competitor): string[] {
 }
 
 export function newestCheck(c: Competitor): string {
-  return checkDays(c).reduce((a, b) => (a > b ? a : b));
+  return checkDays(c).reduce((a, b) => (a > b ? a : b), "");
 }
 
 /** The day the least recently checked fact was read: what a "checked on" line can promise for every fact. */
 export function oldestCheck(c: Competitor): string {
-  return checkDays(c).reduce((a, b) => (a < b ? a : b));
+  const days = checkDays(c);
+  return days.reduce((a, b) => (a < b ? a : b), days[0]);
 }
 
 const MONTHS = [
@@ -595,6 +596,9 @@ export function displayDate(iso: string): string {
  */
 export function hostAndPath(url: string): string {
   const { hostname, pathname } = new URL(url);
-  const path = pathname.replace(/\/+$/, "");
+  // Trailing slashes by hand: `/\/+$/` reads on to the end from every slash of a run.
+  let end = pathname.length;
+  while (end > 0 && pathname[end - 1] === "/") end--;
+  const path = pathname.slice(0, end);
   return `${hostname.replace(/^www\./, "")}${path}`;
 }

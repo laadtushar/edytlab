@@ -43,7 +43,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.4.3",
     "jsdom": "^29",
-    "minimatch": "^10",
+    "minimatch": "^11.0.4",
     "postcss": "^8.5.31",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.0",
@@ -52,7 +52,8 @@
   "license": "MIT",
   "pnpm": {
     "overrides": {
-      "@tailwindcss/typography>postcss-selector-parser": ">=6.1.5 <7"
+      "@tailwindcss/typography>postcss-selector-parser": ">=6.1.5 <7",
+      "@typescript-eslint/typescript-estree>minimatch": "^11.0.4"
     }
   }
 }

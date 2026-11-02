@@ -422,14 +422,14 @@ export const formatMoment = (at: number) =>
   `${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, "0")}`;
 
 /** A card's title: the page's title without the "(short reel)" that tells it apart from the demo it was cut from. */
-export const cardTitle = (video: WatchVideo) => video.title.replace(/\s*\(short reel\)$/i, "");
+export const cardTitle = (video: WatchVideo) => video.title.replace(/(?<!\s)\s*\(short reel\)$/i, "");
 
 /**
  * A caption or a moment as a viewer reads it: without the tracker
  * numbers, "(#596)", that the repository's notes carry and a visitor has
  * no use for.
  */
-export const forViewers = (text: string) => text.replace(/\s*\(#\d+(?:,\s*#\d+)*\)/g, "");
+export const forViewers = (text: string) => text.replace(/(?<!\s)\s*\(#\d+(?:,\s*#\d+)*\)/g, "");
 
 /**
  * The videos to offer after this one: three of the same shape (landscape

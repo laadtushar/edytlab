@@ -37,7 +37,8 @@ export function useRenderWarnings(node: NodeId | null): readonly RenderWarning[]
       .catch(() => NONE)
       .then((warnings) => {
         if (!cancelled) setAnswer({ node, warnings });
-      });
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };

@@ -1,6 +1,7 @@
 import { Driver } from "./webdriver.mjs";
+import { outDir } from "./out-dir.mjs";
 const app = process.env.APP ?? "/home/user/edytlab/target/debug/edytlab-desktop";
-const out = process.env.OUT ?? "/tmp/edytlab-native";
+const out = outDir();
 const d = await Driver.start({ application: app });
 try {
   await new Promise((r) => setTimeout(r, 4000));

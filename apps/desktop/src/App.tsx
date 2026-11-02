@@ -525,7 +525,9 @@ function AppSession() {
         setPaletteOpen((open) => !open);
         return;
       }
-      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
+      // Not over the template picker: window listeners cannot stop one
+      // another, so one Escape would close both overlays.
+      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping && !showTemplatePicker) {
         e.preventDefault();
         if (!showShortcuts) setShowShortcuts(true);
         return;
@@ -555,7 +557,7 @@ function AppSession() {
       } else if (e.key === "ArrowRight" && !isTyping) {
         e.preventDefault();
         t.seekBy(e.shiftKey ? 1 : 5);
-      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts) {
+      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts && !showTemplatePicker) {
         e.preventDefault();
         setSelection(null);
       } else if ((e.key === "+" || e.key === "=") && !isTyping) {
@@ -587,7 +589,7 @@ function AppSession() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, showShortcuts, handleUndo, handleRedo]);
+  }, [selection, showShortcuts, showTemplatePicker, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1396,10 +1398,12 @@ function AppSession() {
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
       setMixNodeId(null);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
     // Initial fetch. The backend reopens the default project at every
     // launch and restores its `HEAD`, so a returning user's tracks are
     // already there; a fresh project has no head yet and answers

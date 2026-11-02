@@ -1,6 +1,8 @@
 // Turn what the native suite left in $OUT (videos/, results.json, promo/, shots/) into the promo's footage folder.
 //
-//   OUT=/tmp/edytlab-native DEST=marketing/promo-v0.7.0/footage node make-footage.mjs [story-id-substring ...]
+//   DEST=marketing/promo-v0.7.0/footage node make-footage.mjs [story-id-substring ...]
+//
+// $OUT is the suite's: unset, the same checked per-user folder the suite writes to (out-dir.mjs).
 //
 // The suite films the real app's page at 3200x2000 (a 1600x1000 page at the display's scale of 2) with ffmpeg's x11grab
 // at 15 fps, with PulseAudio's capture of the app's sound beside it. This script cuts each passing story's recording
@@ -24,8 +26,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { outDir } from "../../../apps/desktop/e2e-native/out-dir.mjs";
 
-const OUT = process.env.OUT ?? "/tmp/edytlab-native";
+const OUT = outDir();
 const DEST = process.env.DEST;
 if (!DEST) throw new Error("set DEST to the footage folder");
 mkdirSync(DEST, { recursive: true });

@@ -160,11 +160,11 @@ function plainText(node: ReactNode): string {
 
 /** `https://example.com/` and `example.com` name the same place. */
 function bare(s: string): string {
-  return s
-    .trim()
-    .replace(/^(?:https?:\/\/|mailto:)/i, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
+  const withoutScheme = s.trim().replace(/^(?:https?:\/\/|mailto:)/i, "");
+  // Trailing slashes by hand: `/\/+$/` retries from every slash of a long run.
+  let end = withoutScheme.length;
+  while (end > 0 && withoutScheme[end - 1] === "/") end--;
+  return withoutScheme.slice(0, end).toLowerCase();
 }
 
 const URL_CLASS = "font-mono text-[0.85em] text-[var(--text-dim)] break-all";

@@ -81,6 +81,7 @@ export function OpenSourceLicencesRow() {
           data-testid="settings-licences-text"
           // Keyboard-scrollable: a scroll container with no focus stop cannot
           // be reached without a mouse.
+          role="region"
           tabIndex={0}
           aria-label="Third-party notices"
           className="

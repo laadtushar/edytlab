@@ -54,7 +54,9 @@ export function colourLineage(nodes: GraphNode[]): Map<string, string> {
   const leaves = nodes
     .filter((n) => !hasChild.has(n.id))
     .map((n) => n.id)
-    .sort();
+    // Code-unit order, spelled out: the lineage colours must not move with the
+    // user's locale (`localeCompare` would reorder mixed-case ids).
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   const colours = new Map<string, string>();
   leaves.forEach((leafId, idx) => {
