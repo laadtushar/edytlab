@@ -36,7 +36,6 @@ use session::{
 use audio_decoder::{DecodedAudio, WavStreamReader};
 use session::audio_store::{AudioFolder, AudioName, AudioStore};
 
-use crate::provenance::{CLIPBOARD_DIR, DERIVED_DIR};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{copy_cas_wav, set_session_length, write_cas_wav};
 use crate::{Tool, ToolContext, ToolResult};
@@ -251,14 +250,7 @@ fn ensure_streamable_wav(
 
     // Inside the project (#156). A transcode is derived audio, and
     // derived audio that lives beside the user's source file is audio
-    // the project does not contain.
-    let derived_dir = crate::provenance::derived_dir(project_dir);
-    std::fs::create_dir_all(&derived_dir).map_err(|e| {
-        format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        )
-    })?;
+    // the project does not contain. The audio store makes the folder.
 
     // The source path is deliberately NOT hashed (#160). It used to be,
     // which meant the same audio imported from two locations — a copy, a
@@ -343,7 +335,7 @@ fn is_unowned_store_file(project_dir: &Path, src: &Path) -> bool {
     let Ok(inside) = src.strip_prefix(&store) else {
         return false;
     };
-    let owned = [DERIVED_DIR, CLIPBOARD_DIR];
+    let owned = [AudioFolder::Derived.name(), AudioFolder::Clipboard.name()];
     !inside
         .components()
         .next()

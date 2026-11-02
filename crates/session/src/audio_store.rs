@@ -15,7 +15,8 @@
 //! sends every writer through the store: names are [`AudioName`]s, which
 //! only this module makes, and every file is put whole through
 //! [`AudioStore::put_with`] (or, for a clipboard blob that can be checked
-//! against its name, [`AudioStore::put_verified`]). Names and folders are
+//! against its name, [`AudioStore::put_verified`], and for a mix-down named
+//! by its bytes, [`AudioStore::put_named_by_content`]). Names and folders are
 //! still what they were. The sweeps, compaction, repair and `rederive` are
 //! stage 3.
 
@@ -178,8 +179,10 @@ impl AudioName {
 
     /// The name of a file by its bytes, header included: a mixed-down track,
     /// whose WAV header holds the rate and channel count the samples alone
-    /// would not.
-    pub fn of_file_bytes(bytes: &[u8]) -> Self {
+    /// would not. Private: only [`AudioStore::put_named_by_content`] names a
+    /// file this way, from the file it has just written, so no writer can
+    /// hand it bytes that leave the layout out.
+    fn of_file_bytes(bytes: &[u8]) -> Self {
         Self(blake3::hash(bytes).to_hex().to_string())
     }
 
@@ -232,8 +235,10 @@ impl AudioStore {
     }
 
     /// Where the file named `stem` lives in `folder`: `<folder>/<stem>.wav`.
-    /// Whether it exists is not asked.
-    pub fn path(&self, folder: AudioFolder, stem: &str) -> PathBuf {
+    /// Whether it exists is not asked. Crate-private: outside `session` a
+    /// path is asked for by an [`AudioName`] ([`path_of`](Self::path_of)),
+    /// so no caller can spell one for a name the store did not make.
+    pub(crate) fn path(&self, folder: AudioFolder, stem: &str) -> PathBuf {
         folder.dir(&self.project_dir).join(format!("{stem}.wav"))
     }
 
@@ -273,7 +278,7 @@ impl AudioStore {
             Ok(()) => Ok(path),
             // Another writer of the same name got there first.
             Err(_) if path.is_file() => Ok(path),
-            Err(e) => Err(format!("failed to write {}: {}", path.display(), e.error)),
+            Err(e) => Err(format!("could not put the file in place: {}", e.error)),
         }
     }
 
@@ -287,6 +292,11 @@ impl AudioStore {
     /// is 16-bit PCM and its name is never recomputed from it (#620). Blobs
     /// written as 16-bit before #377 are still on disk; a replay pastes what
     /// the blob holds, so one that does not read back is replaced.
+    ///
+    /// The replace is a rename over the old file, so the name is never
+    /// missing or half written. On Windows a rename over a file another
+    /// process has open fails; that is an error here (the old blob stays),
+    /// where writing over it in place used to succeed.
     pub fn put_verified(
         &self,
         folder: AudioFolder,
@@ -301,25 +311,27 @@ impl AudioStore {
         let tmp = self.temp_in(folder)?;
         fill(&tmp)?;
         tmp.persist(&path)
-            .map_err(|e| format!("failed to write {}: {}", path.display(), e.error))?;
+            .map_err(|e| format!("could not put the file in place: {}", e.error))?;
         Ok(path)
     }
 
-    /// Put a file whose name is known only once it is written: `fill` writes a
-    /// temporary file in `folder`, `name` reads it and says what it is called
-    /// (a mixed-down track is named by its bytes, header included), and it is
-    /// renamed into place, unless a file is already under that name, which
-    /// is then kept (the name is the content's, so it holds the same thing).
-    /// Nothing is left under any name if either step fails.
-    pub fn put_then_name(
+    /// Put a file whose name is known only once it is written, named by its
+    /// bytes, header included ([`AudioName::of_file_bytes`]): a mixed-down
+    /// track, whose WAV header holds the rate and channel count. `fill`
+    /// writes a temporary file in `folder`; it is read, named and renamed
+    /// into place, unless a file is already under that name, which is kept
+    /// (the name is the content's). Nothing is left under any name if a step
+    /// fails.
+    pub fn put_named_by_content(
         &self,
         folder: AudioFolder,
         fill: impl FnOnce(&Path) -> Result<(), String>,
-        name: impl FnOnce(&Path) -> Result<AudioName, String>,
     ) -> Result<(AudioName, PathBuf), String> {
         let tmp = self.temp_in(folder)?;
         fill(&tmp)?;
-        let name = name(&tmp)?;
+        let bytes =
+            std::fs::read(&tmp).map_err(|e| format!("could not read what was written: {e}"))?;
+        let name = AudioName::of_file_bytes(&bytes);
         let path = self.path_of(folder, &name);
         if path.is_file() {
             return Ok((name, path));
@@ -327,7 +339,7 @@ impl AudioStore {
         match tmp.persist(&path) {
             Ok(()) => Ok((name, path)),
             Err(_) if path.is_file() => Ok((name, path)),
-            Err(e) => Err(format!("failed to write {}: {}", path.display(), e.error)),
+            Err(e) => Err(format!("could not put the file in place: {}", e.error)),
         }
     }
 
@@ -598,20 +610,19 @@ mod tests {
     }
 
     #[test]
-    fn put_then_name_names_the_file_after_it_is_written() {
+    fn put_named_by_content_names_the_file_after_it_is_written() {
         let dir = tempfile::tempdir().unwrap();
         let store = AudioStore::new(dir.path());
         let fill = |tmp: &Path| std::fs::write(tmp, b"mixdown").map_err(|e| e.to_string());
-        let name_it = |tmp: &Path| Ok(AudioName::of_file_bytes(&std::fs::read(tmp).unwrap()));
         let (name, path) = store
-            .put_then_name(AudioFolder::Generated, fill, name_it)
+            .put_named_by_content(AudioFolder::Generated, fill)
             .unwrap();
         assert_eq!(name, AudioName::of_file_bytes(b"mixdown"));
         assert_eq!(path, store.path_of(AudioFolder::Generated, &name));
         assert_eq!(std::fs::read(&path).unwrap(), b"mixdown");
         // The same content again: the file there is kept, nothing left over.
         let (again, _) = store
-            .put_then_name(AudioFolder::Generated, fill, name_it)
+            .put_named_by_content(AudioFolder::Generated, fill)
             .unwrap();
         assert_eq!(again, name);
         let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())

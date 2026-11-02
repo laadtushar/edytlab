@@ -187,15 +187,16 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
     let name = AudioName::of_lane(clips);
     let store = AudioStore::new(project_dir);
     let cas_path = store.path_of(AudioFolder::Derived, &name);
-    store.put_with(AudioFolder::Derived, &name, |tmp| {
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(tmp)
-            .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
-        write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES)
-            .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))
-    })
+    store
+        .put_with(AudioFolder::Derived, &name, |tmp| {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(tmp)
+                .map_err(|e| e.to_string())?;
+            write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES).map_err(|e| e.to_string())
+        })
+        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))
 }
 
 /// The file a timeline lane draws for a track: its audio on the
@@ -1367,15 +1368,8 @@ where
         state.sample_rate = rate_out;
     }
 
-    // CAS-address the result under `<project>/.audiograph/derived/`.
-    let derived_dir: PathBuf = crate::provenance::derived_dir(ctx.store.project_dir());
-    if let Err(e) = std::fs::create_dir_all(&derived_dir) {
-        return ToolResult::Error(format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        ));
-    }
-
+    // CAS-address the result under `<project>/.audiograph/derived/`; the
+    // audio store makes the folder.
     // Name the file for the post-edit samples *and* the rate and channel
     // count they are written with (#620): a name made from the samples
     // alone is shared by two buffers of a different layout, and a file under

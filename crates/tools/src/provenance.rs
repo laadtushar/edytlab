@@ -56,7 +56,15 @@ pub use session::audio_store::{
     legacy_stem, CLIPBOARD_DIR, DERIVED_DIR,
 };
 
-/// Persist a clipboard buffer as a CAS blob and return its hash.
+/// A clipboard buffer kept in the project: its hash (what a paste records)
+/// and where the store put it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardBlob {
+    pub hash: String,
+    pub path: PathBuf,
+}
+
+/// Persist a clipboard buffer as a CAS blob and return its hash and path.
 ///
 /// Named by content, so copying the same region twice writes once. The
 /// blob is what makes a paste replayable: without it the pasted audio
@@ -67,26 +75,31 @@ pub fn store_clipboard_blob(
     samples: &[f32],
     sample_rate: u32,
     channels: u16,
-) -> Result<String, String> {
+) -> Result<ClipboardBlob, String> {
     let name = AudioName::of_samples(samples, sample_rate, channels);
+    let store = AudioStore::new(project_dir);
+    let path = store.path_of(AudioFolder::Clipboard, &name);
     // Written as float so it reads back as exactly these samples: a paste
     // replayed from a lossy blob would splice in different audio, and its
     // output would never match the file it is meant to rebuild. A blob
     // already there is kept only if it does read back exactly; one written
     // as 16-bit before this was float is replaced, whole (#719: the one
     // folder whose files can be checked against their name).
-    AudioStore::new(project_dir)
+    store
         .put_verified(
             AudioFolder::Clipboard,
             &name,
             |_| load_clipboard_blob(project_dir, name.as_str()).is_ok(),
             |tmp| {
                 audio_engine::write_wav_f32(samples, sample_rate, channels.max(1), tmp)
-                    .map_err(|e| format!("failed to write clipboard blob: {e}"))
+                    .map_err(|e| e.to_string())
             },
         )
-        .map_err(|e| format!("failed to store clipboard blob: {e}"))?;
-    Ok(name.as_str().to_string())
+        .map_err(|e| format!("failed to write clipboard blob {}: {e}", path.display()))?;
+    Ok(ClipboardBlob {
+        hash: name.as_str().to_string(),
+        path,
+    })
 }
 
 /// Read back the clipboard a paste used, checked against its name.
@@ -359,12 +372,16 @@ mod tests {
     fn a_clipboard_blob_is_written_once_and_named_by_content() {
         let tmp = tempfile::tempdir().unwrap();
         let samples = vec![0.25f32; 512];
-        let first = store_clipboard_blob(tmp.path(), &samples, 48_000, 2).unwrap();
+        let first = store_clipboard_blob(tmp.path(), &samples, 48_000, 2)
+            .unwrap()
+            .hash;
         let path = clipboard_blob_path(tmp.path(), &first);
         assert!(path.exists());
         let written = std::fs::metadata(&path).unwrap().len();
 
-        let second = store_clipboard_blob(tmp.path(), &samples, 48_000, 2).unwrap();
+        let second = store_clipboard_blob(tmp.path(), &samples, 48_000, 2)
+            .unwrap()
+            .hash;
         assert_eq!(first, second, "same audio must land on the same name");
         assert_eq!(
             std::fs::metadata(&path).unwrap().len(),

@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
-use session::audio_store::{AudioFolder, AudioName, AudioStore};
+use session::audio_store::{AudioFolder, AudioStore};
 use session::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
@@ -103,7 +103,7 @@ impl Tool for MixToNewTrackTool {
         // rate and channel count): written whole, renamed into place, never
         // left under a name half-written.
         let mut report = None;
-        let stored = AudioStore::new(ctx.store.project_dir()).put_then_name(
+        let stored = AudioStore::new(ctx.store.project_dir()).put_named_by_content(
             AudioFolder::Generated,
             |tmp| {
                 let r = audio_engine::render_state_to_wav(&filtered_state, tmp, None)
@@ -114,15 +114,12 @@ impl Tool for MixToNewTrackTool {
                 report = Some(r);
                 Ok(())
             },
-            |tmp| {
-                std::fs::read(tmp)
-                    .map(|bytes| AudioName::of_file_bytes(&bytes))
-                    .map_err(|e| format!("failed to read rendered wav: {e}"))
-            },
         );
         let (file_name, cas_path) = match stored {
             Ok(stored) => stored,
-            Err(e) => return Ok(ToolResult::Error(e)),
+            // A render's own failure says so; anything after it was storing.
+            Err(e) if e.starts_with("render") => return Ok(ToolResult::Error(e)),
+            Err(e) => return Ok(ToolResult::Error(format!("failed to store wav: {e}"))),
         };
         let Some(report) = report else {
             return Ok(ToolResult::Error("render produced no audio".to_string()));
