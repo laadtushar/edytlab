@@ -2742,14 +2742,26 @@ fn default_true() -> bool {
     true
 }
 
+// The skill and profile commands below read and write files in the user's
+// home directory, and the writes reload the whole library from disk, so
+// that file work runs on the blocking pool rather than on an async worker.
+// They take none of the turn locks (only the leaf `skills_dir`, `skills`,
+// `agent_profiles_dir`, `agent_profiles` and active-profile mutexes, each
+// for an instant and in the order they always have), and nothing awaits
+// while one is held: a profile change that rebuilds the agent does so after
+// its file work has come back.
 #[tauri::command]
 pub async fn read_skill(state: State<'_, AppState>, name: String) -> CmdResult<SkillContent> {
+    blocking(&state, move |state| read_skill_inner(state, name)).await
+}
+
+fn read_skill_inner(state: &AppState, name: String) -> CmdResult<SkillContent> {
     // Before any join (#266). `upsert_skill` and `delete_skill` have
     // always validated; this one did not, and the asymmetry was the
     // defect — `Path::join` with an *absolute* argument discards the
     // base entirely, so `name = "/etc/hosts"` resolved to
     // `/etc/hosts.md`, well outside the skills directory.
-    let dir = skills_dir(&state)?;
+    let dir = skills_dir(state)?;
     let path = skill_path(&dir, &name)?;
     if !path.exists() {
         // The name, not `path.display()`: echoing the resolved absolute
@@ -2786,11 +2798,15 @@ pub async fn upsert_skill(
         .into());
     }
     validate_skill_content(&content)?;
+    blocking(&state, move |state| write_skill(state, &name, &content)).await
+}
 
-    let dir = skills_dir(&state)?;
+/// [`upsert_skill`]'s file work, after the content has been validated.
+fn write_skill(state: &AppState, name: &str, content: &SkillContent) -> CmdResult<()> {
+    let dir = skills_dir(state)?;
     std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
-    let path = skill_path(&dir, &name)?;
-    let serialised = serialise_skill_file(&content);
+    let path = skill_path(&dir, name)?;
+    let serialised = serialise_skill_file(content);
 
     // Atomic write — tempfile in the same dir, then persist.
     let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(CommandError::from)?;
@@ -2808,8 +2824,12 @@ pub async fn upsert_skill(
 
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, AppState>, name: String) -> CmdResult<()> {
-    let dir = skills_dir(&state)?;
-    let path = skill_path(&dir, &name)?;
+    blocking(&state, move |state| delete_skill_inner(state, &name)).await
+}
+
+fn delete_skill_inner(state: &AppState, name: &str) -> CmdResult<()> {
+    let dir = skills_dir(state)?;
+    let path = skill_path(&dir, name)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(CommandError::from)?;
     }
@@ -5217,8 +5237,18 @@ pub async fn list_templates(app_handle: tauri::AppHandle) -> CmdResult<Vec<Templ
         .resource_dir()
         .map_err(|e| format!("resource dir: {e}"))?;
     let templates_dir = resource_dir.join("templates");
+    // Reads every bundled template file: file work, and it takes no lock,
+    // so it runs on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || read_templates(&templates_dir))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?
+}
+
+/// [`list_templates`]' file work: the name and description of each
+/// `.json` file in `templates_dir`.
+fn read_templates(templates_dir: &Path) -> CmdResult<Vec<TemplateInfo>> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&templates_dir) else {
+    let Ok(entries) = std::fs::read_dir(templates_dir) else {
         return Ok(out); // dev mode: no bundled resources
     };
     for entry in entries.flatten() {
@@ -5377,9 +5407,13 @@ pub async fn read_agent_profile(
     state: State<'_, AppState>,
     name: String,
 ) -> CmdResult<AgentProfileContent> {
+    blocking(&state, move |state| read_agent_profile_inner(state, name)).await
+}
+
+fn read_agent_profile_inner(state: &AppState, name: String) -> CmdResult<AgentProfileContent> {
     // Same gap as `read_skill`, same fix (#266): the write and delete
     // siblings validate, this one did not.
-    let dir = agent_profiles_dir(&state)?;
+    let dir = agent_profiles_dir(state)?;
     let path = agent_profile_path(&dir, &name)?;
     if !path.exists() {
         return Err(CommandError::InvalidPath(format!("profile `{name}` not found")).into());
@@ -5408,10 +5442,30 @@ pub async fn upsert_agent_profile(
         ))
         .into());
     }
-    let dir = agent_profiles_dir(&state)?;
+    let is_active = blocking(&state, move |state| {
+        write_agent_profile(state, &name, &content)?;
+        Ok(state.active_agent_profile().as_deref() == Some(name.as_str()))
+    })
+    .await?;
+    // If the user is editing the currently active profile, rebuild
+    // the agent so the override takes effect on the next turn.
+    if is_active {
+        rebuild_agent(&state).await?;
+    }
+    Ok(())
+}
+
+/// [`upsert_agent_profile`]'s file work: write the profile, then reload
+/// the library from disk.
+fn write_agent_profile(
+    state: &AppState,
+    name: &str,
+    content: &AgentProfileContent,
+) -> CmdResult<()> {
+    let dir = agent_profiles_dir(state)?;
     std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
-    let path = agent_profile_path(&dir, &name)?;
-    let serialised = serialise_agent_profile(&content);
+    let path = agent_profile_path(&dir, name)?;
+    let serialised = serialise_agent_profile(content);
     let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(CommandError::from)?;
     std::io::Write::write_all(&mut tmp, serialised.as_bytes()).map_err(CommandError::from)?;
     tmp.flush().map_err(CommandError::from)?;
@@ -5422,35 +5476,45 @@ pub async fn upsert_agent_profile(
             CommandError::InvalidAgentProfile(format!("saved but reload failed: {e}")).into(),
         );
     }
-    // If the user is editing the currently active profile, rebuild
-    // the agent so the override takes effect on the next turn.
-    if state.active_agent_profile().as_deref() == Some(name.as_str()) {
-        rebuild_agent(&state).await?;
-    }
     Ok(())
 }
 
 #[tauri::command]
 pub async fn delete_agent_profile(state: State<'_, AppState>, name: String) -> CmdResult<()> {
-    let dir = agent_profiles_dir(&state)?;
-    let path = agent_profile_path(&dir, &name)?;
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(CommandError::from)?;
-    }
-    // If the deleted profile was active, drop the selection and
-    // rebuild the agent against the default config.
-    if state.active_agent_profile().as_deref() == Some(name.as_str()) {
-        state
-            .set_active_agent_profile(None)
-            .map_err(CommandError::from)?;
+    // The file work on the blocking pool, in two parts around the agent
+    // rebuild, which awaits and so stays on the task: the order of the
+    // steps is the one this command has always taken.
+    let was_active = blocking(&state, move |state| {
+        let dir = agent_profiles_dir(state)?;
+        let path = agent_profile_path(&dir, &name)?;
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(CommandError::from)?;
+        }
+        // If the deleted profile was active, drop the selection (which
+        // removes its sidecar file) before the agent is rebuilt.
+        let was_active = state.active_agent_profile().as_deref() == Some(name.as_str());
+        if was_active {
+            state
+                .set_active_agent_profile(None)
+                .map_err(CommandError::from)?;
+        }
+        Ok(was_active)
+    })
+    .await?;
+    // Rebuild the agent against the default config.
+    if was_active {
         rebuild_agent(&state).await?;
     }
-    if let Err(e) = state.reload_agent_profiles_from_disk() {
-        return Err(
-            CommandError::InvalidAgentProfile(format!("deleted but reload failed: {e}")).into(),
-        );
-    }
-    Ok(())
+    blocking(&state, |state| {
+        if let Err(e) = state.reload_agent_profiles_from_disk() {
+            return Err(CommandError::InvalidAgentProfile(format!(
+                "deleted but reload failed: {e}"
+            ))
+            .into());
+        }
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
