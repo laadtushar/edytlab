@@ -26,15 +26,21 @@
 //!   [`Capture::xrun`] and the caller refuses the take, it never splices
 //!   around a gap.
 //!
-//! cpal's error callback is not a glitch detector: ALSA recovers an
-//! overrun or underrun itself and calls back as if nothing happened, and
-//! CoreAudio and WASAPI report none. The timing check is what catches
-//! those, and it sees a loss of more than about one buffer plus 20 ms, not
-//! a smaller one; a calibration whose sweeps then disagree is refused for
+//! cpal's error callback is not a glitch detector on its own. Since cpal
+//! 0.17 ALSA reports the overruns and underruns it recovers from
+//! (`ErrorKind::Xrun`), and since 0.18.2 CoreAudio and WASAPI capture do
+//! too, but a sound server behind ALSA's `default` hides its own, and
+//! WASAPI playback reports none. The timing check is what catches those,
+//! and it sees a loss of more than about one buffer plus 20 ms, not a
+//! smaller one; a calibration whose sweeps then disagree is refused for
 //! that reason, and a take is only as good as the quiet machine it ran on.
+//! Any error the callback is handed counts: this crate does not enable
+//! cpal's `realtime` features, the only source of the informational
+//! `ErrorKind::RealtimeDenied`.
 //!
-//! The streams are built, run and dropped on the calling thread
-//! (`cpal::Stream` is not `Send`), so call this from a blocking task.
+//! The streams are built, run and dropped on the calling thread, so call
+//! this from a blocking task. (`cpal::Stream` was not `Send` before cpal
+//! 0.17; it is now, but nothing here needs to move one.)
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -59,19 +65,37 @@ pub struct DevicePair {
     pub in_ch: u16,
 }
 
+/// Which way this crate's streams are set up, as part of every stored
+/// latency's key. The latency is mostly buffers, so a latency measured
+/// with streams buffered one way is wrong for streams buffered another,
+/// on the same devices at the same rates. Bump it when what the streams
+/// are buffered by changes: cpal's defaults, or a `BufferSize` asked for
+/// here. A key without it (five fields) is from a build before it, which
+/// is never read as this one's.
+///
+/// `cpal18`: cpal 0.17 stopped imposing its own ALSA buffering (25 ms
+/// periods in a 100 ms buffer) and uses the device's defaults
+/// (`BufferSize::Default`); on the loopback's private PulseAudio daemon
+/// the measured latency went from 75.6 ms (cpal 0.15) to 10.8 ms. A
+/// calibration from cpal 0.15 applied now would put a take about 65 ms
+/// early there, so it reads as not measured and is made again.
+const STREAM_SETUP: &str = "cpal18";
+
 impl DevicePair {
-    /// `host|output name|input name|out_sr|in_sr`. The rates are in it
-    /// because buffer depth changes with them; the channel counts are not,
-    /// because they do not move the delay.
+    /// `host|output name|input name|out_sr|in_sr|stream setup`. The rates
+    /// are in it because buffer depth changes with them, and the stream
+    /// setup ([`STREAM_SETUP`]) because it changes the buffers too; the
+    /// channel counts are not, because they do not move the delay.
     pub fn key(&self) -> String {
         let clean = |s: &str| s.replace('|', "/");
         format!(
-            "{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}",
             clean(&self.host),
             clean(&self.output),
             clean(&self.input),
             self.out_sr,
-            self.in_sr
+            self.in_sr,
+            STREAM_SETUP
         )
     }
 }
@@ -130,6 +154,23 @@ pub(crate) fn pair_from(
     })
 }
 
+/// The name a device is filed under: what cpal 0.15's `Device::name()`
+/// answered, which every stored latency's key holds. cpal 0.18 removed
+/// `name()`. On ALSA its replacement, `description().name()`, is the
+/// hint's text for people (`Default Audio Device` for `default`, `PulseAudio
+/// Sound Server` for `pulse`), not the PCM name [`crate::identify`] reads,
+/// so there the name is the device id's PCM name (`default`, `pulse`,
+/// `hw:CARD=PCH,DEV=0`), as `name()` was. On CoreAudio and WASAPI
+/// `description().name()` reads the property `name()` read (the device
+/// name; the endpoint's FriendlyName).
+fn device_name(host: cpal::HostId, dev: &cpal::Device) -> Option<String> {
+    if host.name() == crate::identify::ALSA {
+        dev.id().ok().map(|id| id.id().to_string())
+    } else {
+        dev.description().ok().map(|d| d.name().to_string())
+    }
+}
+
 /// The default devices and their configurations.
 pub fn default_pair() -> Result<DevicePair, RecorderError> {
     let host = cpal::default_host();
@@ -143,18 +184,18 @@ pub fn default_pair() -> Result<DevicePair, RecorderError> {
     let in_cfg = inp
         .default_input_config()
         .map_err(|e| RecorderError::Stream(e.to_string()))?;
-    let out_name = out.name().unwrap_or_else(|_| "unknown output".into());
-    let in_name = inp.name().unwrap_or_else(|_| "unknown input".into());
+    let out_name = device_name(host.id(), &out).unwrap_or_else(|| "unknown output".into());
+    let in_name = device_name(host.id(), &inp).unwrap_or_else(|| "unknown input".into());
     pair_from(
         host.id().name(),
         Side {
             name: &out_name,
-            sr: out_cfg.sample_rate().0,
+            sr: out_cfg.sample_rate(),
             ch: out_cfg.channels(),
         },
         Side {
             name: &in_name,
-            sr: in_cfg.sample_rate().0,
+            sr: in_cfg.sample_rate(),
             ch: in_cfg.channels(),
         },
         &pactl,
@@ -222,7 +263,7 @@ pub fn play_and_capture(
         let mut cursor = 0usize; // in frames
         out_dev
             .build_output_stream(
-                &out_cfg,
+                out_cfg,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     env.observe(ns(), cursor as u64);
                     let from = (cursor * out_ch).min(monitor.len());
@@ -247,7 +288,7 @@ pub fn play_and_capture(
         let mut seen = 0usize; // samples delivered, valid or not
         in_dev
             .build_input_stream(
-                &in_cfg,
+                in_cfg,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     seen += data.len();
                     env.observe(ns(), (seen / in_ch) as u64);
@@ -342,7 +383,7 @@ mod tests {
     fn the_key_names_the_pair_and_both_rates() {
         assert_eq!(
             pair().key(),
-            "ALSA|sysdefault:CARD=PCH|sysdefault:CARD=USB|48000|44100"
+            "ALSA|sysdefault:CARD=PCH|sysdefault:CARD=USB|48000|44100|cpal18"
         );
     }
 
@@ -362,7 +403,7 @@ mod tests {
     fn a_separator_in_a_device_name_cannot_split_the_key() {
         let mut p = pair();
         p.output = "Out | Left".into();
-        assert_eq!(p.key().split('|').count(), 5);
+        assert_eq!(p.key().split('|').count(), 6);
     }
 
     const PCI_SINK: &str = "alsa_output.pci-0000_00_1f.3.analog-stereo";
@@ -401,7 +442,7 @@ mod tests {
         );
         assert_eq!(
             speakers,
-            format!("ALSA|default ({PCI_SINK})|default ({SOURCE})|48000|48000")
+            format!("ALSA|default ({PCI_SINK})|default ({SOURCE})|48000|48000|cpal18")
         );
     }
 
@@ -443,6 +484,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(p.output, "hw:CARD=PCH,DEV=0");
+    }
+
+    /// The names every stored latency is filed under on Linux: cpal's ALSA
+    /// defaults must still read as `default`, which [`crate::identify`]
+    /// replaces with the sound server's sink and source. cpal 0.18's
+    /// `description().name()` would read `Default Audio Device` here and
+    /// orphan every stored calibration. Opens no device.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn alsa_defaults_are_filed_under_the_pcm_name_default() {
+        let host = cpal::default_host();
+        assert_eq!(host.id().name(), crate::identify::ALSA);
+        let out = host
+            .default_output_device()
+            .expect("ALSA always has a default");
+        let inp = host
+            .default_input_device()
+            .expect("ALSA always has a default");
+        assert_eq!(device_name(host.id(), &out).as_deref(), Some("default"));
+        assert_eq!(device_name(host.id(), &inp).as_deref(), Some("default"));
     }
 
     #[test]

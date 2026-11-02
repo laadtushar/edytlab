@@ -46,10 +46,15 @@ pub struct Recorder {
     channels: u16,
 }
 
-// cpal::Stream is not Send by default on some platforms; we hold it
-// inside a Mutex<Option<Recorder>> so only one thread touches it.
-// SAFETY: we never share the stream across threads without a Mutex guard.
-unsafe impl Send for Recorder {}
+// The desktop holds a `Recorder` in a `Mutex<Option<Recorder>>`, which
+// needs it `Send`. cpal 0.15's `Stream` was not `Send` on every backend and
+// this was an `unsafe impl`; since cpal 0.17 every backend's `Stream` is
+// `Send + Sync` (and cpal asserts it at compile time), so the compiler now
+// proves it, and fails here if a cpal release takes it away.
+const _: () = {
+    const fn assert_send<T: Send>() {}
+    assert_send::<Recorder>();
+};
 
 impl Recorder {
     pub fn start() -> Result<Self, RecorderError> {
@@ -58,13 +63,13 @@ impl Recorder {
         let config = device
             .default_input_config()
             .map_err(|e| RecorderError::Stream(e.to_string()))?;
-        let sample_rate = config.sample_rate().0;
+        let sample_rate = config.sample_rate();
         let channels = config.channels();
         let samples: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
         let samples_clone = Arc::clone(&samples);
         let stream = device
             .build_input_stream(
-                &config.into(),
+                config.into(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     if let Ok(mut s) = samples_clone.lock() {
                         s.extend_from_slice(data);
