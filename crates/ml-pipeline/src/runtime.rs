@@ -7,10 +7,10 @@
 //! - **A failed implicit load panics.** `Session::builder`, `ort::api()`
 //!   and the rest load the library on first use, and a failure there is
 //!   `.expect("Failed to load ONNX Runtime dylib")` inside a one-time
-//!   initialiser, not a `Result`. The release profile is `panic = "abort"`
-//!   and a tool runs while the agent loop holds the dispatcher, store and
-//!   engine mutexes, so a missing library would end the app in the middle
-//!   of a turn.
+//!   initialiser, not a `Result`. A tool runs while the agent loop holds
+//!   the dispatcher, store and engine mutexes, so a missing library would
+//!   poison them in the middle of a turn (the release profile unwinds,
+//!   #908; it used to abort and end the app).
 //! - **It searches.** With no `ORT_DYLIB_PATH` it hands the loader the
 //!   bare name (`libonnxruntime.so`, `libonnxruntime.dylib`,
 //!   `onnxruntime.dll`), and a relative `ORT_DYLIB_PATH` that names no file
@@ -328,7 +328,7 @@ fn tagged_candidates(
 ///
 /// **Every entry point into `ort` must call this first.** `Session::builder`,
 /// `ort::init`, `ort::api()` and the rest all load the library on first
-/// use, panic when they cannot (a release build aborts) and search the
+/// use, panic when they cannot (poisoning the locks a tool holds) and search the
 /// system for a bare name, so a caller that skips this loses the
 /// protection this module exists to give.
 pub fn ensure() -> Result<PathBuf> {

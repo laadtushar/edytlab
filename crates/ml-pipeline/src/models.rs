@@ -51,6 +51,12 @@
 
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+
+// The download thread's guard needs unwinding to catch anything (#908).
+const _: () = assert!(
+    cfg!(panic = "unwind"),
+    "ml-pipeline relies on catch_unwind around the model download; build with panic = \"unwind\" (#908)"
+);
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -599,8 +605,8 @@ impl Inner {
                     ),
                 )
             }
-            // Reached only in a debug or test build: a release build aborts
-            // on a panic (see the `catch_unwind` in `start_download`).
+            // The transfer panicked (see the `catch_unwind` in
+            // `start_download`); release builds unwind too (#908).
             Err(_) => {
                 let reason = "the download stopped unexpectedly".to_string();
                 tracing::error!(model = %model.id, "the model download thread panicked");
@@ -748,11 +754,9 @@ impl ModelDownloads {
                     cancel,
                     last_report: None,
                 };
-                // A panic in the transfer is caught and shown as a failure in
-                // a debug or test build. The release profile sets
-                // `panic = "abort"` (root `Cargo.toml`), so in a shipped
-                // build a panic ends the app instead and this catches
-                // nothing: nothing may rely on it.
+                // A panic in the transfer is caught and shown as a failure,
+                // in a shipped build too: the release profile unwinds
+                // (#908), which this crate checks at compile time.
                 let result = catch_unwind(AssertUnwindSafe(|| {
                     inner.store.fetch(&worker_model.artifact, &mut reporter)
                 }));
