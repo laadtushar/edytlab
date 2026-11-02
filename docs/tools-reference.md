@@ -123,7 +123,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`time_shift`](#time_shift) — Move a track's clips forward or backward in time.
 - [`time_stretch`](#time_stretch) — Stretch or compress a track in time without changing its pitch.
 - [`transcribe`](#transcribe) — Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript that cut_words, remove_fillers and select_region's `text` work from.
-- [`transcript_to_markers`](#transcript_to_markers) — Add point markers at the stored transcript's segment or sentence starts, at the times it had when transcribed (stale once the clip is moved).
+- [`transcript_to_markers`](#transcript_to_markers) — Add point markers at the stored transcript's segment or sentence starts, at the stored times (they follow edits that move, cut or stretch the track; align_to_beat leaves them stale).
 - [`tremolo`](#tremolo) — Apply tremolo (LFO amplitude modulation).
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
@@ -505,7 +505,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `export_transcript`
 
-Export the stored transcript as SRT, WebVTT, or plain text. Times are as transcribed (session seconds for a track); moving the clip afterwards makes them stale. Writes a file, never inside .audiograph; call transcribe first.
+Export the stored transcript as SRT, WebVTT, or plain text. Times are session seconds for a track and follow edits that move, cut or stretch it; align_to_beat leaves them stale. Writes a file, never inside .audiograph; call transcribe first.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1335,7 +1335,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `transcript_to_markers`
 
-Add point markers at the stored transcript's segment or sentence starts, at the times it had when transcribed (stale once the clip is moved). Appends one node, keeps annotations and audio, skips markers that already exist. File or unknown-source transcripts require an explicit offset_sec (zero is allowed). Run transcribe first.
+Add point markers at the stored transcript's segment or sentence starts, at the stored times (they follow edits that move, cut or stretch the track; align_to_beat leaves them stale). Appends one node, keeps annotations and audio, skips markers that already exist. File or unknown-source transcripts require an explicit offset_sec (zero is allowed). Run transcribe first.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

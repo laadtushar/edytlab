@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit_then, remap_after_scale, source_channels};
+use crate::tool::util::{destructive_edit_then, remap_after_scale, source_channels, Moved};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -79,12 +79,12 @@ impl Tool for ChangeSpeedTool {
                 *samples = resampled;
                 Ok((sr, chans))
             },
-            move |state, _| {
+            move |state, edited| {
                 // Speeding up re-times the whole recording: output
                 // duration is input ÷ factor, so a mark at 10s in a
                 // doubled-speed track belongs at 5s (#231). Nothing is
                 // dropped — a stretch removes no part of the audio.
-                remap_after_scale(state, 1.0 / factor as f64);
+                remap_after_scale(state, Moved::track(edited), 1.0 / factor as f64);
                 Default::default()
             },
             format!("change_speed track {} x{:.3}", args.track, args.factor),

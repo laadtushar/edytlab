@@ -191,7 +191,7 @@ fn markers_follow_the_source_track_after_time_shift() {
     assert_eq!(result["time_basis"], "session");
     let note = result["time_note"].as_str().unwrap();
     assert!(
-        note.contains("as transcribed") && note.contains("stale"),
+        note.contains("follow edits that move, cut or stretch") && note.contains("stale"),
         "{note}"
     );
     assert_eq!(result["applied_offset_sec"], 0.0);
