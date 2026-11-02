@@ -1564,20 +1564,26 @@ function AppSession() {
               setMixPath(null);
               setMixNodeId(null);
             }
-            const stillCurrent =
-              projectGenerationRef.current === projectGeneration && currentHead === outcome.head;
-            if (stillCurrent) owned.clear();
+            const sameProject = projectGenerationRef.current === projectGeneration;
+            if (sameProject && currentHead !== null) owned.clear();
             await refreshTracks();
-            if (stillCurrent) setPunchNotice(appliedText(outcome));
+            // Even if an agent event won the head read, the punch was applied
+            // in this project. Keep newer lane input but report the success.
+            if (sameProject) setPunchNotice(appliedText(outcome));
           });
-        } else if (outcome.kind !== "cancelled" && projectGenerationRef.current === projectGeneration) {
+        } else if (outcome.kind === "failed") {
+          // A refused take can be saved in the project the user just left;
+          // the backend's message is the only place its recovery path appears.
+          const leftProject = projectGenerationRef.current !== projectGeneration;
+          setRenderError(leftProject ? `In the project you left: ${outcome.message}` : outcome.message);
+        } else if (outcome.kind === "uncalibrated" && projectGenerationRef.current === projectGeneration) {
           // A refusal or a failure says what to try; "not calibrated" also
           // gets the button that goes there.
           setRenderError(outcome.message);
         }
       } catch (error) {
         setRenderError(applied
-          ? `The punch was applied, but the current project could not be refreshed: ${String(error)}. Refresh the project before retrying.`
+          ? `The punch was applied, but the current project could not be refreshed: ${String(error)}. Reopen the project before retrying.`
           : String(error));
       } finally {
         setPunching(false);

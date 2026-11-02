@@ -32,8 +32,9 @@
 //!    that a replay of the node finds it), and applies it with the
 //!    `punch_in` tool, exactly as the agent's would, in the same hold of the
 //!    store's lock that checks the head is still the one the performer
-//!    heard. If it is not, the take is not applied (it would go into a mix it
-//!    was not recorded against) and stays in the project, with its place
+//!    heard. The captured live-store identity must also match the project
+//!    open at the check; a later project switch cannot redirect the edit.
+//!    If either check fails, the take stays in the project, with its place
 //!    named.
 //!
 //! The region is cut at the frames `punch_in` replaces (it truncates), for
@@ -43,7 +44,7 @@
 //! file in the project.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use recorder::duplex::DevicePair;
 use recorder::punch::{self, PunchError, Region, Rendered};
@@ -162,7 +163,7 @@ struct Snapshot {
     head: NodeId,
     /// The live project whose audio was heard; a head alone can be shared by
     /// two distinct copies of a project.
-    store: Arc<Mutex<session::Store>>,
+    store: Weak<Mutex<session::Store>>,
     state: SessionState,
     project_dir: PathBuf,
     /// The rate and channel count a take for the track has to have.
@@ -211,7 +212,7 @@ fn snapshot(state: &AppState, req: &Request) -> Result<Snapshot, String> {
     drop(store);
     Ok(Snapshot {
         head,
-        store: handle,
+        store: Arc::downgrade(&handle),
         state: session,
         project_dir,
         rate,
@@ -1154,7 +1155,81 @@ mod tests {
     }
 
     #[test]
-    fn a_project_switch_waits_until_the_identity_checked_edit_finishes() {
+    fn recording_does_not_keep_an_extra_strong_store_reference() {
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let weak = std::sync::Arc::downgrade(&p.state.store_handle().unwrap());
+        let before = weak.strong_count();
+        let fake = Fake::new();
+        *fake.meanwhile.borrow_mut() = Some(Box::new(move || {
+            assert_eq!(
+                weak.strong_count(),
+                before,
+                "the take must not pin the store"
+            );
+        }));
+        run_with(&p, &fake, &store, &req()).unwrap();
+    }
+
+    #[test]
+    fn a_dropped_original_store_refuses_and_keeps_the_take() {
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let handle = p.state.store_handle().unwrap();
+        let original = std::sync::Arc::downgrade(&handle);
+        let original_head = handle.lock().unwrap().head().unwrap();
+        let copy_dir = p._dir.path().join("copy");
+        crate::project::copy_project(&handle, &copy_dir).unwrap();
+        let copy = session::Store::open_shared(&copy_dir).unwrap();
+        drop(handle);
+        let fake = Fake::new();
+        let state = p.state.clone();
+        *fake.meanwhile.borrow_mut() = Some(Box::new(move || {
+            state.set_open_project(copy, copy_dir);
+            assert!(original.upgrade().is_none(), "the old store is still held");
+        }));
+        let e = run_with(&p, &fake, &store, &req()).unwrap_err();
+        assert!(e.contains("changed while"), "{e}");
+        let kept = e.rsplit("saved in ").next().unwrap().trim_end_matches('.');
+        let kept = std::path::Path::new(kept);
+        assert!(kept.starts_with(p._dir.path().join("project")), "{e}");
+        assert!(kept.is_file(), "{e}");
+        assert_eq!(p.head(), original_head, "the copy was not changed");
+    }
+
+    #[test]
+    fn reopening_after_the_original_store_died_refuses_and_keeps_the_take() {
+        let p = project();
+        let (_d, store) = store_with(Some((TRUE_LATENCY_MS, Source::Measured)));
+        let handle = p.state.store_handle().unwrap();
+        let original = std::sync::Arc::downgrade(&handle);
+        let original_head = handle.lock().unwrap().head().unwrap();
+        let copy_dir = p._dir.path().join("copy");
+        let project_dir = p._dir.path().join("project");
+        crate::project::copy_project(&handle, &copy_dir).unwrap();
+        let copy = session::Store::open_shared(&copy_dir).unwrap();
+        drop(handle);
+        let fake = Fake::new();
+        let state = p.state.clone();
+        *fake.meanwhile.borrow_mut() = Some(Box::new(move || {
+            state.set_open_project(copy, copy_dir);
+            assert!(original.upgrade().is_none(), "the old store is still held");
+            let reopened = session::Store::open_shared(&project_dir).unwrap();
+            state.set_open_project(reopened, project_dir);
+        }));
+        let e = run_with(&p, &fake, &store, &req()).unwrap_err();
+        assert!(e.contains("changed while"), "{e}");
+        let kept = e.rsplit("saved in ").next().unwrap().trim_end_matches('.');
+        assert!(std::path::Path::new(kept).is_file(), "{e}");
+        assert_eq!(
+            p.head(),
+            original_head,
+            "the reopened store was not changed"
+        );
+    }
+
+    #[test]
+    fn a_project_switch_can_finish_during_an_identity_checked_edit() {
         use std::sync::{mpsc, TryLockError};
         use std::time::{Duration, Instant};
 
@@ -1165,11 +1240,11 @@ mod tests {
         crate::project::copy_project(&original, &copy_dir).unwrap();
         let copy = session::Store::open_shared(&copy_dir).unwrap();
 
-        // Hold the engine so the guarded edit cannot finish. Once it holds
-        // the project slot, a switch must wait until dispatch has completed.
+        // Hold the engine so the guarded edit cannot finish. Once the edit
+        // has its store lock, a project switch must not wait for dispatch.
         let engine = p.state.engine.lock().unwrap();
         let edit_state = p.state.clone();
-        let edit_store = original.clone();
+        let edit_store = std::sync::Arc::downgrade(&original);
         let (edit_done_tx, edit_done_rx) = mpsc::channel();
         let edit = std::thread::spawn(move || {
             let result = crate::commands::run_track_tool_at_project(
@@ -1183,14 +1258,14 @@ mod tests {
         });
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            match p.state.store.try_lock() {
+            match original.try_lock() {
                 Err(TryLockError::WouldBlock) => break,
-                Err(TryLockError::Poisoned(_)) => panic!("project slot poisoned"),
-                Ok(slot) => drop(slot),
+                Err(TryLockError::Poisoned(_)) => panic!("store poisoned"),
+                Ok(store) => drop(store),
             }
             assert!(
                 Instant::now() < deadline,
-                "edit did not acquire the project slot"
+                "edit did not acquire the original store"
             );
             std::thread::yield_now();
         }
@@ -1204,18 +1279,21 @@ mod tests {
             swap_done_tx.send(()).unwrap();
         });
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(matches!(
-            swap_done_rx.recv_timeout(Duration::from_millis(50)),
-            Err(mpsc::RecvTimeoutError::Timeout)
-        ));
+        let swapped_before_dispatch = swap_done_rx.recv_timeout(Duration::from_secs(2)).is_ok();
         drop(engine);
         edit_done_rx
             .recv_timeout(Duration::from_secs(5))
             .unwrap()
             .unwrap();
-        swap_done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        if !swapped_before_dispatch {
+            swap_done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
         edit.join().unwrap();
         swap.join().unwrap();
+        assert!(
+            swapped_before_dispatch,
+            "project switch waited for dispatch"
+        );
         assert!(!std::sync::Arc::ptr_eq(
             &p.state.store_handle().unwrap(),
             &original
