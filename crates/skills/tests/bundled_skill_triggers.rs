@@ -53,11 +53,13 @@ const TABLE: &[(&str, &[&str])] = &[
     ("Save my work", &[]),
     ("Check the peak and the rms", &[]),
     ("Add a track", &[]),
+    ("Is the new effect live yet?", &[]),
     // Real intents, one skill each.
     ("master this to -14 LUFS", &["loudness-master"]),
     ("Normalize it for Spotify", &["loudness-master"]),
     ("remove the hum", &["noise-reducer"]),
     ("Get rid of the hiss and buzz", &["noise-reducer"]),
+    ("Remove the tape hiss", &["noise-reducer"]),
     ("prepare this for ACX", &["acx-audiobook"]),
     (
         "Is my audiobook narration within the noise floor limit?",
@@ -73,6 +75,12 @@ const TABLE: &[(&str, &[&str])] = &[
         &["dialog-enhancer"],
     ),
     ("Remove the long pauses", &["silence-cleaner"]),
+    (
+        "Master this live recording of our concert",
+        &["live-master"],
+    ),
+    ("Master my hip-hop track", &["genre-master"]),
+    ("Give this a lo-fi feel", &["lofi-master"]),
     // Real overlaps: both skills apply, and their limiter advice agrees
     // (see `no_bundled_skill_calls_the_baked_limiter_tool`).
     (
@@ -82,6 +90,10 @@ const TABLE: &[(&str, &[&str])] = &[
     (
         "Clean up the background noise in my podcast",
         &["noise-reducer", "podcast-cleanup"],
+    ),
+    (
+        "Master my jazz album for Spotify",
+        &["genre-master", "loudness-master"],
     ),
 ];
 
