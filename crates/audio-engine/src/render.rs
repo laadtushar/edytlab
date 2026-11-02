@@ -53,7 +53,7 @@
 //!
 //! * The per-track resampler is fed in the SAME 1024-input-frame chunks as
 //!   M21, with the SAME zero-padding for the trailing partial chunk. The
-//!   resampler is rubato `FftFixedInOut` with the same parameters.
+//!   resampler is rubato `Fft` (`FixedSync::Both`) with the same parameters.
 //! * Per-track resampled output is truncated to the SAME `expected_out_frames
 //!   = in_frames * out_rate / in_rate` (u128 truncated division) as M21.
 //! * Per-track gain, channel up/downmix, and the per-sample sum order are
@@ -68,7 +68,8 @@ use std::path::Path;
 
 use audio_decoder::{decode_file, DecodedAudio, WavStreamReader};
 use hound::{SampleFormat, WavSpec, WavWriter};
-use rubato::{FftFixedInOut, Resampler};
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+use rubato::{Fft, FixedSync, Resampler};
 use session::SessionState;
 
 use crate::graph::{self, RenderGraph, TrackPlan};
@@ -482,8 +483,31 @@ fn to_project_frames(source_frames: u64, in_rate: u32, project_rate: u32) -> u64
     ((source_frames as u128) * (project_rate as u128) / (in_rate as u128)) as u64
 }
 
+/// One chunk through `resampler`, planar `Vec` buffers in and out.
+///
+/// rubato 1.0 moved the resamplers onto `audioadapter` buffers; this wraps
+/// the per-channel vectors the renderer already keeps, sized to the frames the
+/// resampler asks for next (the buffers may be longer, as `out_buf` is, sized
+/// for `output_frames_max`). Returns `(input frames used, output frames
+/// written)`.
+pub(crate) fn process_planar(
+    resampler: &mut Fft<f32>,
+    input: &[Vec<f32>],
+    output: &mut [Vec<f32>],
+) -> Result<(usize, usize), Error> {
+    let channels = resampler.nbr_channels();
+    let input = SequentialSliceOfVecs::new(input, channels, resampler.input_frames_next())
+        .map_err(Error::ResamplerBuffer)?;
+    let mut output =
+        SequentialSliceOfVecs::new_mut(output, channels, resampler.output_frames_next())
+            .map_err(Error::ResamplerBuffer)?;
+    resampler
+        .process_into_buffer(&input, &mut output, None)
+        .map_err(Error::ResamplerProcess)
+}
+
 struct TrackResampler {
-    inner: FftFixedInOut<f32>,
+    inner: Fft<f32>,
     /// Pre-sized resampler input/output planar buffers.
     in_buf: Vec<Vec<f32>>,
     out_buf: Vec<Vec<f32>>,
@@ -492,7 +516,7 @@ struct TrackResampler {
     /// Output frames still to be discarded from the head to cancel the
     /// resampler's own latency (#242).
     ///
-    /// `FftFixedInOut` reports `chunk_size_out / 2` of delay, and it was
+    /// `Fft` (fixed input and output) reports `chunk_size_out / 2` of delay, and it was
     /// never queried: every off-rate track came out that much late
     /// relative to tracks already at the project rate — 11.7 ms for
     /// 48k↔44.1k, 65 ms for 8k→44.1k — and because the output is capped
@@ -539,11 +563,12 @@ impl TrackStreamer {
         let resampler = if in_rate == project_rate {
             None
         } else {
-            let inner = FftFixedInOut::<f32>::new(
+            let inner = Fft::<f32>::new(
                 in_rate as usize,
                 project_rate as usize,
                 RESAMPLER_CHUNK_INPUT_FRAMES,
                 in_channels,
+                FixedSync::Both,
             )
             .map_err(Error::ResamplerInit)?;
             let chunk_in = inner.input_frames_next();
@@ -698,10 +723,8 @@ impl TrackStreamer {
                     self.source_eof = true;
                 }
 
-                let (_in_used, out_written) = rs
-                    .inner
-                    .process_into_buffer(&rs.in_buf, &mut rs.out_buf, None)
-                    .map_err(Error::ResamplerProcess)?;
+                let (_in_used, out_written) =
+                    process_planar(&mut rs.inner, &rs.in_buf, &mut rs.out_buf)?;
 
                 // Drop the resampler's own latency off the front before
                 // anything sees it (#242). Only what survives is counted,
@@ -728,7 +751,7 @@ impl TrackStreamer {
     fn source_finished_and_drained(&self) -> bool {
         // For unity rate: source EOF means no more input. For resample: the
         // resampler may still have a tail in its internal state, but
-        // FftFixedInOut produces output strictly per call; once we stop
+        // `Fft` produces output strictly per call; once we stop
         // calling it (because we've already accumulated `project_frames_total`
         // samples in pending or already emitted) we're done.
         if self.resampler.is_none() {
@@ -1263,11 +1286,12 @@ pub fn buffered_resample_track(
         return Ok(Vec::new());
     }
     let in_frames = samples.len() / channels;
-    let mut resampler = FftFixedInOut::<f32>::new(
+    let mut resampler = Fft::<f32>::new(
         in_rate as usize,
         out_rate as usize,
         RESAMPLER_CHUNK_INPUT_FRAMES,
         channels,
+        FixedSync::Both,
     )
     .map_err(Error::ResamplerInit)?;
     let chunk = resampler.input_frames_next();
@@ -1312,9 +1336,7 @@ pub fn buffered_resample_track(
                 in_buf[ch].iter_mut().for_each(|v| *v = 0.0);
             }
         }
-        let (_in_used, out_written) = resampler
-            .process_into_buffer(&in_buf, &mut out_buf, None)
-            .map_err(Error::ResamplerProcess)?;
+        let (_in_used, out_written) = process_planar(&mut resampler, &in_buf, &mut out_buf)?;
         if out_written == 0 {
             // A resampler that stops producing would otherwise spin here.
             break;
