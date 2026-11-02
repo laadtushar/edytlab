@@ -219,7 +219,7 @@ export default function GettingStartedPage() {
       <h2>4. Load your first audio file</h2>
       <ul>
         <li>
-          <strong>Drag and drop</strong> a WAV, MP3, FLAC or Ogg Vorbis file
+          <strong>Drag and drop</strong> a WAV, MP3, FLAC, Ogg Vorbis, Opus, AIFF or (on macOS and Windows) M4A file
           onto the timeline. Several files at once make a multi-track session.
         </li>
         <li>

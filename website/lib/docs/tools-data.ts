@@ -41,7 +41,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "load",
             prompt: 'load /path/to/file.wav',
-            what: "Decode an audio file (WAV, MP3, FLAC or Ogg Vorbis) and create a new track in the session.",
+            what: "Decode an audio file (WAV, MP3, FLAC, Ogg Vorbis, Opus or AIFF everywhere, and M4A/AAC on macOS and Windows) and create a new track in the session.",
             output: "track_id, duration_sec",
           },
           {
@@ -618,13 +618,6 @@ export const toolAreas: ToolArea[] = [
         title: "ML Tools",
         tools: [
           {
-            name: "separate_stems",
-            prompt: 'separate the stems on track 1',
-            what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
-            output: "node_id, stem track IDs",
-            note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no stem model to download and no environment variable that changes that. Only htdemucs is a recognised model id.",
-          },
-          {
             name: "split_by_speaker",
             prompt: 'split track 1 by speaker: Priya 0-12s, Sam 12-30s',
             what: "Turn one track and a set of speaker segments into a track per speaker, so each voice gets its own gain, EQ and noise treatment. Writes no new audio — every speaker track points at the same source file, which is why combined playback is unchanged. Audio no segment covers goes to an 'unassigned' track rather than being dropped, and overlapping turns are awarded to whoever was listed first and reported back.",
@@ -663,6 +656,25 @@ export const toolAreas: ToolArea[] = [
             what: "Find filler words in the transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything — this is a destructive edit across a whole track. Hesitations (um, uh, er) go wherever they appear; discourse markers (like, actually) only where they stand alone between pauses, because speech with every hesitation stripped sounds rushed. Needs a transcript (see transcribe), and cuts the track that transcript is of.",
             output: "found, would_save_sec, per-word list; node_id when applied",
             note: "Leaves a short pause where each filler was, so the result does not sound spliced. The word list can be replaced — fillers are language- and speaker-specific.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: "stems",
+    title: "Stem Separation",
+    summary: "Split a track or a file into vocals, drums, bass and other on your computer, with a model you download once.",
+    sections: [
+      {
+        title: "Separating Stems",
+        tools: [
+          {
+            name: "separate_stems",
+            prompt: 'separate the stems on track 1',
+            what: "Split `track` or an audio file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. It writes four WAV files and returns their paths; the session is not changed, so `load` a stem to put it on a track. The audio never leaves the computer, and the tool never downloads the stem model. The user can cancel.",
+            output: "model, cached, duration_sec, sample_rate, channels, the four stem paths, summary",
+            note: "Plan first holds it for approval: a run writes about 40 MB for each minute of stereo. It takes about half the audio's length on the CPU and needs about 4 GB of free memory. The stems are 16-bit, at the audio's rate and length, and are estimates: each carries a little of the others. They are kept in the project's stem cache (up to 1 GB), and the same audio again is instant. If the stem model or the ONNX Runtime library is missing, the result says so. The user downloads the stem model in Settings → Account. Only htdemucs is a recognised model id.",
           },
         ],
       },

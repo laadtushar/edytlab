@@ -3,7 +3,7 @@ export function ExportAndMemory() {
   return (
     <>
       <h2 id="export">Export</h2>
-      <p>Export the session to a WAV, FLAC or MP3 file:</p>
+      <p>Export the session to a WAV, AIFF, FLAC, MP3 or OGG (Opus) file:</p>
       <ul>
         <li>
           <strong>Full session:</strong>{" "}
@@ -20,6 +20,10 @@ export function ExportAndMemory() {
       </ul>
       <p>
         Exports do not change the session graph, so you can export any node.
+        An export is refused if its path is audio the project itself plays or
+        stores (a file you loaded, or anything inside the project&rsquo;s{" "}
+        <code>.audiograph</code> or <code>generated</code> folders), because
+        it would replace that audio; choose another path.
       </p>
 
       <h2 id="memory">Memory</h2>
