@@ -704,33 +704,20 @@ async fn a_sign_in_whose_caller_stops_waiting_still_finishes() {
     // then, so the sign-in finishes on its own task, and it counts as in
     // progress until it has.
     let fake = Fake::start().await;
-    let exchanging = Arc::new(AtomicBool::new(false));
-    {
-        let exchanging = exchanging.clone();
-        *fake.on_exchange.lock().unwrap() = Some(Box::new(move || {
-            exchanging.store(true, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(600));
-        }));
-    }
+    // The code exchange is held at the token endpoint until the caller has
+    // been dropped.
+    let hold = fake.hold_exchanges();
     let dir = tempfile::tempdir().unwrap();
     let store = MemoryStore::new();
     let session = fake.session(dir.path(), store.clone());
-    {
-        let attempt = fake.sign_in(&session, Browser::default(), SignInIntent::SignIn);
-        tokio::pin!(attempt);
-        loop {
-            tokio::select! {
-                done = &mut attempt => panic!("finished before the drop: {:?}", done.map(|s| s.state)),
-                _ = tokio::time::sleep(Duration::from_millis(10)) => {
-                    if exchanging.load(Ordering::SeqCst) {
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                        break;
-                    }
-                }
-            }
+    tokio::select! {
+        done = fake.sign_in(&session, Browser::default(), SignInIntent::SignIn) => {
+            panic!("finished before the drop: {:?}", done.map(|s| s.state))
         }
+        () = hold.arrived(1) => {}
     }
     assert!(session.is_signing_in(), "still finishing");
+    hold.release();
     // Up to 10 s: the loop leaves as soon as the sign-in is done, and a CI
     // runner running many test processes at once can take over 2 s here.
     for _ in 0..500 {

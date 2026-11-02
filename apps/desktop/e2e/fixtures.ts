@@ -57,6 +57,8 @@ export interface App {
    * racing them.
    */
   release(name: string, value: unknown): Promise<void>;
+  /** Reject a held call with the backend's string error. */
+  rejectDeferred(name: string, message: string): Promise<void>;
   /**
    * Wait until the app has stopped calling the backend (see `QUIET_MS`).
    * For asserting that something did *not* happen: a debounced call
@@ -143,6 +145,11 @@ export const test = base.extend<{ app: App }>({
       async release(name, value) {
         await page.waitForFunction((n) => n in window.__E2E_DEFERRED__, name);
         await page.evaluate(([n, v]) => window.__E2E_DEFERRED__[n](v), [name, value] as const);
+        released.add(name);
+      },
+      async rejectDeferred(name, message) {
+        await page.waitForFunction((n) => n in window.__E2E_DEFERRED__, name);
+        await page.evaluate(([n, m]) => window.__E2E_DEFERRED__[n](m, true), [name, message] as const);
         released.add(name);
       },
       emit: (event, payload) =>
