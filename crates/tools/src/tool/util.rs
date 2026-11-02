@@ -1975,8 +1975,9 @@ pub(crate) fn scale_transcript(
 /// `shift_sec` out. A word never ends up before 0 s, as no clip does.
 ///
 /// `only_starting_in` limits the move to the words that start in that span of
-/// seconds `[from, to)` (the old place of one clip, for `move_clip`); `None`
-/// moves every word. Returns whether the transcript was the track's.
+/// seconds `[from, to)` (the old place of one clip, for `move_clip`), and
+/// then puts the words back in time order; `None` moves every word, which
+/// keeps their order. Returns whether the transcript was the track's.
 pub(crate) fn shift_track_transcript(
     state: &mut SessionState,
     track: usize,
@@ -2004,6 +2005,16 @@ pub(crate) fn shift_track_transcript(
         }
         w.start_s = (start + shift_sec).max(0.0) as f32;
         w.end_s = (f64::from(w.end_s) + shift_sec).max(0.0) as f32;
+    }
+    // Moving one clip past another moves its words past theirs, and the
+    // transcript is kept in time order (`transcript_cues::validate` refuses
+    // one that is not, so `export_transcript` and `transcript_to_markers`
+    // would stop working). A stable sort keeps words that start together in
+    // the order they were.
+    if only_starting_in.is_some() {
+        transcript
+            .words
+            .sort_by(|a, b| a.start_s.total_cmp(&b.start_s));
     }
     true
 }

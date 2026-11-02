@@ -253,3 +253,35 @@ fn move_clip_moves_the_words_that_sit_in_the_clip() {
     );
     assert_eq!(s.times(), vec![(0.5, 1.0)]);
 }
+
+/// A clip moved past another takes its words past theirs, and the
+/// transcript stays in time order, so the tools that read it in order still
+/// work (`transcript_to_markers` refuses words out of order).
+#[test]
+fn move_clip_past_another_keeps_the_words_in_time_order() {
+    let mut s = Session::tracks_at(&[(RATE, 4), (RATE, 4)]);
+    s.with_track_transcript(1, &[("one", 0.5, 1.0), ("two", 2.5, 3.0)]);
+    s.ok(
+        "split_clip",
+        json!({ "track": 1, "clip_index": 0, "at_sec": 2.0 }),
+    );
+
+    // The first clip, 0 to 2 s, to 6 s: past the second.
+    s.ok(
+        "move_clip",
+        json!({ "track": 1, "clip_index": 0, "start_sec": 6.0 }),
+    );
+    let words: Vec<(String, f32)> = s
+        .state()
+        .transcript
+        .expect("a transcript")
+        .words
+        .iter()
+        .map(|w| (w.text.clone(), w.start_s))
+        .collect();
+    assert_eq!(
+        words,
+        vec![("two".to_string(), 2.5), ("one".to_string(), 6.5)]
+    );
+    s.ok("transcript_to_markers", json!({ "mode": "segment" }));
+}
