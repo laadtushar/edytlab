@@ -1,6 +1,6 @@
 //! An off-rate track lines up with an on-rate one (#242).
 //!
-//! `FftFixedInOut` has a latency of `chunk_size_out / 2`, and nothing
+//! rubato's fixed-input-and-output `Fft` has a latency of `chunk_size_out / 2`, and nothing
 //! ever asked it for the number — `grep -rn output_delay` matched
 //! nothing. So every clip whose source rate differed from the project's
 //! came out that much late relative to every track already at the

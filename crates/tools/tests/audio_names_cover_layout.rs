@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "../../../test-support/rust_source_scan.rs"]
 mod rust_source_scan;
-use rust_source_scan::{lex, without_test_items};
+use rust_source_scan::{lex, without_test_items, Tok, Token};
 
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::json;
@@ -289,9 +289,10 @@ fn the_sweep_and_a_rebuild_treat_a_shared_file_as_one_file() {
 //
 // The store (`session::audio_store`) makes every name (`AudioName`, which no
 // other crate can construct) and every write (`put_with`, `put_verified`,
-// `put_then_name`). The type stops a tool from naming a file itself; what it
+// `put_named_by_content`). The type stops a tool from naming a file itself; what it
 // cannot stop is a tool building a path into the store's folders by hand and
-// writing there. These two scans hold that line.
+// writing there. These two scans hold that line, and the delete scan below
+// holds the same line for deleting.
 
 /// Source files that may hash with blake3 outside their tests, and why: none
 /// of them names audio.
@@ -301,16 +302,14 @@ const MAY_HASH: &[(&str, &str)] = &[(
 )];
 
 /// Source files that may spell a path into the store's folders outside their
-/// tests, and why: each reads, lists, checks, or (the stage 3 callers) moves
-/// files the store wrote; none writes a new one.
+/// tests, and why: each reads, lists or checks files the store wrote; none
+/// writes, copies in or deletes one (the writers, the put-back, repair's
+/// copies and the deleters all go through the store, stages 2, 3a and 3b).
 const MAY_SPELL_STORE_PATHS: &[(&str, &str)] = &[
     (
         "tools/src/provenance.rs",
         "re-exports the folders and finds a clipboard blob to read it back",
     ),
-    ("tools/src/reclaim.rs", "the sweeps (stage 3a)"),
-    ("tools/src/rederive.rs", "a replay's put-back (stage 3b)"),
-    ("tools/src/repair.rs", "repair (stage 3b)"),
     (
         "tools/src/destination.rs",
         "refuses an export into the store's folders",
@@ -318,10 +317,6 @@ const MAY_SPELL_STORE_PATHS: &[(&str, &str)] = &[
     (
         "tools/src/tool/storage.rs",
         "the storage report lists the folders",
-    ),
-    (
-        "desktop/project.rs",
-        "Save As checks the copy's audio (stage 3b)",
     ),
 ];
 
@@ -448,6 +443,259 @@ fn only_the_store_spells_paths_into_its_folders() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Only the audio store deletes the project's audio (#719, stage 3a)
+// ---------------------------------------------------------------------------
+//
+// The sweeps, compaction and a repair's leftovers delete through
+// `session::Store::audio_deleter`: only a file `AudioStore::owns` places in
+// one of its folders, and never while a handle on the project is staged. A
+// delete written by hand anywhere else could skip either check, and a path
+// does not say lexically where it points, so every delete in these crates'
+// shipped code is listed here with what it deletes and how many times the
+// file names a delete: a new one in a listed file fails too.
+//
+// It reads the token stream, not lines: a delete's name is flagged wherever
+// it is an identifier, called or not (`.for_each(fs::remove_file)`), imported
+// under another name (`use std::fs::remove_file as rm`) or after a string
+// holding `//`, and never inside a string or a comment.
+
+/// Source files that may name a delete outside their tests, how many times,
+/// and why: none of them deletes in the store's folders, but for the store's
+/// own deleter.
+const MAY_DELETE: &[(&str, usize, &str)] = &[
+    (
+        "session/src/audio_store.rs",
+        1,
+        "`AudioDeleter::remove`, the store's one delete",
+    ),
+    (
+        "session/src/store.rs",
+        1,
+        "a node file (`Store::remove_node`)",
+    ),
+    (
+        "tools/src/preview_cache.rs",
+        4,
+        "the preview cache's own entries and staging files",
+    ),
+    (
+        "tools/src/tool/render_preview.rs",
+        1,
+        "a cached preview that does not decode",
+    ),
+    (
+        "desktop/commands.rs",
+        2,
+        "a skill or an agent profile the user deletes",
+    ),
+    ("desktop/state.rs", 1, "the active agent profile's sidecar"),
+];
+
+/// The names that delete a file or a folder.
+const DELETES: &[&str] = &["remove_file", "remove_dir", "remove_dir_all"];
+
+/// How many times `tokens` name a delete.
+fn delete_count(tokens: &[Token]) -> usize {
+    tokens
+        .iter()
+        .filter(|t| matches!(&t.tok, Tok::Ident(name) if DELETES.contains(&name.as_str())))
+        .count()
+}
+
+/// The non-test tokens of every source file of `tools`, the desktop crate
+/// and `session`, as (`tools/src/...`, `desktop/...` or `session/src/...`,
+/// its tokens).
+fn shipped_sources() -> Vec<(String, Vec<Token>)> {
+    let tools = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let roots = [
+        (tools.join("src"), "tools/src"),
+        (tools.join("../../apps/desktop/src-tauri/src"), "desktop"),
+        (tools.join("../session/src"), "session/src"),
+    ];
+    let mut out = Vec::new();
+    for (root, label) in roots {
+        let mut files = Vec::new();
+        rust_files(&root, &mut files);
+        for file in files {
+            let rel = file
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            let text = std::fs::read_to_string(&file).unwrap();
+            out.push((format!("{label}/{rel}"), without_test_items(&lex(&text))));
+        }
+    }
+    assert!(out.len() > 60, "found the sources: {}", out.len());
+    out
+}
+
+#[test]
+fn only_the_store_deletes_the_projects_audio() {
+    let offenders: Vec<String> = shipped_sources()
+        .into_iter()
+        .filter_map(|(rel, tokens)| {
+            let found = delete_count(&tokens);
+            let allowed = MAY_DELETE
+                .iter()
+                .find(|(r, _, _)| *r == rel)
+                .map_or(0, |(_, n, _)| *n);
+            (found > allowed).then(|| format!("{rel}: {found} (allowed {allowed})"))
+        })
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "these delete files by hand; delete the project's audio through \
+         `session::Store::audio_deleter` (or list the file in MAY_DELETE with the count \
+         and what it deletes, which must not be in the store's folders): {offenders:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Only the audio store puts a file into its folders (#719, stage 3b)
+// ---------------------------------------------------------------------------
+//
+// A file under a store name is trusted on sight, so one put there by hand
+// could be half written, or replace one a node reads. Every write goes
+// through `AudioStore::put_with` (or `put_verified`, `put_named_by_content`,
+// `Rebuilt::put_back`, `Counterpart::copy_in`, `OwnedFile::copy_into`), which
+// write a staging file and rename it into place. So every rename into place,
+// link and file copy in these crates' shipped code is listed here with what
+// it puts where, and how many times the file names one, as the delete scan
+// does. A write straight onto a store name (`fs::write`, `File::create`, a
+// WAV writer) cannot be told from any other by its tokens; the type stops it
+// instead: `AudioStore::path_of` answers with a `StorePath`, which no writer
+// takes.
+
+/// Source files that may name a rename into place, a link or a file copy
+/// (see [`put_count`]) outside their tests, how many times, and why: none of
+/// them puts a file into the store's folders, but the store's own puts. A
+/// count is per file and cannot tell one site from another: a new put in a
+/// listed file that takes the place of one removed is not seen, so a change
+/// to a listed file is read with its reason in mind.
+const MAY_PUT: &[(&str, usize, &str)] = &[
+    (
+        "session/src/audio_store.rs",
+        5,
+        "the store's puts: `put_with`, `put_verified`, `put_named_by_content`, \
+         `Counterpart::copy_in` and the staged copy of `OwnedFile::copy_into`",
+    ),
+    (
+        "session/src/store.rs",
+        5,
+        "node files, the head and the store's own small files",
+    ),
+    ("session/src/trail.rs", 1, "the undo path (`trail.json`)"),
+    (
+        "tools/src/preview_cache.rs",
+        1,
+        "a rendered preview into the preview cache",
+    ),
+    (
+        "tools/src/tool/export_transcript.rs",
+        1,
+        "a transcript export to the destination the user chose",
+    ),
+    (
+        "desktop/commands.rs",
+        2,
+        "a skill or an agent profile the user saves",
+    ),
+    ("desktop/settings.rs", 1, "the settings file"),
+    (
+        "desktop/bundled_skills.rs",
+        2,
+        "a bundled skill and its manifest",
+    ),
+    (
+        "desktop/project.rs",
+        1,
+        "Save As copies the project's other files (nodes, head, metadata) into a new, \
+         empty folder; its audio goes through `OwnedFile::copy_into`",
+    ),
+];
+
+/// The names that rename a file into place or make a link to one.
+const PUTS: &[&str] = &[
+    "persist",
+    "persist_noclobber",
+    "rename",
+    "hard_link",
+    "symlink",
+    "soft_link",
+    "symlink_file",
+    "symlink_dir",
+];
+
+/// How many times `tokens` name a put:
+/// * a [`PUTS`] name after `.` or `::`, called or not (an attribute's
+///   `rename = "type"` is neither), or in a `use` group;
+/// * `copy` after a path segment with `fs` in it (`fs::copy`,
+///   `tokio::fs::copy`, `fs_err::copy`), or in a `use` group of a path with
+///   such a segment (`use std::fs::{copy, rename}`; a bare `copy(..)` after it
+///   is not seen, the import is what is counted). `io::copy`, which fills a
+///   file the caller already holds, is not one.
+fn put_count(tokens: &[Token]) -> usize {
+    let fs_segment = |t: &Tok| matches!(t, Tok::Ident(s) if s.contains("fs"));
+    let mut count = 0;
+    let mut use_from: Option<usize> = None;
+    for (i, t) in tokens.iter().enumerate() {
+        let name = match &t.tok {
+            Tok::Ident(word) if word == "use" => {
+                use_from = Some(i);
+                continue;
+            }
+            Tok::Punct(';') => {
+                use_from = None;
+                continue;
+            }
+            Tok::Ident(name) => name.as_str(),
+            _ => continue,
+        };
+        let prev = i.checked_sub(1).map(|j| &tokens[j].tok);
+        let in_use_group = use_from.is_some() && matches!(prev, Some(Tok::Punct('{' | ',')));
+        let counted = if name == "copy" {
+            let after_fs = i >= 3
+                && fs_segment(&tokens[i - 3].tok)
+                && matches!(tokens[i - 2].tok, Tok::Punct(':'))
+                && matches!(tokens[i - 1].tok, Tok::Punct(':'));
+            let fs_use =
+                use_from.is_some_and(|from| tokens[from..i].iter().any(|t| fs_segment(&t.tok)));
+            after_fs || (in_use_group && fs_use)
+        } else if PUTS.contains(&name) {
+            matches!(prev, Some(Tok::Punct('.' | ':'))) || in_use_group
+        } else {
+            false
+        };
+        if counted {
+            count += 1;
+        }
+    }
+    count
+}
+
+#[test]
+fn only_the_store_puts_files_into_its_folders() {
+    let offenders: Vec<String> = shipped_sources()
+        .into_iter()
+        .filter_map(|(rel, tokens)| {
+            let found = put_count(&tokens);
+            let allowed = MAY_PUT
+                .iter()
+                .find(|(r, _, _)| *r == rel)
+                .map_or(0, |(_, n, _)| *n);
+            (found > allowed).then(|| format!("{rel}: {found} (allowed {allowed})"))
+        })
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "these rename or copy files into place by hand; put the project's audio through \
+         `session::audio_store::AudioStore` (or list the file in MAY_PUT with the count \
+         and what it puts where, which must not be the store's folders): {offenders:?}"
+    );
+}
+
 #[test]
 fn every_allowance_is_still_needed() {
     // An allowance nothing uses any more is a door left open.
@@ -462,6 +710,29 @@ fn every_allowance_is_still_needed() {
         assert!(
             lines.iter().any(|l| spells_store_path(l)),
             "{rel} no longer spells a store path ({why})"
+        );
+    }
+    let sources = shipped_sources();
+    for (rel, count, why) in MAY_DELETE {
+        let (_, tokens) = sources
+            .iter()
+            .find(|(r, _)| r == rel)
+            .unwrap_or_else(|| panic!("{rel} is gone ({why})"));
+        assert_eq!(
+            delete_count(tokens),
+            *count,
+            "{rel} names a delete another number of times than its allowance says ({why})"
+        );
+    }
+    for (rel, count, why) in MAY_PUT {
+        let (_, tokens) = sources
+            .iter()
+            .find(|(r, _)| r == rel)
+            .unwrap_or_else(|| panic!("{rel} is gone ({why})"));
+        assert_eq!(
+            put_count(tokens),
+            *count,
+            "{rel} names a put another number of times than its allowance says ({why})"
         );
     }
 }
@@ -482,4 +753,71 @@ fn the_scan_sees_code_and_not_tests_or_comments() {
     assert_eq!(flagged.len(), 2, "{flagged:?}");
     assert!(flagged[0].contains("derived_dir(x); }"));
     assert!(flagged[1].contains("Generated.dir("));
+
+    let deletes_in = |source: &str| delete_count(&without_test_items(&lex(source)));
+    // Called, passed as a function, imported under another name, and after
+    // a string that holds `//`.
+    assert_eq!(deletes_in("fn a() { std::fs::remove_file(&p).ok(); }"), 1);
+    assert_eq!(
+        deletes_in("fn a() { paths.iter().for_each(fs::remove_file); }"),
+        1
+    );
+    assert_eq!(deletes_in("use std::fs::remove_file as rm;"), 1);
+    assert_eq!(
+        deletes_in("fn a() { let u = \"http://x\"; fs::remove_dir_all(&d)?; }"),
+        1
+    );
+    assert_eq!(deletes_in("fn a() { fs::remove_dir(&d)?; }"), 1);
+    // Not in a comment, a string or a test.
+    assert_eq!(deletes_in("// std::fs::remove_file(&p)\nfn a() {}"), 0);
+    assert_eq!(deletes_in("fn a() { let s = \"remove_file\"; }"), 0);
+    assert_eq!(
+        deletes_in("#[cfg(test)]\nmod tests { fn t() { std::fs::remove_file(&p).unwrap(); } }"),
+        0
+    );
+
+    let puts_in = |source: &str| put_count(&without_test_items(&lex(source)));
+    assert_eq!(puts_in("fn a() { tmp.persist(&path)?; }"), 1);
+    assert_eq!(puts_in("fn a() { tmp.persist_noclobber(&path)?; }"), 1);
+    assert_eq!(puts_in("fn a() { std::fs::rename(&a, &b)?; }"), 1);
+    assert_eq!(puts_in("fn a() { fs::hard_link(&a, &b)?; }"), 1);
+    assert_eq!(puts_in("fn a() { std::fs::copy(&a, &b)?; }"), 1);
+    assert_eq!(puts_in("use std::fs::rename as mv;"), 1);
+    // `io::copy` fills a file the caller already holds; it puts nothing in
+    // place, and neither does a comment, a string or a test.
+    assert_eq!(puts_in("fn a() { io::copy(&mut src, &mut dst)?; }"), 0);
+    // Imported in a `use` group, then called bare: the imports are counted.
+    assert_eq!(
+        puts_in("use std::fs::{copy, rename};\nfn a() { copy(&a, &b)?; rename(&a, &b)?; }"),
+        2
+    );
+    assert_eq!(puts_in("use std::{fs::{copy}, io};"), 1);
+    assert_eq!(puts_in("use std::fs::copy;\nfn a() { copy(&a, &b)?; }"), 1);
+    assert_eq!(puts_in("use std::io::{copy, Read};"), 0, "io's copy");
+    // Any `fs` crate's copy.
+    assert_eq!(puts_in("fn a() { fs_err::copy(&a, &b)?; }"), 1);
+    assert_eq!(puts_in("fn a() { tokio::fs::copy(&a, &b).await?; }"), 1);
+    // Links.
+    assert_eq!(
+        puts_in("fn a() { std::os::unix::fs::symlink(&a, &b)?; }"),
+        1
+    );
+    assert_eq!(puts_in("fn a() { std::fs::soft_link(&a, &b)?; }"), 1);
+    assert_eq!(
+        puts_in("fn a() { std::os::windows::fs::symlink_file(&a, &b)?; }"),
+        1
+    );
+    assert_eq!(puts_in("use std::os::unix::fs::{symlink};"), 1);
+    assert_eq!(
+        puts_in("#[serde(default, rename = \"type\")]\nstruct A;"),
+        0
+    );
+    assert_eq!(
+        puts_in("// tmp.persist(&path)\nfn a() { let s = \"rename\"; }"),
+        0
+    );
+    assert_eq!(
+        puts_in("#[cfg(test)]\nmod tests { fn t() { std::fs::rename(&a, &b).unwrap(); } }"),
+        0
+    );
 }

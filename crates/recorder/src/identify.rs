@@ -2,9 +2,11 @@
 //!
 //! A latency is kept per device pair, so the pair has to be named by what
 //! it is. cpal's ALSA host names the default devices `default` whatever
-//! they are routed to (`host/alsa/enumerate.rs`: `default_input_device`
-//! and `default_output_device` are both a `Device` called `"default"`), and
-//! lists `pulse` and `pipewire` for the sound servers' own plugins. Keyed
+//! they are routed to (cpal 0.18's `host/alsa/mod.rs`: `default_input_device`
+//! and `default_output_device` are both `Host::default_device`, the PCM
+//! `"default"`, which is its `id()`; [`crate::duplex`] files ALSA devices
+//! by that PCM name), and lists `pulse` and `pipewire` for the sound
+//! servers' own plugins. Keyed
 //! by those names, every Linux machine has one pair, `default|default`,
 //! and the speakers' latency would be applied to a Bluetooth headset the
 //! moment it became the default.
@@ -29,8 +31,8 @@ use std::time::{Duration, Instant};
 
 use crate::RecorderError;
 
-/// The cpal host these names belong to.
-const ALSA: &str = "ALSA";
+/// The cpal host these names belong to (`HostId::name()` of cpal's ALSA host).
+pub(crate) const ALSA: &str = "ALSA";
 /// Names ALSA gives that route to whatever the sound server is set to.
 const INDIRECT: [&str; 3] = ["default", "pulse", "pipewire"];
 /// How long `pactl` may take. It answers in milliseconds when a server is

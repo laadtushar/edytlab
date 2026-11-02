@@ -333,7 +333,7 @@ jobs:
       # tool to a version older than that.
       - name: Install cargo-nextest
         if: env.RUN_NATIVE == 'true'
-        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
           tool: cargo-nextest@0.9.146
 

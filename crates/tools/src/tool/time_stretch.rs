@@ -22,7 +22,7 @@ use serde_json::Value;
 
 use crate::schema::{anthropic_tool, object_schema};
 
-use crate::tool::util::{destructive_edit_then, remap_after_scale};
+use crate::tool::util::{destructive_edit_then, remap_after_scale, Moved};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -99,14 +99,14 @@ impl Tool for TimeStretchTool {
                 *samples = out;
                 Ok((sample_rate, channels))
             },
-            move |state, _| {
+            move |state, edited| {
                 // A stretch re-times the whole recording: output
                 // duration is input ÷ factor, so every mark and word
                 // moves by the same ratio (#231). Nothing is dropped.
                 //
                 // Unconditional now: the hook only runs when the edit
                 // succeeded.
-                remap_after_scale(state, 1.0 / factor as f64);
+                remap_after_scale(state, Moved::track(edited), 1.0 / factor as f64);
                 Default::default()
             },
             format!(

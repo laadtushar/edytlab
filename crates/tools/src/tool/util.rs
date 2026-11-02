@@ -151,7 +151,11 @@ pub fn flattened_track_path(project_dir: &Path, clips: &[Clip]) -> PathBuf {
     // Inside the project (#156), not beside whichever source happened to
     // be first: a project has to contain the audio it points at, or it
     // is not a thing anyone can copy or move.
-    AudioStore::new(project_dir).path_of(AudioFolder::Derived, &AudioName::of_lane(clips))
+    // A read: the lane copy is looked up by path (`put_with` writes it).
+    AudioStore::new(project_dir)
+        .path_of(AudioFolder::Derived, &AudioName::of_lane(clips))
+        .as_path()
+        .to_path_buf()
 }
 
 /// Materialise a track's timeline as one WAV and return its path.
@@ -196,7 +200,7 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
                 .map_err(|e| e.to_string())?;
             write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES).map_err(|e| e.to_string())
         })
-        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))
+        .map_err(|e| format!("failed to write {cas_path}: {e}"))
 }
 
 /// The file a timeline lane draws for a track: its audio on the
@@ -1383,9 +1387,7 @@ where
     let name = AudioName::of_samples(&window, rate_out, channels_out);
     let content_hash = crate::provenance::legacy_sample_hash(&window);
     let audio_store = AudioStore::new(ctx.store.project_dir());
-    let cas_path = audio_store.path_of(AudioFolder::Derived, &name);
-
-    if let Err(e) = write_cas_wav(
+    let cas_path = match write_cas_wav(
         &audio_store,
         AudioFolder::Derived,
         &name,
@@ -1393,11 +1395,14 @@ where
         rate_out,
         channels_out,
     ) {
-        return ToolResult::Error(format!(
-            "failed to write CAS wav {}: {e}",
-            cas_path.display()
-        ));
-    }
+        Ok(path) => path,
+        Err(e) => {
+            return ToolResult::Error(format!(
+                "failed to write CAS wav {}: {e}",
+                audio_store.path_of(AudioFolder::Derived, &name)
+            ))
+        }
+    };
 
     // The edited buffer is the whole track laid end to end, so the track
     // collapses to the single clip that buffer now represents. For the
@@ -1959,6 +1964,66 @@ pub(crate) fn scale_transcript(
     })
 }
 
+/// Move the words of a transcript that was made from track `track` by
+/// `shift_sec` seconds, because the track's clips moved by that much (#899).
+///
+/// A transcript made from a track holds seconds of that track as it sits on
+/// the timeline (#384), so a tool that moves the track's clips has to move the
+/// words with them, or `cut_words` accepts the track and cuts audio the words
+/// do not describe. A transcript of another track, of a file, or with no
+/// recorded source is left alone: its words are not seconds of this track.
+///
+/// `shift_sec` is the shift the clips *actually* took, in seconds (frames
+/// moved over the track's clip rate), so a clamped shift moves the words by
+/// the clamp, not by the request. Word times are seconds, so they are moved
+/// in seconds and the track's rate only matters to the caller that worked
+/// `shift_sec` out. A word never ends up before 0 s, as no clip does.
+///
+/// `only_starting_in` limits the move to the words that start in that span of
+/// seconds `[from, to)` (the old place of one clip, for `move_clip`), and
+/// then puts the words back in time order; `None` moves every word, which
+/// keeps their order. Returns whether the transcript was the track's.
+pub(crate) fn shift_track_transcript(
+    state: &mut SessionState,
+    track: usize,
+    shift_sec: f64,
+    only_starting_in: Option<(f64, f64)>,
+) -> bool {
+    let Some(id) = state.tracks.get(track).map(|t| t.id.clone()) else {
+        return false;
+    };
+    let Some(transcript) = state.transcript.as_mut() else {
+        return false;
+    };
+    if transcript.source != Some(session::TranscriptSource::Track { track: id }) {
+        return false;
+    }
+    if shift_sec == 0.0 {
+        return true;
+    }
+    for w in &mut transcript.words {
+        let start = f64::from(w.start_s);
+        if let Some((from, to)) = only_starting_in {
+            if start < from || start >= to {
+                continue;
+            }
+        }
+        w.start_s = (start + shift_sec).max(0.0) as f32;
+        w.end_s = (f64::from(w.end_s) + shift_sec).max(0.0) as f32;
+    }
+    // Moving one clip past another moves its words past theirs, and the
+    // transcript is kept in time order (`transcript_cues::validate` refuses
+    // one that is not, so `export_transcript` and `transcript_to_markers`
+    // would stop working). A stable sort keeps words that start together in
+    // the order they were.
+    if only_starting_in.is_some() {
+        transcript
+            .words
+            .sort_by(|a, b| a.start_s.total_cmp(&b.start_s));
+    }
+    true
+}
+
 // =============================================================================
 // Combined remapping
 // =============================================================================
@@ -1968,30 +2033,103 @@ pub(crate) fn scale_transcript(
 // remembered the labels and forgot the words, `trim` forgot both, and
 // `text_edit` was the only tool that did both. These three functions are
 // the single thing a length-changing tool calls.
+//
+// Labels are the session's, so every edit moves them. Words are seconds of
+// the audio they were made from, so they move only when *that* audio did
+// (#925); [`Moved`] says which audio an edit moved.
 
-/// Remap both time-addressed records for a cut of `[start_sec, end_sec)`.
+/// Which tracks' audio an edit moved, so [`remap_after_cut`] and its two
+/// siblings know whether the transcript's words went with it (#925).
+#[derive(Clone, Copy)]
+pub(crate) struct Moved {
+    track: usize,
+    all_tracks: bool,
+}
+
+impl Moved {
+    /// The edit changed the audio of `track` only.
+    pub(crate) fn track(track: usize) -> Self {
+        Self {
+            track,
+            all_tracks: false,
+        }
+    }
+
+    /// The edit changed `track`, and every other track too when the session
+    /// is sync-locked (the tools that call [`sync_other_tracks`]).
+    pub(crate) fn sync_locked(state: &SessionState, track: usize) -> Self {
+        Self {
+            track,
+            all_tracks: state.sync_lock,
+        }
+    }
+
+    /// Whether the transcript's words are seconds of audio this edit moved.
+    ///
+    /// A transcript of a track follows an edit of that track, or any edit
+    /// when every track moved; one of a file never does (its seconds are the
+    /// file's, not the timeline's); one of a track that is gone describes
+    /// nothing. A transcript with no recorded source (a project from before
+    /// sources were kept) cannot say whose seconds it holds, so it follows
+    /// every edit that remaps a transcript, as it always did.
+    fn moves_transcript(self, state: &SessionState) -> bool {
+        match state.transcript.as_ref().map(|t| &t.source) {
+            None => false,
+            Some(None) => true,
+            Some(Some(session::TranscriptSource::File)) => false,
+            Some(Some(session::TranscriptSource::Track { track })) => {
+                self.all_tracks
+                    || state
+                        .tracks
+                        .get(self.track)
+                        .is_some_and(|edited| &edited.id == track)
+            }
+        }
+    }
+}
+
+/// Remap the time-addressed records for a cut of `[start_sec, end_sec)`.
 /// Returns the number of labels dropped, which the caller reports.
-pub(crate) fn remap_after_cut(state: &mut SessionState, start_sec: f64, end_sec: f64) -> usize {
+pub(crate) fn remap_after_cut(
+    state: &mut SessionState,
+    moved: Moved,
+    start_sec: f64,
+    end_sec: f64,
+) -> usize {
+    let words_move = moved.moves_transcript(state);
     let (kept, dropped) = cut_annotations(&state.annotations, start_sec, end_sec);
     state.annotations = kept;
-    let (words, _) = cut_transcript(&state.transcript, start_sec, end_sec);
-    state.transcript = words;
+    if words_move {
+        let (words, _) = cut_transcript(&state.transcript, start_sec, end_sec);
+        state.transcript = words;
+    }
     dropped
 }
 
-/// Remap both records for `len_sec` inserted at `at_sec`.
-pub(crate) fn remap_after_insert(state: &mut SessionState, at_sec: f64, len_sec: f64) {
+/// Remap the records for `len_sec` inserted at `at_sec`.
+pub(crate) fn remap_after_insert(
+    state: &mut SessionState,
+    moved: Moved,
+    at_sec: f64,
+    len_sec: f64,
+) {
+    let words_move = moved.moves_transcript(state);
     state.annotations = insert_annotations(&state.annotations, at_sec, len_sec);
-    state.transcript = insert_transcript(&state.transcript, at_sec, len_sec);
+    if words_move {
+        state.transcript = insert_transcript(&state.transcript, at_sec, len_sec);
+    }
 }
 
-/// Remap both records for a whole-timeline re-time by `factor`.
+/// Remap the records for a re-time of the edited track by `factor`.
 ///
 /// Nothing is dropped: a stretch moves every mark, it does not remove
 /// any part of the recording.
-pub(crate) fn remap_after_scale(state: &mut SessionState, factor: f64) {
+pub(crate) fn remap_after_scale(state: &mut SessionState, moved: Moved, factor: f64) {
+    let words_move = moved.moves_transcript(state);
     state.annotations = scale_annotations(&state.annotations, factor);
-    state.transcript = scale_transcript(&state.transcript, factor);
+    if words_move {
+        state.transcript = scale_transcript(&state.transcript, factor);
+    }
 }
 
 /// Report helper: the `dropped_labels` field, for a hook that has one to

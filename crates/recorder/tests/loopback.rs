@@ -314,7 +314,7 @@ fn a_punched_take_is_the_muted_monitor_at_lag_zero_and_an_uncompensated_splice_i
          seconds {plain_lag:?}"
     );
     assert!(lag.abs() <= 1.0, "placed take is {lag} ms off");
-    let (late_ms, _) = late.expect("a take cut 75 ms early still holds the monitor");
+    let (late_ms, _) = late.expect("a take cut early by the latency still holds the monitor");
     assert!(
         late_ms.abs() > 5.0,
         "the splice without the latency is only {late_ms} ms off"

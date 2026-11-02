@@ -242,7 +242,7 @@ impl Tool for JoinClipsTool {
                 Err(e) => {
                     return Ok(ToolResult::Error(format!(
                         "failed to write {}: {e}",
-                        audio_store.path_of(AudioFolder::Derived, &name).display()
+                        audio_store.path_of(AudioFolder::Derived, &name)
                     )))
                 }
             };

@@ -12,7 +12,7 @@
 //!   using `jsonschema`. Returns a single combined error string so
 //!   dispatch errors stay flat.
 
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use schemars::JsonSchema;
 use serde_json::{json, Map, Value};
 
@@ -47,21 +47,28 @@ pub fn schema_for<T: JsonSchema>() -> Value {
 /// Validate `args` against `input_schema`. Returns the combined error
 /// messages joined with `; ` if validation fails.
 pub fn validate(input_schema: &Value, args: &Value) -> std::result::Result<(), String> {
-    // jsonschema 0.18 wants a Draft7-or-later schema; tool schemas are
-    // simple object schemas so this is fine in practice.
-    let compiled = JSONSchema::options()
+    // Pin Draft 7: jsonschema's default became 2020-12 in 0.25, and the
+    // schemas schemars derives (and the hand-written ones) assume Draft 7.
+    let compiled = jsonschema::options()
         .with_draft(jsonschema::Draft::Draft7)
-        .compile(input_schema)
+        .build(input_schema)
         .map_err(|e| format!("invalid input_schema: {e}"))?;
 
-    if let Err(errors) = compiled.validate(args) {
-        let joined = errors
-            .map(|e| format!("{} at {}", e, e.instance_path))
-            .collect::<Vec<_>>()
-            .join("; ");
-        return Err(joined);
+    if compiled.is_valid(args) {
+        Ok(())
+    } else {
+        Err(join_errors(&compiled, args))
     }
-    Ok(())
+}
+
+/// Every validation error of `args`, as `<message> at <instance path>`
+/// joined with `; ` (the shape the model is shown).
+pub(crate) fn join_errors(compiled: &Validator, args: &Value) -> String {
+    compiled
+        .iter_errors(args)
+        .map(|e| format!("{} at {}", e, e.instance_path()))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// Convenience: build a minimal `input_schema` object from a list of
@@ -86,4 +93,43 @@ pub fn object_schema(props: &[(&str, &str, bool)]) -> Value {
         "required": Value::Array(required),
         "additionalProperties": false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The text the model is shown on a rejected call: every error as
+    /// `<message> at <instance path>`, joined with `; ` (jsonschema 0.52).
+    #[test]
+    fn errors_are_joined_with_their_instance_path() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "track": {}, "gain": { "type": "number" } },
+            "required": ["track"],
+            "additionalProperties": false,
+        });
+        let err = validate(&schema, &json!({ "gain": "loud" })).unwrap_err();
+        eprintln!("{err}");
+        assert!(err.contains("\"track\" is a required property"), "{err}");
+        assert!(
+            err.contains("\"loud\" is not of type \"number\" at /gain"),
+            "{err}"
+        );
+        assert!(err.contains("; "), "{err}");
+        assert!(validate(&schema, &json!({ "track": 1, "gain": 2.0 })).is_ok());
+    }
+
+    /// Draft 7 is pinned (0.25 made 2020-12 the default): `definitions`
+    /// and a `$ref` into them, which schemars emits, must still resolve.
+    #[test]
+    fn draft_7_definitions_still_resolve() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "kind": { "$ref": "#/definitions/Kind" } },
+            "definitions": { "Kind": { "type": "string", "enum": ["a", "b"] } },
+        });
+        assert!(validate(&schema, &json!({ "kind": "a" })).is_ok());
+        assert!(validate(&schema, &json!({ "kind": "c" })).is_err());
+    }
 }

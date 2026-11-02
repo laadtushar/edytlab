@@ -14,7 +14,7 @@ use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, cut_timeline, load_track_state_and_rate, remap_after_cut,
     seconds_to_frames, set_session_length, snap_range, sync_other_tracks, timeline_end,
-    track_clip_rates,
+    track_clip_rates, Moved,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -116,8 +116,11 @@ impl Tool for CutRangeTool {
         // The transcript is the same kind of record and was the half
         // nobody moved (#231): `cut_words` turns a word's `start_s` into
         // a sample offset, so a stale transcript makes the *next* text
-        // edit delete audio elsewhere while naming the right word.
-        let dropped = remap_after_cut(&mut state, start_sec, end_sec);
+        // edit delete audio elsewhere while naming the right word. Its
+        // words are seconds of one track, so they move only if that track
+        // did: this one, or every one under sync-lock (#925).
+        let moved = Moved::sync_locked(&state, args.track);
+        let dropped = remap_after_cut(&mut state, moved, start_sec, end_sec);
 
         set_session_length(&mut state);
 
