@@ -130,7 +130,7 @@ export default function LocalAiUseCasePage() {
               <td>Crash reports from the app (optional)</td>
               <td>
                 None unless you turn on Send crash reports in Settings, which
-                is off by default (from the release after v0.9.3). With it on,
+                is off by default (from the release after v0.9.4). With it on,
                 an unexpected error sends a report to Sentry (sentry.io): the
                 error, where in edytlab&apos;s code it happened, the app
                 version and your operating system. Paths, quoted text such as

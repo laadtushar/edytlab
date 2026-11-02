@@ -69,6 +69,9 @@ const QUEUE: usize = 30;
 /// The longest string an event keeps, after scrubbing. A message longer than
 /// this is cut, so a long dump of state does not travel whole.
 const MAX_TEXT: usize = 1_000;
+/// The most of one string the scrubber reads. It only bounds the work: a
+/// quotation cut here still runs to the end of what is read, and is removed.
+const MAX_SCRUB_INPUT: usize = 64 * 1024;
 
 /// The most frames kept from a webview stack.
 const MAX_JS_FRAMES: usize = 50;
@@ -347,7 +350,8 @@ fn webview_event(report: &WebviewErrorReport) -> Event<'static> {
         platform: "javascript".into(),
         exception: vec![Exception {
             ty: name,
-            value: Some(truncate(&report.message, MAX_TEXT).into_owned()),
+            // Cut by the scrubber, after it has read the whole message.
+            value: Some(report.message.clone()),
             mechanism: Some(Mechanism {
                 ty: mechanism.into(),
                 handled: Some(false),
@@ -582,10 +586,12 @@ macro_rules! regex {
 /// name, which keeps its shape; anything else is free text.
 ///
 /// In order:
-/// 1. cut to [`MAX_TEXT`] characters;
+/// 1. cut to [`MAX_SCRUB_INPUT`] characters, which only bounds the work;
 /// 2. (free text) anything in double, single or typographic quotes becomes
 ///    `"<redacted>"`: a `{:?}` of a string, a JSON value, a quoted file
-///    name, chat text, tool arguments and results;
+///    name, chat text, tool arguments and results. A quotation may span
+///    lines, and one that is never closed (a message cut short somewhere
+///    before it got here) runs to the end of the text;
 /// 3. keys and tokens become `<redacted>`: Anthropic's, OpenAI's and
 ///    OpenRouter's (`sk` and a dash), the underscore kinds (`sk`, `pk`, `rk`
 ///    and Groq's `gsk`), Gemini's `AIza…`, Hugging Face's `hf_…`, GitHub's
@@ -600,23 +606,26 @@ macro_rules! regex {
 /// 7. (free text) any other run of 32 or more letters and digits with both
 ///    in it (an unknown token, a content hash) becomes `<redacted>`;
 /// 8. any other user folder left (`/Users/<name>`, `/home/<name>`,
-///    `C:\Users\<name>`, in a frame's path) becomes `<user>`.
+///    `C:\Users\<name>`, in a frame's path) becomes `<user>`;
+/// 9. cut to [`MAX_TEXT`] characters. Last, so a quotation whose close lies
+///    past the cut is still found whole.
 pub fn scrub_text(text: &str, code: bool, redactions: &Redactions) -> String {
-    let mut out = truncate(text, MAX_TEXT).into_owned();
+    let mut out = truncate(text, MAX_SCRUB_INPUT).into_owned();
 
     if !code {
-        out = regex!(r#""(?:[^"\\\n]|\\.)*""#)
+        // `$` is the end of the text: a quotation never closed runs to it.
+        out = regex!(r#"(?s)"(?:[^"\\]|\\.)*(?:"|\\?$)"#)
             .replace_all(&out, "\"<redacted>\"")
             .into_owned();
-        out = regex!(r"“[^”\n]*”")
+        out = regex!(r"“[^”]*(?:”|$)")
             .replace_all(&out, "“<redacted>”")
             .into_owned();
-        out = regex!(r"‘[^’\n]*’")
+        out = regex!(r"‘[^’]*(?:’|$)")
             .replace_all(&out, "‘<redacted>’")
             .into_owned();
         // A single quote that opens after a letter is an apostrophe ("can't"),
         // not a quotation.
-        out = regex!(r"(^|[^\p{L}\p{N}])'[^'\n]*'")
+        out = regex!(r"(^|[^\p{L}\p{N}])'[^']*(?:'|$)")
             .replace_all(&out, "$1'<redacted>'")
             .into_owned();
     }
@@ -690,7 +699,7 @@ pub fn scrub_text(text: &str, code: bool, redactions: &Redactions) -> String {
     )
     .replace_all(&out, |caps: &Captures| format!("{}<user>", &caps[1]))
     .into_owned();
-    out
+    truncate(&out, MAX_TEXT).into_owned()
 }
 
 /// Where the path at the start of `found` ends. A path may hold spaces, so
@@ -1165,6 +1174,45 @@ mod tests {
             scrubbed("can't decode, don't retry"),
             "can't decode, don't retry"
         );
+    }
+
+    #[test]
+    fn a_quotation_longer_than_the_cut_is_removed_whole() {
+        // The close lies past MAX_TEXT: scrubbing before the cut would leave
+        // an open quote the rule cannot match, and the words in it.
+        let words = "make the intro louder ".repeat(100);
+        let out = scrubbed(&format!(r#"bad input Parse("{words}") here"#));
+        assert!(!out.contains("intro"), "{out}");
+        assert!(out.starts_with(r#"bad input Parse("<redacted>")"#), "{out}");
+    }
+
+    #[test]
+    fn a_quotation_that_spans_lines_or_never_closes_is_removed() {
+        let out = scrubbed("value: \"first line\nsecond line\" end");
+        assert!(!out.contains("line"), "{out}");
+        assert!(out.ends_with(" end"), "{out}");
+        // Cut short before it reached the scrubber (the window cuts at 4,000).
+        for text in [
+            "value: \"private words that never clo",
+            "value: “private words that never clo",
+            "value: ‘private words that never clo",
+            "value: 'private words that never clo",
+            "value: \"private words ending in a backslash \\",
+        ] {
+            let out = scrubbed(text);
+            assert!(!out.contains("private"), "{text} -> {out}");
+        }
+    }
+
+    #[test]
+    fn a_scrubbed_string_is_cut_after_scrubbing() {
+        let out = scrubbed(&"a".repeat(MAX_TEXT * 3));
+        assert_eq!(
+            out.chars().count(),
+            MAX_TEXT + 1,
+            "the cut and its ellipsis"
+        );
+        assert!(out.ends_with('…'));
     }
 
     #[test]

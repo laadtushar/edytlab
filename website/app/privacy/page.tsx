@@ -377,7 +377,7 @@ export default function PrivacyPage() {
 
       <h2 id="crash-reports">Crash reports</h2>
       <p>
-        <strong>The desktop app.</strong> From the release after v0.9.3,
+        <strong>The desktop app.</strong> From the release after v0.9.4,
         Settings &rarr; Account has a <em>Send crash reports</em> switch. It is
         off by default, and while it is off the app makes no request to
         Sentry. When you turn it on and the app crashes or hits an unexpected
