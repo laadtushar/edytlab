@@ -276,7 +276,7 @@ fn export_times_follow_the_source_clip_after_reorder_and_clip_move() {
     assert_eq!(result["time_basis"], "session");
     let note = result["time_note"].as_str().unwrap();
     assert!(
-        note.contains("as transcribed") && note.contains("stale"),
+        note.contains("follow edits that move, cut or stretch") && note.contains("stale"),
         "{note}"
     );
     assert_eq!(result["source"]["stable_track_id"], json!(source_id));

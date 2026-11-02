@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, keep_timeline, load_track_state_and_rate, remap_after_cut,
-    set_session_length, snap_range, timeline_end,
+    set_session_length, snap_range, timeline_end, Moved,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -91,8 +91,14 @@ impl Tool for TrimTool {
         // Two cuts, tail first: cutting the head renumbers everything
         // after it, so doing the head first would make `track_len` —
         // measured before the edit — the wrong bound for the tail.
-        let dropped_tail = remap_after_cut(&mut state, end as f64 / rate, track_len as f64 / rate);
-        let dropped_head = remap_after_cut(&mut state, 0.0, start as f64 / rate);
+        let moved = Moved::track(args.track);
+        let dropped_tail = remap_after_cut(
+            &mut state,
+            moved,
+            end as f64 / rate,
+            track_len as f64 / rate,
+        );
+        let dropped_head = remap_after_cut(&mut state, moved, 0.0, start as f64 / rate);
         let dropped_labels = dropped_tail + dropped_head;
 
         set_session_length(&mut state);

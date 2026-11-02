@@ -1,6 +1,6 @@
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, dropped_labels_field, remap_after_cut, source_channels,
+    destructive_edit_then, dropped_labels_field, remap_after_cut, source_channels, Moved,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -151,7 +151,7 @@ impl Tool for TruncateSilenceTool {
                 *samples = result;
                 Ok((sr, chans))
             },
-            move |state, _| {
+            move |state, edited| {
                 // Labels and words follow the audio out (#231). Applied
                 // back to front: each cut renumbers everything after it,
                 // so working forwards would leave every later span
@@ -159,7 +159,12 @@ impl Tool for TruncateSilenceTool {
                 let rate = f64::from(track_rate_hook.get().max(1));
                 let mut dropped = 0;
                 for (s, e) in removed_hook.borrow().iter().rev() {
-                    dropped += remap_after_cut(state, *s as f64 / rate, *e as f64 / rate);
+                    dropped += remap_after_cut(
+                        state,
+                        Moved::track(edited),
+                        *s as f64 / rate,
+                        *e as f64 / rate,
+                    );
                 }
                 dropped_labels_field(dropped)
             },

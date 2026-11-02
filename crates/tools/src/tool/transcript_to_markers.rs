@@ -36,7 +36,8 @@ impl Tool for TranscriptToMarkersTool {
         anthropic_tool(
             self.name(),
             "Add point markers at the stored transcript's segment or sentence starts, at the \
-             times it had when transcribed (stale once the clip is moved). Appends one node, keeps \
+             stored times (they follow edits that move, cut or stretch the track; align_to_beat \
+             leaves them stale). Appends one node, keeps \
              annotations and audio, skips markers that already exist. File or unknown-source \
              transcripts require an explicit offset_sec (zero is allowed). Run transcribe first.",
             json!({
