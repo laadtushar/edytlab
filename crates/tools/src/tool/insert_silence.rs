@@ -3,7 +3,7 @@
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     destructive_edit_then, insert_gap_timeline, load_head_state, remap_after_insert,
-    seconds_to_frames, sync_other_tracks, track_channels, track_clip_rates,
+    seconds_to_frames, sync_other_tracks, track_channels, track_clip_rates, Moved,
 };
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -153,10 +153,12 @@ impl Tool for InsertSilenceTool {
                 // Labels move whether or not sync-lock is on: an insert
                 // lengthens the recording, and every mark after the
                 // splice point is now that much later (#203).
-                // The transcript moves with them (#231): a word after
-                // the splice is now that much later, and `cut_words`
-                // reads these positions back as sample offsets.
-                remap_after_insert(state, at, duration);
+                // The words of a transcript made from a track that moved
+                // follow (#231, #925): a word after the splice is now that
+                // much later, and `cut_words` reads these positions back as
+                // sample offsets. A transcript of a track this edit did not
+                // move (sync-lock off) stays where it is.
+                remap_after_insert(state, Moved::sync_locked(state, edited), at, duration);
 
                 if !state.sync_lock {
                     return Default::default();

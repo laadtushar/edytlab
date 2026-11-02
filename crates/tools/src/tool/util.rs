@@ -2028,30 +2028,103 @@ pub(crate) fn shift_track_transcript(
 // remembered the labels and forgot the words, `trim` forgot both, and
 // `text_edit` was the only tool that did both. These three functions are
 // the single thing a length-changing tool calls.
+//
+// Labels are the session's, so every edit moves them. Words are seconds of
+// the audio they were made from, so they move only when *that* audio did
+// (#925); [`Moved`] says which audio an edit moved.
 
-/// Remap both time-addressed records for a cut of `[start_sec, end_sec)`.
+/// Which tracks' audio an edit moved, so [`remap_after_cut`] and its two
+/// siblings know whether the transcript's words went with it (#925).
+#[derive(Clone, Copy)]
+pub(crate) struct Moved {
+    track: usize,
+    all_tracks: bool,
+}
+
+impl Moved {
+    /// The edit changed the audio of `track` only.
+    pub(crate) fn track(track: usize) -> Self {
+        Self {
+            track,
+            all_tracks: false,
+        }
+    }
+
+    /// The edit changed `track`, and every other track too when the session
+    /// is sync-locked (the tools that call [`sync_other_tracks`]).
+    pub(crate) fn sync_locked(state: &SessionState, track: usize) -> Self {
+        Self {
+            track,
+            all_tracks: state.sync_lock,
+        }
+    }
+
+    /// Whether the transcript's words are seconds of audio this edit moved.
+    ///
+    /// A transcript of a track follows an edit of that track, or any edit
+    /// when every track moved; one of a file never does (its seconds are the
+    /// file's, not the timeline's); one of a track that is gone describes
+    /// nothing. A transcript with no recorded source (a project from before
+    /// sources were kept) cannot say whose seconds it holds, so it follows
+    /// every edit that remaps a transcript, as it always did.
+    fn moves_transcript(self, state: &SessionState) -> bool {
+        match state.transcript.as_ref().map(|t| &t.source) {
+            None => false,
+            Some(None) => true,
+            Some(Some(session::TranscriptSource::File)) => false,
+            Some(Some(session::TranscriptSource::Track { track })) => {
+                self.all_tracks
+                    || state
+                        .tracks
+                        .get(self.track)
+                        .is_some_and(|edited| &edited.id == track)
+            }
+        }
+    }
+}
+
+/// Remap the time-addressed records for a cut of `[start_sec, end_sec)`.
 /// Returns the number of labels dropped, which the caller reports.
-pub(crate) fn remap_after_cut(state: &mut SessionState, start_sec: f64, end_sec: f64) -> usize {
+pub(crate) fn remap_after_cut(
+    state: &mut SessionState,
+    moved: Moved,
+    start_sec: f64,
+    end_sec: f64,
+) -> usize {
+    let words_move = moved.moves_transcript(state);
     let (kept, dropped) = cut_annotations(&state.annotations, start_sec, end_sec);
     state.annotations = kept;
-    let (words, _) = cut_transcript(&state.transcript, start_sec, end_sec);
-    state.transcript = words;
+    if words_move {
+        let (words, _) = cut_transcript(&state.transcript, start_sec, end_sec);
+        state.transcript = words;
+    }
     dropped
 }
 
-/// Remap both records for `len_sec` inserted at `at_sec`.
-pub(crate) fn remap_after_insert(state: &mut SessionState, at_sec: f64, len_sec: f64) {
+/// Remap the records for `len_sec` inserted at `at_sec`.
+pub(crate) fn remap_after_insert(
+    state: &mut SessionState,
+    moved: Moved,
+    at_sec: f64,
+    len_sec: f64,
+) {
+    let words_move = moved.moves_transcript(state);
     state.annotations = insert_annotations(&state.annotations, at_sec, len_sec);
-    state.transcript = insert_transcript(&state.transcript, at_sec, len_sec);
+    if words_move {
+        state.transcript = insert_transcript(&state.transcript, at_sec, len_sec);
+    }
 }
 
-/// Remap both records for a whole-timeline re-time by `factor`.
+/// Remap the records for a re-time of the edited track by `factor`.
 ///
 /// Nothing is dropped: a stretch moves every mark, it does not remove
 /// any part of the recording.
-pub(crate) fn remap_after_scale(state: &mut SessionState, factor: f64) {
+pub(crate) fn remap_after_scale(state: &mut SessionState, moved: Moved, factor: f64) {
+    let words_move = moved.moves_transcript(state);
     state.annotations = scale_annotations(&state.annotations, factor);
-    state.transcript = scale_transcript(&state.transcript, factor);
+    if words_move {
+        state.transcript = scale_transcript(&state.transcript, factor);
+    }
 }
 
 /// Report helper: the `dropped_labels` field, for a hook that has one to

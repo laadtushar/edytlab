@@ -261,9 +261,10 @@ pub fn input_frame_for(rel_sec: f64, skew_ns: i64, latency_sec: f64, in_sr: u32)
 ///
 /// ## Lost frames
 ///
-/// ALSA recovers an overrun or underrun on its own and calls back as if
-/// nothing happened; CoreAudio and WASAPI report no glitch at all, so
-/// cpal's error callback is not enough. What a lost buffer does show in is
+/// cpal's error callback is not enough. ALSA, CoreAudio and WASAPI
+/// capture report the xruns they see (cpal 0.17 and 0.18.2), but a sound
+/// server behind ALSA's `default` hides its own and WASAPI playback
+/// reports none. What a lost buffer does show in is
 /// the timing: the frame count stops keeping up with the clock, so
 /// `t_callback - frame/sr` steps up by the length of what was lost and
 /// stays there. Scheduling alone moves it up and down by about a buffer
