@@ -880,8 +880,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 --------------------------------------------------------------------------------
 Used by:
-  * @tanstack/query-core 5.104.1 - declared: MIT - https://github.com/TanStack/query
-  * @tanstack/react-query 5.104.1 - declared: MIT - https://github.com/TanStack/query
+  * @tanstack/query-core 5.104.5 - declared: MIT - https://github.com/TanStack/query
+  * @tanstack/react-query 5.104.5 - declared: MIT - https://github.com/TanStack/query
 --------------------------------------------------------------------------------
 
 MIT License
