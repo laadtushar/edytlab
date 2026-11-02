@@ -12,6 +12,10 @@
 
 use std::path::{Path, PathBuf};
 
+#[path = "../../../test-support/rust_source_scan.rs"]
+mod rust_source_scan;
+use rust_source_scan::{lex, without_test_items};
+
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::json;
 use session::SessionState;
@@ -280,26 +284,60 @@ fn the_sweep_and_a_rebuild_treat_a_shared_file_as_one_file() {
 }
 
 // ---------------------------------------------------------------------------
-// One function names audio
+// Only the audio store names and writes the project's audio (#719, stage 2)
 // ---------------------------------------------------------------------------
+//
+// The store (`session::audio_store`) makes every name (`AudioName`, which no
+// other crate can construct) and every write (`put_with`, `put_verified`,
+// `put_then_name`). The type stops a tool from naming a file itself; what it
+// cannot stop is a tool building a path into the store's folders by hand and
+// writing there. These two scans hold that line.
 
-/// Files of this crate's `src` that call blake3 themselves, and why each
-/// may. Every other file names audio through `provenance::audio_hash`, so
-/// a writer cannot leave the rate or the channel count out again (#620).
-const MAY_HASH: &[(&str, &str)] = &[
+/// Source files that may hash with blake3 outside their tests, and why: none
+/// of them names audio.
+const MAY_HASH: &[(&str, &str)] = &[(
+    "tools/src/preview_cache.rs",
+    "a node id and a range, not audio",
+)];
+
+/// Source files that may spell a path into the store's folders outside their
+/// tests, and why: each reads, lists, checks, or (the stage 3 callers) moves
+/// files the store wrote; none writes a new one.
+const MAY_SPELL_STORE_PATHS: &[(&str, &str)] = &[
     (
-        "provenance.rs",
-        "its tests recompute audio_hash and the older name by hand",
+        "tools/src/provenance.rs",
+        "re-exports the folders and finds a clipboard blob to read it back",
     ),
-    ("preview_cache.rs", "a node id and a range, not audio"),
+    ("tools/src/reclaim.rs", "the sweeps (stage 3a)"),
+    ("tools/src/rederive.rs", "a replay's put-back (stage 3b)"),
+    ("tools/src/repair.rs", "repair (stage 3b)"),
     (
-        "tool/mix_to_new_track.rs",
-        "the whole WAV file, header included",
+        "tools/src/destination.rs",
+        "refuses an export into the store's folders",
     ),
     (
-        "tool/util.rs",
-        "a lane copy is keyed by its clips, not its samples",
+        "tools/src/tool/storage.rs",
+        "the storage report lists the folders",
     ),
+    (
+        "desktop/project.rs",
+        "Save As checks the copy's audio (stage 3b)",
+    ),
+];
+
+/// What spells a path into one of the store's folders. `.dir(` with an
+/// argument is `AudioFolder::dir(project)` (a cache's `dir()` takes none).
+const STORE_PATH_SPELLINGS: &[&str] = &[
+    "derived_dir(",
+    "clipboard_dir(",
+    "generated_dir(",
+    "DERIVED_DIR",
+    "CLIPBOARD_DIR",
+    "GENERATED_DIR",
+    "clipboard_blob_path(",
+    "join(\"generated\")",
+    "join(\"derived\")",
+    "join(\"clipboard\")",
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -313,30 +351,135 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-#[test]
-fn only_audio_hash_names_audio() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    rust_files(&src, &mut files);
-    let mut offenders = Vec::new();
-    for file in files {
-        let rel = file
-            .strip_prefix(&src)
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        if MAY_HASH.iter().any(|(allowed, _)| *allowed == rel) {
-            continue;
-        }
-        let text = std::fs::read_to_string(&file).unwrap();
-        if text.contains("blake3::") {
-            offenders.push(rel);
+/// The lines of `source` that are not test code: every item marked
+/// `#[cfg(test)]` is left out, so an allowance for a file is about what it
+/// ships, and a writer added to a file whose only store paths were in its
+/// tests is seen.
+fn production_lines(source: &str) -> Vec<&str> {
+    let kept: std::collections::BTreeSet<usize> = without_test_items(&lex(source))
+        .iter()
+        .map(|t| t.line)
+        .collect();
+    source
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| kept.contains(&(i + 1)))
+        .map(|(_, line)| line)
+        .collect()
+}
+
+fn spells_store_path(line: &str) -> bool {
+    let code = line.split("//").next().unwrap_or("");
+    STORE_PATH_SPELLINGS.iter().any(|s| code.contains(s))
+        || code
+            .match_indices(".dir(")
+            .any(|(at, _)| !code[at + ".dir(".len()..].starts_with(')'))
+}
+
+/// Every source file of the crates that write project audio, as
+/// (`tools/src/...` or `desktop/...`, its non-test lines).
+fn writer_sources() -> Vec<(String, Vec<String>)> {
+    let tools = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let roots = [
+        (tools.join("src"), "tools/src"),
+        (tools.join("../../apps/desktop/src-tauri/src"), "desktop"),
+    ];
+    let mut out = Vec::new();
+    for (root, label) in roots {
+        let mut files = Vec::new();
+        rust_files(&root, &mut files);
+        for file in files {
+            let rel = file
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            let text = std::fs::read_to_string(&file).unwrap();
+            let lines = production_lines(&text)
+                .into_iter()
+                .map(String::from)
+                .collect();
+            out.push((format!("{label}/{rel}"), lines));
         }
     }
+    assert!(out.len() > 50, "found the sources: {}", out.len());
+    out
+}
+
+fn allowed(list: &[(&str, &str)], rel: &str) -> bool {
+    list.iter().any(|(allowed, _)| *allowed == rel)
+}
+
+fn hashes(lines: &[String]) -> bool {
+    lines
+        .iter()
+        .any(|l| l.split("//").next().unwrap_or("").contains("blake3::"))
+}
+
+#[test]
+fn only_the_store_names_audio() {
+    let offenders: Vec<String> = writer_sources()
+        .into_iter()
+        .filter(|(rel, lines)| !allowed(MAY_HASH, rel) && hashes(lines))
+        .map(|(rel, _)| rel)
+        .collect();
     assert!(
         offenders.is_empty(),
-        "these hash on their own; name audio with `provenance::audio_hash` (or add \
-         the file to MAY_HASH with the reason it hashes something that is not audio): \
-         {offenders:?}"
+        "these hash on their own; name audio with `session::audio_store::AudioName` \
+         (or add the file to MAY_HASH with the reason it hashes something that is not \
+         audio): {offenders:?}"
     );
+}
+
+#[test]
+fn only_the_store_spells_paths_into_its_folders() {
+    let offenders: Vec<String> = writer_sources()
+        .into_iter()
+        .filter(|(rel, lines)| {
+            !allowed(MAY_SPELL_STORE_PATHS, rel) && lines.iter().any(|l| spells_store_path(l))
+        })
+        .map(|(rel, _)| rel)
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "these build paths into the store's folders by hand; write through \
+         `session::audio_store::AudioStore` (or add the file to MAY_SPELL_STORE_PATHS \
+         with the reason it only reads): {offenders:?}"
+    );
+}
+
+#[test]
+fn every_allowance_is_still_needed() {
+    // An allowance nothing uses any more is a door left open.
+    let sources = writer_sources();
+    let find = |rel: &str| sources.iter().find(|(r, _)| r == rel).map(|(_, l)| l);
+    for (rel, why) in MAY_HASH {
+        let lines = find(rel).unwrap_or_else(|| panic!("{rel} is gone ({why})"));
+        assert!(hashes(lines), "{rel} no longer hashes ({why})");
+    }
+    for (rel, why) in MAY_SPELL_STORE_PATHS {
+        let lines = find(rel).unwrap_or_else(|| panic!("{rel} is gone ({why})"));
+        assert!(
+            lines.iter().any(|l| spells_store_path(l)),
+            "{rel} no longer spells a store path ({why})"
+        );
+    }
+}
+
+#[test]
+fn the_scan_sees_code_and_not_tests_or_comments() {
+    let source = "fn a() { let p = derived_dir(x); }\n\
+                  // derived_dir(x) in a comment\n\
+                  fn b() { let d = AudioFolder::Generated.dir(&p); }\n\
+                  fn c() { let d = cache.dir(); }\n\
+                  #[cfg(test)]\n\
+                  mod tests { fn t() { let p = clipboard_dir(x); } }\n";
+    let flagged: Vec<String> = production_lines(source)
+        .into_iter()
+        .filter(|l| spells_store_path(l))
+        .map(String::from)
+        .collect();
+    assert_eq!(flagged.len(), 2, "{flagged:?}");
+    assert!(flagged[0].contains("derived_dir(x); }"));
+    assert!(flagged[1].contains("Generated.dir("));
 }

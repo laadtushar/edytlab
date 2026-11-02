@@ -204,7 +204,8 @@ impl Tool for PasteRegionTool {
             pasted.sample_rate,
             pasted.channels,
         )
-        .ok();
+        .ok()
+        .map(|blob| blob.hash);
 
         // What the paste puts in, in the clipboard's own terms. A splice
         // keeps the frame count whatever the channel conversion does
