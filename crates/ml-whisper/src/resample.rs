@@ -18,7 +18,8 @@
 //! A buffer already at 16 kHz is only downmixed. Several channels are
 //! averaged, which is what Whisper's own `ffmpeg -ac 1` does.
 
-use rubato::{FftFixedInOut, Resampler};
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+use rubato::{Fft, FixedSync, Resampler};
 
 use crate::{Result, WhisperError};
 
@@ -79,7 +80,8 @@ fn resample_mono(mono: &[f32], sr: u32) -> Result<Vec<f32>> {
     // 1024-frame chunk — small enough for tens-of-ms latency, large enough
     // to amortize FFT cost. We're running off the audio thread here so the
     // chunk size is throughput-bound, not latency-bound.
-    let mut resampler = FftFixedInOut::<f32>::new(sr as usize, TARGET_RATE as usize, 1024, 1)?;
+    let mut resampler =
+        Fft::<f32>::new(sr as usize, TARGET_RATE as usize, 1024, 1, FixedSync::Both)?;
     let delay = resampler.output_delay();
     let mut in_buf = vec![vec![0.0f32; resampler.input_frames_max()]; 1];
     let mut out_buf = vec![vec![0.0f32; resampler.output_frames_max()]; 1];
@@ -95,7 +97,10 @@ fn resample_mono(mono: &[f32], sr: u32) -> Result<Vec<f32>> {
         in_buf[0].clear();
         in_buf[0].extend_from_slice(&mono[pos..pos + available]);
         in_buf[0].resize(needed, 0.0);
-        let (_in_used, out_written) = resampler.process_into_buffer(&in_buf, &mut out_buf, None)?;
+        let input = SequentialSliceOfVecs::new(&in_buf, 1, needed)?;
+        let mut output =
+            SequentialSliceOfVecs::new_mut(&mut out_buf, 1, resampler.output_frames_next())?;
+        let (_in_used, out_written) = resampler.process_into_buffer(&input, &mut output, None)?;
         out.extend_from_slice(&out_buf[0][..out_written]);
         pos += available;
     }
