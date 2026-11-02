@@ -151,7 +151,11 @@ pub fn flattened_track_path(project_dir: &Path, clips: &[Clip]) -> PathBuf {
     // Inside the project (#156), not beside whichever source happened to
     // be first: a project has to contain the audio it points at, or it
     // is not a thing anyone can copy or move.
-    AudioStore::new(project_dir).path_of(AudioFolder::Derived, &AudioName::of_lane(clips))
+    // A read: the lane copy is looked up by path (`put_with` writes it).
+    AudioStore::new(project_dir)
+        .path_of(AudioFolder::Derived, &AudioName::of_lane(clips))
+        .as_path()
+        .to_path_buf()
 }
 
 /// Materialise a track's timeline as one WAV and return its path.
@@ -196,7 +200,7 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
                 .map_err(|e| e.to_string())?;
             write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES).map_err(|e| e.to_string())
         })
-        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))
+        .map_err(|e| format!("failed to write {cas_path}: {e}"))
 }
 
 /// The file a timeline lane draws for a track: its audio on the
@@ -1383,9 +1387,7 @@ where
     let name = AudioName::of_samples(&window, rate_out, channels_out);
     let content_hash = crate::provenance::legacy_sample_hash(&window);
     let audio_store = AudioStore::new(ctx.store.project_dir());
-    let cas_path = audio_store.path_of(AudioFolder::Derived, &name);
-
-    if let Err(e) = write_cas_wav(
+    let cas_path = match write_cas_wav(
         &audio_store,
         AudioFolder::Derived,
         &name,
@@ -1393,11 +1395,14 @@ where
         rate_out,
         channels_out,
     ) {
-        return ToolResult::Error(format!(
-            "failed to write CAS wav {}: {e}",
-            cas_path.display()
-        ));
-    }
+        Ok(path) => path,
+        Err(e) => {
+            return ToolResult::Error(format!(
+                "failed to write CAS wav {}: {e}",
+                audio_store.path_of(AudioFolder::Derived, &name)
+            ))
+        }
+    };
 
     // The edited buffer is the whole track laid end to end, so the track
     // collapses to the single clip that buffer now represents. For the

@@ -274,8 +274,9 @@ impl<'a> Rebuild<'a> {
     /// (`session::relocate`, rule 1).
     fn missing(&self, node: session::NodeId) -> Vec<Missing> {
         let mut out: Vec<Missing> = Vec::new();
+        let folders = self.audio.folders();
         for named in missing_paths(self.store, node) {
-            let target = if self.audio.folder_of(&named) == Some(AudioFolder::Derived) {
+            let target = if folders.folder_of(&named) == Some(AudioFolder::Derived) {
                 named.clone()
             } else {
                 match self.store.counterpart(&named) {

@@ -151,8 +151,11 @@ pub fn rebind(state: &mut SessionState, project_dir: &Path) -> usize {
 
 /// Where this project keeps the file `path` names, if `path` is a file in
 /// a content-named folder of *another* project, whether or not either
-/// file exists. See [`Rebinder::counterpart`].
-pub fn counterpart(project_dir: &Path, path: &Path) -> Option<Counterpart> {
+/// file exists. See [`Rebinder::counterpart`]. Only for the store's own
+/// tests: outside `session` a [`Counterpart`] comes from `Store::counterpart`
+/// alone, for the store's own project.
+#[cfg(test)]
+pub(crate) fn counterpart(project_dir: &Path, path: &Path) -> Option<Counterpart> {
     Rebinder::new(project_dir).counterpart(path)
 }
 
@@ -235,8 +238,9 @@ impl Rebinder {
     ///
     /// Neither file need exist: the rebuild of a gone file asks this for
     /// where to put it, and the repair of a copy for where to copy to
-    /// ([`Counterpart::copy_in`]).
-    pub fn counterpart(&self, path: &Path) -> Option<Counterpart> {
+    /// ([`Counterpart::copy_in`]). Crate-private: a [`Counterpart`] is made
+    /// for the store's own project only, through `Store::counterpart`.
+    pub(crate) fn counterpart(&self, path: &Path) -> Option<Counterpart> {
         match self.place(path) {
             Place::Theirs(kept, local) => Some(Counterpart::new(kept, local)),
             Place::Own | Place::Elsewhere => None,

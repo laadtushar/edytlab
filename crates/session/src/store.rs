@@ -755,7 +755,7 @@ impl Store {
 
     /// Where this project keeps the file `path` names, if `path` is a file
     /// in a content-named folder of another project (see
-    /// [`crate::relocate::Rebinder::counterpart`]): where a rebuild puts a
+    /// `relocate::Rebinder::counterpart`): where a rebuild puts a
     /// gone file of another project's `derived/`, and where the repair of a
     /// copy copies the original's files to.
     pub fn counterpart(&self, path: &Path) -> Option<crate::audio_store::Counterpart> {

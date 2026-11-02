@@ -559,21 +559,27 @@ fn only_the_store_deletes_the_projects_audio() {
 // A file under a store name is trusted on sight, so one put there by hand
 // could be half written, or replace one a node reads. Every write goes
 // through `AudioStore::put_with` (or `put_verified`, `put_named_by_content`,
-// `Rebuilt::put_back`, `Counterpart::copy_in`), which write a staging file
-// and rename it into place. So every rename-into-place and file copy in these
-// crates' shipped code is listed here with what it puts where, and how many
-// times the file names one, as the delete scan does.
+// `Rebuilt::put_back`, `Counterpart::copy_in`, `OwnedFile::copy_into`), which
+// write a staging file and rename it into place. So every rename into place,
+// link and file copy in these crates' shipped code is listed here with what
+// it puts where, and how many times the file names one, as the delete scan
+// does. A write straight onto a store name (`fs::write`, `File::create`, a
+// WAV writer) cannot be told from any other by its tokens; the type stops it
+// instead: `AudioStore::path_of` answers with a `StorePath`, which no writer
+// takes.
 
-/// Source files that may name a rename into place (`persist`,
-/// `persist_noclobber`, `rename`, `hard_link`) or a file copy (`fs::copy`)
-/// outside their tests, how many times, and why: none of them puts a file
-/// into the store's folders, but for the store's own puts.
+/// Source files that may name a rename into place, a link or a file copy
+/// (see [`put_count`]) outside their tests, how many times, and why: none of
+/// them puts a file into the store's folders, but the store's own puts. A
+/// count is per file and cannot tell one site from another: a new put in a
+/// listed file that takes the place of one removed is not seen, so a change
+/// to a listed file is read with its reason in mind.
 const MAY_PUT: &[(&str, usize, &str)] = &[
     (
         "session/src/audio_store.rs",
-        4,
-        "the store's puts: `put_with`, `put_verified`, `put_named_by_content` \
-         and `Counterpart::copy_in`",
+        5,
+        "the store's puts: `put_with`, `put_verified`, `put_named_by_content`, \
+         `Counterpart::copy_in` and the staged copy of `OwnedFile::copy_into`",
     ),
     (
         "session/src/store.rs",
@@ -605,33 +611,68 @@ const MAY_PUT: &[(&str, usize, &str)] = &[
     (
         "desktop/project.rs",
         1,
-        "Save As copies the project into a new, empty folder",
+        "Save As copies the project's other files (nodes, head, metadata) into a new, \
+         empty folder; its audio goes through `OwnedFile::copy_into`",
     ),
 ];
 
-/// The names that rename a file into place.
-const PUTS: &[&str] = &["persist", "persist_noclobber", "rename", "hard_link"];
+/// The names that rename a file into place or make a link to one.
+const PUTS: &[&str] = &[
+    "persist",
+    "persist_noclobber",
+    "rename",
+    "hard_link",
+    "symlink",
+    "soft_link",
+    "symlink_file",
+    "symlink_dir",
+];
 
-/// How many times `tokens` name a rename into place, or `fs::copy`: as a
-/// method or a path (`tmp.persist`, `fs::rename`), called or not, which an
-/// attribute's `rename = "type"` is not.
+/// How many times `tokens` name a put:
+/// * a [`PUTS`] name after `.` or `::`, called or not (an attribute's
+///   `rename = "type"` is neither), or in a `use` group;
+/// * `copy` after a path segment with `fs` in it (`fs::copy`,
+///   `tokio::fs::copy`, `fs_err::copy`), or in a `use` group of a path with
+///   such a segment (`use std::fs::{copy, rename}`; a bare `copy(..)` after it
+///   is not seen, the import is what is counted). `io::copy`, which fills a
+///   file the caller already holds, is not one.
 fn put_count(tokens: &[Token]) -> usize {
-    tokens
-        .iter()
-        .enumerate()
-        .filter(|(i, t)| match &t.tok {
-            Tok::Ident(name) if PUTS.contains(&name.as_str()) => {
-                *i >= 1 && matches!(tokens[i - 1].tok, Tok::Punct('.' | ':'))
+    let fs_segment = |t: &Tok| matches!(t, Tok::Ident(s) if s.contains("fs"));
+    let mut count = 0;
+    let mut use_from: Option<usize> = None;
+    for (i, t) in tokens.iter().enumerate() {
+        let name = match &t.tok {
+            Tok::Ident(word) if word == "use" => {
+                use_from = Some(i);
+                continue;
             }
-            Tok::Ident(name) if name == "copy" => {
-                *i >= 3
-                    && matches!(&tokens[i - 3].tok, Tok::Ident(fs) if fs == "fs")
-                    && matches!(tokens[i - 2].tok, Tok::Punct(':'))
-                    && matches!(tokens[i - 1].tok, Tok::Punct(':'))
+            Tok::Punct(';') => {
+                use_from = None;
+                continue;
             }
-            _ => false,
-        })
-        .count()
+            Tok::Ident(name) => name.as_str(),
+            _ => continue,
+        };
+        let prev = i.checked_sub(1).map(|j| &tokens[j].tok);
+        let in_use_group = use_from.is_some() && matches!(prev, Some(Tok::Punct('{' | ',')));
+        let counted = if name == "copy" {
+            let after_fs = i >= 3
+                && fs_segment(&tokens[i - 3].tok)
+                && matches!(tokens[i - 2].tok, Tok::Punct(':'))
+                && matches!(tokens[i - 1].tok, Tok::Punct(':'));
+            let fs_use =
+                use_from.is_some_and(|from| tokens[from..i].iter().any(|t| fs_segment(&t.tok)));
+            after_fs || (in_use_group && fs_use)
+        } else if PUTS.contains(&name) {
+            matches!(prev, Some(Tok::Punct('.' | ':'))) || in_use_group
+        } else {
+            false
+        };
+        if counted {
+            count += 1;
+        }
+    }
+    count
 }
 
 #[test]
@@ -745,6 +786,28 @@ fn the_scan_sees_code_and_not_tests_or_comments() {
     // `io::copy` fills a file the caller already holds; it puts nothing in
     // place, and neither does a comment, a string or a test.
     assert_eq!(puts_in("fn a() { io::copy(&mut src, &mut dst)?; }"), 0);
+    // Imported in a `use` group, then called bare: the imports are counted.
+    assert_eq!(
+        puts_in("use std::fs::{copy, rename};\nfn a() { copy(&a, &b)?; rename(&a, &b)?; }"),
+        2
+    );
+    assert_eq!(puts_in("use std::{fs::{copy}, io};"), 1);
+    assert_eq!(puts_in("use std::fs::copy;\nfn a() { copy(&a, &b)?; }"), 1);
+    assert_eq!(puts_in("use std::io::{copy, Read};"), 0, "io's copy");
+    // Any `fs` crate's copy.
+    assert_eq!(puts_in("fn a() { fs_err::copy(&a, &b)?; }"), 1);
+    assert_eq!(puts_in("fn a() { tokio::fs::copy(&a, &b).await?; }"), 1);
+    // Links.
+    assert_eq!(
+        puts_in("fn a() { std::os::unix::fs::symlink(&a, &b)?; }"),
+        1
+    );
+    assert_eq!(puts_in("fn a() { std::fs::soft_link(&a, &b)?; }"), 1);
+    assert_eq!(
+        puts_in("fn a() { std::os::windows::fs::symlink_file(&a, &b)?; }"),
+        1
+    );
+    assert_eq!(puts_in("use std::os::unix::fs::{symlink};"), 1);
     assert_eq!(
         puts_in("#[serde(default, rename = \"type\")]\nstruct A;"),
         0

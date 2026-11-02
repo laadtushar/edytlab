@@ -354,15 +354,14 @@ mod tests {
     /// to another's.
     fn plan_of(tmp: &TempDir, n: usize, bytes: usize) -> RepairPlan {
         let src = session::relocate::derived_dir(&tmp.path().join("original"));
-        let dest = tmp.path().join("copy");
+        let dest = session::Store::open(&tmp.path().join("copy")).unwrap();
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::create_dir_all(&dest).unwrap();
         let files = (0..n)
             .map(|i| {
                 let from = src.join(format!("{i}.wav"));
                 std::fs::write(&from, vec![0u8; bytes]).unwrap();
                 RepairFile {
-                    to: session::relocate::counterpart(&dest, &from).expect("another project's"),
+                    to: dest.counterpart(&from).expect("another project's"),
                     from,
                     bytes: bytes as u64,
                 }
