@@ -225,11 +225,11 @@ pub(crate) fn cues(
     Ok(out)
 }
 
-/// Said in both tools' descriptions and results: the words keep the times they
-/// had when `transcribe` ran, and nothing here re-times them afterwards.
-pub(crate) const TIME_NOTE: &str = "Times are the transcript's as transcribed (session seconds \
-     when it was made from a track, file seconds otherwise). Moving or shifting the clip after \
-     transcribing makes them stale; run transcribe again to refresh them.";
+/// Said in both tools' results: which edits keep the words in step (the ones
+/// that call `util::remap_after_*` or `shift_track_transcript`) and which do not.
+pub(crate) const TIME_NOTE: &str = "Times are the transcript's own (session seconds when it was \
+     made from a track, file seconds otherwise). A track's words follow edits that move, cut or \
+     stretch it; align_to_beat leaves them stale. Run transcribe again to refresh them.";
 
 /// Source identity is separate from timing: later edits cannot be inferred here.
 pub(crate) fn source_info(state: &SessionState, transcript: &Transcript) -> Value {

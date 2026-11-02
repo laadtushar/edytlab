@@ -95,9 +95,9 @@ impl Tool for ExportTranscriptTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "export_transcript",
-            "Export the stored transcript as SRT, WebVTT, or plain text. Times are as transcribed \
-             (session seconds for a track); moving the clip afterwards makes them stale. Writes a \
-             file, never inside .audiograph; call transcribe first.",
+            "Export the stored transcript as SRT, WebVTT, or plain text. Times are session \
+             seconds for a track and follow edits that move, cut or stretch it; align_to_beat \
+             leaves them stale. Writes a file, never inside .audiograph; call transcribe first.",
             json!({
                 "type": "object",
                 "properties": {

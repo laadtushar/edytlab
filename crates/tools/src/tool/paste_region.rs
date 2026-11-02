@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     destructive_edit_then, insert_gap_timeline, load_head_state, remap_after_insert,
-    seconds_to_frames, sync_other_tracks, timeline_end, track_channels, track_clip_rates,
+    seconds_to_frames, sync_other_tracks, timeline_end, track_channels, track_clip_rates, Moved,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -258,7 +258,7 @@ impl Tool for PasteRegionTool {
                 let at_frames = ((at.max(0.0) * rate) as u64).min(old_end);
                 let at_sec = at_frames as f64 / rate;
                 let len_sec = clip_frames as f64 / rate;
-                remap_after_insert(state, at_sec, len_sec);
+                remap_after_insert(state, Moved::sync_locked(state, edited), at_sec, len_sec);
 
                 // Sync-lock (#170 §3, #572): the track the paste names got
                 // longer by the clipboard, and every other track has to open
@@ -276,7 +276,7 @@ impl Tool for PasteRegionTool {
                 // neither the clipboard's frame count nor the session's rate
                 // is their unit. Labels and words are not touched again
                 // here; they are the session's, not a track's, and moved once
-                // above.
+                // above (the words only if their track moved, #925).
                 let mut extras = serde_json::Map::new();
                 if !state.sync_lock {
                     return extras;
