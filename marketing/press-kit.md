@@ -65,7 +65,7 @@ keys include the ChatGPT sign-in that arrived in v0.9.0.
 | Keys | Stored in the operating system's credential store. All the keys and the ChatGPT sign-in's token share one entry there, so macOS asks for the login password at most once per launch. The provider, model and base URL live in a settings file in the app's config folder, with no secret in it. The ChatGPT plan has no key. Its sign-in keeps one refresh token in that same entry, and a small `registration.json` in the config folder holds a host ID, OpenAI's client ID for edytlab and the account's email as a label. |
 | History | A branchable graph of edits, with fork, A/B compare and undo |
 | Optional safety | "Plan first" mode shows the AI's steps for approval before they run |
-| Export | WAV, AIFF, FLAC, MP3 and OGG (Opus) for the whole session; WAV for a selection |
+| Export | WAV, AIFF, FLAC, MP3 and OGG (Opus), for the whole session or a range of it |
 | Maintainer | `@laadtushar` on GitHub |
 
 ### Local models

@@ -10,9 +10,14 @@ export function ExportAndMemory() {
           <code>export to /Users/me/Desktop/final.mp3</code>
         </li>
         <li>
-          <strong>Part of it:</strong> select a region on the waveform, then
-          click <strong>Export Selection</strong> above the chat. It writes
-          a WAV of that region.
+          <strong>Selection only:</strong> select a region on the waveform,
+          then <code>export the selection to /Users/me/Desktop/take.flac</code>,
+          in any of the same formats. <strong>Export Selection</strong> above
+          the chat also writes a WAV of the region.
+        </li>
+        <li>
+          <strong>Specific range:</strong>{" "}
+          <code>export seconds 30 to 90 to /Users/me/Desktop/chorus.mp3</code>
         </li>
       </ul>
       <p>
