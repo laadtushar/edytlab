@@ -306,9 +306,15 @@ pub fn write_ogg_opus(
     let mut batch: Vec<Vec<u8>> = Vec::new();
     let mut buf = vec![0u8; 4000];
     for i in 0..packets {
-        let n = enc
-            .encode(&pcm[i * FRAME * ch..(i + 1) * FRAME * ch], FRAME, &mut buf)
-            .map_err(|e| Error::Encode(format!("opus encode: {e:?}")))?;
+        // `rusty-opus` is a young crate: a panic inside it is this export's
+        // error, not the app's end. That holds in a release build too, which
+        // unwinds (#908), as the Opus decoder's guard does on import.
+        let frame = &pcm[i * FRAME * ch..(i + 1) * FRAME * ch];
+        let n = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            enc.encode(frame, FRAME, &mut buf)
+        }))
+        .map_err(|_| Error::Encode(format!("opus encoder failed on packet {i}")))?
+        .map_err(|e| Error::Encode(format!("opus encode: {e:?}")))?;
         batch.push(buf[..n].to_vec());
         let last = i + 1 == packets;
         if batch.len() == PACKETS_PER_PAGE || last {
