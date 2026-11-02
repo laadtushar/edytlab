@@ -43,7 +43,7 @@ In the video it does three jobs, each asked for in plain English. Blend a 128 BP
 
 The part I care about most: it shows its work. Every edit appears in the chat as a step you can read, check and undo. You stay the DJ. It just does the counting.
 
-And your music stays yours. The AI never hears the audio. It reads a summary of the session and picks from 110 editing tools that run on your own computer, so nothing gets uploaded.
+And your music stays yours. The AI never hears the audio. It reads a summary of the session and picks from 110 editing tools that run on your own computer, so your audio is never uploaded.
 
 It's called edytlab. Free and open source, for macOS, Windows and Linux, and built for prep, not for playing live.
 

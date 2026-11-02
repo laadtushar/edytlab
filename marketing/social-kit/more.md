@@ -373,7 +373,7 @@ Punch replaces one region of a track with a new take. Before the first one, set 
 
 The assistant can also split a track into vocals, drums, bass and other, on your computer. It needs the stem model, about 171 MB from Hugging Face, which you download once with its Download button in Settings → Account. It wants about 4 GB of free memory and takes about half the length of the audio, and no audio is sent anywhere. The stems are estimates, so listen before you build on them.
 
-Also in this release: M4A/AAC files open on macOS and Windows, through the system's own decoder. Exports can be AIFF or OGG (Opus), and can cover just a range. A transcript can be saved as SRT, WebVTT or text, or turned into markers on the timeline. And there are new tools for markers, joining clips, reordering and muting tracks, and a wah-wah effect.
+Also in this release: M4A files with AAC audio open on macOS and Windows, through the system's own decoder. Exports can be AIFF or OGG (Opus), and can cover just a range. A transcript can be saved as SRT, WebVTT or text, or turned into markers on the timeline. And there are new tools for markers, joining clips, reordering and muting tracks, and a wah-wah effect.
 
 If you last tried it around v0.7.0, a few more things have landed since:
 

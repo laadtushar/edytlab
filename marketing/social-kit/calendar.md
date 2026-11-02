@@ -1,6 +1,6 @@
 # Two-week posting plan
 
-Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). Since then: v0.6.0 on 16 October, v0.6.1 on 17 October, v0.7.0 on 22 October, v0.8.0 on 23 October, v0.8.1 on 24 October, v0.9.0 and v0.9.1 on 25 October, v0.9.2 on 26 October and v0.9.3 on 27 October. The copy now names v0.9.3 (updated for v0.9.3 on 2026-10-27: the version and download lines). If you start later, shift the days.
+Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). Since then: v0.6.0 on 16 October, v0.6.1 on 17 October, v0.7.0 on 22 October, v0.8.0 on 23 October, v0.8.1 on 24 October, v0.9.0 and v0.9.1 on 25 October, v0.9.2 on 26 October and v0.9.3 on 27 October. The copy now names v0.9.4 (updated for v0.9.4 on 2026-11-02: the version and download lines, the tool count and stem separation). If you start later, shift the days.
 The relaunch starts Tuesday 27 October 2026. Day 1 below is that Tuesday, and every later day moves with it (the weekday labels in the tables are the original ones). The recordings were re-filmed on 26 October on the released app, and the reels re-cut from them.
 The copy is written in the voice of [`../brand-voice.md`](../brand-voice.md): a scene first, one message a post.
 

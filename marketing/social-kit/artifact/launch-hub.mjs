@@ -284,7 +284,7 @@ const DAYS = [
     items: [
       ["w3-t6", "Mon 9 Nov: theme 6 (free and open source) on own feeds except LinkedIn; link GitHub.", { jump: "theme-6" }],
       ["w3-wtmm", "Mon 9 Nov: r/WeAreTheMusicMakers (reel-extended-club-intro.mp4 or text).", { jump: "rd-wtmm" }],
-      ["w3-li5", "Tue 10 Nov: LinkedIn page L5 at 11:00 ET / 16:00 UK: post 5 with reel-teaser.mp4, thumbnail post-5-help-wanted.png.", { when: "11:00 ET", jump: "li-5", links: [vid("reel-teaser"), pub("linkedin/post-5-help-wanted.png")] }],
+      ["w3-li5", "Tue 10 Nov: LinkedIn page L5 at 11:00 ET / 16:00 UK: post 5 with reel-teaser.mp4, thumbnail post-5-help-wanted.png. Out of date from v0.9.4: re-render the image and pick new invitations before posting (see post 5 below).", { when: "11:00 ET", jump: "li-5", links: [vid("reel-teaser"), pub("linkedin/post-5-help-wanted.png")] }],
       ["w3-li5-pin", "Pin L5's first comment.", { jump: "li-5-comment" }],
       ["w3-opensource", "Wed 11 Nov: r/opensource contributors wanted, if the sidebar allows it (link GitHub, not a reel).", { jump: "rd-opensource" }],
       ["w3-li6", "Thu 12 Nov: LinkedIn page L6 at 11:00 ET / 16:00 UK: the theme 5 LinkedIn caption without its link line, with the 1200x627 image.", { when: "11:00 ET", jump: "li-6", links: [lk("5-every-edit-is-a-version__linkedin-1200x627.png", "img/5-every-edit-is-a-version__linkedin-1200x627.png")] }],
@@ -541,7 +541,7 @@ function imagesHtml() {
   }).join("");
   const liFiles = [
     ["post-1-launch.png", "Post 1: launch", "L1"], ["post-2-before-after.png", "Post 2: before and after", "L2"],
-    ["post-3-model-never-touches-a-sample.png", "Post 3: the model never touches a sample", "L3 (alongside the carousel)"], ["post-4-privacy.png", "Post 4: privacy", "L4"], ["post-5-help-wanted.png", "Post 5: help wanted", "L5"],
+    ["post-3-model-never-touches-a-sample.png", "Post 3: the model never touches a sample", "L3 (alongside the carousel)"], ["post-4-privacy.png", "Post 4: privacy", "L4"], ["post-5-help-wanted.png", "Post 5: help wanted (out of date from v0.9.4: re-render before posting)", "L5"],
   ];
   const lig = liFiles.map(([f, t, l]) => `<figure><a href="linkedin/${f}" target="_blank" rel="noopener"><img src="linkedin/${f}" alt="${esc(t)}" loading="lazy" width="1200" height="1200" style="--ar:1"></a><figcaption><b>${esc(t)}</b>${esc(l)}, 1200x1200<div class="links"><a href="linkedin/${f}" target="_blank" rel="noopener">Open</a></div></figcaption></figure>`).join("")
     + `<figure><a href="linkedin/post-3-carousel.pdf" target="_blank" rel="noopener"><div class="pdf" aria-hidden="true">PDF</div></a><figcaption><b>Post 3 carousel</b>Seven 1080x1350 pages; post as a document, title "How edytlab is built"<div class="links"><a href="linkedin/post-3-carousel.pdf" target="_blank" rel="noopener">Open</a></div></figcaption></figure>`;
