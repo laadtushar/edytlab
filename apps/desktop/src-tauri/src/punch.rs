@@ -404,7 +404,7 @@ pub fn run(
         snap.rate,
         snap.channels,
     )?;
-    let take_path = tools::provenance::clipboard_blob_path(&snap.project_dir, &blob);
+    let take_path = blob.path;
     // From here the take is the only copy of a performance: whatever goes
     // wrong, it stays in the project and its place is named.
     let keep =

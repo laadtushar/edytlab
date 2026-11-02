@@ -11,6 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, SessionState, Track, TrackId};
 
 use super::util::{append_state, set_session_length};
@@ -44,26 +45,20 @@ pub(super) fn frame_count(sample_rate: u32, duration_sec: f64) -> Result<usize, 
     Ok(frames as usize)
 }
 
-fn publish(samples: &[f32], sample_rate: u32, directory: &Path) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(directory).map_err(|e| format!("mkdir failed: {e}"))?;
-    let path = directory.join(format!(
-        "{}.wav",
-        crate::provenance::audio_hash(samples, sample_rate, 1)
-    ));
-    if path.is_file() {
-        return Ok(path);
-    }
-    let temporary = tempfile::NamedTempFile::new_in(directory)
-        .map_err(|e| format!("could not prepare generated audio: {e}"))?;
-    audio_engine::write_wav_f32(samples, sample_rate, 1, temporary.path())
-        .map_err(|e| format!("write_wav failed: {e}"))?;
-    // Content-addressed: a concurrent identical generation writes the same
-    // bytes, so a plain atomic rename is safe (and portable, unlike the
-    // exclusive form).
-    temporary
-        .persist(&path)
-        .map(|_| path)
-        .map_err(|e| format!("could not publish generated audio: {}", e.error))
+fn publish(samples: &[f32], sample_rate: u32, project_dir: &Path) -> Result<PathBuf, String> {
+    // Content-addressed through the audio store (#719): written whole and
+    // renamed into place, and a concurrent identical generation finds the
+    // same bytes under the same name.
+    AudioStore::new(project_dir)
+        .put_with(
+            AudioFolder::Generated,
+            &AudioName::of_samples(samples, sample_rate, 1),
+            |tmp| {
+                audio_engine::write_wav_f32(samples, sample_rate, 1, tmp)
+                    .map_err(|e| format!("write_wav failed: {e}"))
+            },
+        )
+        .map_err(|e| format!("could not publish generated audio: {e}"))
 }
 
 pub(super) fn append_generated(
@@ -83,11 +78,7 @@ pub(super) fn append_generated(
             "generated audio contains non-finite samples".into(),
         ));
     }
-    let path = match publish(
-        &samples,
-        state.sample_rate,
-        &ctx.store.project_dir().join("generated"),
-    ) {
+    let path = match publish(&samples, state.sample_rate, ctx.store.project_dir()) {
         Ok(path) => path,
         Err(error) => return Ok(ToolResult::Error(error)),
     };

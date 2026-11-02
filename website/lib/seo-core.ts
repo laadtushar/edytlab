@@ -20,7 +20,7 @@ import { siteConfig } from "./site";
  * `<lastmod>` only "if it's consistently and verifiably" accurate, and
  * one date on every page is not verifiable for any of them.
  */
-export const SITE_UPDATED = "2026-11-01";
+export const SITE_UPDATED = "2026-11-02";
 
 /**
  * The day each page's content last changed in substance, by path, for
@@ -43,9 +43,9 @@ export const SITE_UPDATED = "2026-11-01";
  * signs for helpful-content review.
  */
 export const PAGE_UPDATED: Readonly<Record<string, string>> = {
-  "/": "2026-11-01",
-  "/docs": "2026-11-01",
-  "/docs/getting-started": "2026-11-01",
+  "/": "2026-11-02",
+  "/docs": "2026-11-02",
+  "/docs/getting-started": "2026-11-02",
   "/docs/user-guide": "2026-10-26",
   "/docs/user-guide/sessions-and-tracks": "2026-10-26",
   "/docs/user-guide/effects-and-templates": "2026-10-26",
@@ -56,19 +56,19 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/user-guide/skills-and-profiles": "2026-10-26",
   "/docs/user-guide/providers": "2026-10-27",
   "/docs/user-guide/chatgpt-plan": "2026-10-26",
-  "/docs/tools": "2026-11-01",
-  "/docs/tools/files-and-tracks": "2026-11-01",
+  "/docs/tools": "2026-11-02",
+  "/docs/tools/files-and-tracks": "2026-11-02",
   "/docs/tools/region-editing": "2026-11-01",
   "/docs/tools/volume-and-dynamics": "2026-11-01",
-  "/docs/tools/effects": "2026-10-26",
+  "/docs/tools/effects": "2026-11-01",
   "/docs/tools/effect-chains": "2026-10-26",
   "/docs/tools/time-and-pitch": "2026-10-26",
   "/docs/tools/analysis": "2026-10-26",
   "/docs/tools/speech": "2026-10-27",
-  "/docs/tools/rendering": "2026-10-27",
+  "/docs/tools/rendering": "2026-11-02",
   "/docs/tools/history-and-session": "2026-11-01",
   "/docs/tools/markers": "2026-11-01",
-  "/docs/developer-guide": "2026-11-01",
+  "/docs/developer-guide": "2026-11-02",
   "/docs/api-reference": "2026-10-27",
   "/docs/api-reference/project": "2026-10-26",
   "/docs/api-reference/session": "2026-10-26",
@@ -97,7 +97,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/videos/reel-extended-club-intro": "2026-10-27",
   "/videos/reel-mini-mix": "2026-10-27",
   "/changelog": "2026-10-27",
-  "/press": "2026-11-01",
+  "/press": "2026-11-02",
   "/privacy": "2026-10-27",
   "/terms": "2026-10-27",
 };

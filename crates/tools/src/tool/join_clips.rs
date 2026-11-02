@@ -22,7 +22,7 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use session::audio_store::{AudioFolder, AudioStore};
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, EnvelopePoint};
 
 use crate::schema::anthropic_tool;
@@ -228,8 +228,7 @@ impl Tool for JoinClipsTool {
             // Named for the samples and their layout (#620); the clip's
             // `content_hash` stays the hash of the samples alone, as every
             // edit's does. The audio store writes it (#719).
-            let name =
-                crate::provenance::audio_hash(&audio.window, audio.sample_rate, audio.channels);
+            let name = AudioName::of_samples(&audio.window, audio.sample_rate, audio.channels);
             let audio_store = AudioStore::new(ctx.store.project_dir());
             let path = match write_cas_wav(
                 &audio_store,
@@ -243,7 +242,7 @@ impl Tool for JoinClipsTool {
                 Err(e) => {
                     return Ok(ToolResult::Error(format!(
                         "failed to write {}: {e}",
-                        audio_store.path(AudioFolder::Derived, &name).display()
+                        audio_store.path_of(AudioFolder::Derived, &name).display()
                     )))
                 }
             };

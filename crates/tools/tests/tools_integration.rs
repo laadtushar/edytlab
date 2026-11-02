@@ -752,7 +752,7 @@ fn render_final_rejects_a_bitrate_on_a_lossless_format() {
             &mut ctx,
         )
         .unwrap());
-    assert!(msg.contains("mp3 only"), "got: {msg}");
+    assert!(msg.contains("mp3 and ogg only"), "got: {msg}");
 }
 
 // ---------------------------------------------------------------------------
@@ -851,6 +851,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "render_final",
             "render_preview",
             "reorder_effects",
+            "reorder_tracks",
             "repeat_selection",
             "resample_track",
             "reverb",

@@ -164,7 +164,10 @@ fn destination(ctx: &ToolContext, out_path: &str) -> Result<PathBuf, String> {
         return Err(refused("is inside the project's own .audiograph folder"));
     }
     crate::destination::refuse_project_audio(ctx.store, [&path]).map_err(|_| {
-        refused("is audio the project plays, or the project's history could not be read to check")
+        refused(
+            "is audio the project plays, is inside a folder of the project's own audio \
+             (`generated/`), or the project's history could not be read to check",
+        )
     })?;
     Ok(path)
 }
