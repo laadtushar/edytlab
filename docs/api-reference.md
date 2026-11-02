@@ -1658,7 +1658,8 @@ interface WebviewErrorReport {
 Hands an uncaught webview error to the crash reporter. `lib/crashReports.ts`
 calls it from `window`'s `error` and `unhandledrejection` events, each
 distinct error once and at most 20 a launch. It does nothing unless the switch
-is on in a build that can send, and never rejects.
+is on in a build that can send. The command itself never fails; the promise
+rejects only if the IPC call does, and the window's forwarder catches that.
 
 ---
 

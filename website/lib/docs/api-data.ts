@@ -872,7 +872,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "reportWebviewError(report)",
             returns: "void",
-            desc: "Hand an uncaught webview error (its kind, name, message and stack) to the crash reporter, which sends it only when Send crash reports is on in a build that can send, scrubbed first. The window calls it from its error and unhandledrejection events, each distinct error once and at most 20 a launch. Never rejects.",
+            desc: "Hand an uncaught webview error (its kind, name, message and stack) to the crash reporter, which sends it only when Send crash reports is on in a build that can send, scrubbed first. The window calls it from its error and unhandledrejection events, each distinct error once and at most 20 a launch. Rejects only if the IPC call fails.",
           },
         ],
       },

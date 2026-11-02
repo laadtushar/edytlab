@@ -205,9 +205,11 @@ impl CrashReporter {
     /// waiting up to two seconds for a report already queued, so call it
     /// off the async runtime's workers.
     pub fn set_enabled(&self, on: bool) {
-        self.enabled.store(on, Ordering::SeqCst);
         let closed = {
             let mut slot = self.client.write().unwrap_or_else(|p| p.into_inner());
+            // Stored under the client lock, so `enabled` and the client
+            // never disagree for another caller.
+            self.enabled.store(on, Ordering::SeqCst);
             match (&self.dsn, on) {
                 (Some(dsn), true) => {
                     if slot.is_none() {

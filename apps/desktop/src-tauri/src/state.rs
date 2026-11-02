@@ -333,6 +333,15 @@ impl AppState {
     /// is let go: turning reporting off waits (up to two seconds) for a
     /// report already queued, so call this off the async runtime's workers.
     pub fn save_crash_reports(&self, enabled: bool) -> std::io::Result<()> {
+        // Two quick toggles must land in the same order on disk and in the
+        // client, or the last choice saved could be "off" while a client
+        // from an earlier "on" keeps sending. This lock orders write then
+        // apply across callers. It is not the settings lock, which stays a
+        // leaf: closing the client can wait up to two seconds.
+        static ORDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _order = ORDER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let saved = {
             let path = self
                 .settings_path
