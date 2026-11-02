@@ -1,3 +1,4 @@
+import { OverlayDialog } from "./OverlayDialog";
 import { usePresence } from "../hooks/usePresence";
 
 export interface TemplateInfo {
@@ -24,15 +25,20 @@ export function TemplatePickerModal({
   if (!mounted) return null;
   return (
     <div
+      data-overlay-layer
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
+      inert={!open}
+      aria-hidden={!open || undefined}
       onClick={onClose}
       onAnimationEnd={onAnimationEnd}
     >
-      <div
+      <OverlayDialog
+        active={open}
+        onClose={onClose}
+        aria-labelledby="template-picker-heading"
         className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-80 p-6`}
-        onClick={e => e.stopPropagation()}
       >
-        <h2 className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">
+        <h2 id="template-picker-heading" className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">
           Start from template
         </h2>
         <ul className="space-y-2">
@@ -49,7 +55,15 @@ export function TemplatePickerModal({
             </li>
           ))}
         </ul>
-      </div>
+        <button
+          type="button"
+          data-dialog-initial-focus
+          className="btn-secondary mt-4 w-full rounded px-3 py-2"
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+      </OverlayDialog>
     </div>
   );
 }

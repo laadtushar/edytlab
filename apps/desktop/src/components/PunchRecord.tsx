@@ -18,7 +18,8 @@
  * to; this component's job ends when the punch is started.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { OverlayDialog } from "./OverlayDialog";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   DEFAULT_PREROLL_SEC,
@@ -59,7 +60,6 @@ export function PunchRecord({
   const [track, setTrack] = useState(0);
   const [preroll, setPreroll] = useState(String(DEFAULT_PREROLL_SEC));
   const [latency, setLatency] = useState<RecordingLatency | undefined | "failed">(undefined);
-  const rootRef = useRef<HTMLDivElement>(null);
 
   const reason = punchDisabledReason(gate);
 
@@ -86,23 +86,6 @@ export function PunchRecord({
   // exists.
   const picked = Math.min(track, Math.max(0, tracks.length - 1));
 
-  // Escape closes, and a click outside, like every other transient surface.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("mousedown", onDown);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("mousedown", onDown);
-    };
-  }, [open]);
-
   // Nothing to punch into any more (the selection was cleared, a take
   // started): the popover goes, as its button is off.
   useEffect(() => {
@@ -122,7 +105,7 @@ export function PunchRecord({
   }, [canStart, onPunch, picked, prerollSec]);
 
   return (
-    <div ref={rootRef} className="relative">
+    <div className="relative">
       <button
         type="button"
         data-testid="punch-btn"
@@ -145,7 +128,11 @@ export function PunchRecord({
       </button>
 
       {open && region ? (
-        <div
+        <OverlayDialog
+          active={open}
+          onClose={() => setOpen(false)}
+          outsideDismiss
+          aria-labelledby="punch-panel-heading"
           data-testid="punch-panel"
           className="
             absolute right-0 top-full z-50 mt-1 w-72
@@ -154,9 +141,9 @@ export function PunchRecord({
             shadow-(--shadow-pop)
           "
         >
-          <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+          <h2 id="punch-panel-heading" className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
             Punch in
-          </p>
+          </h2>
 
           <p
             data-testid="punch-region"
@@ -262,7 +249,7 @@ export function PunchRecord({
           >
             Start
           </button>
-        </div>
+        </OverlayDialog>
       ) : null}
     </div>
   );

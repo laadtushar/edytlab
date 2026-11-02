@@ -18,7 +18,8 @@
  * armed.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { OverlayDialog } from "./OverlayDialog";
+import { useCallback, useState } from "react";
 
 export interface TimerRecordProps {
   /** Disabled while a take is already running. */
@@ -54,7 +55,6 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
   const [startSec, setStartSec] = useState("");
   const [forMin, setForMin] = useState("");
   const [forSec, setForSec] = useState("");
-  const rootRef = useRef<HTMLDivElement>(null);
 
   const startAfterSec = toSeconds(startMin, startSec);
   const durationSec = toSeconds(forMin, forSec);
@@ -62,27 +62,6 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
   // same refusal. Checking here turns a round-trip and an error banner
   // into a disabled button with the reason next to it.
   const armed = startAfterSec !== undefined || durationSec !== undefined;
-
-  // Escape closes, like every other transient surface in the app.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  // A click outside closes it. Without this the panel outlives the
-  // button that opened it and sits over the timeline.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
 
   const arm = useCallback(() => {
     if (!armed) return;
@@ -128,7 +107,7 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
   );
 
   return (
-    <div ref={rootRef} className="relative">
+    <div className="relative">
       <button
         type="button"
         data-testid="timer-record-btn"
@@ -150,7 +129,11 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
       </button>
 
       {open ? (
-        <div
+        <OverlayDialog
+          active={open}
+          onClose={() => setOpen(false)}
+          outsideDismiss
+          aria-labelledby="timer-record-panel-heading"
           data-testid="timer-record-panel"
           className="
             absolute right-0 top-full z-50 mt-1 w-64
@@ -159,9 +142,9 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
             shadow-(--shadow-pop)
           "
         >
-          <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+          <h2 id="timer-record-panel-heading" className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
             Scheduled recording
-          </p>
+          </h2>
 
           <div className="flex flex-col gap-2">
             {field("Start after", startMin, setStartMin, startSec, setStartSec, "timer-start")}
@@ -195,7 +178,7 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
           >
             Arm
           </button>
-        </div>
+        </OverlayDialog>
       ) : null}
     </div>
   );

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CommandPalette — Ctrl+K searchable launcher for the agent's tools.
  *
  * Opens as a modal overlay. User types to filter, clicks or presses Enter
@@ -11,6 +11,7 @@
  * not appear — see the note on the Speed & Pitch group.
  */
 
+import { OverlayDialog } from "./OverlayDialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { usePresence } from "../hooks/usePresence";
@@ -222,7 +223,6 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
     if (open) {
       setQuery("");
       setActiveIdx(0);
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
 
@@ -259,30 +259,25 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
     setActiveIdx(0);
   }, [query]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { onClose(); return; }
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveIdx((i) => Math.min(i + 1, flatFiltered.length - 1));
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveIdx((i) => Math.max(i - 1, 0));
-      }
-      if (e.key === "Enter" && flatFiltered[activeIdx]) {
-        e.preventDefault();
-        // Same guard as the click path: Enter on an unavailable
-        // command would fill the chat with a prompt that only errors.
-        if (flatFiltered[activeIdx].unavailable) return;
-        onSelect(flatFiltered[activeIdx].prompt);
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, onSelect, flatFiltered, activeIdx]);
+  const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== inputRef.current) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, flatFiltered.length - 1));
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, 0));
+    }
+    if (e.key === "Enter" && flatFiltered[activeIdx]) {
+      e.preventDefault();
+      // Same guard as the click path: Enter on an unavailable
+      // command would fill the chat with a prompt that only errors.
+      if (flatFiltered[activeIdx].unavailable) return;
+      onSelect(flatFiltered[activeIdx].prompt);
+      onClose();
+    }
+  };
 
   if (!mounted) return null;
 
@@ -294,14 +289,22 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
 
   return (
     <div
+      data-overlay-layer
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]`}
+      inert={!open}
+      aria-hidden={!open || undefined}
       onClick={handleBackdrop}
       onAnimationEnd={onAnimationEnd}
     >
-      <div
+      <OverlayDialog
+        active={open}
+        onClose={onClose}
+        aria-labelledby="command-palette-heading"
+        onKeyDown={onKey}
         className={`${leaving ? "overlay-out" : "overlay-in"} flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-(--shadow-dialog)`}
         style={{ maxHeight: "60vh" }}
       >
+        <h2 id="command-palette-heading" className="sr-only">Command palette</h2>
         {/* Search input */}
         <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
           <svg
@@ -415,7 +418,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
             </span>
           </div>
         </div>
-      </div>
+      </OverlayDialog>
     </div>
   );
 }

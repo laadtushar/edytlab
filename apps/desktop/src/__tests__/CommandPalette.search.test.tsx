@@ -123,14 +123,14 @@ describe("choosing a command", () => {
    * palette closes and a plausible prompt lands in the chat.
    */
   it("Enter sends the highlighted row, not a different one", () => {
-    const { type, onSelect } = open();
+    const { type, input, onSelect } = open();
     type("fade");
 
     const labels = visibleLabels();
     expect(labels.length).toBeGreaterThan(1);
 
-    fireEvent.keyDown(document, { key: "ArrowDown" });
-    fireEvent.keyDown(document, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onSelect).toHaveBeenCalledWith(
       COMMANDS.find((c) => c.label === labels[1])!.prompt,

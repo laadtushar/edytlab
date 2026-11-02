@@ -1,4 +1,4 @@
-﻿import { useEffect } from "react";
+import { OverlayDialog } from "./OverlayDialog";
 
 import { usePresence } from "../hooks/usePresence";
 
@@ -38,33 +38,23 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
   // (#236); `mounted` is still false for an overlay never opened.
   const { mounted, leaving, onAnimationEnd } = usePresence(open);
 
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [open, onClose]);
-
   if (!mounted) return null;
 
   return (
     <div
+      data-overlay-layer
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
+      inert={!open}
+      aria-hidden={!open || undefined}
       onClick={onClose}
       onAnimationEnd={onAnimationEnd}
       data-testid="shortcuts-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="shortcuts-heading"
     >
-      <div
+      <OverlayDialog
+        active={open}
+        onClose={onClose}
+        aria-labelledby="shortcuts-heading"
         className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-96 p-6`}
-        onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
           <h2 id="shortcuts-heading" className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase">
@@ -91,7 +81,7 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
             ))}
           </tbody>
         </table>
-      </div>
+      </OverlayDialog>
     </div>
   );
 }
