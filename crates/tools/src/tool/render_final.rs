@@ -1,7 +1,7 @@
 //! `render_final` — render a node's session state to a user-chosen
 //! path.
 //!
-//! WAV, FLAC and MP3. The schema advertises exactly what the encoders
+//! WAV, AIFF, FLAC, MP3 and OGG (Opus). The schema advertises exactly what the encoders
 //! can produce: it listed `mp3` for "forward compatibility" once and
 //! that meant the tool promised an export it could not perform, which
 //! is worse than not offering it.
@@ -67,21 +67,20 @@ impl Tool for RenderFinalTool {
         anthropic_tool(
             "render_final",
             "Render a session node to a final audio file at the user's chosen path. \
-             format=\"wav\" is uncompressed, \"flac\" is lossless at roughly half the \
-             size and identical audio, \"mp3\" is lossy but plays anywhere — prefer \
-             flac when the user wants to send a file somewhere and quality matters, \
-             mp3 when size or compatibility matters. bitrate_kbps applies to mp3 only \
-             and defaults to 192. An out_path that is audio the project reads (a loaded \
-             file, or any file its history plays) is refused: choose another.",
+             wav and aiff are uncompressed, flac is lossless at about half the size, mp3 \
+             and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for \
+             compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. \
+             An out_path that is audio the project reads (a loaded file, or any file its \
+             history plays) is refused: choose another.",
             json!({
                 "type": "object",
                 "properties": {
                     "node_id": { "type": "string" },
-                    "format": { "type": "string", "enum": ["wav", "flac", "mp3"] },
+                    "format": { "type": "string", "enum": ["wav", "aiff", "flac", "mp3", "ogg"] },
                     "out_path": { "type": "string" },
                     "metadata": {
                         "type": "object",
-                        "description": "Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export.",
+                        "description": "Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export.",
                         "properties": {
                             "title": { "type": "string" },
                             "artist": { "type": "string" },
@@ -99,7 +98,7 @@ impl Tool for RenderFinalTool {
                         "type": "integer",
                         "minimum": MP3_MIN_KBPS,
                         "maximum": MP3_MAX_KBPS,
-                        "description": "MP3 CBR target; snapped to the nearest valid Layer III rate. Ignored for wav and flac."
+                        "description": "MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats."
                     },
                 },
                 "required": ["node_id", "format", "out_path"],
@@ -118,25 +117,38 @@ impl Tool for RenderFinalTool {
         // before it reaches here. This arm is the belt to that braces.
         let transcode = match args.format.as_str() {
             "wav" => None,
+            "aiff" => Some(Encoded::Aiff),
             "flac" => Some(Encoded::Flac),
             "mp3" => Some(Encoded::Mp3),
+            "ogg" => Some(Encoded::Ogg),
             other => {
                 return Ok(ToolResult::Error(format!(
-                    "unknown format {other:?}; supported: \"wav\", \"flac\", \"mp3\""
+                    "unknown format {other:?}; supported: \"wav\", \"aiff\", \"flac\", \"mp3\", \"ogg\""
                 )));
             }
         };
 
         if let Some(kbps) = args.bitrate_kbps {
-            if args.format != "mp3" {
+            if args.format != "mp3" && args.format != "ogg" {
                 return Ok(ToolResult::Error(format!(
-                    "bitrate_kbps applies to mp3 only; {} is not a lossy format",
+                    "bitrate_kbps applies to mp3 and ogg only; {} is not a lossy format",
                     args.format
                 )));
             }
-            if !(MP3_MIN_KBPS..=MP3_MAX_KBPS).contains(&kbps) {
+            // Opus's own range (6 to 256 a channel); the channel count is
+            // the render's, so the encoder checks the upper end per channel.
+            let (lo, hi) = if args.format == "ogg" {
+                (
+                    audio_engine::OPUS_MIN_KBPS,
+                    audio_engine::OPUS_MAX_KBPS_PER_CHANNEL * 2,
+                )
+            } else {
+                (MP3_MIN_KBPS, MP3_MAX_KBPS)
+            };
+            if !(lo..=hi).contains(&kbps) {
                 return Ok(ToolResult::Error(format!(
-                    "bitrate_kbps must be between {MP3_MIN_KBPS} and {MP3_MAX_KBPS}; got {kbps}"
+                    "bitrate_kbps for {} must be between {lo} and {hi}; got {kbps}",
+                    args.format
                 )));
             }
         }
@@ -263,12 +275,28 @@ impl Tool for RenderFinalTool {
             chapters.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
             tags.chapters = chapters;
         }
-        if !tags.is_empty() && transcode.is_none() {
-            return Ok(ToolResult::Error(
-                "WAV has no standard tag container worth using; export as flac or mp3 to carry \
-                 metadata, or drop the metadata argument"
-                    .to_string(),
-            ));
+        if matches!(transcode, None | Some(Encoded::Aiff)) {
+            // Refused only for tags this call asked for. The project's own
+            // title, artist, album and year fill in on every export, so
+            // counting them made a WAV or AIFF export of any project that
+            // had one set impossible; for a format with no tags they are
+            // simply not written, as the schema says.
+            let asked = args.markers_as_chapters
+                || args.metadata.as_ref().is_some_and(|m| {
+                    m.title.is_some()
+                        || m.artist.is_some()
+                        || m.album.is_some()
+                        || m.year.is_some()
+                        || m.comment.is_some()
+                });
+            if asked && !tags.is_empty() {
+                return Ok(ToolResult::Error(
+                    "WAV and AIFF have no standard tag container worth using; export as flac, \
+                     mp3 or ogg to carry metadata, or drop the metadata argument"
+                        .to_string(),
+                ));
+            }
+            tags = audio_engine::Tags::default();
         }
         let mut tag_warning: Option<String> = None;
 
@@ -288,6 +316,20 @@ impl Tool for RenderFinalTool {
                 }
             };
             let encoded = match kind {
+                Encoded::Aiff => audio_engine::write_aiff(
+                    &decoded.samples,
+                    decoded.sample_rate,
+                    decoded.channels,
+                    &out_path,
+                ),
+                Encoded::Ogg => audio_engine::write_ogg_opus(
+                    &decoded.samples,
+                    decoded.sample_rate,
+                    decoded.channels,
+                    args.bitrate_kbps,
+                    &tags,
+                    &out_path,
+                ),
                 Encoded::Flac => audio_engine::write_flac(
                     &decoded.samples,
                     decoded.sample_rate,
@@ -311,11 +353,12 @@ impl Tool for RenderFinalTool {
 
             // Tags go on after encoding: FLAC's blocks are rewritten in
             // place and an ID3 tag is a prefix, so neither touches a
-            // sample. A tagging failure does not fail the export — the
+            // sample. An Ogg file's are written with the stream. A tagging failure does not fail the export — the
             // audio is already written and correct, and losing the file
             // over a missing title would be the worse outcome.
-            if !tags.is_empty() {
+            if !tags.is_empty() && !matches!(kind, Encoded::Ogg) {
                 let tagged = match kind {
+                    Encoded::Aiff | Encoded::Ogg => unreachable!("refused or written above"),
                     Encoded::Flac => audio_engine::tag_flac(&out_path, &tags),
                     Encoded::Mp3 => audio_engine::tag_mp3(&out_path, &tags),
                 };
@@ -342,6 +385,11 @@ impl Tool for RenderFinalTool {
             out["bitrate_kbps"] =
                 json!(args.bitrate_kbps.unwrap_or(audio_engine::MP3_DEFAULT_KBPS));
         }
+        if args.format == "ogg" {
+            out["bitrate_kbps"] = json!(args
+                .bitrate_kbps
+                .unwrap_or(audio_engine::OPUS_DEFAULT_KBPS * report.channels as u32 / 2));
+        }
         if !tags.is_empty() {
             out["tagged"] = json!(tag_warning.is_none());
             out["chapters"] = json!(tags.chapters.len());
@@ -363,6 +411,8 @@ impl Tool for RenderFinalTool {
 /// Which encoder runs over the intermediate WAV.
 #[derive(Debug, Clone, Copy)]
 enum Encoded {
+    Aiff,
+    Ogg,
     Flac,
     Mp3,
 }

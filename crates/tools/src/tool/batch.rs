@@ -81,7 +81,7 @@ impl Tool for BatchApplyTool {
                     },
                     "render_format": {
                         "type": "string",
-                        "enum": ["wav", "flac", "mp3"],
+                        "enum": ["wav", "aiff", "flac", "mp3", "ogg"],
                         "description": "Also render each result to this format, in output_dir under the input's name (take1.wav to take1.mp3).",
                     },
                 },

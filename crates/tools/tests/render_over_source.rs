@@ -33,6 +33,31 @@ fn write_mp3_sine(path: &Path, freq: f32) -> PathBuf {
     path.to_path_buf()
 }
 
+/// An AIFF and an Ogg Opus of a sine, made by the app's own encoders.
+fn write_aiff_sine(path: &Path) -> PathBuf {
+    let samples: Vec<f32> = (0..SAMPLE_RATE as usize)
+        .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / SAMPLE_RATE as f32).sin() * 0.25)
+        .collect();
+    audio_engine::write_aiff(&samples, SAMPLE_RATE, 1, path).expect("aiff");
+    path.to_path_buf()
+}
+
+fn write_ogg_sine(path: &Path) -> PathBuf {
+    let samples: Vec<f32> = (0..SAMPLE_RATE as usize)
+        .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / SAMPLE_RATE as f32).sin() * 0.25)
+        .collect();
+    audio_engine::write_ogg_opus(
+        &samples,
+        SAMPLE_RATE,
+        1,
+        None,
+        &audio_engine::Tags::default(),
+        path,
+    )
+    .expect("ogg");
+    path.to_path_buf()
+}
+
 impl Session {
     fn new() -> Self {
         Session::in_subfolder("project")
@@ -355,6 +380,30 @@ fn render_final_will_not_re_encode_over_the_mp3_that_was_loaded() {
     let msg = err(result);
 
     assert!(msg.contains("a.mp3"), "{msg}");
+}
+
+/// The two formats `render_final` writes since #764 are refused over a
+/// loaded original just as the older three are.
+#[test]
+fn render_final_will_not_re_encode_over_a_loaded_aiff_or_ogg() {
+    for (format, name, write) in [
+        ("aiff", "a.aiff", write_aiff_sine as fn(&Path) -> PathBuf),
+        ("ogg", "a.ogg", write_ogg_sine),
+    ] {
+        let mut s = Session::new();
+        let original = write(&s.user_dir("music").join(name));
+        let before = bytes(&original);
+        s.load_quietened(&original);
+        let head = s.store.head().unwrap().to_hex();
+
+        let result = s.call(
+            "render_final",
+            json!({ "node_id": head, "format": format, "out_path": original.to_string_lossy() }),
+        );
+        assert_unchanged(&original, &before);
+        let msg = err(result);
+        assert!(msg.contains(name), "{format}: {msg}");
+    }
 }
 
 /// What still works: a fresh path, and an earlier export of the project's
