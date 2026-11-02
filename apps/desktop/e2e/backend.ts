@@ -529,6 +529,12 @@ function providerCommands(): Backend {
         "  * symphonia 0.5.5",
       ].join("\n"),
     ),
+    // `get_crash_reports` (`commands.rs`): `CrashReporter::status()`, read
+    // from memory, which the panel's Account tab asks for (the first-run card
+    // does not). A fresh install has the choice off, and a build with no
+    // `EDYTLAB_SENTRY_DSN` (every build from source, CI's included) is not
+    // `available` (#958).
+    get_crash_reports: ok({ enabled: false, available: false }),
     // `recording_latency_status` for a machine with devices and nothing
     // measured, which the Audio tab asks for when it opens.
     get_recording_latency: ok(recordingLatencyStatus()),
@@ -602,6 +608,11 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
     // `AppState::plan_first` starts from `~/.edytlab/settings.json`, and a
     // fresh install has none: off (#569).
     get_plan_first: ok(false),
+    // `report_webview_error` (`commands.rs`) answers `Ok(())` whatever it is
+    // handed: the window forwards an uncaught error to it (#958), and with
+    // crash reports off it drops it. Answered here so an error a test
+    // provokes is not also an unanswered command.
+    report_webview_error: ok(null),
     // `get_sync_lock` returns `Ok(false)` rather than failing when no
     // session is open, so the window can still draw.
     get_sync_lock: ok(false),
@@ -1006,4 +1017,20 @@ export function headMovesWithin({ held, gone }: { held: string[]; gone: string[]
 /** A node id as the backend formats one: 32 bytes, as 64 hex digits. */
 export function nodeId(n: number): string {
   return n.toString(16).padStart(64, "0");
+}
+
+/**
+ * Send crash reports in a build that can send (#958): `get_crash_reports`
+ * answers `available: true` with the choice `enabled`, and
+ * `set_crash_reports` answers with the status after the change, as
+ * `commands::set_crash_reports` does once the choice is saved.
+ */
+export function crashReportsCommands({ enabled = false }: { enabled?: boolean } = {}): Backend {
+  return {
+    get_crash_reports: ok({ enabled, available: true }),
+    set_crash_reports: byArg("enabled", {
+      true: ok({ enabled: true, available: true }),
+      false: ok({ enabled: false, available: true }),
+    }),
+  };
 }

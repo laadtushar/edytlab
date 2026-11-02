@@ -184,6 +184,11 @@ pub struct AppState {
     /// it (#474). A handle with no session until [`AppState::install_chatgpt`]
     /// runs, so a bare `AppState::new()` is a state with ChatGPT unavailable.
     pub chatgpt: crate::chatgpt::ChatGptHandle,
+    /// Opt-in crash reports (#958): off until the person turns them on in
+    /// Settings, and inert in a build with no DSN. Read from the settings
+    /// file with Plan first ([`AppState::install_settings`]); written with
+    /// [`AppState::save_crash_reports`].
+    pub crash_reports: Arc<crate::crash_reports::CrashReporter>,
 }
 
 /// Why the keychain is not asked again, after a startup it refused
@@ -243,6 +248,7 @@ impl AppState {
             mcp_config_path: Arc::new(Mutex::new(PathBuf::new())),
             mcp: Arc::new(McpRegistry::new()),
             chatgpt: crate::chatgpt::ChatGptHandle::default(),
+            crash_reports: Arc::new(crate::crash_reports::CrashReporter::default()),
         }
     }
 
@@ -298,15 +304,48 @@ impl AppState {
     /// anything, so the first message of the launch already knows whether
     /// Plan first is on (#569). A missing or unreadable file means the
     /// defaults, which is off, and never stops the app starting.
+    ///
+    /// Send crash reports (#958) is read here too, and applied: off (the
+    /// default, and what a missing or corrupt file means) builds nothing; on
+    /// builds the reporting client, which sends nothing until something goes
+    /// wrong, and only in a build that has a DSN.
     pub fn install_settings(&self, path: PathBuf) {
         let plan_first = crate::settings::read_plan_first(&path);
-        let mut slot = self
-            .settings_path
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *slot = path;
-        self.plan_first
-            .store(plan_first, std::sync::atomic::Ordering::SeqCst);
+        let crash_reports = crate::settings::read_crash_reports(&path);
+        {
+            let mut slot = self
+                .settings_path
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *slot = path;
+            self.plan_first
+                .store(plan_first, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.crash_reports.set_enabled(crash_reports);
+    }
+
+    /// Turn Send crash reports on or off for this launch and record it for
+    /// the next (#958), as [`AppState::save_plan_first`] does for Plan
+    /// first: the choice applies whatever the disk does, and an `Err` means
+    /// only that the next launch is in doubt.
+    ///
+    /// The choice is recorded under the settings lock, and applied after it
+    /// is let go: turning reporting off waits (up to two seconds) for a
+    /// report already queued, so call this off the async runtime's workers.
+    pub fn save_crash_reports(&self, enabled: bool) -> std::io::Result<()> {
+        let saved = {
+            let path = self
+                .settings_path
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if path.as_os_str().is_empty() {
+                Ok(())
+            } else {
+                crate::settings::write_crash_reports(&path, enabled)
+            }
+        };
+        self.crash_reports.set_enabled(enabled);
+        saved
     }
 
     /// Turn Plan first on or off for this launch and record it for the next.
@@ -660,6 +699,8 @@ impl AppState {
     /// too. The order is the `store` slot, then the `project_dir` slot; no
     /// code takes them the other way round.
     pub fn set_open_project(&self, store: LiveStore, dir: PathBuf) {
+        // A crash report never names the folder (#958).
+        self.crash_reports.redact_path(&dir, "<project>");
         {
             let mut slot = self.store.lock().expect("store mutex poisoned");
             *slot = Some(store);

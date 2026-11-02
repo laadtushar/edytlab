@@ -64,3 +64,15 @@ export function speechRow() {
     removeMlModel: vi.fn(),
   };
 }
+
+/**
+ * The Account tab's Send crash reports row (#958): off, in a build that
+ * cannot send (no DSN), as every test build is. Plain functions, so a test's
+ * `mockReset` leaves them alone.
+ */
+export function crashReportsRow() {
+  return {
+    getCrashReports: () => Promise.resolve({ enabled: false, available: false }),
+    setCrashReports: vi.fn(),
+  };
+}

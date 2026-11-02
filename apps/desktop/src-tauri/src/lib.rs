@@ -9,6 +9,7 @@ pub mod bundled_skills;
 pub mod chatgpt;
 pub mod commands;
 pub mod compare;
+pub mod crash_reports;
 pub mod events;
 pub mod mcp_tool;
 pub mod project;
@@ -26,17 +27,18 @@ use crate::commands::{
     clear_api_key_for, cut_transcript_words, default_base_url_for, delete_agent_profile,
     delete_mcp_server, delete_skill, download_ml_model, duplicate_track, end_compare,
     forget_recent_project, get_active_agent_profile, get_active_model, get_active_provider,
-    get_base_url_for, get_effort_for, get_graph, get_head_trail, get_keychain_persistence,
-    get_node, get_plan_first, get_project_meta, get_recording_latency, get_render_warnings,
-    get_session_head, get_sync_lock, get_transcript, get_view_state, has_api_key, has_api_key_for,
-    install_bundled_skills, install_plugin, list_agent_profiles, list_capabilities, list_markers,
-    list_mcp_servers, list_models_for, list_providers, list_recent_projects, list_skills,
-    list_templates, list_tracks, ml_model_status, ml_runtime_status, move_clip, open_chatgpt_usage,
-    open_project, prepare_compare, punch_record, read_agent_profile, read_mcp_server, read_memory,
-    read_skill, reject_plan, remove_clip, remove_marker, remove_ml_model, remove_track,
-    rename_node, rename_track, render_preview, render_range, restart_mcp_server, save_head_trail,
-    save_project_as, save_view_state, send_message, set_active_agent_profile, set_active_model,
-    set_active_provider, set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope,
+    get_base_url_for, get_crash_reports, get_effort_for, get_graph, get_head_trail,
+    get_keychain_persistence, get_node, get_plan_first, get_project_meta, get_recording_latency,
+    get_render_warnings, get_session_head, get_sync_lock, get_transcript, get_view_state,
+    has_api_key, has_api_key_for, install_bundled_skills, install_plugin, list_agent_profiles,
+    list_capabilities, list_markers, list_mcp_servers, list_models_for, list_providers,
+    list_recent_projects, list_skills, list_templates, list_tracks, ml_model_status,
+    ml_runtime_status, move_clip, open_chatgpt_usage, open_project, prepare_compare, punch_record,
+    read_agent_profile, read_mcp_server, read_memory, read_skill, reject_plan, remove_clip,
+    remove_marker, remove_ml_model, remove_track, rename_node, rename_track, render_preview,
+    render_range, report_webview_error, restart_mcp_server, save_head_trail, save_project_as,
+    save_view_state, send_message, set_active_agent_profile, set_active_model, set_active_provider,
+    set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope, set_crash_reports,
     set_effort_for, set_head_to, set_plan_first, set_project_meta, set_recording_latency,
     set_selection_context, set_sync_lock, set_track_gain, set_track_muted, set_track_pan,
     set_track_soloed, start_recording, stop_recording, test_api_key, test_api_key_for,
@@ -121,6 +123,11 @@ pub fn run() {
     }
 
     let app_state = AppState::new();
+    // Panics are reported once the person turns crash reports on (#958). The
+    // hook goes in now, before anything can panic, and only in a build with
+    // a DSN; until the choice is read (in `setup`) and is on, it reports
+    // nothing and only hands over to the hook that was there before.
+    crate::crash_reports::install_panic_hook(app_state.crash_reports.clone());
     // Pending from the first moment, before any command can ask: the
     // keychain reads that settle it start in `setup` below and can take
     // as long as the user does (#497).
@@ -139,6 +146,20 @@ pub fn run() {
             tools::progress::set_sink(move |event| {
                 let _ = progress_handle.emit("tool-progress", event);
             });
+
+            // What no crash report may name (#958): the home folder, and the
+            // app's own folders wherever the platform puts them. Before the
+            // settings are read, which is what can turn reporting on.
+            for (dir, replacement) in [
+                (app.path().home_dir(), "~"),
+                (app.path().app_config_dir(), "<app config>"),
+                (app.path().app_data_dir(), "<app data>"),
+                (app.path().app_local_data_dir(), "<app data>"),
+            ] {
+                if let Ok(dir) = dir {
+                    app_state.crash_reports.redact_path(&dir, replacement);
+                }
+            }
 
             // Tell the ONNX Runtime loader where the installer puts the
             // library (#383). Before anything can ask it to load one.
@@ -390,6 +411,9 @@ pub fn run() {
             get_keychain_persistence,
             ml_runtime_status,
             third_party_notices,
+            get_crash_reports,
+            set_crash_reports,
+            report_webview_error,
             ml_model_status,
             download_ml_model,
             cancel_ml_model_download,

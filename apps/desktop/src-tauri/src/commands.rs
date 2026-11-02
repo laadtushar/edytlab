@@ -89,6 +89,10 @@ pub enum CommandError {
     #[error("could not save the Plan first setting ({0}); it applies until edytlab quits")]
     PlanFirstNotSaved(std::io::Error),
 
+    /// Send crash reports was applied for this launch but not saved (#958).
+    #[error("could not save the crash reports setting ({0}); it applies until edytlab quits")]
+    CrashReportsNotSaved(std::io::Error),
+
     #[error("invalid node id: {0}")]
     InvalidNodeId(String),
 
@@ -1708,6 +1712,60 @@ pub async fn third_party_notices(app: tauri::AppHandle) -> CmdResult<String> {
     tauri::async_runtime::spawn_blocking(move || read_third_party_notices(&resource_dir))
         .await
         .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?
+}
+
+// ---------------------------------------------------------------------------
+// crash reports (#958)
+// ---------------------------------------------------------------------------
+
+/// Settings → Account → Send crash reports: whether the person turned it on
+/// (off on a fresh install) and whether this build can send at all (it was
+/// built with an `EDYTLAB_SENTRY_DSN`). Reads memory only.
+#[tauri::command]
+pub async fn get_crash_reports(
+    state: State<'_, AppState>,
+) -> CmdResult<crate::crash_reports::CrashReportsStatus> {
+    Ok(state.crash_reports.status())
+}
+
+/// Turn Send crash reports on or off, at once and for later launches: it is
+/// saved to `~/.edytlab/settings.json`, never the keychain. On makes the
+/// reporting client (nothing is sent until something goes wrong, and only
+/// in a build with a DSN); off closes it, after waiting up to two seconds
+/// for a report already on its way, so it runs on the blocking pool.
+///
+/// The choice applies to this launch whatever the disk does. If it could not
+/// be saved the answer is an error that says so, and Settings reads the
+/// status again rather than assuming the click failed.
+#[tauri::command]
+pub async fn set_crash_reports(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> CmdResult<crate::crash_reports::CrashReportsStatus> {
+    let app_state = state.inner().clone();
+    let saved = tauri::async_runtime::spawn_blocking(move || app_state.save_crash_reports(enabled))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()).to_string())?;
+    if let Err(e) = saved {
+        tracing::warn!(error = %e, "could not save the crash reports setting");
+        return Err(CommandError::CrashReportsNotSaved(e).to_string());
+    }
+    Ok(state.crash_reports.status())
+}
+
+/// An uncaught error in the webview (`window.onerror`, an unhandled
+/// rejection), forwarded by `lib/crashReports.ts` so the app has one
+/// reporting client and one consent check, and the CSP stays as it is. Does
+/// nothing unless Send crash reports is on in a build that can send; the
+/// report is scrubbed before it leaves (`crash_reports::scrub_event`).
+/// Never fails: a report that cannot be made is not the window's problem.
+#[tauri::command]
+pub async fn report_webview_error(
+    state: State<'_, AppState>,
+    report: crate::crash_reports::WebviewErrorReport,
+) -> CmdResult<()> {
+    state.crash_reports.report_webview_error(&report);
+    Ok(())
 }
 
 /// [`third_party_notices`]' file work: the notices under `resource_dir`.
