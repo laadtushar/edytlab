@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 108 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 109 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -128,6 +128,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
 - [`vocal_reduction`](#vocal_reduction) — Reduce center-panned vocals using L-R channel subtraction (Karaoke effect).
+- [`wah_wah`](#wah_wah) — Apply a wah-wah effect with an LFO-swept band-pass filter.
 
 ---
 
@@ -1385,5 +1386,17 @@ Reduce center-panned vocals using L-R channel subtraction (Karaoke effect). Work
 |---|---|---|---|
 | `end_sec` | number | no |  |
 | `start_sec` | number | no |  |
+| `track` | integer | yes |  |
+
+## `wah_wah`
+
+Apply a wah-wah effect with an LFO-swept band-pass filter. Depth controls the sweep up to two octaves either side of base_freq_hz; resonance is the filter Q. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `base_freq_hz` | number | no | Centre frequency in Hz |
+| `depth` | number | no | Sweep depth (0 to 1) |
+| `rate_hz` | number | no | LFO rate in Hz (0.1 to 10) |
+| `resonance` | number | no | Filter Q (0.1 to 10) |
 | `track` | integer | yes |  |
 

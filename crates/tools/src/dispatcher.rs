@@ -268,7 +268,7 @@ impl ToolDispatcher {
             SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
             StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
             TranscriptToMarkersTool, TremoloTool, TrimTool, TruncateSilenceTool,
-            VocalReductionTool,
+            VocalReductionTool, WahWahTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -404,6 +404,7 @@ impl ToolDispatcher {
         d.register(Box::new(PhaserTool));
         d.register(Box::new(StereoWidenerTool));
         d.register(Box::new(TremoloTool));
+        d.register(Box::new(WahWahTool));
         // A3 task 4: export_labels, import_labels (Audacity format).
         d.register(Box::new(ExportLabelsTool));
         d.register(Box::new(ImportLabelsTool));

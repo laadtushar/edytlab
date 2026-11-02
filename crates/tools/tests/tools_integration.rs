@@ -882,6 +882,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "trim",
             "truncate_silence",
             "vocal_reduction",
+            "wah_wah",
         ]
     );
 }

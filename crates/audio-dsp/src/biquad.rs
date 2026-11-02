@@ -96,6 +96,25 @@ impl BiquadCoeffs {
         }
     }
 
+    /// RBJ band-pass filter with unity gain at the centre frequency.
+    pub fn band_pass(center_hz: f32, q: f32, sample_rate: u32) -> Self {
+        let w0 = safe_w0(center_hz, sample_rate);
+        let q = if q.is_finite() {
+            q.clamp(0.1, 10.0)
+        } else {
+            1.0
+        };
+        let alpha = w0.sin() / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: alpha / a0,
+            b1: 0.0,
+            b2: -alpha / a0,
+            a1: -2.0 * w0.cos() / a0,
+            a2: (1.0 - alpha) / a0,
+        }
+    }
+
     /// Notch (band-reject) filter.
     pub fn notch(center_hz: f32, q: f32, sample_rate: u32) -> Self {
         let w0 = safe_w0(center_hz, sample_rate);
@@ -149,7 +168,7 @@ pub fn biquad_process(
 /// Extracted so the one-shot and streaming paths cannot drift: both call
 /// this, so there is a single definition of what the filter does.
 #[inline]
-fn step(coeffs: &BiquadCoeffs, st: &mut BiquadState, x: f32) -> f32 {
+pub(crate) fn step(coeffs: &BiquadCoeffs, st: &mut BiquadState, x: f32) -> f32 {
     let y = coeffs.b0 * x + st.z1;
     st.z1 = coeffs.b1 * x - coeffs.a1 * y + st.z2;
     st.z2 = coeffs.b2 * x - coeffs.a2 * y;

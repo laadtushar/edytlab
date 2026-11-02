@@ -19,3 +19,4 @@ pub mod phaser;
 pub mod reverb;
 pub mod stereo_widener;
 pub mod tremolo;
+pub mod wah_wah;
