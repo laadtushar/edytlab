@@ -19,6 +19,7 @@
  * those commands unfindable while every other test stayed green.
  */
 
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -129,11 +130,24 @@ describe("choosing a command", () => {
     const labels = visibleLabels();
     expect(labels.length).toBeGreaterThan(1);
 
-    fireEvent.keyDown(document, { key: "ArrowDown" });
-    fireEvent.keyDown(document, { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search commands" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search commands" }), { key: "Enter" });
 
     expect(onSelect).toHaveBeenCalledWith(
       COMMANDS.find((c) => c.label === labels[1])!.prompt,
     );
   });
+});
+
+
+it("Enter on a tabbed-to command chooses that button rather than the search highlight", async () => {
+  const user = userEvent.setup();
+  const { type, onSelect } = open();
+  type("fade");
+  const labels = visibleLabels();
+  const buttons = screen.getAllByRole("button");
+  buttons[1].focus();
+  await user.keyboard("{Enter}");
+  expect(onSelect).toHaveBeenCalledOnce();
+  expect(onSelect).toHaveBeenCalledWith(COMMANDS.find((c) => c.label === labels[1])!.prompt);
 });

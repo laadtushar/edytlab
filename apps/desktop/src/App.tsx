@@ -60,6 +60,7 @@ import { ToolProgressBar } from "./components/ToolProgressBar";
 import { TranscriptPane } from "./components/TranscriptPane";
 import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
+import { hasOpenDialog } from "./hooks/useDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { AppHeader } from "./components/AppHeader";
 import { EmptyState } from "./components/EmptyState";
@@ -490,6 +491,7 @@ function AppSession() {
   // seek 1 s.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (hasOpenDialog()) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName ?? "";
       const isTyping =
@@ -527,7 +529,7 @@ function AppSession() {
       }
       if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
         e.preventDefault();
-        if (!showShortcuts) setShowShortcuts(true);
+        setShowShortcuts(true);
         return;
       }
       if ((e.key === "l" || e.key === "L") && !isTyping) {
@@ -555,7 +557,7 @@ function AppSession() {
       } else if (e.key === "ArrowRight" && !isTyping) {
         e.preventDefault();
         t.seekBy(e.shiftKey ? 1 : 5);
-      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts) {
+      } else if (e.key === "Escape" && !isTyping && selection) {
         e.preventDefault();
         setSelection(null);
       } else if ((e.key === "+" || e.key === "=") && !isTyping) {
@@ -587,7 +589,7 @@ function AppSession() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, showShortcuts, handleUndo, handleRedo]);
+  }, [selection, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;

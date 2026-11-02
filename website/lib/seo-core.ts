@@ -53,7 +53,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/user-guide/playback-and-compare": "2026-10-26",
   "/docs/user-guide/speech": "2026-11-01",
   "/docs/user-guide/export-and-memory": "2026-10-26",
-  "/docs/user-guide/skills-and-profiles": "2026-10-26",
+  "/docs/user-guide/skills-and-profiles": "2026-11-02",
   "/docs/user-guide/providers": "2026-10-27",
   "/docs/user-guide/chatgpt-plan": "2026-10-26",
   "/docs/tools": "2026-11-02",
