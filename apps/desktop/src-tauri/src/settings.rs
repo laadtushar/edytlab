@@ -5,10 +5,12 @@
 //! `recents.json`, `mcp.json` and `memory.md`, which are the same kind of
 //! thing.
 //!
-//! Only Plan first is in it. It is an approval gate (with it on, no edit
-//! runs until the person approves it), so losing it at a restart failed in
-//! the unsafe direction: the toggle came back off and the next edits
-//! applied with no card.
+//! Two choices are in it. Plan first is an approval gate (with it on, no
+//! edit runs until the person approves it), so losing it at a restart
+//! failed in the unsafe direction: the toggle came back off and the next
+//! edits applied with no card. Send crash reports (#958) is consent to a
+//! request, so it has to be known before anything could be reported, and a
+//! file that cannot be read means off.
 //!
 //! * **Not the keychain.** The model, effort and base URL live there, but
 //!   they are read on a thread of their own because a locked Secret
@@ -36,6 +38,9 @@ pub const SETTINGS_FILE: &str = "settings.json";
 
 /// The field Plan first is kept in.
 const PLAN_FIRST: &str = "plan_first";
+
+/// The field Send crash reports is kept in (#958).
+const CRASH_REPORTS: &str = "crash_reports";
 
 /// Everything in the file, as the object it is. Empty when there is no
 /// usable one; a file that exists and is not usable is logged, since it
@@ -69,27 +74,51 @@ fn read_fields(path: &Path) -> Map<String, Value> {
 /// Whether Plan first was left on. Off when the file is missing, cannot be
 /// read, is corrupt, or holds something other than a boolean.
 pub fn read_plan_first(path: &Path) -> bool {
-    match read_fields(path).get(PLAN_FIRST) {
+    read_flag(path, PLAN_FIRST, "Plan first")
+}
+
+/// Record whether Plan first is on. See [`write_flag`].
+pub fn write_plan_first(path: &Path, on: bool) -> std::io::Result<()> {
+    write_flag(path, PLAN_FIRST, on)
+}
+
+/// Whether the person turned Send crash reports on (#958). Off when the
+/// file is missing, cannot be read, is corrupt, or holds something other
+/// than a boolean: the default is off, and only a real `true` is consent.
+pub fn read_crash_reports(path: &Path) -> bool {
+    read_flag(path, CRASH_REPORTS, "Send crash reports")
+}
+
+/// Record whether Send crash reports is on. See [`write_flag`].
+pub fn write_crash_reports(path: &Path, on: bool) -> std::io::Result<()> {
+    write_flag(path, CRASH_REPORTS, on)
+}
+
+/// A boolean field of the file. Off when it is absent, and when it holds
+/// anything but `true` or `false`, which is logged under `label`.
+fn read_flag(path: &Path, field: &str, label: &str) -> bool {
+    match read_fields(path).get(field) {
         None => false,
         Some(Value::Bool(on)) => *on,
         Some(_) => {
             tracing::warn!(
                 path = %path.display(),
-                "settings file has a Plan first value that is not true or false; treating it as off"
+                setting = label,
+                "settings file has a value that is not true or false; treating it as off"
             );
             false
         }
     }
 }
 
-/// Record whether Plan first is on, creating the folder if need be and
-/// replacing the file in one step: a quit or a crash in the middle leaves
-/// the old file or the new one, never half of either. A file that cannot
-/// be read as settings is replaced rather than refused, so a person with a
-/// corrupt one can still choose.
-pub fn write_plan_first(path: &Path, on: bool) -> std::io::Result<()> {
+/// Record a boolean field, creating the folder if need be and replacing the
+/// file in one step: a quit or a crash in the middle leaves the old file or
+/// the new one, never half of either. The other fields are kept as they
+/// were. A file that cannot be read as settings is replaced rather than
+/// refused, so a person with a corrupt one can still choose.
+fn write_flag(path: &Path, field: &str, on: bool) -> std::io::Result<()> {
     let mut fields = read_fields(path);
-    fields.insert(PLAN_FIRST.to_string(), Value::Bool(on));
+    fields.insert(field.to_string(), Value::Bool(on));
     let text = serde_json::to_string_pretty(&Value::Object(fields))?;
 
     let parent = match path.parent() {
@@ -202,6 +231,36 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(file(&dir)).unwrap()).unwrap();
         assert_eq!(kept["plan_first"], Value::Bool(true));
         assert_eq!(kept["from_a_later_build"]["n"], 3);
+    }
+
+    /// Send crash reports is off on a fresh install, and only a real `true`
+    /// turns it on (#958).
+    #[test]
+    fn crash_reports_are_off_unless_turned_on() {
+        let dir = TempDir::new().unwrap();
+        assert!(!read_crash_reports(&file(&dir)));
+        for value in ["\"true\"", "1", "null", "{}"] {
+            std::fs::write(file(&dir), format!("{{ \"crash_reports\": {value} }}")).unwrap();
+            assert!(!read_crash_reports(&file(&dir)), "{value}");
+        }
+        std::fs::write(file(&dir), "{ not json").unwrap();
+        assert!(!read_crash_reports(&file(&dir)));
+    }
+
+    /// The two choices share the file and neither write loses the other.
+    #[test]
+    fn crash_reports_and_plan_first_keep_each_other() {
+        let dir = TempDir::new().unwrap();
+        write_plan_first(&file(&dir), true).unwrap();
+        write_crash_reports(&file(&dir), true).unwrap();
+        assert!(read_plan_first(&file(&dir)));
+        assert!(read_crash_reports(&file(&dir)));
+
+        write_plan_first(&file(&dir), false).unwrap();
+        assert!(read_crash_reports(&file(&dir)));
+        write_crash_reports(&file(&dir), false).unwrap();
+        assert!(!read_crash_reports(&file(&dir)));
+        assert!(!read_plan_first(&file(&dir)));
     }
 
     /// A path that is a directory can neither be read nor replaced. The

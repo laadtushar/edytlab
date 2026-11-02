@@ -545,6 +545,12 @@ jobs:
       - name: Build unsigned bundle via tauri-action
         id: build
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          # Opt-in crash reports (#958): the DSN the app is built with
+          # (`option_env!` in `crash_reports.rs`), from a repository variable
+          # or secret. Unset, it is empty and the build cannot send reports;
+          # set, nothing is sent until the person turns reporting on.
+          EDYTLAB_SENTRY_DSN: ${{ vars.EDYTLAB_SENTRY_DSN || secrets.EDYTLAB_SENTRY_DSN }}
         with:
           projectPath: apps/desktop
           args: ${{ matrix.platform.args }}

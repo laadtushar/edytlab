@@ -55,6 +55,7 @@ unlisten();
 - [ONNX Runtime](#onnx-runtime)
 - [Speech Model](#speech-model)
 - [Open Source Licences](#open-source-licences)
+- [Crash Reports](#crash-reports)
 - [ChatGPT Plan](#chatgpt-plan)
 - [Skills (CRUD)](#skills-crud)
 - [Agent Profiles (CRUD)](#agent-profiles-crud)
@@ -1601,6 +1602,64 @@ build that was not made from the repository), or it could not be read.
 ```typescript
 const text = await bridge.thirdPartyNotices(); // plain text, LF line endings
 ```
+
+---
+
+## Crash Reports
+
+Not in a released build yet: these commands arrive in the release after
+v0.9.4. Opt-in error reports (#958), **off by default**. Settings → Account → Send
+crash reports turns them on. Three things have to hold before anything leaves
+the computer: the build was given a reporting address at build time
+(`EDYTLAB_SENTRY_DSN`; the release workflows pass it, and no build from source
+has one), the person turned the switch on, and the report has been through the
+scrubber (`crash_reports::scrub_event`). With the switch off no reporting
+client exists, so there is no request at all. A report goes to Sentry
+(`sentry.io`) and carries the error's type and scrubbed message, where in
+edytlab's code it happened, the app version, and the operating system and
+processor. The scrubber takes out the home folder, every project folder opened
+in the launch and any other absolute path, anything in quotes (how chat text,
+tool arguments and tool results reach an error message), API keys and tokens,
+email addresses, the host name, breadcrumbs, local variables and source lines.
+No audio is ever part of a report. Rust panics are reported from a panic hook;
+the window's uncaught errors through `reportWebviewError`, so there is one
+client and the CSP is unchanged.
+
+### `getCrashReports() → CrashReportsStatus` · `setCrashReports(enabled: boolean) → CrashReportsStatus`
+
+```typescript
+interface CrashReportsStatus {
+  enabled: boolean;   // the person's choice; false on a fresh install
+  available: boolean; // whether this build can send at all (it has a DSN)
+}
+```
+
+`getCrashReports` reads memory only. `setCrashReports` applies the choice at
+once (on makes the reporting client, off closes it after waiting up to two
+seconds for a report already on its way) and saves it as `crash_reports` in
+`~/.edytlab/settings.json`, the file Plan first is kept in, never the keychain.
+A missing or corrupt file, or a value that is not `true`, means off.
+
+**Rejects with** `could not save the crash reports setting (…); it applies until edytlab quits`
+when the file could not be written: the choice is in force for this launch, and
+the next starts from what was saved before.
+
+### `reportWebviewError(report: WebviewErrorReport) → void`
+
+```typescript
+interface WebviewErrorReport {
+  kind: "error" | "unhandledrejection";
+  name: string;          // kept only if it is an identifier, else "Error"
+  message: string;
+  stack: string | null;  // Chromium, WebKit and Firefox stacks are read
+}
+```
+
+Hands an uncaught webview error to the crash reporter. `lib/crashReports.ts`
+calls it from `window`'s `error` and `unhandledrejection` events, each
+distinct error once and at most 20 a launch. It does nothing unless the switch
+is on in a build that can send. The command itself never fails; the promise
+rejects only if the IPC call does, and the window's forwarder catches that.
 
 ---
 

@@ -334,8 +334,15 @@ export const toolAreas: ToolArea[] = [
           {
             name: "fade",
             prompt: 'add a 3-second fade-out',
-            what: "Apply a linear fade-in or fade-out to a time range.",
+            what: "Apply a fade-in or fade-out to a time range, with linear (default), exponential, logarithmic or S-curve gain.",
             output: "node_id",
+          },
+          {
+            name: "crossfade",
+            prompt: "crossfade these overlapping clips",
+            what: "Crossfade overlapping clips on one or two tracks. Equal power by default; equal gain for correlated material.",
+            output: "node_id, start_sec, end_sec",
+            note: "Position clips first. Replaces envelopes with editable lane points (128 segments, −60 dB floor). Supports mixed sample rates.",
           },
           {
             name: "set_clip_envelope",
@@ -456,6 +463,18 @@ export const toolAreas: ToolArea[] = [
             name: "vocal_reduction",
             prompt: "take the vocals out",
             what: "Reduce center-panned vocals using L-R channel subtraction (Karaoke effect). Works on stereo tracks; results depend on how centrally the vocals are mixed.",
+            output: "node_id",
+          },
+          {
+            name: "declip",
+            prompt: "repair the peaks clipped at minus 3 dBFS on track 0",
+            what: "Reconstruct clipped peaks using cubic interpolation. threshold_dbfs sets the clipping level (default -0.01 dBFS). Reports runs found and repaired per channel; runs without clean edges are left alone. Restored peaks above full scale apply a shared gain (reported as gain_db) to avoid re-clipping. Unclipped audio stays byte-identical and retains its node; repaired audio appends a new node.",
+            output: "node_id, runs_found, runs_repaired, gain_db",
+          },
+          {
+            name: "repair_span",
+            prompt: "repair the damaged span from 2.1 to 2.12 seconds on track 0",
+            what: "Interpolate a damaged span up to 100 ms with bidirectional tonal prediction, falling back to bounded cubic interpolation. start_sec and end_sec are session seconds; two clean samples are needed on each side. Preserves duration and channels. Appends a new node.",
             output: "node_id",
           },
           {

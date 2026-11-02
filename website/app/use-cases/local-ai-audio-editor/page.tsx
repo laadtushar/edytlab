@@ -11,6 +11,7 @@ import {
   pageBreadcrumbs,
 } from "@/lib/seo";
 import { GA_MEASUREMENT_ID } from "@/lib/consent";
+import { SENTRY_DSN } from "@/lib/sentry";
 import { localOllama } from "@/lib/blog-posts-audio-2/local-ollama";
 import { siteConfig } from "@/lib/site";
 
@@ -143,7 +144,7 @@ export default function LocalAiUseCasePage() {
               <td>
                 Recorded by anonymous Vercel analytics (Web Analytics and
                 Speed Insights){GA_MEASUREMENT_ID ? " and, only if you accept it in the cookie banner, Google Analytics" : ""}, which the
-                website loads and the app does not. See the <Link href="/privacy">privacy page</Link>.
+                website loads and the app does not.{SENTRY_DSN ? " An error on a page of this site is reported to Sentry, with nothing about you attached." : ""} See the <Link href="/privacy">privacy page</Link>.
               </td>
             </tr>
           </tbody>

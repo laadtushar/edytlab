@@ -1,6 +1,6 @@
 # Two-week posting plan
 
-Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). Since then: v0.6.0 on 16 October, v0.6.1 on 17 October, v0.7.0 on 22 October, v0.8.0 on 23 October, v0.8.1 on 24 October, v0.9.0 and v0.9.1 on 25 October, v0.9.2 on 26 October and v0.9.3 on 27 October. The copy now names v0.9.3 (updated for v0.9.3 on 2026-10-27: the version and download lines). If you start later, shift the days.
+Written to start Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October). Since then: v0.6.0 on 16 October, v0.6.1 on 17 October, v0.7.0 on 22 October, v0.8.0 on 23 October, v0.8.1 on 24 October, v0.9.0 and v0.9.1 on 25 October, v0.9.2 on 26 October and v0.9.3 on 27 October. The copy now names v0.9.4 (updated for v0.9.4 on 2026-11-02: the version and download lines, the tool count and stem separation). If you start later, shift the days.
 The relaunch starts Tuesday 27 October 2026. Day 1 below is that Tuesday, and every later day moves with it (the weekday labels in the tables are the original ones). The recordings were re-filmed on 26 October on the released app, and the reels re-cut from them.
 The copy is written in the voice of [`../brand-voice.md`](../brand-voice.md): a scene first, one message a post.
 
@@ -33,17 +33,18 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
 - [ ] Confirm the five `reel-*.mp4` files exist, play with sound, and match
       the captions (see the note at the bottom of `instagram.md`: trim any
       caption detail the final edit cuts).
-- [ ] Install v0.9.3 on one machine per OS you will claim (not v0.9.0: its
+- [ ] Install v0.9.4 on one machine per OS you will claim (not v0.9.0: its
       first message after Continue with ChatGPT failed). Check the macOS
       `xattr` step in the release notes works as written.
-- [ ] Sign in with a real ChatGPT plan on v0.9.3 and send a message before any
+- [ ] Sign in with a real ChatGPT plan on v0.9.4 and send a message before any
       post that mentions the ChatGPT plan (see `../README.md`, "Before the first post").
 - [ ] Set the Instagram bio link and bio line (`instagram.md`).
 - [ ] Decide the Claude Code disclosure (`linkedin-posts.md` post 3 and the
       HN, r/rust and r/opensource posts include it; keep it).
-- [ ] Re-check that issues #846 to #848 (labelled `good first issue`, open on
-      2026-11-01) are still open, so the r/opensource and LinkedIn #5 posts can
-      name real ones.
+- [ ] Good first issues: #846 to #848 were done in v0.9.4, and no open issue
+      had the `good first issue` label on 2026-11-02. If new issues get the
+      label, name them in the r/opensource and LinkedIn #5 posts; until then
+      leave that sentence out.
 - [ ] Read the sidebar and rules of r/rust, r/LocalLLaMA, r/DJs,
       r/opensource, r/edmproduction and r/WeAreTheMusicMakers. Write down
       which of them restrict self-promotion; move or drop those posts.

@@ -805,7 +805,7 @@ export const apiAreas: ApiArea[] = [
   {
     slug: "speech-model",
     title: "Speech Model and Runtime",
-    summary: "Check the ONNX Runtime, download, cancel or remove the speech, speaker and stem models, and read the open source licences.",
+    summary: "Check the ONNX Runtime, download, cancel or remove the speech, speaker and stem models, read the open source licences, and turn opt-in crash reports on or off.",
     sections: [
       {
         kind: "commands",
@@ -852,6 +852,27 @@ export const apiAreas: ApiArea[] = [
             name: "thirdPartyNotices()",
             returns: "string",
             desc: "The text of the third-party notices file the installer carries (licenses/THIRD_PARTY_NOTICES.txt in the app's resource directory): the licence texts and copyright lines of the Rust crates, JavaScript packages and fonts edytlab is built from, the code its Rust files were derived from, and where to get the source of the MPL-2.0 libraries. Settings shows it under Account → Open source licences when Show is pressed; opening Settings reads nothing. Read-only: it opens that one fixed file and takes no argument, so the window cannot name a path. Rejects with a sentence, never a path, when the file is not in the build.",
+          },
+        ],
+      },
+      {
+        kind: "commands",
+        title: "Crash Reports",
+        items: [
+          {
+            name: "getCrashReports()",
+            returns: "CrashReportsStatus",
+            desc: "Unreleased: arrives after v0.9.4. Whether Send crash reports (Settings → Account) is on, as enabled (off on a fresh install), and whether this build can send at all, as available (it was built with a reporting address; no build from source is). Reads memory only.",
+          },
+          {
+            name: "setCrashReports(enabled)",
+            returns: "CrashReportsStatus",
+            desc: "Turn opt-in crash reports on or off, at once and for later launches: saved as crash_reports in ~/.edytlab/settings.json, never the keychain. On makes the reporting client; off closes it, so nothing more is sent. Reports go to Sentry (sentry.io) with the error, where in edytlab's code it happened, the app version and the OS, after paths, quoted text such as chat and tool calls, API keys, tokens and email addresses are taken out; never audio. Rejects with \"could not save the crash reports setting\" when the file could not be written, and the choice still applies until the app quits.",
+          },
+          {
+            name: "reportWebviewError(report)",
+            returns: "void",
+            desc: "Hand an uncaught webview error (its kind, name, message and stack) to the crash reporter, which sends it only when Send crash reports is on in a build that can send, scrubbed first. The window calls it from its error and unhandledrejection events, each distinct error once and at most 20 a launch. Rejects only if the IPC call fails.",
           },
         ],
       },
