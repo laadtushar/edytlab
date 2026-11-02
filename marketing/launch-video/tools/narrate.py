@@ -8,6 +8,9 @@
 Voice Roger (CwhRBWXzGAHq8TQ4Fs17), model eleven_v4, stability 0.5, similarity 0.75, mp3_44100_128. The key is read from the
 environment variable ELEVENLABS_API_KEY (load it with `set -a; . <env file>; set +a` in the same command) and is handed to curl on
 stdin, so it never appears in an argument list, a log or a file.
+
+Inputs and outputs must resolve inside marketing/launch-video. Copy external
+inputs, including /tmp files, into that folder first.
 """
 import base64
 import json
@@ -15,10 +18,19 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 VOICE = "CwhRBWXzGAHq8TQ4Fs17"
 MODEL = "eleven_v4"
 API = "https://api.elevenlabs.io/v1"
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def checked_path(path):
+    resolved = Path(path).resolve()
+    if not resolved.is_relative_to(ROOT):
+        raise SystemExit(f"Refused path {str(path)!r}: must resolve inside {ROOT}")
+    return resolved
 
 
 def curl(method, path, body=None, out=None):
@@ -57,15 +69,22 @@ def words_from_alignment(al, text):
 
 
 def gen(lines_path, outdir, n_takes):
-    lines = json.load(open(lines_path))
-    os.makedirs(outdir, exist_ok=True)
+    lines = json.load(open(checked_path(lines_path)))
+    checked_path(outdir)
+    checked_path(f"{outdir}/usage.log")
+    # Validate IDs before making directories or sending requests.
+    for ln in lines:
+        for k in range(1, n_takes + 1):
+            checked_path(f"{outdir}/{ln['id']}_t{k}.mp3")
+            checked_path(f"{outdir}/{ln['id']}_t{k}.json")
+    os.makedirs(checked_path(outdir), exist_ok=True)
     used0, limit, tier = status()
     print(f"credits before: {used0}/{limit} ({tier})")
     total = 0
     for ln in lines:
         for k in range(1, n_takes + 1):
             base = f"{outdir}/{ln['id']}_t{k}"
-            if os.path.exists(base + ".mp3"):
+            if os.path.exists(checked_path(base + ".mp3")):
                 continue
             body = {"text": ln["text"], "model_id": MODEL, "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
             if ln.get("prev"):
@@ -81,10 +100,10 @@ def gen(lines_path, outdir, n_takes):
                 print(f"{ln['id']} take {k}: HTTP {code}: {txt[:200]}")
                 continue
             d = json.loads(txt)
-            open(base + ".mp3", "wb").write(base64.b64decode(d["audio_base64"]))
-            json.dump(dict(text=ln["text"], words=words_from_alignment(d["alignment"], ln["text"])), open(base + ".json", "w"))
+            open(checked_path(base + ".mp3"), "wb").write(base64.b64decode(d["audio_base64"]))
+            json.dump(dict(text=ln["text"], words=words_from_alignment(d["alignment"], ln["text"])), open(checked_path(base + ".json"), "w"))
             total += len(ln["text"])
-            with open(f"{outdir}/usage.log", "a") as f:
+            with open(checked_path(f"{outdir}/usage.log"), "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {ln['id']} take {k}  {len(ln['text'])} chars\n")
             print(f"{ln['id']} take {k}: ok ({len(ln['text'])} chars)")
     used1, limit, _ = status()
@@ -92,21 +111,24 @@ def gen(lines_path, outdir, n_takes):
 
 
 def dur(path):
-    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], capture_output=True, text=True)
+    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(checked_path(path))], capture_output=True, text=True)
     return float(p.stdout.strip())
 
 
 def pick(lines_path, outdir, out_json):
-    lines = json.load(open(lines_path))
+    lines = json.load(open(checked_path(lines_path)))
+    checked_path(outdir)
+    checked_path(out_json)
+    checked_path(out_json.replace(".json", ".srt"))
     chosen, report, srt = [], [], []
     for ln in lines:
         best = None
         for k in range(1, 6):
             base = f"{outdir}/{ln['id']}_t{k}"
-            if not os.path.exists(base + ".mp3"):
+            if not os.path.exists(checked_path(base + ".mp3")):
                 continue
             d = dur(base + ".mp3")
-            w = json.load(open(base + ".json"))["words"]
+            w = json.load(open(checked_path(base + ".json")))["words"]
             gaps = [w[i + 1][1] - w[i][2] for i in range(len(w) - 1)] or [0]
             speech_end = w[-1][2] / ln.get("tempo", 1.0)
             fit = speech_end <= ln["win"]
@@ -120,12 +142,12 @@ def pick(lines_path, outdir, out_json):
         chosen.append(dict(id=ln["id"], t=ln["t"], file=base + ".mp3", gain_db=ln.get("gain_db", 0), tempo=ln.get("tempo", 1.0), speech_end=se, win=ln["win"], text=ln["text"]))
         report.append(f"{ln['id']}: {os.path.basename(base)} speech {se:.2f}s of {ln['win']:.1f}s window, longest pause {mg:.2f}s {'OK' if fit else 'TOO LONG'}")
         srt.append((ln["t"], ln["t"] + se + 0.15, ln["text"]))
-    json.dump(chosen, open(out_json, "w"), indent=1)
+    json.dump(chosen, open(checked_path(out_json), "w"), indent=1)
     srt = [list(x) for x in srt]
     for i in range(len(srt) - 1):
         if srt[i][1] > srt[i + 1][0] - 0.03:
             srt[i][1] = max(srt[i][0] + 0.4, srt[i + 1][0] - 0.03)
-    with open(out_json.replace(".json", ".srt"), "w") as f:
+    with open(checked_path(out_json.replace(".json", ".srt")), "w") as f:
         for i, (a, b, t) in enumerate(srt, 1):
             f.write(f"{i}\n{ts(a)} --> {ts(b)}\n{t}\n\n")
     print("\n".join(report))
@@ -138,6 +160,9 @@ def ts(x):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        raise SystemExit(0 if len(sys.argv) > 1 else 1)
     c = sys.argv[1]
     if c == "status":
         print("credits used/limit/tier:", status())
