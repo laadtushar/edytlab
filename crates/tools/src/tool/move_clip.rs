@@ -9,7 +9,8 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_track_index, load_head_state, seconds_to_clip_frames, set_session_length,
+    append_state, check_track_index, clip_frames_to_seconds, load_head_state,
+    seconds_to_clip_frames, set_session_length, shift_track_transcript,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -96,10 +97,23 @@ impl Tool for MoveClipTool {
         // `list_tracks` read the field back through the same wrong
         // conversion, so the timeline agreed with the request while the
         // render disagreed with both.
-        clip.start_in_track = match seconds_to_clip_frames(clip, args.start_sec) {
+        let old_start = clip.start_in_track;
+        let new_start = match seconds_to_clip_frames(clip, args.start_sec) {
             Ok(f) => f,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
+        let secs = |frames: u64| clip_frames_to_seconds(clip, frames);
+        let (old_start_sec, old_end_sec, new_start_sec) = match (
+            secs(old_start),
+            secs(old_start.saturating_add(clip.length)),
+            secs(new_start),
+        ) {
+            (Ok(a), Ok(b), Ok(c)) => (a, b, c),
+            (Err(msg), ..) | (_, Err(msg), _) | (.., Err(msg)) => {
+                return Ok(ToolResult::Error(msg))
+            }
+        };
+        clip.start_in_track = new_start;
 
         // Clips are kept in start order. Nothing enforces it in the type,
         // but `list_tracks` renders them in vector order and
@@ -107,6 +121,15 @@ impl Tool for MoveClipTool {
         // clip dragged past its neighbour would draw and render in the
         // wrong place while the session data was correct.
         track.clips.sort_by_key(|c| c.start_in_track);
+        // The words of a transcript made from this track that sit in the clip
+        // go with it (#899), in seconds, so the clip's rate does not matter
+        // here. Words in the other clips stay with their clips.
+        shift_track_transcript(
+            &mut state,
+            args.track,
+            new_start_sec - old_start_sec,
+            Some((old_start_sec, old_end_sec)),
+        );
         recompute_length(&mut state);
 
         let new_id = match append_state(
