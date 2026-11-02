@@ -752,7 +752,7 @@ fn render_final_rejects_a_bitrate_on_a_lossless_format() {
             &mut ctx,
         )
         .unwrap());
-    assert!(msg.contains("mp3 only"), "got: {msg}");
+    assert!(msg.contains("mp3 and ogg only"), "got: {msg}");
 }
 
 // ---------------------------------------------------------------------------
