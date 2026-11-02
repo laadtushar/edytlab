@@ -361,6 +361,28 @@ describe("an area page's redirect", () => {
     expect(own["separate_stems"]).toBeUndefined();
     expect(Object.values(own).every((to) => !to.startsWith(`${stems.slug}#`))).toBe(true);
   });
+
+  it("is what the old area's page renders, so /docs/tools/speech#separate_stems goes on", async () => {
+    const element = (await ToolsAreaPage({ params: Promise.resolve({ area: "speech" }) })) as {
+      props: { children: unknown };
+    };
+    const found: { base: string; targets: Record<string, string> }[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node && typeof node === "object" && "props" in node) {
+        const n = node as {
+          type: unknown;
+          props: { base?: string; targets?: Record<string, string>; children?: unknown };
+        };
+        if (n.type === HashRedirect) found.push({ base: n.props.base!, targets: n.props.targets! });
+        walk(n.props.children);
+      }
+    };
+    walk(element);
+    expect(found).toHaveLength(1);
+    expect(found[0].base).toBe(TOOLS_BASE);
+    expect(found[0].targets["separate_stems"]).toBe("stems#separate_stems");
+  });
 });
 
 describe("the counts", () => {
