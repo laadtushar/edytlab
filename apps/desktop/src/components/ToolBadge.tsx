@@ -95,6 +95,8 @@ const TOOL_LABELS: Record<string, string> = {
   apply_recipe: "Apply recipe",
   move_clip: "Move clip",
   remove_clip: "Remove clip",
+  join_clips: "Join clips",
+  align_end_to_end: "Align end to end",
   insert_silence: "Insert silence",
   silence_region: "Silence region",
   punch_in: "Punch in",

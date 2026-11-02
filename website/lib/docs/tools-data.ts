@@ -93,6 +93,12 @@ export const toolAreas: ToolArea[] = [
             output: "node_id",
           },
           {
+            name: "align_end_to_end",
+            prompt: "put tracks 1, 2 and 3 one after another",
+            what: "Place the given tracks one after another, in the order given: the first stays put, and each next track moves, clips and their spacing together, to start where the previous one ends. An optional gap_sec leaves silence between them. Other tracks do not move, and sync-lock, labels and the transcript are left alone, as with time_shift.",
+            output: "node_id, moved",
+          },
+          {
             name: "mix_to_new_track",
             prompt: "mix tracks 1 and 2 into a new track",
             what: "Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include. The new track is a copy: it does not follow later edits to the tracks it came from. To put an effect such as a limiter on the whole mix, use add_effect with scope \"master\" instead of mixing down.",
@@ -247,6 +253,12 @@ export const toolAreas: ToolArea[] = [
             output: "node_id",
           },
           {
+            name: "join_clips",
+            prompt: "join the two halves of track 1 back into one clip",
+            what: "Join adjacent clips of one track into a single clip. Clips that are back to back in the same source file become one clip over that file, with nothing rendered; any other join (a gap, a jump in the file) is rendered into a new file, and the result says so with rendered: true.",
+            output: "node_id, joined_clips, rendered",
+          },
+          {
             name: "invert",
             prompt: "invert the polarity of track 2",
             what: "Invert (negate) audio polarity on a track, optionally within a time range.",
@@ -383,7 +395,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "noise_reduction",
             prompt: 'reduce background noise on track 1',
-            what: "Remove broadband noise via spectral subtraction (realFFT + overlap-add). Estimates the noise floor from a silent region and subtracts it from the signal.",
+            what: "Remove broadband noise via spectral subtraction (realFFT + overlap-add). Estimates the noise floor from the first noise_duration_sec seconds, or from any range (noise_from / noise_to, optionally on another track with noise_track), and subtracts it from the signal.",
             output: "node_id",
           },
           {

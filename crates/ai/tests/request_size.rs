@@ -191,11 +191,16 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // #766 then added `find_markers`, `add_markers`, `edit_markers` and
 // `delete_markers`: +1,953 B, measured 73,786 B. The ratchet rises by both deltas,
 // keeping main's 34 B of headroom.
+// #771's `join_clips` and `align_end_to_end` add 1,129 B: measured 74,915 B over
+// main's 73,786 B. The ratchet rises by that delta, keeping main's 34 B of headroom.
+// #769's `noise_reduction` noise-range arguments add a net 375 B on top
+// (398 B, less the 23 B of `analyze_track`'s two argument descriptions written
+// shorter).
 //
 // #765 (shelf `type` on `eq`, `taps`/`feedback` on `echo`) adds 24 B on top, with
 // `echo`'s description and `taps` schema written short to keep the slim request
 // 500 B under its bound with MCP tools.
-const FULL_TOOLS_MAX_BYTES: usize = 73_844; // main ratchet 73,820 + 24 B of #765
+const FULL_TOOLS_MAX_BYTES: usize = 75_348; // main ratchet 75,324 + 24 B of #765
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -788,9 +793,11 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // measured 75,008 B to 75,025 B.
 // #766's four marker tools add 2,077 B here: measured 77,102 B. The ratchet rises
 // by that delta, keeping main's 34 B of headroom.
-//
+// #771's two tools add 1,191 B here: measured 78,293 B over main's 77,102 B; the
+// ratchet rises by that delta, keeping main's 34 B of headroom.
+// #769's net 375 B (above) come on top.
 // #765 adds the same 24 B.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 77_160; // main ratchet 77,136 + 24 B of #765
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 78_726; // main ratchet 78,702 + 24 B of #765
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
