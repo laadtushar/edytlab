@@ -33,8 +33,8 @@ declare global {
     /** Every command the app called, with its arguments, in order. */
     __E2E_CALLS__: { cmd: string; args: unknown }[];
     __E2E_UNHANDLED__: string[];
-    /** Resolvers for `deferred` answers, by name, once they are called. */
-    __E2E_DEFERRED__: Record<string, (value: unknown) => void>;
+    /** Settle a deferred answer, optionally as a rejection. */
+    __E2E_DEFERRED__: Record<string, (value: unknown, rejected?: boolean) => void>;
     /** Raise a backend event, as the Rust side would. */
     __E2E_EMIT__: (event: string, payload?: unknown) => Promise<void>;
     __E2E_READY__: boolean;
@@ -76,8 +76,11 @@ mockIPC(
         if (answer.deferred in window.__E2E_DEFERRED__) {
           throw new Error(`deferred answer "${answer.deferred}" was called twice`);
         }
-        return new Promise((resolve) => {
-          window.__E2E_DEFERRED__[answer.deferred] = resolve;
+        return new Promise((resolve, reject) => {
+          window.__E2E_DEFERRED__[answer.deferred] = (value, rejected) => {
+            if (rejected) reject(value);
+            else resolve(value);
+          };
         });
       }
       // A copy, so a component that mutates what it was given cannot

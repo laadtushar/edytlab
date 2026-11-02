@@ -87,11 +87,15 @@ const ACX_PEAK_MAX: f64 = -3.0;
 const ACX_NOISE_MAX: f64 = -60.0;
 
 /// What the ACX verdict does not look at, said in the result so a pass is not
-/// read as more than it is.
+/// read as more than it is. From ACX's audio submission requirements
+/// (https://help.acx.com/s/article/what-are-the-acx-audio-submission-requirements,
+/// read 2026-11-02): 1 to 5 s of room tone at the beginning and the end of each
+/// file, no stretch of room tone longer than 5 s, and each file at most 120
+/// minutes long.
 const ACX_NOT_CHECKED: &str =
     "file format (192 kbps or higher CBR, 44.1 kHz MP3), one channel format \
-for all files, room tone of 0.5 to 1 s at the start and 1 to 5 s at the end, clicks, pops and \
-outtakes";
+for all files, 1 to 5 s of room tone at the start and the end with no stretch of room tone \
+longer than 5 s, at most 120 minutes per file, clicks, pops and outtakes";
 
 /// Seconds rendered before a range, so the bus and master chains are warm
 /// when it starts. The renderer runs the track chains from the start anyway.

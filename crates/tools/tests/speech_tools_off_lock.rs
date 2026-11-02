@@ -454,7 +454,7 @@ mod during_the_analysis {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::mpsc::{channel, RecvTimeoutError};
-    use std::thread::ScopedJoinHandle;
+    use std::thread::JoinHandle;
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -462,6 +462,15 @@ mod during_the_analysis {
     /// How long a fader move waits for the locks before the test calls it
     /// stuck. Off the lock it gets them at the first try.
     const FADER_PATIENCE: Duration = Duration::from_secs(2);
+
+    /// How long any other step of the handshake may take: a reader opening
+    /// the FIFO, the audio going through it, the call finishing once it
+    /// has. Each takes milliseconds. Every one of them blocks in the
+    /// kernel, so each runs on a thread of its own and the test waits for
+    /// it no longer than this, then fails naming the step, rather than
+    /// sitting until nextest kills it twenty minutes later with nothing to
+    /// say (#935's macOS leg).
+    const STEP: Duration = Duration::from_secs(30);
 
     /// A clip source whose audio arrives only when the test lets it through.
     ///
@@ -490,9 +499,10 @@ mod during_the_analysis {
         }
 
         /// The writing end, once a reader has opened the FIFO: the moment
-        /// the tool is inside its analysis. `None` if `call` finished
-        /// first, without reading the audio at all.
-        fn wait_for_reader<T>(&self, call: &ScopedJoinHandle<'_, T>) -> Option<File> {
+        /// the tool is inside its analysis. An error if `call` finished
+        /// first, without reading the audio at all, or if no reader came
+        /// within [`STEP`].
+        fn wait_for_reader<T>(&self, call: &JoinHandle<T>) -> Result<File, String> {
             let (tx, rx) = channel();
             let path = self.path.clone();
             // Opening a FIFO to write blocks until someone opens it to read.
@@ -501,13 +511,21 @@ mod during_the_analysis {
             std::thread::spawn(move || {
                 let _ = tx.send(OpenOptions::new().write(true).open(&path));
             });
-            let give_up = Instant::now() + Duration::from_secs(60);
+            let give_up = Instant::now() + STEP;
             loop {
                 match rx.recv_timeout(Duration::from_millis(20)) {
-                    Ok(writer) => return Some(writer.expect("open the fifo to write")),
-                    Err(RecvTimeoutError::Timeout)
-                        if !call.is_finished() && Instant::now() < give_up => {}
-                    Err(_) => return None,
+                    Ok(Ok(writer)) => return Ok(writer),
+                    Ok(Err(e)) => return Err(format!("could not open the FIFO to write: {e}")),
+                    Err(RecvTimeoutError::Timeout) if call.is_finished() => {
+                        return Err("the call finished without opening the voice's audio".into())
+                    }
+                    Err(RecvTimeoutError::Timeout) if Instant::now() < give_up => {}
+                    Err(_) => {
+                        return Err(format!(
+                            "no reader opened the voice's FIFO within {STEP:?}, and the call \
+                             is still running"
+                        ))
+                    }
                 }
             }
         }
@@ -515,11 +533,30 @@ mod during_the_analysis {
         /// Let the analysis go on. A plain file with the same audio takes the
         /// path first, for any later run of the call (the FIFO stays open to
         /// the run that is reading it), then that run gets its bytes.
-        fn release(self, mut writer: File) {
+        ///
+        /// The write blocks until the reader has taken all but a pipe's
+        /// worth, so it runs on a thread of its own and is waited for no
+        /// longer than [`STEP`]: a reader that holds the FIFO open without
+        /// reading is a failure that says so, not a hang.
+        fn release(self, mut writer: File) -> Result<(), String> {
             let plain = self.path.with_extension("wav.part");
             std::fs::write(&plain, &self.wav).expect("write the plain copy");
             std::fs::rename(&plain, &self.path).expect("put it in place");
-            writer.write_all(&self.wav).expect("feed the fifo");
+            let (tx, rx) = channel();
+            let wav = self.wav;
+            let bytes = wav.len();
+            std::thread::spawn(move || {
+                // `writer` is closed when this returns, which is the
+                // reader's end of file.
+                let _ = tx.send(writer.write_all(&wav));
+            });
+            match rx.recv_timeout(STEP) {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(format!("could not feed the FIFO: {e}")),
+                Err(_) => Err(format!(
+                    "the FIFO's reader did not take the voice's {bytes} bytes within {STEP:?}"
+                )),
+            }
         }
     }
 
@@ -556,20 +593,39 @@ mod during_the_analysis {
         /// Dispatch `tool` with the voice's audio held, move the music's
         /// fader while the tool waits for it, then let the audio through.
         /// The call, and the head the fader move made if it could be made.
-        fn fader_move_during(&self, tool: &str, args: Value) -> (Dispatched, Option<NodeId>) {
+        ///
+        /// The call runs on a thread of its own, not a scoped one: a scope
+        /// joins its threads before it returns or unwinds, so a call stuck
+        /// in the kernel would hold the test past every bound below. Every
+        /// wait here ends within [`STEP`], and a failure names the step.
+        fn fader_move_during(
+            self: &Arc<Self>,
+            tool: &str,
+            args: Value,
+        ) -> (Dispatched, Option<NodeId>) {
             let held = HeldAudio::hold(&self.voice);
-            std::thread::scope(|scope| {
-                let call = scope.spawn(|| self.dispatched(tool, args));
-                let Some(writer) = held.wait_for_reader(&call) else {
-                    let call = call.join().expect("the call");
-                    panic!("{tool} never read the voice's audio: {:?}", call.result);
-                };
-                // The tool is inside `decode_file`, and cannot finish its
-                // analysis until the audio is let through.
-                let user = self.fader_move(MUSIC, -6.0);
-                held.release(writer);
-                (call.join().expect("the call"), user)
-            })
+            let (done_tx, done) = channel();
+            let call = {
+                let booth = Arc::clone(self);
+                let tool = tool.to_string();
+                std::thread::spawn(move || {
+                    let _ = done_tx.send(booth.dispatched(&tool, args));
+                })
+            };
+            let writer = held.wait_for_reader(&call).unwrap_or_else(|why| {
+                let result = done.try_recv().map(|d| d.result);
+                panic!("{tool} never read the voice's audio: {why}; the call: {result:?}")
+            });
+            // The tool is inside `decode_file`, and cannot finish its
+            // analysis until the audio is let through.
+            let user = self.fader_move(MUSIC, -6.0);
+            if let Err(why) = held.release(writer) {
+                panic!("{tool}: {why}");
+            }
+            let call = done.recv_timeout(STEP).unwrap_or_else(|_| {
+                panic!("{tool} did not finish within {STEP:?} of its audio being let through")
+            });
+            (call, user)
         }
     }
 
@@ -581,7 +637,7 @@ mod during_the_analysis {
     /// held for it.
     #[test]
     fn a_fader_moves_while_select_region_reads_a_voice_track() {
-        let booth = Booth::new();
+        let booth = Arc::new(Booth::new());
         let base = booth.head();
 
         let (call, user) = booth.fader_move_during(
@@ -608,7 +664,7 @@ mod during_the_analysis {
     /// RED on main, as above.
     #[test]
     fn a_fader_moves_while_duck_under_speech_reads_a_voice_track() {
-        let booth = Booth::new();
+        let booth = Arc::new(Booth::new());
         let base = booth.head();
 
         let (call, user) = booth.fader_move_during(
@@ -622,6 +678,11 @@ mod during_the_analysis {
         );
         let v = ok(&call.result);
         assert_eq!(v["passages"], 2, "{v}");
+        assert_eq!(
+            booth.runs(),
+            2,
+            "the first run lost the race to the fader move and was run again"
+        );
         let head = booth.head();
         assert_eq!(call.moved_head, Some(head));
         assert_eq!(

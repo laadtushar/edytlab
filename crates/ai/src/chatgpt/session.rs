@@ -1942,28 +1942,23 @@ impl Core {
     }
 
     /// The OS lock on `refresh.lock`, waited for up to the lock timeout. The
-    /// wait polls, so it never blocks a runtime thread. Where the OS offers
-    /// no file locks, the in-process lock stands alone, with a warning.
+    /// wait polls, so it never blocks a runtime thread, and the directory
+    /// and the file are made and opened on a blocking thread
+    /// ([`open_lock_file`]), since the config folder can be on a slow or
+    /// network disk. Where the OS offers no file locks, the in-process lock
+    /// stands alone, with a warning.
     async fn lock_file(&self) -> Result<FileLock, String> {
-        let dir = &self.config.dir;
+        let dir = self.config.dir.clone();
         let path = dir.join(store::LOCK_FILE);
         let failed = |e: &io::Error| format!("could not lock {}: {e}", path.display());
         let deadline = tokio::time::Instant::now() + self.config.lock_timeout;
-        if let Err(e) = ensure_private_dir(dir) {
-            return if file_lock_unsupported(&e) {
-                self.process_wide_lock(&e, deadline).await
-            } else {
-                Err(failed(&e))
-            };
-        }
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let file = match options.open(&path) {
+        let opened = {
+            let path = path.clone();
+            tokio::task::spawn_blocking(move || open_lock_file(&dir, &path))
+                .await
+                .unwrap_or_else(|e| Err(io::Error::other(e)))
+        };
+        let file = match opened {
             Ok(file) => file,
             Err(e) if file_lock_unsupported(&e) => {
                 return self.process_wide_lock(&e, deadline).await
@@ -2026,6 +2021,21 @@ impl Core {
         let store = self.secrets.clone();
         blocking(move || store.delete()).await
     }
+}
+
+/// Makes the session's private `dir` if needed and opens (creating it, owner
+/// only on Unix) the lock file at `path` in it, for the session's
+/// `lock_file`. Blocking file work: run it on a blocking thread.
+fn open_lock_file(dir: &std::path::Path, path: &std::path::Path) -> io::Result<File> {
+    ensure_private_dir(dir)?;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
 }
 
 /// Runs a store call on a blocking thread: a keychain call is blocking I/O.
