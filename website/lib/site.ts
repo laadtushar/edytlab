@@ -26,7 +26,7 @@ export const siteConfig = {
   designSpec:
     "https://github.com/laadtushar/edytlab/blob/main/docs/specs/2026-05-05-conversational-audio-editor-design.md",
   // Search keywords are claims too: nothing here names a feature that
-  // has not shipped (stem separation, vocal isolation).
+  // has not shipped.
   keywords: [
     "audio editor",
     "AI audio editor",
