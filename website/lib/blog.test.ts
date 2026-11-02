@@ -162,10 +162,11 @@ describe("the four posts that came with v0.3.0", () => {
     expect(post && markupOf(post).flatMap(linksIn)).toContain("/#demos");
   });
 
-  it("never describes stem separation as working", () => {
-    // It has not shipped (transcription did, in v0.8.0). A mention is fine; it has to say so in the same breath.
+  it("never describes stem separation as more than it is", () => {
+    // It ships from v0.9.4 (transcription from v0.8.0), and its stems are estimates. A mention in the
+    // October posts is fine; it has to say what it is in the same breath.
     const unshipped = /stem separation|demucs/i;
-    const admits = /not shipped|has not shipped|not available|no ability|cannot isolate|can't isolate/i;
+    const admits = /estimates|separate_stems \(from v0\.9\.4\)|different job|separate job/i;
     for (const post of octoberPosts) {
       for (const text of textOf(post)) {
         if (unshipped.test(text)) expect(text, `${post.slug}: ${text}`).toMatch(admits);

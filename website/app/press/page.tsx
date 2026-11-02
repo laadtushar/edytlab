@@ -152,19 +152,22 @@ export default function PressPage() {
             </tr>
             <tr>
               <th scope="row">Export formats</th>
-              <td>WAV, FLAC, MP3</td>
+              <td>WAV, AIFF, FLAC, MP3, OGG (Opus)</td>
             </tr>
           </tbody>
         </table>
 
+        <h2>Local models</h2>
+        <p>
+          Stem separation and speech transcription work on your computer,
+          once the user has downloaded each model in Settings (about 171 MB
+          and 139 MB). Stems are estimates: each carries a little of the
+          others.
+        </p>
+
         <h2>What is not shipped</h2>
         <p>Please state this plainly if you cover edytlab.</p>
         <ul>
-          <li>
-            Stem separation is not implemented in any build. Speech
-            transcription works on your computer, once the user
-            has downloaded the speech model in Settings.
-          </li>
           <li>
             It edits files offline. It is not a live DJ tool and it is not a
             DAW: there is no MIDI and no VST or CLAP plugin hosting.

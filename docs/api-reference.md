@@ -1551,7 +1551,7 @@ running is left alone, and a model that is already complete is verified rather
 than fetched. Every file is written to a `.part` file and renamed to its final
 name only once its size and SHA-256 match, so a half file never has one. Models
 are kept in `<app local data>/models/<id>/` (the local, non-roaming data folder: `%LOCALAPPDATA%` on Windows).
-Only a model Settings offers can be started (today `whisper-base` and `speaker-diarization`, `OFFERED_ML_MODELS` in `commands.rs`): another model of the manifest answers an error that says it is not offered, with no request made.
+Only a model Settings offers can be started (today `whisper-base`, `speaker-diarization` and `htdemucs`, `OFFERED_ML_MODELS` in `commands.rs`): another model of the manifest answers an error that says it is not offered, with no request made.
 
 ### `cancelMlModelDownload(model: string) → MlModelStatus`
 

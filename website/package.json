@@ -1,6 +1,6 @@
 {
   "name": "edytlab-website",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -36,7 +36,7 @@
     "@eslint/eslintrc": "^3.3.7",
     "@testing-library/dom": "^10",
     "@testing-library/react": "^16",
-    "@types/node": "^20.16.0",
+    "@types/node": "^24.0.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.6.1",
