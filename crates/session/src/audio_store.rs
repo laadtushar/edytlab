@@ -359,15 +359,22 @@ impl AudioStore {
     /// of this project. `None` for anything else.
     ///
     /// The folder is the store's own ([`AudioFolder::dir`] of this project),
-    /// and the two are compared as the file system resolves them: `path`'s
-    /// parent and each folder are canonicalised, so a path that only reads as
-    /// one of them (`derived/../../take.wav`) is not in it, and one spelled
-    /// another way (a link to the project, the copy of a project read through
-    /// [`crate::relocate`]) is. The file itself is not followed: a link in
-    /// `derived/` is not the store's, whether it points into the folder or
-    /// out of it, and neither is a file in a folder below one of them. A
-    /// node can name any file (`load` references the user's own recording in
-    /// place), and this is what keeps a deleter from taking one (#589).
+    /// and `path`'s parent is compared with each folder **by identity**
+    /// ([`crate::live::identify`]: device and inode, or volume serial number
+    /// and file id), never by spelling, so a path that only reads as one of
+    /// them (`derived/../../take.wav`) is not in it, and one spelled another
+    /// way (a link to the project, a case-folded name, the copy of a project
+    /// read through [`crate::relocate`]) is. Identity needs no canonical
+    /// path, which some volumes cannot give (ImDisk, vboxsf, WebDAV); the
+    /// path returned is the canonical one where there is one, and the path as
+    /// spelled where canonicalising fails for any reason but the file not
+    /// being there ([`resolved_or_spelled`]). The file itself is not
+    /// followed: a link in `derived/` is not the store's, whether it points
+    /// into the folder or out of it (a caller that resolves a path before it
+    /// asks, as compaction does, asks about the link's target), and neither
+    /// is a file in a folder below one of them. A node can name any file
+    /// (`load` references the user's own recording in place), and this is
+    /// what keeps a deleter from taking one (#589).
     ///
     /// The answer says which folder: a deleter that works in one (compaction
     /// in `derived/`) checks it.
@@ -377,11 +384,12 @@ impl AudioStore {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
         };
-        let real_parent = std::fs::canonicalize(parent).ok()?;
+        let parent_id = crate::live::identify(parent).ok()?.id();
         let folder = AudioFolder::ALL.into_iter().find(|f| {
-            std::fs::canonicalize(f.dir(&self.project_dir)).is_ok_and(|dir| dir == real_parent)
+            crate::live::identify(&f.dir(&self.project_dir)).is_ok_and(|d| d.id() == parent_id)
         })?;
-        owned_entry(folder, real_parent.join(name))
+        let dir = resolved_or_spelled(parent, std::fs::canonicalize(parent))?;
+        owned_entry(folder, dir.join(name))
     }
 
     /// Every file the store may delete in `folder` ([`owns`](Self::owns)):
@@ -389,12 +397,13 @@ impl AudioStore {
     /// the folder is not there. A file that goes while it is listed is left
     /// out.
     pub fn files(&self, folder: AudioFolder) -> std::io::Result<Vec<OwnedFile>> {
-        let real = match std::fs::canonicalize(folder.dir(&self.project_dir)) {
-            Ok(dir) if dir.is_dir() => dir,
-            Ok(_) => return Ok(Vec::new()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e),
+        let spelled = folder.dir(&self.project_dir);
+        let Some(real) = resolved_or_spelled(&spelled, std::fs::canonicalize(&spelled)) else {
+            return Ok(Vec::new());
         };
+        if !real.is_dir() {
+            return Ok(Vec::new());
+        }
         let mut out = Vec::new();
         for entry in std::fs::read_dir(&real)? {
             if let Some(file) = owned_entry(folder, real.join(entry?.file_name())) {
@@ -416,6 +425,20 @@ impl AudioStore {
             .tempfile_in(&dir)
             .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
             .into_temp_path())
+    }
+}
+
+/// What a path to delete is spelled as, from what canonicalising `spelled`
+/// gave: the canonical path; `None` when nothing is there; and `spelled`
+/// itself for any other failure, because some volumes cannot give a
+/// canonical path for a file that is there (ImDisk, vboxsf and WebDAV, where
+/// `realpath` or `GetFinalPathNameByHandleW` fails). Which folder a file is in
+/// is decided by identity ([`AudioStore::owns`]), not by this path.
+fn resolved_or_spelled(spelled: &Path, canonical: std::io::Result<PathBuf>) -> Option<PathBuf> {
+    match canonical {
+        Ok(path) => Some(path),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some(spelled.to_path_buf()),
     }
 }
 
@@ -447,8 +470,8 @@ impl OwnedFile {
         self.folder
     }
 
-    /// Where it is: the folder as the file system resolves it, and the
-    /// file's name.
+    /// Where it is: the folder as the file system resolves it (as spelled on
+    /// a volume that cannot resolve it), and the file's name.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -523,11 +546,13 @@ impl Store {
     }
 
     /// Leave to delete this project's audio, or `None` while a handle on the
-    /// project is staged ([`AudioDeleter`]). Every deleter of the project's
-    /// audio starts here: the sweeps and compaction in `tools::reclaim`, and
-    /// a repair's leftovers.
+    /// project is staged ([`AudioDeleter`]), and always `None` for a store
+    /// that only reads ([`Store::open_read_only`]): a reader works beside the
+    /// live store and does not hold its lock, so nothing it read is known to
+    /// still hold. Every deleter of the project's audio starts here: the
+    /// sweeps and compaction in `tools::reclaim`, and a repair's leftovers.
     pub fn audio_deleter(&self) -> Option<AudioDeleter<'_>> {
-        (self.staged_in_flight() == 0).then(|| AudioDeleter {
+        (!self.is_read_only() && self.staged_in_flight() == 0).then(|| AudioDeleter {
             store: self,
             audio: self.audio_store(),
         })
@@ -914,6 +939,71 @@ mod tests {
         assert!(store.owns(&derived_dir(&linked).join("a.wav")).is_some());
     }
 
+    /// Compared by identity: a project reached through a link to its folder,
+    /// or through a link to one of its store folders, is the same folders,
+    /// whichever spelling the store and the path use.
+    #[cfg(unix)]
+    #[test]
+    fn folders_are_compared_by_identity_not_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        let file = file_at(&derived_dir(&project), "a.wav", b"x");
+        let linked = dir.path().join("linked");
+        std::os::unix::fs::symlink(&project, &linked).unwrap();
+        // A link straight to `derived/`, from outside the project.
+        let to_derived = dir.path().join("to-derived");
+        std::os::unix::fs::symlink(derived_dir(&project), &to_derived).unwrap();
+
+        for (store_at, path) in [
+            (&project, derived_dir(&linked).join("a.wav")),
+            (&linked, file.clone()),
+            (&linked, to_derived.join("a.wav")),
+            (&project, to_derived.join("a.wav")),
+        ] {
+            let owned = AudioStore::new(store_at)
+                .owns(&path)
+                .unwrap_or_else(|| panic!("{} through {}", path.display(), store_at.display()));
+            assert_eq!(owned.folder(), AudioFolder::Derived);
+            assert_eq!(
+                std::fs::canonicalize(owned.path()).unwrap(),
+                std::fs::canonicalize(&file).unwrap()
+            );
+        }
+        let listed = AudioStore::new(&linked)
+            .files(AudioFolder::Derived)
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name(), "a.wav");
+    }
+
+    #[test]
+    fn a_path_that_cannot_be_canonicalised_is_used_as_spelled() {
+        let spelled = Path::new("vboxsf").join("derived");
+        let canonical = PathBuf::from("/real/derived");
+        assert_eq!(
+            resolved_or_spelled(&spelled, Ok(canonical.clone())),
+            Some(canonical),
+            "the canonical path where there is one"
+        );
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert_eq!(
+            resolved_or_spelled(&spelled, Err(missing)),
+            None,
+            "nothing there"
+        );
+        for kind in [
+            std::io::ErrorKind::Unsupported,
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::Other,
+        ] {
+            assert_eq!(
+                resolved_or_spelled(&spelled, Err(kind.into())),
+                Some(spelled.clone()),
+                "{kind:?}: as spelled"
+            );
+        }
+    }
+
     #[test]
     fn files_lists_the_regular_files_directly_in_a_folder() {
         let dir = tempfile::tempdir().unwrap();
@@ -965,6 +1055,16 @@ mod tests {
         assert!(deleter.remove(&file));
         assert!(!path.exists());
         assert!(!deleter.remove(&file), "already gone");
+    }
+
+    #[test]
+    fn a_store_that_only_reads_gets_no_deleter() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = Store::open(dir.path()).unwrap();
+        let reader = Store::open_read_only(dir.path()).unwrap();
+        assert!(reader.is_read_only());
+        assert!(reader.audio_deleter().is_none(), "a reader deletes nothing");
+        assert!(live.audio_deleter().is_some(), "the writer may");
     }
 
     #[test]

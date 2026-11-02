@@ -630,10 +630,13 @@ pub struct CompactionReport {
     pub removed_nodes: usize,
     pub removed_files: usize,
     pub freed_bytes: u64,
-    /// Files in the plan that were left alone because they are not files
-    /// in this project's `derived/` (#589). Zero for a plan from
-    /// [`plan_compaction`], which lists only what it may remove; nonzero
-    /// means the plan came from somewhere else.
+    /// Files in the plan that were left alone: files that are not this
+    /// project's in `derived/` (#589), which a plan from [`plan_compaction`]
+    /// never lists, so for such a plan this is nonzero only when a handle on
+    /// the project was staged between the removal of the nodes and the
+    /// removal of their audio (from another `Store` on the folder). Then
+    /// every file of the plan still there is kept and counted here, and the
+    /// orphan sweep takes them later, since no node names them any more.
     pub kept_files: usize,
 }
 
@@ -715,8 +718,13 @@ pub fn plan_compaction(
     // A node can name any file: `load` references the user's own WAV where
     // it lies, a paste names a clipboard blob, a render a cached preview.
     // Only a file the store owns in `derived/` is listed (`AudioStore::owns`:
-    // a regular file directly in the folder, so `derived/../../take.wav` and
-    // a link in `derived/` are not).
+    // a regular file directly in the folder, so `derived/../../take.wav` is
+    // not). The paths here are already resolved (`key`), so a node that names
+    // a link in `derived/` lists the link's target if that is a regular file
+    // in `derived/`, as before #719; that is safe, because the kept nodes'
+    // paths are resolved the same way, so a target a kept node names through
+    // a link or directly is in `kept_refs`, and a link out of `derived/`
+    // resolves out of it.
     let audio = store.audio_store();
     let mut files = Vec::new();
     let mut bytes = 0u64;
@@ -792,8 +800,14 @@ pub fn apply_compaction(
 
     // A handle staged since the check above (from another `Store` on the
     // folder) leaves the audio for the orphan sweep: the nodes are gone, so
-    // nothing names it any more.
+    // nothing names it any more. Counted as kept, so the report does not
+    // read as "nothing to free".
     let Some(deleter) = store.audio_deleter() else {
+        report.kept_files = plan
+            .files
+            .iter()
+            .filter(|path| std::fs::symlink_metadata(path).is_ok())
+            .count();
         return Ok(report);
     };
     for path in &plan.files {
