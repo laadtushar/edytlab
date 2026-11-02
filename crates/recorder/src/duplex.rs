@@ -28,8 +28,8 @@
 //!
 //! cpal's error callback is not a glitch detector on its own. Since cpal
 //! 0.17 ALSA reports the overruns and underruns it recovers from
-//! (`ErrorKind::Xrun`), and since 0.18.2 CoreAudio and WASAPI capture do
-//! too, but a sound server behind ALSA's `default` hides its own, and
+//! (`ErrorKind::Xrun`), and since 0.18.2 CoreAudio (both directions) and
+//! WASAPI capture do too, but a sound server behind ALSA's `default` hides its own, and
 //! WASAPI playback reports none. The timing check is what catches those,
 //! and it sees a loss of more than about one buffer plus 20 ms, not a
 //! smaller one; a calibration whose sweeps then disagree is refused for
@@ -74,11 +74,16 @@ pub struct DevicePair {
 /// is never read as this one's.
 ///
 /// `cpal18`: cpal 0.17 stopped imposing its own ALSA buffering (25 ms
-/// periods in a 100 ms buffer) and uses the device's defaults
-/// (`BufferSize::Default`); on the loopback's private PulseAudio daemon
-/// the measured latency went from 75.6 ms (cpal 0.15) to 10.8 ms. A
-/// calibration from cpal 0.15 applied now would put a take about 65 ms
-/// early there, so it reads as not measured and is made again.
+/// periods in a 100 ms buffer), and the streams now ask for 50 ms periods
+/// in a 100 ms buffer ([`crate::stream_config`]); on the loopback's private
+/// PulseAudio daemon the measured latency went from 75.6 ms (cpal 0.15)
+/// to 33.4 ms. A calibration from cpal 0.15 applied now would put a take
+/// about 42 ms early there, so it reads as not measured and is made again.
+/// The other hosts' streams changed under the same versions too: WASAPI
+/// opens default devices through the audio-interface activation path
+/// instead of `IMMDevice::Activate`, and CoreAudio sets the device's
+/// physical format and calls back with fixed-size buffers, so the field
+/// applies on every host, not only ALSA.
 const STREAM_SETUP: &str = "cpal18";
 
 impl DevicePair {
@@ -173,7 +178,7 @@ fn device_name(host: cpal::HostId, dev: &cpal::Device) -> Option<String> {
 
 /// The default devices and their configurations.
 pub fn default_pair() -> Result<DevicePair, RecorderError> {
-    let host = cpal::default_host();
+    let host = crate::host()?;
     let out = host
         .default_output_device()
         .ok_or(RecorderError::NoOutputDevice)?;
@@ -226,19 +231,21 @@ pub fn play_and_capture(
     if &now != pair {
         return Err(RecorderError::DeviceChanged);
     }
-    let host = cpal::default_host();
+    let host = crate::host()?;
     let out_dev = host
         .default_output_device()
         .ok_or(RecorderError::NoOutputDevice)?;
     let in_dev = host.default_input_device().ok_or(RecorderError::NoDevice)?;
-    let out_cfg: cpal::StreamConfig = out_dev
-        .default_output_config()
-        .map_err(|e| RecorderError::Stream(e.to_string()))?
-        .into();
-    let in_cfg: cpal::StreamConfig = in_dev
-        .default_input_config()
-        .map_err(|e| RecorderError::Stream(e.to_string()))?
-        .into();
+    let out_cfg = crate::stream_config(
+        &out_dev
+            .default_output_config()
+            .map_err(|e| RecorderError::Stream(e.to_string()))?,
+    );
+    let in_cfg = crate::stream_config(
+        &in_dev
+            .default_input_config()
+            .map_err(|e| RecorderError::Stream(e.to_string()))?,
+    );
 
     let out_ch = pair.out_ch as usize;
     let in_ch = pair.in_ch as usize;

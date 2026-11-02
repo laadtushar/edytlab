@@ -56,9 +56,55 @@ const _: () = {
     assert_send::<Recorder>();
 };
 
+/// The host every stream is opened on. On Linux cpal 0.18's
+/// `default_host()` panics when ALSA cannot read its configuration (a
+/// `~/.asoundrc` that does not parse), where 0.15's never failed; asking
+/// for ALSA by id answers with that error instead, so the person is told
+/// why. Elsewhere the default host does not fail.
+pub(crate) fn host() -> Result<cpal::Host, RecorderError> {
+    #[cfg(target_os = "linux")]
+    {
+        cpal::host_from_id(cpal::HostId::Alsa).map_err(|e| RecorderError::Stream(e.to_string()))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(cpal::default_host())
+    }
+}
+
+/// How every stream is opened: the device's default format and, on ALSA,
+/// 50 ms periods (cpal keeps two, so a 100 ms buffer).
+///
+/// cpal 0.15 asked ALSA for 25 ms periods in a 100 ms buffer. 0.17 stopped
+/// doing that and 0.18 keeps two of the device's own periods, about 5 ms
+/// each behind PulseAudio, and on an ordinary busy machine the loopback's
+/// calibrations and punch-ins then underran: 1 to 3 of its 5 tests
+/// refused as `Dropout`, with ALSA reporting the underrun and then I/O
+/// errors (2026-11-02). Fixed 50 ms periods passed 15 of 15 with no error
+/// and no lost frame, which is what 0.15 did. The latency this adds is
+/// measured with the rest by calibration. A device that cannot take 50 ms
+/// gets the nearest period it can (the range cpal reports already allows
+/// for the two-period buffer). CoreAudio and WASAPI keep their defaults:
+/// their buffers are the device's and the system mixer's, which cpal did
+/// not choose under 0.15 either.
+pub(crate) fn stream_config(supported: &cpal::SupportedStreamConfig) -> cpal::StreamConfig {
+    #[allow(unused_mut)] // only Linux sets the buffer size
+    let mut config = supported.config();
+    #[cfg(target_os = "linux")]
+    {
+        let want = supported.sample_rate() / 20;
+        let frames = match *supported.buffer_size() {
+            cpal::SupportedBufferSize::Range { min, max } => want.clamp(min, max),
+            cpal::SupportedBufferSize::Unknown => want,
+        };
+        config.buffer_size = cpal::BufferSize::Fixed(frames);
+    }
+    config
+}
+
 impl Recorder {
     pub fn start() -> Result<Self, RecorderError> {
-        let host = cpal::default_host();
+        let host = host()?;
         let device = host.default_input_device().ok_or(RecorderError::NoDevice)?;
         let config = device
             .default_input_config()
@@ -69,7 +115,7 @@ impl Recorder {
         let samples_clone = Arc::clone(&samples);
         let stream = device
             .build_input_stream(
-                config.into(),
+                stream_config(&config),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     if let Ok(mut s) = samples_clone.lock() {
                         s.extend_from_slice(data);
