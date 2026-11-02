@@ -10,7 +10,7 @@ const title = "Privacy policy: your audio stays on your machine";
 // Google Analytics and the site's own Sentry error reports are described
 // only in a build that has them (`NEXT_PUBLIC_GA_MEASUREMENT_ID`,
 // `NEXT_PUBLIC_SENTRY_DSN`), so the page never names a service the site is
-// not running. The app's crash reports are opt-in and always described.
+// not running.
 const siteUses = SENTRY_DSN
   ? GA_MEASUREMENT_ID
     ? "anonymous Vercel analytics, Sentry error reports and, only if you accept, Google Analytics"
@@ -18,7 +18,7 @@ const siteUses = SENTRY_DSN
   : GA_MEASUREMENT_ID
     ? "anonymous Vercel analytics and, only if you accept, Google Analytics"
     : "anonymous Vercel analytics";
-const description = `How edytlab handles your data: audio stays local, LLM keys and a ChatGPT sign-in token live in the OS keychain, the app sends no telemetry and sends crash reports only if you turn them on, and this site uses ${siteUses}.`;
+const description = `How edytlab handles your data: audio stays local, LLM keys and a ChatGPT sign-in token live in the OS keychain, the app sends no telemetry, and this site uses ${siteUses}.`;
 
 export const metadata: Metadata = {
   title,
@@ -32,11 +32,9 @@ export default function PrivacyPage() {
     <LegalShell title="Privacy" path="/privacy" updated="2026-11-02">
       <p>
         edytlab is a local-first desktop application. It has no server of ours
-        behind it, it sends no telemetry or usage analytics, and we do not
-        handle your audio. It sends crash reports only if you turn that on in
-        Settings; it is off by default (see &ldquo;Crash reports&rdquo;
-        below). The website is separate from the app and does use analytics,
-        described under &ldquo;Telemetry and analytics&rdquo; below.
+        behind it, it sends no telemetry, and we do not handle your audio. The
+        website is separate from the app and does use analytics, described
+        under &ldquo;Telemetry and analytics&rdquo; below.
       </p>
 
       <h2>Audio files</h2>
@@ -93,11 +91,7 @@ export default function PrivacyPage() {
         ChatGPT&rdquo; below). Beyond that, the app connects only where you tell
         it to: a plugin you install from a URL is downloaded from that URL, an
         MCP server you add is contacted at the address you gave it, and the speech, speaker and stem models are each downloaded from
-        Hugging Face when you click their Download (below). If you turn on
-        Send crash reports, which is off by default, an unexpected error also
-        sends a scrubbed report to Sentry (an address under{" "}
-        <code>sentry.io</code>; see &ldquo;Crash reports&rdquo; below); with
-        it off, the app makes no request to Sentry. Your OS network tools show every request.
+        Hugging Face when you click their Download (below). Your OS network tools show every request.
       </p>
       <p>
         <strong>The speech model download.</strong> Settings &rarr; Account has a Download button for the
@@ -123,8 +117,7 @@ export default function PrivacyPage() {
         against its SHA-256 hash before keeping it, and Remove in the same
         place deletes the files again. There is no telemetry: the app reports
         nothing back to us about the download, and we run no server that sees
-        it. (An opt-in crash report, below, is only about an error, and only
-        if you turned crash reports on.) Hugging Face handles the requests under{" "}
+        it. Hugging Face handles the requests under{" "}
         <a href="https://huggingface.co/privacy">its own privacy policy</a>.
         Transcribing makes no network request of its own; the model is only
         read from your computer.
@@ -330,8 +323,7 @@ export default function PrivacyPage() {
       <h2 id="telemetry-and-analytics">Telemetry and analytics</h2>
       <p>
         <strong>The desktop app</strong> does not send telemetry or usage
-        analytics. It sends crash reports only if you turn them on; they are
-        off by default and described under &ldquo;Crash reports&rdquo; below.
+        analytics.
       </p>
       <p>
         <strong>This website</strong> uses two Vercel products, which are
@@ -399,29 +391,9 @@ export default function PrivacyPage() {
 
       <h2 id="crash-reports">Crash reports</h2>
       <p>
-        <strong>The desktop app.</strong> From the release after v0.9.4,
-        Settings &rarr; Account has a <em>Send crash reports</em> switch. It is
-        off by default, and while it is off the app makes no request to
-        Sentry. When you turn it on and the app crashes or hits an unexpected
-        error, it sends a report to{" "}
-        <a href="https://sentry.io">Sentry</a> (an address under{" "}
-        <code>sentry.io</code>): the error&apos;s type and message, where in
-        edytlab&apos;s code it happened (the function names and source
-        positions of the stack), the app version, and your operating system
-        and processor. Before a report leaves your computer the app takes
-        out file and project paths (your home folder and every project folder
-        become placeholders, and any other path in a message is removed),
-        anything in quotes (which is how your chat, the assistant&apos;s tool
-        calls and their results end up in an error message), API keys and
-        tokens, email addresses and your computer&apos;s name. It sends no
-        record of what you did before the error, no local variables and no
-        source lines, and a report never contains audio. Sentry sees the IP
-        address a report comes from, as with any request. Turning the switch
-        off stops reports at once. The choice is saved in{" "}
-        <code>~/.edytlab/settings.json</code>, not in the credential store. A
-        build made from source has no reporting address and cannot send a
-        report at all. Sentry handles reports under{" "}
-        <a href="https://sentry.io/privacy/">its own privacy policy</a>.
+        Future builds may include opt-in crash reporting for stability
+        debugging. If we add it, it will be off by default, surfaced in
+        settings, and limited to stack traces with no user content attached.
       </p>
       {SENTRY_DSN ? (
         <p>

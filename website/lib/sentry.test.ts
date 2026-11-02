@@ -195,11 +195,12 @@ describe("the build step", () => {
 describe("the privacy page", () => {
   const page = read("app/privacy/page.tsx");
 
-  it("says the app's crash reports are opt-in and off by default", () => {
-    expect(page).toContain("Send crash reports");
-    expect(page).toMatch(/off by default/);
-    expect(page).toMatch(/while it is off the app makes no request to\s+Sentry/);
+  // The app's own switch is described with the release that ships it
+  // (the site describes the released app); until then the page keeps the
+  // section the site's paragraph links to.
+  it("keeps the section the site's Sentry paragraph links to", () => {
     expect(page).toContain('id="crash-reports"');
+    expect(page).toContain('href="#crash-reports"');
   });
 
   it("names the site's own Sentry reports only in a build that has a DSN", () => {
@@ -208,7 +209,6 @@ describe("the privacy page", () => {
 
   it("is matched by the local-first table", () => {
     const table = read("app/use-cases/local-ai-audio-editor/page.tsx");
-    expect(table).toContain("Crash reports from the app (optional)");
-    expect(table).toMatch(/off by default/);
+    expect(table).toMatch(/\{SENTRY_DSN \? " An error on a page of this site is reported to Sentry/);
   });
 });

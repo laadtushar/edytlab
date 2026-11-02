@@ -140,21 +140,6 @@ export default function LocalAiUseCasePage() {
               <td>None. The app sends no telemetry.</td>
             </tr>
             <tr>
-              <td>Crash reports from the app (optional)</td>
-              <td>
-                None unless you turn on Send crash reports in Settings, which
-                is off by default (from the release after v0.9.4). With it on,
-                an unexpected error sends a report to Sentry (sentry.io): the
-                error, where in edytlab&apos;s code it happened, the app
-                version and your operating system. Paths, quoted text such as
-                your chat and the assistant&apos;s tool calls, API keys, tokens
-                and email addresses are taken out first, and it never contains
-                audio. The{" "}
-                <Link href="/privacy#crash-reports">privacy page</Link> has the
-                details.
-              </td>
-            </tr>
-            <tr>
               <td>Visits to this website</td>
               <td>
                 Recorded by anonymous Vercel analytics (Web Analytics and
