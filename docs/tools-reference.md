@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 110 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 111 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 

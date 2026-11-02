@@ -111,7 +111,7 @@ export default function PressPage() {
             <tr>
               <th scope="row">Tools</th>
               <td>
-                110 deterministic tools the agent can call (
+                111 deterministic tools the agent can call (
                 <Link href="/docs/tools">full reference</Link>)
               </td>
             </tr>
