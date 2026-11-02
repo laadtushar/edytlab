@@ -18,7 +18,8 @@ pub const STREAMABLE: [&str; 5] = [
 ];
 
 /// Effects that exist as destructive tools but cannot run in a chain yet.
-pub const NOT_YET_STREAMABLE: [&str; 11] = [
+pub const NOT_YET_STREAMABLE: [&str; 12] = [
+    "wah_wah",
     "tremolo",
     "phaser",
     "echo",

@@ -144,6 +144,7 @@ const TOOL_LABELS: Record<string, string> = {
   distortion: "Distortion",
   phaser: "Phaser",
   tremolo: "Tremolo",
+  wah_wah: "Wah-wah",
   stereo_widener: "Stereo widener",
 
   // Time and pitch
