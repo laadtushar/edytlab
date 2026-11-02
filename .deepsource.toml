@@ -23,7 +23,10 @@ exclude_patterns = [
 
 test_patterns = [
   "crates/*/tests/**",
+  "apps/cli/tests/**",
   "apps/desktop/src-tauri/tests/**",
+  # Shared helpers that crate tests include with #[path = ...].
+  "test-support/**",
   "apps/desktop/src/**/__tests__/**",
   "apps/desktop/e2e/**",
   "apps/desktop/e2e-native/**",
