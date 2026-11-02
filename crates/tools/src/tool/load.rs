@@ -335,7 +335,9 @@ fn is_unowned_store_file(project_dir: &Path, src: &Path) -> bool {
     let Ok(inside) = src.strip_prefix(&store) else {
         return false;
     };
-    let owned = [AudioFolder::Derived.name(), AudioFolder::Clipboard.name()];
+    // The store's folders by name (`derived/`, `clipboard/`; `generated/`
+    // never sits under `.audiograph/`, so naming it here changes nothing).
+    let owned: Vec<&str> = AudioFolder::ALL.iter().map(|f| f.name()).collect();
     !inside
         .components()
         .next()
