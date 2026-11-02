@@ -123,7 +123,7 @@ If you've ever wondered whether an AI audio editor is listening to your music: m
 
 It reads a short summary of the session and what its analysis tools measure, like each track's tempo, key and loudness, and picks from 110 editing tools: fades, EQ, filters, time-stretch, loudness, export. Those tools are ordinary Rust code running on your computer. The video shows it sequencing a three-track mix with them.
 
-That one choice gave me the things I care about. Every step is a tool you can read, so nothing happens behind your back. Every edit is a node in a history you can fork, compare and undo, so nothing is lost. And since the model never gets the audio, there is nothing to upload.
+That one choice gave me the things I care about. Every step is a tool you can read, so nothing happens behind your back. Every edit is a node in a history you can fork, compare and undo, so nothing is lost. And since the model never gets the audio, your audio is never uploaded.
 
 I even wrote the time-stretch myself instead of bundling a library, so the app builds the same way on macOS, Windows and Linux. The price is that dense mixes can smear when you stretch them a lot.
 
