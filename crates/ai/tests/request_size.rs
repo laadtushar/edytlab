@@ -201,7 +201,8 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // `echo`'s description and `taps` schema written short to keep the slim request
 // 500 B under its bound with MCP tools.
 // #771's snap_to_zero_crossing adds 57 B on top.
-const FULL_TOOLS_MAX_BYTES: usize = 75_405; // main ratchet 75,348 + 57 B of #771's snap_to_zero_crossing
+// #771's reorder_tracks adds 289 B on top.
+const FULL_TOOLS_MAX_BYTES: usize = 75_694; // main ratchet 75,405 + 289 B of #771's reorder_tracks
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -799,7 +800,8 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #769's net 375 B (above) come on top.
 // #765 adds the same 24 B.
 // #771's snap_to_zero_crossing adds 57 B on top.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 78_783; // main ratchet 78,726 + 57 B of #771's snap_to_zero_crossing
+// #771's reorder_tracks adds 320 B on top.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 79_103; // main ratchet 78,783 + 320 B of #771's reorder_tracks
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

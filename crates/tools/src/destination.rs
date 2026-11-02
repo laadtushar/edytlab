@@ -172,11 +172,12 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    let existing: Vec<PathBuf> = destinations
+    let destinations: Vec<PathBuf> = destinations
         .into_iter()
         .map(|d| d.as_ref().to_path_buf())
-        .filter(|d| d.is_file())
         .collect();
+    refuse_inside_store(store.project_dir(), &destinations)?;
+    let existing: Vec<PathBuf> = destinations.into_iter().filter(|d| d.is_file()).collect();
     let Some(first) = existing.first() else {
         return Ok(());
     };
@@ -195,6 +196,52 @@ where
     for destination in &existing {
         if let Some((source, reads)) = files.find(destination) {
             return Err(refusal(destination, source, *reads));
+        }
+    }
+    Ok(())
+}
+
+/// Refuse a destination inside the folders the project owns (#719): its
+/// `.audiograph/` folder (the history, the content-addressed audio, the
+/// caches) and every folder of its audio store that sits elsewhere
+/// (`generated/`, beside it). An export written into `derived/` or
+/// `generated/` would sit under a content name its bytes do not hash to, and
+/// a sweep could delete it; nothing in there is the user's to write.
+///
+/// Compared by folder identity, the same way projects are told apart
+/// ([`session::live::identify`]), so a symlink or another spelling of the
+/// path is caught; a destination that does not exist yet is judged by the
+/// nearest folder above it that does.
+fn refuse_inside_store(project_dir: &Path, destinations: &[PathBuf]) -> Result<(), String> {
+    let owned: Vec<(PathBuf, FolderId)> = std::iter::once(project_dir.join(session::STORE_DIR))
+        .chain(
+            session::audio_store::AudioFolder::ALL
+                .iter()
+                .map(|folder| folder.dir(project_dir)),
+        )
+        .filter_map(|dir| identify(&dir).ok().map(|id| (dir, id.id())))
+        .collect();
+    if owned.is_empty() {
+        // None of them is on disk yet: nothing can be inside one.
+        return Ok(());
+    }
+    for destination in destinations {
+        let absolute = std::path::absolute(destination).unwrap_or_else(|_| destination.clone());
+        let inside = absolute
+            .ancestors()
+            .filter_map(|folder| identify(folder).ok())
+            .find_map(|folder| owned.iter().find(|(_, id)| *id == folder.id()));
+        if let Some((dir, _)) = inside {
+            let name = dir
+                .strip_prefix(project_dir)
+                .unwrap_or(dir)
+                .display()
+                .to_string();
+            return Err(format!(
+                "not written: {} is inside the project's own {name} folder, which holds the \
+                 project's history or the audio it plays. Choose a file name or folder outside it.",
+                destination.display()
+            ));
         }
     }
     Ok(())
