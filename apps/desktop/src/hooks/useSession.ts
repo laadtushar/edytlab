@@ -116,6 +116,8 @@ export interface UseSessionResult {
    * other way is one undo does not know about (`lib/headTrail.ts`).
    */
   setHeadLocal: (nodeId: NodeId) => void;
+  /** Read the current head unless another head move wins while reading. */
+  reconcileHead: () => Promise<NodeId | null>;
   /**
    * A different project is open: its head replaces this one's and none of
    * the old path applies. `null` is a project with nothing in it yet.
@@ -208,6 +210,9 @@ export function useSession(options?: {
   // `peekRedo`, which must see a move made a moment ago even if React has
   // not rendered it yet (a key pressed right after an edit).
   const historyRef = useRef(initialHeadTrail);
+  // A trail-only restore/drop is not a new head, but even an identical-head
+  // reset is a different project and must invalidate an in-flight read.
+  const headRevisionRef = useRef(0);
   const [history, setHistory] = useState(initialHeadTrail);
   const { head, trail } = history;
   // One per mounted session, made once: the line is state, so it must not
@@ -228,7 +233,10 @@ export function useSession(options?: {
       // Every head move comes through here, so this is the one place the
       // graph hears of them (#602). A project opening is one even when it
       // is on the same head: the nodes behind it are another project's.
-      if (next.head !== before.head || action.type === "reset") graphChanged();
+      if (next.head !== before.head || action.type === "reset") {
+        headRevisionRef.current += 1;
+        graphChanged();
+      }
       if (next === before) return;
       historyRef.current = next;
       setHistory(next);
@@ -313,6 +321,14 @@ export function useSession(options?: {
     (nodeId: NodeId) => dispatchHead({ type: "advance", head: nodeId }),
     [dispatchHead],
   );
+  const reconcileHead = useCallback(async (): Promise<NodeId | null> => {
+    const revision = headRevisionRef.current;
+    const current = await getSessionHead();
+    // Agent events and project resets can win while the IPC read is in flight.
+    if (headRevisionRef.current !== revision) return null;
+    dispatchHead({ type: "advance", head: current });
+    return current;
+  }, [dispatchHead]);
   const resetHead = useCallback(
     (nodeId: NodeId | null, saved?: SavedTrail | null) => {
       resetTracks();
@@ -413,6 +429,7 @@ export function useSession(options?: {
     head,
     renderHead,
     setHeadLocal,
+    reconcileHead,
     resetHead,
     trail,
     peekUndo,

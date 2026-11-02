@@ -14,11 +14,13 @@
 import {
   NOT_CALIBRATED_TEXT,
   RECORDING_DEVICES,
+  deferred,
   manualLatencyCommands,
   nodeId,
   ok,
   projectWith,
   punchCommands,
+  reject,
   recordingLatencyStatus,
   selecting,
   toneTrack,
@@ -31,6 +33,7 @@ test.use({ viewport: { width: 1280, height: 800 } });
 
 const A = nodeId(1);
 const B = nodeId(2);
+const PUNCH_HEAD = "b".repeat(64);
 
 const MEASURED = {
   latency_ms: 75.3,
@@ -98,6 +101,113 @@ test("select a region, Punch, Start: the take is requested and the new head is a
   await expect.poll(async () => (await app.requestsFor("list_tracks")).length).toBeGreaterThan(reads);
   // The popover is gone and the control is back.
   await expect(page.getByTestId("punch-panel")).toHaveCount(0);
+});
+
+test("a late punch reply cannot adopt a head from another project with the same initial head", async ({ app }) => {
+  const page = await bootProject(app, punchCommands("held"));
+  await dragSelect(app, 0.2, 0.5);
+  await page.getByTestId("punch-btn").click();
+  await page.getByTestId("punch-start").click();
+  await expect.poll(() => app.requestsFor("punch_record")).toHaveLength(1);
+
+  const other = "/home/user/Music/copied-project";
+  await app.become({
+    "plugin:dialog|open": ok(other),
+    open_project: ok({ path: other, head: A }),
+    get_view_state: ok({}),
+    get_session_head: ok(A),
+  });
+  await page.getByTestId("open-project-button").click();
+  await expect.poll(() => app.requestsFor("open_project")).toEqual([{ path: other }]);
+  await app.settle();
+  await app.release("punch", {
+    cancelled: false, head: PUNCH_HEAD, latency_ms: 75.3, latency_source: "measured",
+    start_sec: 0.3, end_sec: 0.6, track: 0,
+  });
+  await app.settle();
+  await expect(page.getByTestId("status-bar-head")).toContainText(A.slice(0, 7));
+  await expect(page.getByTestId("punch-notice")).toHaveCount(0);
+});
+
+test("reopening the same project during a punch reconciles a successful later head", async ({ app }) => {
+  const page = await bootProject(app, punchCommands("held"));
+  await dragSelect(app, 0.2, 0.5);
+  await page.getByTestId("punch-btn").click();
+  await page.getByTestId("punch-start").click();
+  await expect.poll(() => app.requestsFor("punch_record")).toHaveLength(1);
+
+  const same = "/home/user/Music/current-project";
+  await app.become({
+    "plugin:dialog|open": ok(same),
+    open_project: ok({ path: same, head: A }),
+    get_view_state: ok({}),
+    get_session_head: ok(A),
+  });
+  await page.getByTestId("open-project-button").click();
+  await expect.poll(() => app.requestsFor("open_project")).toEqual([{ path: same }]);
+  await app.settle();
+  await app.become({ get_session_head: ok(PUNCH_HEAD) });
+  await app.release("punch", {
+    cancelled: false, head: PUNCH_HEAD, latency_ms: 75.3, latency_source: "measured",
+    start_sec: 0.3, end_sec: 0.6, track: 0,
+  });
+  await expect(page.getByTestId("status-bar-head")).toContainText(PUNCH_HEAD.slice(0, 7));
+  await expect(page.getByTestId("punch-notice")).toHaveCount(0);
+});
+
+test("a later session head wins over the delayed punch reply", async ({ app }) => {
+  const page = await bootProject(app, punchCommands("held"));
+  await dragSelect(app, 0.2, 0.5);
+  await page.getByTestId("punch-btn").click();
+  await page.getByTestId("punch-start").click();
+  await expect.poll(() => app.requestsFor("punch_record")).toHaveLength(1);
+  const later = "c".repeat(64);
+  await app.become({ get_session_head: ok(later) });
+  await app.release("punch", {
+    cancelled: false, head: PUNCH_HEAD, latency_ms: 75.3, latency_source: "measured",
+    start_sec: 0.3, end_sec: 0.6, track: 0,
+  });
+  await expect(page.getByTestId("status-bar-head")).toContainText(later.slice(0, 7));
+  await expect(page.getByTestId("punch-notice")).toHaveCount(0);
+});
+
+test("a failed head reconciliation does not adopt the delayed punch head", async ({ app }) => {
+  const page = await bootProject(app, punchCommands("held"));
+  await dragSelect(app, 0.2, 0.5);
+  await page.getByTestId("punch-btn").click();
+  await page.getByTestId("punch-start").click();
+  await expect.poll(() => app.requestsFor("punch_record")).toHaveLength(1);
+  await app.become({ get_session_head: reject("head read failed") });
+  await app.release("punch", {
+    cancelled: false, head: PUNCH_HEAD, latency_ms: 75.3, latency_source: "measured",
+    start_sec: 0.3, end_sec: 0.6, track: 0,
+  });
+  await expect(page.getByTestId("render-error")).toContainText("punch was applied");
+  await expect(page.getByTestId("render-error")).toContainText("head read failed");
+  await expect(page.getByTestId("status-bar-head")).toContainText(A.slice(0, 7));
+  await expect(page.getByTestId("punch-notice")).toHaveCount(0);
+});
+
+test("an agent head that arrives during punch reconciliation wins over the older read", async ({ app }) => {
+  const page = await bootProject(app, punchCommands("held"));
+  await dragSelect(app, 0.2, 0.5);
+  await page.getByTestId("punch-btn").click();
+  await page.getByTestId("punch-start").click();
+  await expect.poll(() => app.requestsFor("punch_record")).toHaveLength(1);
+  const readsBefore = (await app.requestsFor("get_session_head")).length;
+  await app.become({ get_session_head: deferred("punch-head") });
+  await app.release("punch", {
+    cancelled: false, head: PUNCH_HEAD, latency_ms: 75.3, latency_source: "measured",
+    start_sec: 0.3, end_sec: 0.6, track: 0,
+  });
+  await expect.poll(async () => (await app.requestsFor("get_session_head")).length).toBeGreaterThan(readsBefore);
+  const newer = "c".repeat(64);
+  await app.emit("agent://node-created", { node_id: newer });
+  await expect(page.getByTestId("status-bar-head")).toContainText(newer.slice(0, 7));
+  await app.release("punch-head", PUNCH_HEAD);
+  await app.settle();
+  await expect(page.getByTestId("status-bar-head")).toContainText(newer.slice(0, 7));
+  await expect(page.getByTestId("punch-notice")).toHaveCount(0);
 });
 
 test("the lead-in and track chosen are what is requested", async ({ app }) => {

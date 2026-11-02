@@ -749,15 +749,16 @@ fn open_project_with(
 ///   ([`AppState::release_open_project_if_exclusive`]): the slot's, this
 ///   function's and the agent's, if the agent was built on it.
 ///
-/// **Lock order**, the only path that holds a store's lock across the window's
-/// slots: the agent's (`try_lock_owned`, never waited for) → the registry
-/// (`Store::replaced_holder`, a leaf, released before the next) → the old
-/// store's (`try_lock`, never waited for) → the `store` slot → `project_dir`,
-/// and then, with all of them let go, the window-mix lock, which is taken
-/// alone. Nothing takes a store's lock while holding the slot (`store_handle()`
+/// **Lock order** for project replacement: the agent's (`try_lock_owned`,
+/// never waited for) → the registry (`Store::replaced_holder`, a leaf,
+/// released before the next) → the old store's (`try_lock`, never waited for)
+/// → the `store` slot → `project_dir`, and then, with all of them let go,
+/// the window-mix lock, which is taken alone. The punch apply path also holds
+/// its store across the `store` slot to make project identity and dispatch
+/// atomic; it then takes engine and dispatcher and never `project_dir`.
+/// Nothing takes a store's lock while holding the slot (`store_handle()`
 /// drops it before its caller locks the store), and the agent's lock is
-/// taken before the slot everywhere (`rebuild_agent_into` does the same), so
-/// no order is reversed and the two `try_lock`s cannot wait.
+/// taken before the slot everywhere (`rebuild_agent_into` does the same).
 fn release_replaced_project(state: &AppState, path: &Path) -> bool {
     let Ok(mut agent) = Arc::clone(&state.agent).try_lock_owned() else {
         return false;
@@ -4742,7 +4743,7 @@ pub(crate) fn run_track_tool(
 /// Why [`run_track_tool_at`] did not make its edit.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ApplyError {
-    /// The head was not the one the caller named, so nothing was changed.
+    /// The head or project was not the one the caller named; nothing changed.
     HeadMoved,
     /// The tool refused, or failed; the text is what the window shows.
     Failed(String),
@@ -4763,12 +4764,54 @@ pub(crate) fn run_track_tool_at(
     args: serde_json::Value,
     expected: Option<NodeId>,
 ) -> Result<String, ApplyError> {
+    run_track_tool_at_inner(state, tool, args, expected, None)
+}
+
+/// Apply a punch only to the still-open store and head it was recorded on.
+/// The store slot remains held through dispatch so opening another project
+/// cannot slip between the identity check and the edit. This may delay a
+/// project switch until the punch's synchronous edit completes.
+pub(crate) fn run_track_tool_at_project(
+    state: &AppState,
+    tool: &str,
+    args: serde_json::Value,
+    expected_store: &Arc<Mutex<Store>>,
+    expected_head: NodeId,
+) -> Result<String, ApplyError> {
+    run_track_tool_at_inner(state, tool, args, Some(expected_head), Some(expected_store))
+}
+
+fn run_track_tool_at_inner(
+    state: &AppState,
+    tool: &str,
+    args: serde_json::Value,
+    expected: Option<NodeId>,
+    expected_store: Option<&Arc<Mutex<Store>>>,
+) -> Result<String, ApplyError> {
     let failed = |m: String| ApplyError::Failed(m);
-    let store_arc = state
-        .store_handle()
-        .ok_or_else(|| failed(CommandError::NoSession.to_string()))?;
+    let store_arc = match expected_store {
+        Some(store) => Arc::clone(store),
+        None => state
+            .store_handle()
+            .ok_or_else(|| failed(CommandError::NoSession.to_string()))?,
+    };
     let head_hex = {
         let mut store = lock_std(&store_arc, "store").map_err(|e| failed(e.to_string()))?;
+        // Store before slot, matching `release_replaced_project`. Keep the
+        // guard through dispatch: checking then releasing it would leave the
+        // same project-switch race as checking the head outside this lock.
+        let project_slot = if let Some(want) = expected_store {
+            let slot = lock_std(&state.store, "store slot").map_err(|e| failed(e.to_string()))?;
+            if !slot
+                .as_ref()
+                .is_some_and(|live| Arc::ptr_eq(live.as_arc(), want))
+            {
+                return Err(ApplyError::HeadMoved);
+            }
+            Some(slot)
+        } else {
+            None
+        };
         if let Some(want) = expected {
             if store.head() != Some(want) {
                 return Err(ApplyError::HeadMoved);
@@ -4798,6 +4841,7 @@ pub(crate) fn run_track_tool_at(
                 return Err(failed(CommandError::InvalidTrackControl(msg).to_string()))
             }
         }
+        drop(project_slot);
         store.head().map(|id| id.to_hex())
     };
     head_hex.ok_or_else(|| failed(CommandError::NoSession.to_string()))
