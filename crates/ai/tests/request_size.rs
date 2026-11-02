@@ -171,17 +171,33 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // #842's Opus wording then added 13 B to `load` (69,674 B), and #854's
 // OS-native M4A/AAC wording brought it to 69,789 B.
 // #767 then added `export_transcript` and `transcript_to_markers`: 1,752 B
-// (69,789 B to 71,541 B). The ratchet rises by exactly that, keeping the
-// remaining headroom of the main branch rather than loosening the guard.
+// (69,789 B to 71,541 B). The ratchet rose by exactly that, keeping the
+// remaining headroom of the main branch rather than loosening the guard. Main
+// at #883 measures 71,523 B against a ratchet of 71,557 B (34 B of headroom).
+// #385 then replaced `separate_stems`' "not implemented" descriptor with the
+// one of a tool that runs (`track` or `path`, what it writes, what to tell the
+// user when the model or the runtime is missing): +47 B (71,523 B to
+// 71,570 B). The ratchet rises by exactly that, so the headroom is still 34 B.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 
 // #847 adds 246 B for fade's optional curve enum, formulas and default (266 B
 // less the 20 B of a repeated "Defaults to linear."): measured 71,769 B, with
-// the same 34 B of headroom as before.
+// the same 34 B of headroom as before. #385's `separate_stems` descriptor
+// (the 47 B above) comes on top of that: the ratchet is main's 71,803 B + 47 B,
+// so the headroom is still 34 B.
 //
-// #771's `reorder_tracks` adds 289 B (71,769 B to 72,058 B), the same 34 B of
-// headroom.
-const FULL_TOOLS_MAX_BYTES: usize = 72_092; // previous ratchet 71,803 + 289 B
+// #385 part 3 names where the user gets the stem model in `separate_stems`'s
+// description: +17 B, measured 71,816 B to 71,833 B.
+// #766 then added `find_markers`, `add_markers`, `edit_markers` and
+// `delete_markers`: +1,953 B, measured 73,786 B. The ratchet rises by both deltas,
+// keeping main's 34 B of headroom.
+// #771's `join_clips` and `align_end_to_end` add 1,129 B: measured 74,915 B over
+// main's 73,786 B. The ratchet rises by that delta, keeping main's 34 B of headroom.
+// #769's `noise_reduction` noise-range arguments add a net 375 B on top
+// (398 B, less the 23 B of `analyze_track`'s two argument descriptions written
+// shorter).
+// #771's `reorder_tracks` adds 289 B on top.
+const FULL_TOOLS_MAX_BYTES: usize = 75_613; // main ratchet 75,324 + 289 B of reorder_tracks
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -488,8 +504,9 @@ fn tool_names_in(tools: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-/// The tools that describe themselves as doing nothing in this build
-/// (stem separation). A small model is not offered them.
+/// The tools that describe themselves as doing nothing in this build (none
+/// now: `separate_stems` was the last, until #385). A small model is not
+/// offered them.
 fn not_implemented_tools() -> BTreeSet<String> {
     ToolDispatcher::default_dispatcher()
         .tool_schemas()
@@ -760,14 +777,24 @@ async fn chatgpt_first_request(tool_set: ai::ToolSet, message: &str) -> (Sent, S
 // request is a slower, costlier one on every step.
 // #767's `export_transcript` and `transcript_to_markers` add 1,814 B
 // (72,919 B to 74,733 B, including the Opus/M4A wording in `load`);
-// the ratchet rises by that, keeping the main branch's remaining headroom.
+// the ratchet rose by that, keeping the main branch's remaining headroom. Main
+// at #883 measures 74,715 B against a ratchet of 74,749 B (34 B of headroom).
+// #385's `separate_stems` descriptor is +47 B here as well (74,715 B to
+// 74,762 B): the ratchet rises by exactly that, so the headroom is still 34 B.
 const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 
 // #847 adds the same 246 B: measured 74,961 B, retaining the same 34 B margin.
+// #385's 47 B come on top: main's 74,995 B + 47 B, the same 34 B of headroom.
 //
-// #771's `reorder_tracks` adds 320 B (74,961 B to 75,281 B), the same 34 B of
-// headroom.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 75_315; // previous ratchet 74,995 + 320 B
+// #385 part 3's 17 B (the Settings pointer in `separate_stems`'s description):
+// measured 75,008 B to 75,025 B.
+// #766's four marker tools add 2,077 B here: measured 77,102 B. The ratchet rises
+// by that delta, keeping main's 34 B of headroom.
+// #771's two tools add 1,191 B here: measured 78,293 B over main's 77,102 B; the
+// ratchet rises by that delta, keeping main's 34 B of headroom.
+// #769's net 375 B (above) come on top.
+// #771's `reorder_tracks` adds 320 B here.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 79_022; // main ratchet 78,702 + 320 B of reorder_tracks
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
@@ -1684,10 +1711,10 @@ async fn ollama_is_shown_the_tools_its_approved_plan_names() {
 /// message, and the request still fits the bound with the names in it.
 #[tokio::test]
 async fn ollama_every_permitted_tool_is_sent_or_named_and_the_bound_holds() {
-    assert!(
-        !not_implemented_tools().is_empty(),
-        "no tool says it is not implemented: has the marker changed?"
-    );
+    // No registered tool says it is not implemented since #385 (the last was
+    // `separate_stems`), so nothing is held back and every one is offered; the
+    // rule stays for a tool that does, and `tool_selection.rs` tests it on a
+    // stub.
     let not_offered = tools_not_offered();
     let permitted: BTreeSet<String> = registered_tool_names()
         .difference(&not_offered)

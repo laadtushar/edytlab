@@ -172,9 +172,9 @@ describe("the home page's stats list", () => {
     }
   });
 
-  it("names the unit in the term, beside the figure, so the term reads '102 tools'", () => {
+  it("names the unit in the term, beside the figure, so the term reads '108 tools'", () => {
     const terms = [...html.matchAll(/<dt[^>]*>([\s\S]*?)<\/dt>/g)].map((m) => m[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-    expect(terms.some((t) => /^102\b.*\btools\b/.test(t))).toBe(true);
+    expect(terms.some((t) => /^108\b.*\btools\b/.test(t))).toBe(true);
   });
 });
 

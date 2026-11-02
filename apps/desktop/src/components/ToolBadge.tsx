@@ -38,6 +38,10 @@ const TOOL_LABELS: Record<string, string> = {
   export_transcript: "Export transcript",
   import_labels: "Import labels",
   list_session: "List session",
+  find_markers: "Find markers",
+  add_markers: "Add markers",
+  edit_markers: "Edit markers",
+  delete_markers: "Delete markers",
 
   // Analysis (read-only)
   analyze_track: "Analyze audio",
@@ -92,6 +96,8 @@ const TOOL_LABELS: Record<string, string> = {
   apply_recipe: "Apply recipe",
   move_clip: "Move clip",
   remove_clip: "Remove clip",
+  join_clips: "Join clips",
+  align_end_to_end: "Align end to end",
   insert_silence: "Insert silence",
   silence_region: "Silence region",
   punch_in: "Punch in",

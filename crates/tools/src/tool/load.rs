@@ -34,6 +34,7 @@ use session::{
 };
 
 use audio_decoder::{DecodedAudio, WavStreamReader};
+use session::audio_store::{AudioFolder, AudioStore};
 
 use crate::provenance::{CLIPBOARD_DIR, DERIVED_DIR};
 use crate::schema::{anthropic_tool, object_schema};
@@ -275,15 +276,15 @@ fn ensure_streamable_wav(
     // bytes — lives in `provenance::audio_hash` and is shared with the
     // hash `load` records in the node op, so the name a transcode lands
     // on and the identity a replay checks are the same number.
-    let cas_path = derived_dir.join(format!(
-        "{}.wav",
-        crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels)
-    ));
+    let stem =
+        crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels);
+    let audio_store = AudioStore::new(project_dir);
+    let cas_path = audio_store.path(AudioFolder::Derived, &stem);
 
     if streamable {
         // The same name a transcode of it would take, so a cache entry
         // and the file it was rendered from are one file here.
-        copy_cas_wav(src, &cas_path).map_err(|e| {
+        copy_cas_wav(&audio_store, AudioFolder::Derived, &stem, src).map_err(|e| {
             format!(
                 "failed to copy {} -> {}: {e}",
                 src.display(),
@@ -292,10 +293,12 @@ fn ensure_streamable_wav(
         })?;
     } else {
         write_cas_wav(
+            &audio_store,
+            AudioFolder::Derived,
+            &stem,
             &decoded.samples,
             decoded.sample_rate,
             decoded.channels,
-            &cas_path,
         )
         .map_err(|e| {
             format!(

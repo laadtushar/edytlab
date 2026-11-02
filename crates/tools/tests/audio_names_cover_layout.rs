@@ -179,7 +179,7 @@ fn generate_noise_names_its_file_for_the_session_rate() {
 // share a folder: a source the renderer cannot stream (a FLAC, say) is
 // transcoded into `.audiograph/derived/<audio_hash>.wav`, where every edit
 // writes too. So an edit whose output is the same audio as such a copy
-// names the same file, and `put_cas_file` reuses it. That is right, since
+// names the same file, and `AudioStore::put_with` reuses it. That is right, since
 // the name now says the audio is the same (rate, channels and samples), and
 // nothing that deletes decides by who wrote a file: compaction and the
 // sweeps ask which nodes *name* a path. Digital silence is the audio an
@@ -287,7 +287,10 @@ fn the_sweep_and_a_rebuild_treat_a_shared_file_as_one_file() {
 /// may. Every other file names audio through `provenance::audio_hash`, so
 /// a writer cannot leave the rate or the channel count out again (#620).
 const MAY_HASH: &[(&str, &str)] = &[
-    ("provenance.rs", "audio_hash itself, and the older name"),
+    (
+        "provenance.rs",
+        "its tests recompute audio_hash and the older name by hand",
+    ),
     ("preview_cache.rs", "a node id and a range, not audio"),
     (
         "tool/mix_to_new_track.rs",

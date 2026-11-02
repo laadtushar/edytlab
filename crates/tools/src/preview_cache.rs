@@ -123,6 +123,19 @@ pub const CAP_ENV: &str = "EDYTLAB_PREVIEW_CACHE_BYTES";
 /// other copy of what it plays.
 pub const CACHE_DIRS: [&str; 2] = [CACHE_DIR, crate::tool::audition::AUDITION_DIR];
 
+/// The model-output caches directly under `.audiograph/`: stem separation
+/// (`ml-demucs`, up to 1 GiB) and the inference cache (`ml-pipeline`). Like
+/// [`CACHE_DIRS`] they rebuild on demand, but the webview never plays from
+/// them, so they are not in the asset scope's grant.
+pub const MODEL_CACHE_DIRS: [&str; 2] = ["stem-cache", "inference-cache"];
+
+/// The folders Save As leaves out of a copy: [`CACHE_DIRS`] and
+/// [`MODEL_CACHE_DIRS`]. Not the asset-scope grant, which is `CACHE_DIRS`
+/// alone.
+pub fn is_save_as_skipped(name: &str) -> bool {
+    CACHE_DIRS.contains(&name) || MODEL_CACHE_DIRS.contains(&name)
+}
+
 /// Whether a lookup rendered or reused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
@@ -534,6 +547,19 @@ fn touch(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MODEL_CACHE_DIRS` names the folder the inference cache really
+    /// opens, and the asset-scope grant (`CACHE_DIRS`) stays apart from it.
+    #[test]
+    fn model_cache_names_match_the_caches_and_stay_out_of_the_grant() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = ml_pipeline::InferenceCache::open(tmp.path()).unwrap();
+        let name = cache.base_dir().file_name().unwrap().to_str().unwrap();
+        assert!(MODEL_CACHE_DIRS.contains(&name));
+        assert!(MODEL_CACHE_DIRS.contains(&"stem-cache"));
+        assert!(MODEL_CACHE_DIRS.iter().all(|d| !CACHE_DIRS.contains(d)));
+        assert!(is_save_as_skipped("stem-cache") && !is_save_as_skipped("derived"));
+    }
 
     /// A distinct node id per seed. The states differ only in length,
     /// which is enough: the id is a hash of the whole state.
