@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
@@ -108,23 +109,20 @@ impl Tool for GenerateNoiseTool {
         let sr = state.sample_rate;
         let samples = generate_noise_samples(sr, args.duration_sec, amp, &noise);
 
-        let gen_dir = ctx.store.project_dir().join("generated");
-        if let Err(e) = std::fs::create_dir_all(&gen_dir) {
-            return Ok(ToolResult::Error(format!("mkdir failed: {e}")));
-        }
         // Named for the rate and channel count too (#620): the session rate
         // changes (a resample moves it), and the same samples at another rate
         // are another file. `content_hash` stays the blake3 of the samples.
+        // Written whole through the audio store (#719): a write cut short is
+        // never left under the name, which is trusted on sight.
         let hash_bytes = crate::provenance::legacy_sample_hash(&samples);
-        let path = gen_dir.join(format!(
-            "{}.wav",
-            crate::provenance::audio_hash(&samples, sr, 1)
-        ));
-        if !path.exists() {
-            if let Err(e) = audio_engine::write_wav(&samples, sr, 1, &path) {
-                return Ok(ToolResult::Error(format!("write_wav failed: {e}")));
-            }
-        }
+        let path = match AudioStore::new(ctx.store.project_dir()).put_with(
+            AudioFolder::Generated,
+            &AudioName::of_samples(&samples, sr, 1),
+            |tmp| audio_engine::write_wav(&samples, sr, 1, tmp).map_err(|e| e.to_string()),
+        ) {
+            Ok(path) => path,
+            Err(e) => return Ok(ToolResult::Error(format!("write_wav failed: {e}"))),
+        };
         let n_frames = samples.len() as u64;
         let track_idx = state.tracks.len();
         state.tracks.push(Track {
