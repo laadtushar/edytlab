@@ -17,6 +17,8 @@ accepted = [
     "MPL-2.0",
     "CDLA-Permissive-2.0",
     "CC0-1.0",
+    # Owner accepted MIT-0 on 2026-11-02 for borrow-or-share (via fluent-uri, via jsonschema 0.52).
+    "MIT-0",
 ]
 
 # Every platform an installer is built for (release-dev.yml, release-signed.yml).

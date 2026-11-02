@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use serde_json::Value;
 
 use crate::{DispatchError, Result, ToolResult};
@@ -190,7 +190,7 @@ struct Registered {
     // Shared so a call can be admitted under the dispatcher's lock and run
     // after it is released ([`ToolDispatcher::prepare`]).
     tool: Arc<dyn Tool>,
-    compiled_schema: std::result::Result<JSONSchema, String>,
+    compiled_schema: std::result::Result<Validator, String>,
 }
 
 /// A call that passed [`ToolDispatcher::prepare`]: the tool, ready to run
@@ -532,12 +532,10 @@ impl ToolDispatcher {
             }
         })?;
 
-        if let Err(errors) = compiled.validate(args) {
-            let joined = errors
-                .map(|e| format!("{} at {}", e, e.instance_path))
-                .collect::<Vec<_>>()
-                .join("; ");
-            return Err(DispatchError::SchemaValidation(joined));
+        if !compiled.is_valid(args) {
+            return Err(DispatchError::SchemaValidation(crate::schema::join_errors(
+                compiled, args,
+            )));
         }
 
         Ok(entry)
@@ -713,7 +711,7 @@ pub const READS_OUTSIDE_THE_SESSION: &[&str] =
 /// Extract `input_schema` from `tool.schema()` and compile it. Returns
 /// `Err(reason)` for any tool-author bug so the dispatcher can surface
 /// it as [`DispatchError::MalformedToolSchema`] on dispatch.
-fn compile_tool_schema(tool: &dyn Tool) -> std::result::Result<JSONSchema, String> {
+fn compile_tool_schema(tool: &dyn Tool) -> std::result::Result<Validator, String> {
     let schema = tool.schema();
     let input_schema = schema
         .get("input_schema")
@@ -721,8 +719,8 @@ fn compile_tool_schema(tool: &dyn Tool) -> std::result::Result<JSONSchema, Strin
     if !input_schema.is_object() {
         return Err("input_schema is not a JSON object".to_string());
     }
-    JSONSchema::options()
+    jsonschema::options()
         .with_draft(jsonschema::Draft::Draft7)
-        .compile(input_schema)
+        .build(input_schema)
         .map_err(|e| format!("invalid input_schema: {e}"))
 }
