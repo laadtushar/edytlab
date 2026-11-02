@@ -11,15 +11,17 @@
 //! * **The write** ([`AudioStore::put_with`]): a file is put under its name
 //!   whole or not at all, and a name already there is kept.
 //!
-//! Stage 1 moves the definitions here and changes nothing on disk: every
-//! name and folder is what it was, and the callers that wrote a file with
-//! their own copy of the temp-and-rename now go through
-//! [`AudioStore::put_with`]. The sweeps, compaction, repair, `rederive`, the
-//! generators, `mix_to_new_track`, lane copies and clipboard blobs are
-//! untouched.
+//! Stage 1 moved the definitions here and changed nothing on disk. Stage 2
+//! sends every writer through the store: names are [`AudioName`]s, which
+//! only this module makes, and every file is put whole through
+//! [`AudioStore::put_with`] (or, for a clipboard blob that can be checked
+//! against its name, [`AudioStore::put_verified`]). Names and folders are
+//! still what they were. The sweeps, compaction, repair and `rederive` are
+//! stage 3.
 
 use std::path::{Path, PathBuf};
 
+use crate::state::Clip;
 use crate::store::STORE_DIR;
 
 /// Directory under `.audiograph/` holding derived audio.
@@ -98,10 +100,10 @@ impl AudioFolder {
 /// colliding blake3 itself.
 ///
 /// **The name of every audio file the project writes from its samples**
-/// (`<hash>.wav`), and the only function to name one with: a writer that
-/// hashed on its own could leave the rate or channel count out again
-/// (#620), and `crates/tools/tests/audio_names_cover_layout.rs` fails a tool source that
-/// calls blake3 itself.
+/// (`<hash>.wav`), reached by writers as [`AudioName::of_samples`]: a writer
+/// that hashed on its own could leave the rate or channel count out again
+/// (#620), and `crates/tools/tests/audio_names_cover_layout.rs` fails a tool
+/// or desktop source that calls blake3 itself.
 pub fn audio_hash(samples: &[f32], sample_rate: u32, channels: u16) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&sample_rate.to_le_bytes());
@@ -155,6 +157,66 @@ pub fn legacy_stem(hash: &[u8; 32]) -> String {
     blake3::Hash::from_bytes(*hash).to_hex().to_string()
 }
 
+/// A name in the project's audio store, made only here, from what it names
+/// (#719 stage 2). [`AudioStore::put_with`] and [`AudioStore::put_verified`]
+/// take one, so no writer can put a file under a name it made up: the rate
+/// and channel count cannot be left out of an audio name again (#620), and a
+/// writer cannot invent a fourth way of naming.
+///
+/// Reading is not restricted: a clip's file is found by the path its node
+/// records, and [`AudioStore::path`] takes a plain stem for that.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AudioName(String);
+
+impl AudioName {
+    /// The name of audio made from its samples: [`audio_hash`] (rate,
+    /// channel count, then the samples). A destructive edit's output, a
+    /// `load` copy, a generated tone or noise, a clipboard blob.
+    pub fn of_samples(samples: &[f32], sample_rate: u32, channels: u16) -> Self {
+        Self(audio_hash(samples, sample_rate, channels))
+    }
+
+    /// The name of a file by its bytes, header included: a mixed-down track,
+    /// whose WAV header holds the rate and channel count the samples alone
+    /// would not.
+    pub fn of_file_bytes(bytes: &[u8]) -> Self {
+        Self(blake3::hash(bytes).to_hex().to_string())
+    }
+
+    /// The name of a lane copy: the audio a track's clips lay out on the
+    /// timeline, keyed by the clips (`track-<hash>`), not their samples, so a
+    /// listing finds it without decoding anything. No node names these
+    /// files; they are a cache the timeline draws.
+    pub fn of_lane(clips: &[Clip]) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        for c in clips {
+            hasher.update(c.source_path.to_string_lossy().as_bytes());
+            hasher.update(&c.start_in_track.to_le_bytes());
+            hasher.update(&c.source_offset.to_le_bytes());
+            hasher.update(&c.length.to_le_bytes());
+        }
+        Self(format!("track-{}", hasher.finalize().to_hex()))
+    }
+
+    /// The file stem: the name without `.wav`.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The 32 bytes of a name that is one hash ([`of_samples`](Self::of_samples),
+    /// [`of_file_bytes`](Self::of_file_bytes)), for a clip's `content_hash`;
+    /// `None` for a lane copy's, which is not one hash.
+    pub fn digest(&self) -> Option<[u8; 32]> {
+        blake3::Hash::from_hex(&self.0).ok().map(|h| *h.as_bytes())
+    }
+}
+
+impl std::fmt::Display for AudioName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// The audio files of one project.
 #[derive(Debug, Clone)]
 pub struct AudioStore {
@@ -175,9 +237,13 @@ impl AudioStore {
         folder.dir(&self.project_dir).join(format!("{stem}.wav"))
     }
 
-    /// Put the file `fill` writes under the name `stem` in `folder`, whole
-    /// or not at all, unless a file is already there. Returns the file's
-    /// path.
+    /// Where the file named `name` lives in `folder`.
+    pub fn path_of(&self, folder: AudioFolder, name: &AudioName) -> PathBuf {
+        self.path(folder, name.as_str())
+    }
+
+    /// Put the file `fill` writes under `name` in `folder`, whole or not at
+    /// all, unless a file is already there. Returns the file's path.
     ///
     /// The name is trusted on sight: an existing file under it is kept
     /// without a look (`fill` is not called), and a node names it as audio
@@ -194,29 +260,89 @@ impl AudioStore {
     pub fn put_with(
         &self,
         folder: AudioFolder,
-        stem: &str,
+        name: &AudioName,
         fill: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<PathBuf, String> {
-        let path = self.path(folder, stem);
+        let path = self.path_of(folder, name);
         if path.exists() {
             return Ok(path);
         }
-        let dir = folder.dir(&self.project_dir);
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("failed to create {}: {e}", dir.display()))?;
-        let tmp = tempfile::Builder::new()
-            .prefix(".cas-")
-            .suffix(".wav.part")
-            .tempfile_in(&dir)
-            .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
-            .into_temp_path();
+        let tmp = self.temp_in(folder)?;
         fill(&tmp)?;
         match tmp.persist(&path) {
             Ok(()) => Ok(path),
             // Another writer of the same name got there first.
             Err(_) if path.is_file() => Ok(path),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(format!("failed to write {}: {}", path.display(), e.error)),
         }
+    }
+
+    /// [`put_with`](Self::put_with) for a folder whose files can be checked
+    /// against their name: an existing file is kept only if `verify` says it
+    /// holds what `name` names, and is otherwise replaced, whole, by what
+    /// `fill` writes (a temporary file renamed over it).
+    ///
+    /// Only the clipboard can be checked this way: a blob is float and reads
+    /// back to exactly the samples its name hashes, while a `derived/` file
+    /// is 16-bit PCM and its name is never recomputed from it (#620). Blobs
+    /// written as 16-bit before #377 are still on disk; a replay pastes what
+    /// the blob holds, so one that does not read back is replaced.
+    pub fn put_verified(
+        &self,
+        folder: AudioFolder,
+        name: &AudioName,
+        verify: impl FnOnce(&Path) -> bool,
+        fill: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> Result<PathBuf, String> {
+        let path = self.path_of(folder, name);
+        if path.is_file() && verify(&path) {
+            return Ok(path);
+        }
+        let tmp = self.temp_in(folder)?;
+        fill(&tmp)?;
+        tmp.persist(&path)
+            .map_err(|e| format!("failed to write {}: {}", path.display(), e.error))?;
+        Ok(path)
+    }
+
+    /// Put a file whose name is known only once it is written: `fill` writes a
+    /// temporary file in `folder`, `name` reads it and says what it is called
+    /// (a mixed-down track is named by its bytes, header included), and it is
+    /// renamed into place, unless a file is already under that name, which
+    /// is then kept (the name is the content's, so it holds the same thing).
+    /// Nothing is left under any name if either step fails.
+    pub fn put_then_name(
+        &self,
+        folder: AudioFolder,
+        fill: impl FnOnce(&Path) -> Result<(), String>,
+        name: impl FnOnce(&Path) -> Result<AudioName, String>,
+    ) -> Result<(AudioName, PathBuf), String> {
+        let tmp = self.temp_in(folder)?;
+        fill(&tmp)?;
+        let name = name(&tmp)?;
+        let path = self.path_of(folder, &name);
+        if path.is_file() {
+            return Ok((name, path));
+        }
+        match tmp.persist(&path) {
+            Ok(()) => Ok((name, path)),
+            Err(_) if path.is_file() => Ok((name, path)),
+            Err(e) => Err(format!("failed to write {}: {}", path.display(), e.error)),
+        }
+    }
+
+    /// A temporary file in `folder` (`.cas-*.wav.part`), making the folder if
+    /// it is not there yet, removed on drop unless it is persisted.
+    fn temp_in(&self, folder: AudioFolder) -> Result<tempfile::TempPath, String> {
+        let dir = folder.dir(&self.project_dir);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("failed to create {}: {e}", dir.display()))?;
+        Ok(tempfile::Builder::new()
+            .prefix(".cas-")
+            .suffix(".wav.part")
+            .tempfile_in(&dir)
+            .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
+            .into_temp_path())
     }
 }
 
@@ -232,6 +358,11 @@ mod tests {
         (0..4800u32)
             .map(|i| ((i * 37) % 20_000) as f32 / 10_000.0 - 1.0)
             .collect()
+    }
+
+    /// A name for the store's own tests, which put files that are not audio.
+    fn x() -> AudioName {
+        AudioName("x".to_string())
     }
 
     const MONO_48K: &str = "ccbf40d3cc7e60382546ede040961f2320fd34a66db88b5b8e836723d6eb20f5";
@@ -297,7 +428,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"first").unwrap();
         let got = store
-            .put_with(AudioFolder::Derived, "x", |_| {
+            .put_with(AudioFolder::Derived, &x(), |_| {
                 panic!("fill must not run for a name that is there")
             })
             .unwrap();
@@ -310,7 +441,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = AudioStore::new(dir.path());
         let err = store
-            .put_with(AudioFolder::Derived, "x", |tmp| {
+            .put_with(AudioFolder::Derived, &x(), |tmp| {
                 std::fs::write(tmp, b"half").unwrap();
                 Err("disk full".to_string())
             })
@@ -331,7 +462,7 @@ mod tests {
         let path = store.path(AudioFolder::Derived, "x");
         // Another writer puts the same name there while this one fills.
         let got = store
-            .put_with(AudioFolder::Derived, "x", |tmp| {
+            .put_with(AudioFolder::Derived, &x(), |tmp| {
                 std::fs::write(&path, b"whole").unwrap();
                 std::fs::write(tmp, b"whole").unwrap();
                 Ok(())
@@ -353,11 +484,141 @@ mod tests {
         let store = AudioStore::new(dir.path());
         assert!(!AudioFolder::Generated.dir(dir.path()).exists());
         let got = store
-            .put_with(AudioFolder::Generated, "x", |tmp| {
+            .put_with(AudioFolder::Generated, &x(), |tmp| {
                 std::fs::write(tmp, b"audio").map_err(|e| e.to_string())
             })
             .unwrap();
         assert_eq!(got, dir.path().join("generated").join("x.wav"));
         assert_eq!(std::fs::read(&got).unwrap(), b"audio");
+    }
+
+    #[test]
+    fn names_are_unchanged() {
+        let s = samples();
+        assert_eq!(AudioName::of_samples(&s, 48_000, 1).as_str(), MONO_48K);
+        assert_eq!(AudioName::of_samples(&s, 24_000, 2).as_str(), STEREO_24K);
+        // A mixed-down track: the blake3 of the WAV's bytes, header included.
+        let bytes = b"RIFF....WAVEfmt the whole file";
+        assert_eq!(
+            AudioName::of_file_bytes(bytes).as_str(),
+            blake3::hash(bytes).to_hex().as_str()
+        );
+        // A lane copy: `track-` and the blake3 of the clip descriptors, as
+        // `tools::util::flattened_track_path` named it before stage 2.
+        let clip = Clip {
+            source_path: PathBuf::from("take.wav"),
+            start_in_track: 10,
+            source_offset: 20,
+            length: 30,
+            content_hash: None,
+            time_stretch_factor: None,
+            pitch_shift_semitones: None,
+            beat_grid: None,
+            volume_envelope: Vec::new(),
+            volume_envelope_frames: Default::default(),
+        };
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"take.wav");
+        hasher.update(&10u64.to_le_bytes());
+        hasher.update(&20u64.to_le_bytes());
+        hasher.update(&30u64.to_le_bytes());
+        assert_eq!(
+            AudioName::of_lane(std::slice::from_ref(&clip)).as_str(),
+            format!("track-{}", hasher.finalize().to_hex())
+        );
+    }
+
+    #[test]
+    fn put_verified_keeps_a_file_that_checks_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AudioStore::new(dir.path());
+        let path = store.path(AudioFolder::Clipboard, "x");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"good").unwrap();
+        let got = store
+            .put_verified(
+                AudioFolder::Clipboard,
+                &x(),
+                |p| std::fs::read(p).unwrap() == b"good",
+                |_| panic!("fill must not run for a file that checks out"),
+            )
+            .unwrap();
+        assert_eq!(got, path);
+        assert_eq!(std::fs::read(&path).unwrap(), b"good");
+    }
+
+    #[test]
+    fn put_verified_replaces_a_file_that_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AudioStore::new(dir.path());
+        let path = store.path(AudioFolder::Clipboard, "x");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"lossy").unwrap();
+        store
+            .put_verified(
+                AudioFolder::Clipboard,
+                &x(),
+                |p| std::fs::read(p).unwrap() == b"good",
+                |tmp| std::fs::write(tmp, b"good").map_err(|e| e.to_string()),
+            )
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"good");
+        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(names.len(), 1, "no .part left behind: {names:?}");
+    }
+
+    #[test]
+    fn put_verified_keeps_the_old_file_when_the_new_one_cannot_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AudioStore::new(dir.path());
+        let path = store.path(AudioFolder::Clipboard, "x");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"lossy").unwrap();
+        let err = store
+            .put_verified(
+                AudioFolder::Clipboard,
+                &x(),
+                |_| false,
+                |tmp| {
+                    std::fs::write(tmp, b"ha").unwrap();
+                    Err("disk full".to_string())
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err, "disk full");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"lossy",
+            "never half replaced"
+        );
+    }
+
+    #[test]
+    fn put_then_name_names_the_file_after_it_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AudioStore::new(dir.path());
+        let fill = |tmp: &Path| std::fs::write(tmp, b"mixdown").map_err(|e| e.to_string());
+        let name_it = |tmp: &Path| Ok(AudioName::of_file_bytes(&std::fs::read(tmp).unwrap()));
+        let (name, path) = store
+            .put_then_name(AudioFolder::Generated, fill, name_it)
+            .unwrap();
+        assert_eq!(name, AudioName::of_file_bytes(b"mixdown"));
+        assert_eq!(path, store.path_of(AudioFolder::Generated, &name));
+        assert_eq!(std::fs::read(&path).unwrap(), b"mixdown");
+        // The same content again: the file there is kept, nothing left over.
+        let (again, _) = store
+            .put_then_name(AudioFolder::Generated, fill, name_it)
+            .unwrap();
+        assert_eq!(again, name);
+        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(names.len(), 1, "no .part left behind: {names:?}");
     }
 }

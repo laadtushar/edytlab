@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, Track, TrackId};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
@@ -98,58 +98,36 @@ impl Tool for MixToNewTrackTool {
             })
             .collect();
 
-        // Render the filtered state to a temp file first.
-        let gen_dir = ctx.store.project_dir().join("generated");
-        if let Err(e) = std::fs::create_dir_all(&gen_dir) {
-            return Ok(ToolResult::Error(format!("mkdir failed: {e}")));
-        }
-
-        // Generate unique temp filename to prevent concurrent collisions.
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let tid = format!("{:?}", std::thread::current().id());
-        let tid_hash = {
-            let mut h = blake3::Hasher::new();
-            h.update(tid.as_bytes());
-            h.finalize().to_hex()
+        // Rendered straight into the audio store (#719) and named after the
+        // render by the WAV's bytes, header included (the header holds the
+        // rate and channel count): written whole, renamed into place, never
+        // left under a name half-written.
+        let mut report = None;
+        let stored = AudioStore::new(ctx.store.project_dir()).put_then_name(
+            AudioFolder::Generated,
+            |tmp| {
+                let r = audio_engine::render_state_to_wav(&filtered_state, tmp, None)
+                    .map_err(|e| format!("render failed: {e}"))?;
+                if r.frames_written == 0 {
+                    return Err("render produced no audio".to_string());
+                }
+                report = Some(r);
+                Ok(())
+            },
+            |tmp| {
+                std::fs::read(tmp)
+                    .map(|bytes| AudioName::of_file_bytes(&bytes))
+                    .map_err(|e| format!("failed to read rendered wav: {e}"))
+            },
+        );
+        let (file_name, cas_path) = match stored {
+            Ok(stored) => stored,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
-        let tmp_name = format!("__mix_tmp_{ts}_{tid_hash:.8}.wav");
-        let tmp_path = gen_dir.join(tmp_name);
-        let report = match audio_engine::render_state_to_wav(&filtered_state, &tmp_path, None) {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp_path);
-                return Ok(ToolResult::Error(format!("render failed: {e}")));
-            }
-        };
-
-        if report.frames_written == 0 {
-            let _ = std::fs::remove_file(&tmp_path);
+        let Some(report) = report else {
             return Ok(ToolResult::Error("render produced no audio".to_string()));
-        }
-
-        // Hash the rendered WAV bytes → CAS-rename.
-        let wav_bytes = match std::fs::read(&tmp_path) {
-            Ok(b) => b,
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp_path);
-                return Ok(ToolResult::Error(format!(
-                    "failed to read rendered wav: {e}"
-                )));
-            }
         };
-        let hash = blake3::hash(&wav_bytes);
-        let hash_bytes: [u8; 32] = *hash.as_bytes();
-        let cas_path = gen_dir.join(format!("{}.wav", hash.to_hex()));
-
-        if cas_path.exists() {
-            let _ = std::fs::remove_file(&tmp_path);
-        } else if let Err(e) = std::fs::rename(&tmp_path, &cas_path) {
-            let _ = std::fs::remove_file(&tmp_path);
-            return Ok(ToolResult::Error(format!("failed to store wav: {e}")));
-        }
+        let hash_bytes = file_name.digest().expect("a file's name is one hash");
 
         // What the mix left out. Asked of the original state rather than
         // read from the report, because the render was of a smaller state

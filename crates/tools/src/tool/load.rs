@@ -34,7 +34,7 @@ use session::{
 };
 
 use audio_decoder::{DecodedAudio, WavStreamReader};
-use session::audio_store::{AudioFolder, AudioStore};
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 
 use crate::provenance::{CLIPBOARD_DIR, DERIVED_DIR};
 use crate::schema::{anthropic_tool, object_schema};
@@ -276,10 +276,9 @@ fn ensure_streamable_wav(
     // bytes — lives in `provenance::audio_hash` and is shared with the
     // hash `load` records in the node op, so the name a transcode lands
     // on and the identity a replay checks are the same number.
-    let stem =
-        crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels);
+    let stem = AudioName::of_samples(&decoded.samples, decoded.sample_rate, decoded.channels);
     let audio_store = AudioStore::new(project_dir);
-    let cas_path = audio_store.path(AudioFolder::Derived, &stem);
+    let cas_path = audio_store.path_of(AudioFolder::Derived, &stem);
 
     if streamable {
         // The same name a transcode of it would take, so a cache entry

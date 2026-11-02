@@ -46,6 +46,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
+use session::audio_store::{AudioFolder, AudioName, AudioStore};
 
 // The names and the folders of the project's audio live in
 // `session::audio_store` (#719); they stay reachable from here, where every
@@ -67,21 +68,25 @@ pub fn store_clipboard_blob(
     sample_rate: u32,
     channels: u16,
 ) -> Result<String, String> {
-    let hash = audio_hash(samples, sample_rate, channels);
-    let dir = clipboard_dir(project_dir);
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("failed to create clipboard dir {}: {e}", dir.display()))?;
-    let path = dir.join(format!("{hash}.wav"));
+    let name = AudioName::of_samples(samples, sample_rate, channels);
     // Written as float so it reads back as exactly these samples: a paste
     // replayed from a lossy blob would splice in different audio, and its
     // output would never match the file it is meant to rebuild. A blob
-    // already there is kept only if it does read back exactly — one
-    // written as 16-bit before this was float is replaced.
-    if load_clipboard_blob(project_dir, &hash).is_err() {
-        audio_engine::write_wav_f32(samples, sample_rate, channels.max(1), &path)
-            .map_err(|e| format!("failed to write clipboard blob {}: {e}", path.display()))?;
-    }
-    Ok(hash)
+    // already there is kept only if it does read back exactly; one written
+    // as 16-bit before this was float is replaced, whole (#719: the one
+    // folder whose files can be checked against their name).
+    AudioStore::new(project_dir)
+        .put_verified(
+            AudioFolder::Clipboard,
+            &name,
+            |_| load_clipboard_blob(project_dir, name.as_str()).is_ok(),
+            |tmp| {
+                audio_engine::write_wav_f32(samples, sample_rate, channels.max(1), tmp)
+                    .map_err(|e| format!("failed to write clipboard blob: {e}"))
+            },
+        )
+        .map_err(|e| format!("failed to store clipboard blob: {e}"))?;
+    Ok(name.as_str().to_string())
 }
 
 /// Read back the clipboard a paste used, checked against its name.
