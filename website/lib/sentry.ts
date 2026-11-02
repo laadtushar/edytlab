@@ -6,7 +6,12 @@
  * never initialised, the browser never loads its code, and the privacy page
  * does not name it (`SENTRY_DSN` below decides all three).
  *
- * With one, only errors are reported: no performance tracing, no session
+ * The browser reports through `@sentry/react` (`instrumentation-client.ts`
+ * and `app/global-error.tsx`), the server through `@sentry/node`, in the
+ * Node.js runtime only (`instrumentation.ts`). There is no Sentry build step:
+ * nothing is uploaded to Sentry when the site is built.
+ *
+ * With a DSN, only errors are reported: no performance tracing, no session
  * replay, no release-health sessions, no logs or metrics, no breadcrumbs, and
  * no personal data. `sendDefaultPii` is off and every `dataCollection`
  * category is off too, because in this SDK version an explicit
@@ -14,11 +19,11 @@
  * `scrubEvent` then takes the user, cookies, headers and the query string and
  * fragment of every URL out of whatever is left.
  *
- * This file holds no runtime import of `@sentry/nextjs`, so reading it (in a
- * test, or in a page that only asks whether Sentry is on) costs nothing.
+ * This file holds no runtime import of the SDK, so reading it (in a test, or
+ * in a page that only asks whether Sentry is on) costs nothing.
  */
 
-import type { ErrorEvent, EventHint } from "@sentry/nextjs";
+import type { ErrorEvent, EventHint } from "@sentry/react";
 
 /** A DSN as Sentry issues them: `https://<public key>@<host>/<project id>`. */
 const DSN = /^https:\/\/[0-9a-f]{16,64}@[a-z0-9.-]+(?::\d+)?\/\d+$/i;
@@ -35,14 +40,30 @@ export function parseSentryDsn(raw: string | undefined): string | undefined {
  */
 export const SENTRY_DSN = parseSentryDsn(process.env.NEXT_PUBLIC_SENTRY_DSN);
 
-/** The integrations a report-only setup leaves out of Sentry's defaults. */
+/**
+ * The integrations a report-only setup leaves out of Sentry's defaults, in the
+ * browser (`@sentry/react`) and on the server (`@sentry/node`). A name that a
+ * runtime does not have is ignored there.
+ */
 export const DROPPED_INTEGRATIONS = [
-  // Release health: a "session" sent on every page view.
+  // Release health: a "session" sent on every page view, and on the server
+  // one for the process (`Http` below also counts each request as one).
   "BrowserSession",
+  "ProcessSession",
   // Performance tracing.
   "BrowserTracing",
   // Clicks, console lines, fetches and page changes before an error.
   "Breadcrumbs",
+  // The server's breadcrumbs: console lines and child processes.
+  "Console",
+  "ChildProcess",
+  // The server's request and fetch hooks: request sessions, spans,
+  // breadcrumbs and the `sentry-trace` and `baggage` headers they add to the
+  // site's own outgoing requests.
+  "Http",
+  "NodeFetch",
+  // The values of a failing function's local variables, on the server.
+  "LocalVariables",
   // Session replay, if a version of the SDK ever adds it by default.
   "Replay",
   "ReplayCanvas",
@@ -79,13 +100,14 @@ export function scrubEvent(event: ErrorEvent, _hint?: EventHint): ErrorEvent {
   return event;
 }
 
-/** The options every runtime's `Sentry.init` is given. */
+/** The options the browser's and the server's `Sentry.init` are given. */
 export function sentryOptions(dsn: string) {
   return {
     dsn,
     environment: process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.VERCEL_ENV ?? process.env.NODE_ENV,
-    // Errors only.
-    tracesSampleRate: 0,
+    // Errors only. There is deliberately no `tracesSampleRate`: with none
+    // (and no `tracesSampler`) the SDK records no spans at all, where a rate
+    // of 0 would still record them and send none.
     enableLogs: false,
     enableMetrics: false,
     sendClientReports: false,
@@ -108,7 +130,7 @@ export function sentryOptions(dsn: string) {
     },
     beforeSend: scrubEvent,
     // Sentry's default integrations, minus tracing, sessions, breadcrumbs,
-    // replay and feedback.
+    // request hooks, local variables, replay and feedback.
     integrations: <T extends { name: string }>(defaults: T[]) =>
       defaults.filter((integration) => !DROPPED_INTEGRATIONS.includes(integration.name)),
   };

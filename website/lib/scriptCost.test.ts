@@ -197,14 +197,14 @@ describe("the polyfills Next puts in every page", () => {
 
 describe("Sentry's browser code and the polyfills Next leaves out (#958)", () => {
   /**
-   * The browser half of `@sentry/nextjs` (loaded only when the build has a
-   * DSN, `instrumentation-client.ts`) does mention `URL.canParse`, which the
+   * The browser SDK, `@sentry/react` (loaded only when the build has a DSN,
+   * `instrumentation-client.ts`), does mention `URL.canParse`, which the
    * alias above leaves unpolyfilled for Chrome 111 to 119, Firefox 111 to 114
    * and Safari 16.4 to 16.x. Every mention is behind `"canParse" in URL`, so
    * on those browsers it falls back to `new URL` and nothing throws.
    */
   it("calls URL.canParse only where the browser has it", () => {
-    const browserPackages = ["@sentry/nextjs", "@sentry/core", "@sentry/react", "@sentry/browser"];
+    const browserPackages = ["@sentry/react", "@sentry/core", "@sentry/browser", "@sentry/browser-utils"];
     const files: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -215,12 +215,12 @@ describe("Sentry's browser code and the polyfills Next leaves out (#958)", () =>
     };
     // Each package's own copy, found beside the package that depends on it in
     // pnpm's store (they are not the site's dependencies, so not hoisted):
-    // `@sentry/nextjs` needs `@sentry/core` and `@sentry/react`, which needs
-    // `@sentry/browser`.
+    // `@sentry/react` needs `@sentry/core` and `@sentry/browser`, which needs
+    // `@sentry/browser-utils`.
     const beside = (from: string, name: string) => realpathSync(join(from, "..", "..", name));
-    const nextjs = realpathSync(join(ROOT, "node_modules/@sentry/nextjs"));
-    const react = beside(nextjs, "@sentry/react");
-    const dirs = [nextjs, beside(nextjs, "@sentry/core"), react, beside(react, "@sentry/browser")];
+    const react = realpathSync(join(ROOT, "node_modules/@sentry/react"));
+    const browser = beside(react, "@sentry/browser");
+    const dirs = [react, beside(react, "@sentry/core"), browser, beside(browser, "@sentry/browser-utils")];
     expect(dirs.map((d) => JSON.parse(readFileSync(join(d, "package.json"), "utf8")).name)).toEqual(browserPackages);
     // `@sentry/browser` keeps its modules one folder deeper than the others.
     for (const dir of dirs) walk(join(dir, existsSync(join(dir, "build/esm")) ? "build/esm" : "build/npm/esm"));
