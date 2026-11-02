@@ -18,9 +18,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use session::{NodeId, SessionNode};
 
-#[path = "support/harness.rs"]
-mod harness;
-use harness::{write_sine, Session};
+use crate::harness::{write_sine, Session};
 use tempfile::TempDir;
 use tools::provenance::{audio_hash, derived_dir, legacy_sample_hash_name, legacy_stem};
 

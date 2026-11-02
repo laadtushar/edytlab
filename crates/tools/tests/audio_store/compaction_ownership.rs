@@ -18,9 +18,7 @@ use tempfile::TempDir;
 use tools::reclaim::{apply_compaction, plan_compaction, CompactionPlan};
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-#[path = "support/harness.rs"]
-mod harness;
-use harness::write_secs;
+use crate::harness::write_secs;
 
 fn ok(r: ToolResult) -> Value {
     match r {
