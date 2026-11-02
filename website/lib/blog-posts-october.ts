@@ -9,8 +9,8 @@
  *
  * - Example numbers (tempos, cutoffs, lengths) are marked as examples,
  *   and no number is offered as a measurement.
- * - Nothing here describes stem separation or transcription as working.
- *   Neither has shipped; a workflow that would need them says so.
+ * - Stem separation is named only as a separate job whose stems are
+ *   estimates; no workflow here depends on it.
  * - A prompt block is a sentence a reader can type as it stands.
  *
  * Type-only import: `blog.ts` imports this file for its value, so the
@@ -27,7 +27,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "beatmatch-and-blend-two-tracks",
     title: "Beatmatch and Blend Two Tracks by Asking",
     date: "2026-10-09",
-    dateModified: "2026-10-27",
+    dateModified: "2026-11-02",
     description:
       "Match tempos, overlap two tracks, fade and filter the outgoing one, then master and export a WAV: the DJ transition from the demo, as prompts you can type.",
     coverAlt:
@@ -164,7 +164,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: "What this does not do: it cannot lift the vocals out of one track to lay over the other, because stem separation has not shipped. The workflow works on whole tracks. The [tools reference](/docs/tools) lists everything the assistant can call.",
+        text: "What this does not do: the blend works on whole tracks. Lifting the vocals out of one track to lay over the other is a separate job for stem separation (the separate_stems tool, from v0.9.4), and its stems are estimates. The [tools reference](/docs/tools) lists everything the assistant can call.",
       },
       {
         type: "p",
@@ -179,7 +179,7 @@ export const octoberPosts: BlogPost[] = [
     slug: "make-a-mixable-extended-intro",
     title: "Make a Mixable Extended Intro",
     date: "2026-10-09",
-    dateModified: "2026-10-27",
+    dateModified: "2026-11-02",
     description:
       "Turn a track's drums-only opening into a longer, DJ-friendly intro: copy the bars, paste them back, high-pass, fade in and export. A prompt for every step.",
     coverAlt:
@@ -195,7 +195,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: "This works when the opening bars really are drums alone. Pulling the drums out of a full mix needs stem separation, which has not shipped, so edytlab cannot isolate them for you. It can repeat what is already there.",
+        text: "This works when the opening bars really are drums alone. Pulling the drums out of a full mix is a different job: separate_stems (from v0.9.4) can estimate them, but they carry a little of the rest of the mix. This workflow repeats what is already there.",
       },
       { type: "h2", text: "What you are building" },
       {

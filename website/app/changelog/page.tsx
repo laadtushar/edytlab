@@ -28,6 +28,16 @@ interface Entry {
 // one-line bullets each. Older releases are on GitHub Releases, not here.
 const entries: Entry[] = [
   {
+    version: "v0.9.4",
+    date: "2026-11",
+    summary: "Punch in over a take, split a mix into stems, and import M4A.",
+    bullets: [
+      "New: Punch replaces one region of a track with a new take while you hear the rest of the mix; you set the delay for your speakers and microphone once in Settings → Audio. separate_stems splits a track into vocals, drums, bass and other on this computer, after you download the stem model (about 171 MB) in Settings → Account.",
+      "New: M4A/AAC files import on macOS and Windows, through the system's own decoder. render_final exports AIFF and OGG (Opus), and the whole session or just a range of it. export_transcript writes SRT, WebVTT or text, and transcript_to_markers adds timeline markers. New tools: find_markers, add_markers, edit_markers, delete_markers, join_clips, align_end_to_end, reorder_tracks, mute_all_tracks and wah_wah; fade curves, shelving EQ bands, multi-tap echo, and snap-to-zero-crossing on the cut tools.",
+      "Changed: recording delays you measured or typed in an earlier version read as not measured, because the audio library was updated (cpal 0.18); measure again in Settings → Audio before you punch in. Fixed: a punch-in take is applied only to the project it was recorded in, never to a copy of it; a track's transcript moves with the track on time_shift and move_clip, exports are refused inside the project's own folders, Save As no longer calls a copy working when a generated tone is missing from it, and Escape closes the template picker.",
+    ],
+  },
+  {
     version: "v0.9.3",
     date: "2026-10",
     summary: "Measure loudness, find who speaks when, and import more formats.",
@@ -45,15 +55,6 @@ const entries: Entry[] = [
       "Changed: keys and the ChatGPT sign-in share one keychain entry, so macOS asks for your password at most once per launch. Existing keys move over on the first launch.",
       "Fixed: transcription no longer misses stretches of speech, and word times are closer.",
       "Fixed: Retry sends your message once, empty tracks get a lane, and tone and noise work in an empty project.",
-    ],
-  },
-  {
-    version: "v0.9.1",
-    date: "2026-10",
-    summary: "Fixes the first message after signing in with ChatGPT.",
-    bullets: [
-      "Fixed: the first message after Sign in with ChatGPT failed with “Unsupported content type”.",
-      "Changed: a similar OpenAI refusal now shows a plan card with a copyable request ID.",
     ],
   },
 ];

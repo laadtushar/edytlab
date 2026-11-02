@@ -116,7 +116,7 @@ const rows: FactRow[] = [
   },
   {
     label: "AI features",
-    ours: "An agent that calls edytlab's editing tools from your request. Transcription runs on your computer, after a one-time model download. Stem separation has not shipped.",
+    ours: "An agent that calls edytlab's editing tools from your request. Transcription and stem separation run on your computer, after a one-time model download for each.",
     oursSource: { href: "/docs/tools", label: "Tools reference" },
     theirs: audition.aiFeatures.text,
     source: { href: audition.aiFeatures.url },
@@ -293,7 +293,7 @@ export default function AuditionAlternativePage() {
 
         <h2 id="use-both">Use both</h2>
         <p>
-          edytlab loads WAV, MP3, FLAC and other common audio formats and exports WAV, FLAC or MP3, so audio moves between the
+          edytlab loads WAV, MP3, FLAC and other common audio formats and exports WAV, AIFF, FLAC, MP3 or OGG, so audio moves between the
           two as ordinary files. It has no importer for Audition&apos;s own project files, so export the audio from Audition
           first and load that.
         </p>
@@ -310,7 +310,7 @@ export default function AuditionAlternativePage() {
             "you would rather describe a multi-step job in a sentence than build it by hand;",
             "you want it free and open source, or you use Linux;",
             "you want a branching history, recipes you can replay over a folder, or loudness targets by name;",
-            "you can work without plugins, and without stem separation, which has not shipped.",
+            "you can work without plugins, and you are fine with stems that are estimates.",
           ]}
           closing={
             <p>
