@@ -453,7 +453,11 @@ jobs:
         # Deliberately no `targets:` here — see the next step. Passing
         # them to this action installs them on **stable**, which is not
         # the toolchain the build runs on.
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        # Pinned to a master commit with `toolchain:` given: the action's per-toolchain
+        # branches (`stable`, ...) are regenerated, so a commit pinned there can vanish.
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
       # The macOS leg died here for every dev release, and the reason is
       # worth spelling out because the previous fix looked correct.

@@ -259,7 +259,11 @@ jobs:
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         # No `targets:` — they would install on `stable`, and
         # rust-toolchain.toml pins 1.90. See the next step.
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        # Pinned to a master commit with `toolchain:` given: the action's per-toolchain
+        # branches (`stable`, ...) are regenerated, so a commit pinned there can vanish.
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
       # Same fix as release-dev.yml, and the long explanation lives
       # there. Short version: passing `targets:` to the action above
