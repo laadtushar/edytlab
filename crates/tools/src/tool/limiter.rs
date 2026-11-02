@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_optional_seconds_order, destructive_edit_rechannel};
+use crate::tool::util::{check_optional_seconds_order, destructive_edit_rechannel, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 use audio_dsp::dynamics::{DEFAULT_RELEASE_MS, MAX_RELEASE_MS, MIN_RELEASE_MS};
 use serde::Deserialize;
@@ -50,9 +50,9 @@ impl Tool for LimiterTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         // A reversed window would survive independent clamping and

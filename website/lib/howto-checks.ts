@@ -79,7 +79,9 @@ export interface HowtoBatch {
 export function describeHowtoPosts({ name, batch, expected, read, commit, reread }: HowtoBatch): void {
   describe(name, () => {
     it("are these, on the blog, dated the day their sources were read", () => {
-      expect(batch.map((p) => p.slug).sort()).toEqual(expected.map(([s]) => s).sort());
+      expect(batch.map((p) => p.slug).sort((a, b) => a.localeCompare(b))).toEqual(
+        expected.map(([s]) => s).sort((a, b) => a.localeCompare(b)),
+      );
       for (const p of batch) {
         expect(posts).toContain(p);
         expect(p.date).toBe(read);
@@ -189,11 +191,11 @@ export function describeHowtoPosts({ name, batch, expected, read, commit, reread
       });
 
       it("never describes what edytlab does not do as working", () => {
-        // Stem separation and the things that need it have not shipped
-        // (transcription did, in v0.8.0, but none of these posts needs it); the limiter is a sample-peak ceiling and not a true-peak one;
+        // The things that need ML enhancement have not shipped
+        // (transcription and stems did, but none of these posts needs them); the limiter is a sample-peak ceiling and not a true-peak one;
         // nothing here is ML enhancement, MIDI or plugin hosting.
         const unshipped =
-          /stem separation|vocal isolation|speaker detection|ML enhance|MIDI|plugin hosting|VST|true-peak (?:limiter|compliance|compliant)/i;
+          /speaker detection|ML enhance|MIDI|plugin hosting|VST|true-peak (?:limiter|compliance|compliant)/i;
         for (const t of allText(post)) expect(t, `${post.slug}: ${t}`).not.toMatch(unshipped);
       });
 

@@ -277,6 +277,7 @@ pub fn params_of(kind: &str) -> Option<&'static [ParamSpec]> {
 /// implemented yet" from "no such effect", which are different mistakes
 /// with different fixes.
 const NOT_YET_STREAMING: &[&str] = &[
+    "wah_wah",
     "tremolo",
     "phaser",
     "echo",

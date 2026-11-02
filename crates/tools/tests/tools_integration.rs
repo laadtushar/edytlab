@@ -791,9 +791,11 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "compressor",
             "copy_region",
             "create_bus",
+            "crossfade",
             "cut_range",
             "cut_words",
             "de_esser",
+            "declip",
             "delete_markers",
             "diarize",
             "distortion",
@@ -830,6 +832,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "mix_to_new_track",
             "mono_to_stereo",
             "move_clip",
+            "mute_all_tracks",
             "mute_track",
             "name_node",
             "noise_gate",
@@ -852,6 +855,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "render_preview",
             "reorder_effects",
             "reorder_tracks",
+            "repair_span",
             "repeat_selection",
             "resample_track",
             "reverb",
@@ -882,6 +886,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "trim",
             "truncate_silence",
             "vocal_reduction",
+            "wah_wah",
         ]
     );
 }

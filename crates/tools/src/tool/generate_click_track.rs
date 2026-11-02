@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::generated_audio::{append_generated, frame_count, MAX_DURATION_SEC};
-use crate::tool::util::{check_track_index, lane_audio_path, load_head_state_or_empty};
+use crate::tool::util::{check_track_index, lane_audio_path, load_head_state_or_empty, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Above this rate a click is no longer musically useful, and a 600-second
@@ -56,9 +56,9 @@ impl Tool for GenerateClickTrackTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
-            Ok(args) => args,
-            Err(error) => return Ok(ToolResult::Error(format!("invalid arguments: {error}"))),
+        let args: Args = match parse_args(args) {
+            Ok(a) => a,
+            Err(r) => return Ok(r),
         };
         let beats_per_bar = args.beats_per_bar.unwrap_or(4);
         if !(1..=32).contains(&beats_per_bar) {

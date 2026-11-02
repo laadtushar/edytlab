@@ -125,7 +125,9 @@ export default function DjUseCasePage() {
         <ul>
           <li>It is a prep tool, not a live one. There are no decks, controllers or real-time mixing.</li>
           <li>
-            It cannot split a track into stems or an acapella. Stem separation is not built yet.
+            Splitting a track into vocals, drums, bass and other is an estimate: each stem carries a little of the others, so
+            an acapella lifted from a full mix is not studio-clean. It runs on your computer after a one-time download of the
+            stem model (about 171 MB), needs about 4 GB of free memory, and takes about half the length of the track.
           </li>
           <li>
             Beat and key detection are software estimates. A track with a drifting tempo or a long ambient intro can be off,

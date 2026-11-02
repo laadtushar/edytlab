@@ -41,7 +41,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "load",
             prompt: 'load /path/to/file.wav',
-            what: "Decode an audio file (WAV, MP3, FLAC or Ogg Vorbis) and create a new track in the session.",
+            what: "Decode an audio file (WAV, MP3, FLAC, Ogg Vorbis, Opus or AIFF everywhere, and M4A files with AAC audio on macOS and Windows) and create a new track in the session.",
             output: "track_id, duration_sec",
           },
           {
@@ -78,6 +78,12 @@ export const toolAreas: ToolArea[] = [
             name: "mute_track",
             prompt: "mute track 3",
             what: "Mute or unmute a track. Muted tracks produce silence in the mix.",
+            output: "node_id",
+          },
+          {
+            name: "mute_all_tracks",
+            prompt: "mute everything",
+            what: "Mute or unmute every track in one call. Solo flags are left as they are.",
             output: "node_id",
           },
           {
@@ -328,8 +334,15 @@ export const toolAreas: ToolArea[] = [
           {
             name: "fade",
             prompt: 'add a 3-second fade-out',
-            what: "Apply a linear fade-in or fade-out to a time range.",
+            what: "Apply a fade-in or fade-out to a time range, with linear (default), exponential, logarithmic or S-curve gain.",
             output: "node_id",
+          },
+          {
+            name: "crossfade",
+            prompt: "crossfade these overlapping clips",
+            what: "Crossfade overlapping clips on one or two tracks. Equal power by default; equal gain for correlated material.",
+            output: "node_id, start_sec, end_sec",
+            note: "Position clips first. Replaces envelopes with editable lane points (128 segments, −60 dB floor). Supports mixed sample rates.",
           },
           {
             name: "set_clip_envelope",
@@ -423,6 +436,12 @@ export const toolAreas: ToolArea[] = [
             output: "node_id",
           },
           {
+            name: "wah_wah",
+            prompt: "add a slow wah-wah effect",
+            what: "Sweep a band-pass filter around a base frequency, with adjustable rate, depth and resonance.",
+            output: "node_id",
+          },
+          {
             name: "tremolo",
             prompt: "add tremolo at 5 Hz",
             what: "Apply tremolo (LFO amplitude modulation). rate_hz controls oscillation speed; depth (0..1) controls modulation depth.",
@@ -444,6 +463,18 @@ export const toolAreas: ToolArea[] = [
             name: "vocal_reduction",
             prompt: "take the vocals out",
             what: "Reduce center-panned vocals using L-R channel subtraction (Karaoke effect). Works on stereo tracks; results depend on how centrally the vocals are mixed.",
+            output: "node_id",
+          },
+          {
+            name: "declip",
+            prompt: "repair the peaks clipped at minus 3 dBFS on track 0",
+            what: "Reconstruct clipped peaks using cubic interpolation. threshold_dbfs sets the clipping level (default -0.01 dBFS). Reports runs found and repaired per channel; runs without clean edges are left alone. Restored peaks above full scale apply a shared gain (reported as gain_db) to avoid re-clipping. Unclipped audio stays byte-identical and retains its node; repaired audio appends a new node.",
+            output: "node_id, runs_found, runs_repaired, gain_db",
+          },
+          {
+            name: "repair_span",
+            prompt: "repair the damaged span from 2.1 to 2.12 seconds on track 0",
+            what: "Interpolate a damaged span up to 100 ms with bidirectional tonal prediction, falling back to bounded cubic interpolation. start_sec and end_sec are session seconds; two clean samples are needed on each side. Preserves duration and channels. Appends a new node.",
             output: "node_id",
           },
           {
@@ -618,13 +649,6 @@ export const toolAreas: ToolArea[] = [
         title: "ML Tools",
         tools: [
           {
-            name: "separate_stems",
-            prompt: 'separate the stems on track 1',
-            what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
-            output: "node_id, stem track IDs",
-            note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no stem model to download and no environment variable that changes that. Only htdemucs is a recognised model id.",
-          },
-          {
             name: "split_by_speaker",
             prompt: 'split track 1 by speaker: Priya 0-12s, Sam 12-30s',
             what: "Turn one track and a set of speaker segments into a track per speaker, so each voice gets its own gain, EQ and noise treatment. Writes no new audio — every speaker track points at the same source file, which is why combined playback is unchanged. Audio no segment covers goes to an 'unassigned' track rather than being dropped, and overlapping turns are awarded to whoever was listed first and reported back.",
@@ -669,9 +693,28 @@ export const toolAreas: ToolArea[] = [
     ],
   },
   {
+    slug: "stems",
+    title: "Stem Separation",
+    summary: "Split a track or a file into vocals, drums, bass and other on your computer, with a model you download once.",
+    sections: [
+      {
+        title: "Separating Stems",
+        tools: [
+          {
+            name: "separate_stems",
+            prompt: 'separate the stems on track 1',
+            what: "Split `track` or an audio file (`path`) into vocals, drums, bass and other stems with Demucs, on this computer. It writes four WAV files and returns their paths; the session is not changed, so `load` a stem to put it on a track. The audio never leaves the computer, and the tool never downloads the stem model. A file with more than two channels is separated from its first two, so downmix surround audio to stereo first. The user can cancel.",
+            output: "model, cached, duration_sec, sample_rate, channels, stems (the paths of vocals, drums, bass and other), summary",
+            note: "Plan first holds it for approval: a run writes about 40 MB for each minute of stereo at 44.1 kHz, more at higher rates. It takes about half the audio's length on the CPU and needs about 4 GB of free memory. The stems are 16-bit, at the audio's rate and length, and are estimates: each carries a little of the others. They are kept in the project's stem cache (up to about 1 GB, oldest-used first, though the newest set stays even when it alone is larger), so the same audio again is instant while its stems are still there. If the stem model or the ONNX Runtime library is missing, the result says so. The user downloads the stem model in Settings → Account. Only htdemucs is a recognised model id.",
+          },
+        ],
+      },
+    ],
+  },
+  {
     slug: "rendering",
-    title: "Rendering, Recipes and Batch",
-    summary: "Export the session to WAV, AIFF, FLAC, MP3 or OGG, render previews, and replay an edit chain on one file or a folder.",
+    title: "Rendering and Export",
+    summary: "Export the session, or a range of it, to WAV, AIFF, FLAC, MP3 or OGG, render previews, and write tracks and transcripts to files.",
     sections: [
       {
         title: "Rendering",
@@ -679,8 +722,8 @@ export const toolAreas: ToolArea[] = [
           {
             name: "render_final",
             prompt: 'export to /Users/me/Desktop/final.wav',
-            what: "Render the full session to WAV, AIFF, FLAC, MP3 or OGG. AIFF is uncompressed. FLAC is lossless, roughly half the size. MP3 is lossy but plays anywhere (192 kbps default). OGG is lossy Opus, smaller than MP3 (128 kbps default). Takes title, artist, album, year and comment, written as Vorbis comments on FLAC and OGG and ID3v2 on MP3, and can carry the session's markers through as chapters.",
-            output: "path, duration_sec, peak_dbfs, sample_rate, tagged, chapters, warnings (only when something was left out)",
+            what: "Render the full session, or part of it, to WAV, AIFF, FLAC, MP3 or OGG. Give range as [start, end] in session seconds to export part of the session; markers outside it are left out of the chapters, and the ones inside count from the export's start. AIFF is uncompressed. FLAC is lossless, roughly half the size. MP3 is lossy but plays anywhere (192 kbps default). OGG is lossy Opus, smaller than MP3 (128 kbps default). Takes title, artist, album, year and comment, written as Vorbis comments on FLAC and OGG and ID3v2 on MP3, and can carry the session's markers through as chapters.",
+            output: "path, frames_written, sample_rate, channels, peak_dbfs, format, bitrate_kbps (mp3 and ogg), range (when asked), tagged and chapters (when tagged), warnings (only when something was left out)",
             note: "A stored effect the renderer cannot run in a chain yet (a project from an older build can hold one) is left out and the render still succeeds; warnings names each one, and a line in summary says so. Tags are applied after encoding — FLAC blocks are rewritten in place and an ID3 tag is a prefix — so tagging never touches a sample. WAV and AIFF have no standard tag container worth using and refuse metadata rather than dropping it silently. A path that is audio the project reads is refused, because the render would replace it: a file you loaded (even a lossy one the project plays a copy of), or any file an earlier step of the history plays, however the path is spelt. Choose another path; an earlier export, or a path nothing reads, is written as before.",
           },
           {
@@ -705,6 +748,13 @@ export const toolAreas: ToolArea[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    slug: "recipes-and-batch",
+    title: "Recipes and Batch",
+    summary: "Save an edit chain as a recipe, replay it on another recording, and run it over every file in a folder.",
+    sections: [
       {
         title: "Recipes and Batch",
         tools: [

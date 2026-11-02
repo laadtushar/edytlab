@@ -1,3 +1,4 @@
+import { useDialog } from "../hooks/useDialog";
 import { usePresence } from "../hooks/usePresence";
 
 export interface TemplateInfo {
@@ -21,18 +22,22 @@ export function TemplatePickerModal({
   // Held open for one --dur-2 on close so the exit animation can play
   // (#236); `mounted` is still false for a modal that was never open.
   const { mounted, leaving, onAnimationEnd } = usePresence(open);
+  const { dialogProps, headingId } = useDialog(open && mounted, onClose);
   if (!mounted) return null;
   return (
     <div
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
-      onClick={onClose}
+      inert={!open}
+      aria-hidden={!open ? true : undefined}
+      role="presentation"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       onAnimationEnd={onAnimationEnd}
     >
       <div
+        {...dialogProps}
         className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-80 p-6`}
-        onClick={e => e.stopPropagation()}
       >
-        <h2 className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">
+        <h2 id={headingId} className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">
           Start from template
         </h2>
         <ul className="space-y-2">
@@ -49,6 +54,14 @@ export function TemplatePickerModal({
             </li>
           ))}
         </ul>
+        <button
+          type="button"
+          data-dialog-initial-focus
+          onClick={onClose}
+          className="btn-secondary mt-4 w-full rounded-lg px-3 py-2 text-sm"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );

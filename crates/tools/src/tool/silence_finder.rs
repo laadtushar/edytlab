@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::load_track_audio;
+use crate::tool::util::{load_track_audio, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Returns (start_sec, end_sec) pairs for silent regions.
@@ -84,9 +84,9 @@ impl Tool for SilenceFinderTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         let min_ms = args.min_silence_ms.unwrap_or(500.0).max(1.0);
         // The whole timeline, not `clips[0]`'s source file. Scanning the

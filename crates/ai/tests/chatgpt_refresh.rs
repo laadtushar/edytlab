@@ -22,7 +22,7 @@ use ai::chatgpt::store::{RefreshTokenStore, SecretStoreError, LOCK_FILE, REGISTR
 use ai::chatgpt::SignInIntent;
 use ai::oauth::SecretString;
 use chatgpt_support::{
-    form, Browser, CallbackClient, Fake, MemoryStore, EMAIL, ISSUED_CLIENT, SUBJECT,
+    form, until, Browser, CallbackClient, Fake, MemoryStore, EMAIL, ISSUED_CLIENT, SUBJECT,
 };
 use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
@@ -101,20 +101,36 @@ async fn the_access_token_is_used_until_five_minutes_before_it_expires() {
 #[tokio::test]
 async fn concurrent_callers_refresh_once() {
     let fake = Fake::start().await;
-    // The token endpoint is slow, so every caller arrives while it works.
-    *fake.on_refresh.lock().unwrap() =
-        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(300))));
+    // The refresh is held at the token endpoint until every caller has
+    // arrived, so all sixteen ask while it is in flight.
+    let hold = fake.hold_refreshes();
     let dir = tempfile::tempdir().unwrap();
     let store = MemoryStore::new();
     let session = Arc::new(fake.signed_in(dir.path(), store.clone()).await);
     fake.clock.advance(56 * MINUTE);
 
+    let started = Arc::new(AtomicUsize::new(0));
     let callers: Vec<_> = (0..16)
         .map(|_| {
             let session = session.clone();
-            tokio::spawn(async move { bearer(&session).await })
+            let started = started.clone();
+            tokio::spawn(async move {
+                started.fetch_add(1, Ordering::SeqCst);
+                bearer(&session).await
+            })
         })
         .collect();
+    until("every caller to ask", || {
+        started.load(Ordering::SeqCst) == 16
+    })
+    .await;
+    // Each caller hands its refresh to a task of its own. The runtime has
+    // one thread, so yielding lets every one of those tasks run to its first
+    // wait: one refreshes, the rest wait for it. Its request then reaches
+    // the server, which holds it while all sixteen are waiting.
+    tokio::task::yield_now().await;
+    hold.arrived(1).await;
+    hold.release();
     for caller in callers {
         assert_eq!(caller.await.unwrap(), "AT-2");
     }
@@ -820,9 +836,11 @@ async fn two_processes_refresh_in_turn_with_the_rotated_token() {
     // once. Without the lock (or without re-reading the store under it),
     // the second sends the RT-1 the first just spent and is told
     // refresh_token_reused.
+    //
+    // A's refresh is held at the token endpoint, with A holding the file
+    // lock, until B's refresh has started.
     let fake = Fake::start().await;
-    *fake.on_refresh.lock().unwrap() =
-        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(300))));
+    let hold = fake.hold_refreshes();
     let dir = tempfile::tempdir().unwrap();
     let store = MemoryStore::new();
     let a = Arc::new(fake.signed_in(dir.path(), store.clone()).await);
@@ -830,16 +848,30 @@ async fn two_processes_refresh_in_turn_with_the_rotated_token() {
     b.restore().await.unwrap();
     fake.clock.advance(61 * MINUTE);
 
-    let (from_a, from_b) = tokio::join!(
-        tokio::spawn({
-            let a = a.clone();
-            async move { a.bearer().await }
-        }),
-        tokio::spawn({
-            let b = b.clone();
-            async move { b.bearer().await }
-        }),
-    );
+    let from_a = tokio::spawn({
+        let a = a.clone();
+        async move { a.bearer().await }
+    });
+    hold.arrived(1).await;
+    let b_asked = Arc::new(AtomicBool::new(false));
+    let from_b = tokio::spawn({
+        let b = b.clone();
+        let b_asked = b_asked.clone();
+        async move {
+            b_asked.store(true, Ordering::SeqCst);
+            b.bearer().await
+        }
+    });
+    until("B to ask", || b_asked.load(Ordering::SeqCst)).await;
+    // `bearer` hands the refresh to a task of its own, queued as B asked;
+    // the runtime has one thread, so yielding lets that task run to its
+    // first wait. B has now decided to refresh, from RT-1 in its memory,
+    // while the store still holds RT-1 and A's request is in flight: a B
+    // that sent without A's lock, or without reading the store under it,
+    // would send RT-1.
+    tokio::task::yield_now().await;
+    hold.release();
+    let (from_a, from_b) = (from_a.await, from_b.await);
     let mut got = vec![
         from_a
             .unwrap()
@@ -1351,14 +1383,18 @@ async fn a_refresh_the_caller_stops_waiting_for_still_saves_the_rotated_token() 
     // is in flight. The server has rotated the token by then; the refresh
     // must still save the new one, or the next call sends the spent one.
     let fake = Fake::start().await;
-    *fake.on_refresh.lock().unwrap() =
-        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(500))));
+    let hold = fake.hold_refreshes();
     let dir = tempfile::tempdir().unwrap();
     let store = MemoryStore::new();
     let session = Arc::new(fake.signed_in(dir.path(), store.clone()).await);
     fake.clock.advance(61 * MINUTE);
-    let cut_short = tokio::time::timeout(Duration::from_millis(150), session.bearer()).await;
-    assert!(cut_short.is_err(), "the caller gave up first");
+    // The caller gives up (its future is dropped) once the refresh has
+    // reached the server, which holds it until then.
+    tokio::select! {
+        _ = session.bearer() => panic!("the refresh was answered while it was held"),
+        () = hold.arrived(1) => {}
+    }
+    hold.release();
     // Give the refresh time to finish on its own.
     for _ in 0..100 {
         if store.get().as_deref() == Some("RT-2") {
@@ -1706,14 +1742,17 @@ async fn dropping_the_session_mid_refresh_still_saves_the_rotated_token() {
     // The review's probe: the session itself is dropped while its refresh
     // is in flight; the refresh finishes on its own task.
     let fake = Fake::start().await;
-    *fake.on_refresh.lock().unwrap() =
-        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(500))));
+    let hold = fake.hold_refreshes();
     let dir = tempfile::tempdir().unwrap();
     let store = MemoryStore::new();
     let session = fake.signed_in(dir.path(), store.clone()).await;
     fake.clock.advance(61 * MINUTE);
-    let _ = tokio::time::timeout(Duration::from_millis(100), session.bearer()).await;
+    tokio::select! {
+        _ = session.bearer() => panic!("the refresh was answered while it was held"),
+        () = hold.arrived(1) => {}
+    }
     drop(session);
+    hold.release();
     for _ in 0..100 {
         if store.get().as_deref() == Some("RT-2") {
             break;
@@ -1737,14 +1776,21 @@ async fn signing_out_while_a_dropped_refresh_is_in_flight_revokes_the_rotated_to
     // The review's probe: sign-out waits for the refresh in flight, then
     // revokes the token that refresh saved.
     let fake = Fake::start().await;
-    *fake.on_refresh.lock().unwrap() =
-        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(500))));
+    let hold = fake.hold_refreshes();
     let dir = tempfile::tempdir().unwrap();
     let store = MemoryStore::new();
     let session = fake.signed_in(dir.path(), store.clone()).await;
     fake.clock.advance(61 * MINUTE);
-    let _ = tokio::time::timeout(Duration::from_millis(100), session.bearer()).await;
-    let report = session.sign_out().await;
+    tokio::select! {
+        _ = session.bearer() => panic!("the refresh was answered while it was held"),
+        () = hold.arrived(1) => {}
+    }
+    // The sign-out starts while the refresh is still held; it is let go
+    // once the sign-out's own task has run (it waits for the refresh).
+    let (report, ()) = tokio::join!(session.sign_out(), async {
+        tokio::task::yield_now().await;
+        hold.release();
+    });
     assert_eq!(report.revocation, Revocation::Confirmed);
     let revoked: Vec<String> = fake
         .revocations

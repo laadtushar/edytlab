@@ -248,27 +248,27 @@ impl ToolDispatcher {
             AddEffectTool, AddMarkersTool, AddTrackTool, AlignEndToEndTool, AlignToBeatTool,
             AnalyzeTrackTool, ApplyDiffTool, ApplyRecipeTool, AuditionEffectTool, BatchApplyTool,
             ChangeSpeedTool, ClickRemovalTool, CompactSessionTool, CompareNodesTool,
-            CompressorTool, CopyRegionTool, CreateBusTool, CutRangeTool, CutWordsTool, DeEsserTool,
-            DeleteMarkersTool, DiarizeTool, DistortionTool, DuckUnderSpeechTool,
-            DuplicateTrackTool, EchoTool, EditMarkersTool, EqTool, ExportLabelsTool,
-            ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool, FadeTool, FindMarkersTool,
-            ForkNodeTool, GainTool, GenerateChirpTool, GenerateClickTrackTool, GenerateDtmfTool,
-            GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
-            InsertSilenceTool, InvertTool, JoinClipsTool, LabelTool, LevelerTool, LimiterTool,
-            ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool, MixToNewTrackTool,
-            MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool, NoiseGateTool,
-            NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool, NotchFilterTool,
-            PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool, PunchInTool,
-            RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, ReorderEffectsTool,
-            ReorderTracksTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
-            RevertToTool, SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool,
-            SetEffectBypassedTool, SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool,
-            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
-            SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
-            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            CompressorTool, CopyRegionTool, CreateBusTool, CrossfadeTool, CutRangeTool,
+            CutWordsTool, DeEsserTool, DeclipTool, DeleteMarkersTool, DiarizeTool, DistortionTool,
+            DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EditMarkersTool, EqTool,
+            ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool, FadeTool,
+            FindMarkersTool, ForkNodeTool, GainTool, GenerateChirpTool, GenerateClickTrackTool,
+            GenerateDtmfTool, GenerateNoiseTool, GenerateToneTool, HighPassFilterTool,
+            ImportLabelsTool, InsertSilenceTool, InvertTool, JoinClipsTool, LabelTool, LevelerTool,
+            LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool,
+            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteAllTracksTool, MuteTrackTool,
+            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
+            PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            ReorderEffectsTool, ReorderTracksTool, RepairSpanTool, RepeatSelectionTool,
+            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SelectRegionTool,
+            SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
+            SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool,
+            SilenceRegionTool, SoloTrackTool, SplitBySpeakerTool, SplitClipTool, StereoToMonoTool,
+            StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
             TranscriptToMarkersTool, TremoloTool, TrimTool, TruncateSilenceTool,
-            VocalReductionTool,
+            VocalReductionTool, WahWahTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -307,10 +307,13 @@ impl ToolDispatcher {
         d.register(Box::new(EqTool));
         d.register(Box::new(CompressorTool));
         d.register(Box::new(FadeTool));
+        d.register(Box::new(CrossfadeTool));
         d.register(Box::new(ReverseTool));
         d.register(Box::new(ReverbTool));
         d.register(Box::new(InsertSilenceTool));
         d.register(Box::new(ClickRemovalTool));
+        d.register(Box::new(DeclipTool));
+        d.register(Box::new(RepairSpanTool));
         d.register(Box::new(EchoTool));
         // D4-D6: copy/paste + labels.
         d.register(Box::new(CopyRegionTool));
@@ -348,6 +351,8 @@ impl ToolDispatcher {
         // A1 task 7: mute_track, solo_track.
         d.register(Box::new(MuteTrackTool));
         d.register(Box::new(SoloTrackTool));
+        // #848: mute or unmute every track.
+        d.register(Box::new(MuteAllTracksTool));
         // A1 task 8: split_clip.
         d.register(Box::new(SplitClipTool));
         // #103: single-clip placement and deletion.
@@ -404,6 +409,7 @@ impl ToolDispatcher {
         d.register(Box::new(PhaserTool));
         d.register(Box::new(StereoWidenerTool));
         d.register(Box::new(TremoloTool));
+        d.register(Box::new(WahWahTool));
         // A3 task 4: export_labels, import_labels (Audacity format).
         d.register(Box::new(ExportLabelsTool));
         d.register(Box::new(ImportLabelsTool));

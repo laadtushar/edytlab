@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use session::{Annotation, AnnotationId, AnnotationKind};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state};
+use crate::tool::util::{append_state, load_head_state, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 pub struct LabelTool;
@@ -44,9 +44,9 @@ impl Tool for LabelTool {
             end: Option<f64>,
         }
 
-        let parsed: Args = match serde_json::from_value(args) {
+        let parsed: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let kind = match (parsed.time, parsed.start, parsed.end) {

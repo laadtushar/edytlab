@@ -11,9 +11,9 @@
  *   page and the day it was read; none may be older than 100 days (the
  *   pages say they are re-checked every 90);
  * - the pages and components that make a comparison use no unqualified
- *   superlative, and never say edytlab can do what it cannot (stem
- *   separation, MIDI, plugin hosting; transcription and the editing that
- *   works from it shipped in v0.8.0 and are no longer on the list) outside a sentence that also denies it;
+ *   superlative, and never say edytlab can do what it cannot (MIDI,
+ *   plugin hosting; transcription and the editing that works from it
+ *   shipped in v0.8.0, stem separation in v0.9.4, and neither is on the list) outside a sentence that also denies it;
  * - no competitor's logo or screenshot is in the repository's served
  *   files;
  * - the pages carry what the research asked of every comparison: where
@@ -222,10 +222,6 @@ function superlatives(source: string): string[] {
 
 /** What edytlab may never be said to do (the capability ledger, `report.md` 4.2). */
 const NEVER_CLAIM: RegExp[] = [
-  /\bstem separation\b/i,
-  /\bseparat(?:e|es|ed|ing) (?:the |a |your )?(?:stems|vocals)\b/i,
-  /\bvocal isolation\b/i,
-  /\bisolat(?:e|es|ing) (?:the |a |your )?vocals?\b/i,
   /\bmash-?ups?\b/i,
   /\bspeaker detection\b/i,
   /\bdetects? speakers\b/i,
@@ -272,11 +268,12 @@ describe("the scanners", () => {
   });
 
   it("catches a capability edytlab does not have, unless the sentence denies it", () => {
-    expect(unqualifiedNeverClaims("edytlab does stem separation on your tracks.")).toHaveLength(1);
-    expect(unqualifiedNeverClaims("Ask it to isolate the vocals and detect speakers in the interview.")).toHaveLength(1);
+    expect(unqualifiedNeverClaims("edytlab does speaker detection on your tracks.")).toHaveLength(1);
+    expect(unqualifiedNeverClaims("Ask it to make a mashup and detect speakers in the interview.")).toHaveLength(1);
     expect(unqualifiedNeverClaims("It hosts VST3 plugins. It has MIDI editing.")).toHaveLength(1);
-    expect(unqualifiedNeverClaims("Stem separation has not shipped. Speaker detection is not available.")).toEqual([]);
-    // Shipped in v0.8.0: no longer a claim the pages must deny.
+    expect(unqualifiedNeverClaims("Mashups have not shipped. Speaker detection is not available.")).toEqual([]);
+    // Shipped in v0.8.0 (transcription) and v0.9.4 (stems): no longer claims the pages must deny.
+    expect(unqualifiedNeverClaims("Ask it to separate the stems of the track.")).toEqual([]);
     expect(unqualifiedNeverClaims("Ask it to transcribe the interview and remove filler words.")).toEqual([]);
     expect(unqualifiedNeverClaims("edytlab has no MIDI and no plugin hosting.")).toEqual([]);
     expect(unqualifiedNeverClaims("Its installers are unsigned, so macOS warns.")).toEqual([]);
@@ -418,14 +415,16 @@ describe("the components", () => {
     expect(html).not.toMatch(/overflow-x-(?:auto|scroll)/);
   });
 
-  it("states the limit in NotBuiltYet: stem separation has not shipped, with its issue", () => {
+  it("states the limits in NotBuiltYet: no MIDI, no plugin hosting, not a live tool, and stems are estimates", () => {
     const html = renderToStaticMarkup(createElement(NotBuiltYet));
     expect(html).toMatch(/Not built yet/i);
-    expect(html).toMatch(/stem separation/i);
-    expect(html).toMatch(/have not shipped|has not shipped|not shipped/i);
-    expect(html).toContain("/issues/385");
-    // Transcription shipped in v0.8.0: the note must not list it as missing.
+    expect(html).toMatch(/no MIDI/);
+    expect(html).toMatch(/plugin hosting/i);
+    expect(html).toMatch(/not a live DJ tool/i);
+    expect(html).toMatch(/stems are estimates/i);
+    // Transcription (v0.8.0) and stem separation (v0.9.4) shipped: the note must not list them as missing.
     expect(html).not.toMatch(/transcri/i);
+    expect(html).not.toMatch(/not shipped/i);
     // And it leads with what is missing, not with what is possible.
     expect(unqualifiedNeverClaims(code("components/compare/not-built-yet.tsx"))).toEqual([]);
   });
@@ -524,9 +523,9 @@ describe("/about", () => {
     expect(html).toContain(`href="${siteConfig.github}/issues"`);
   });
 
-  it("says what edytlab is not, including the thing that has not shipped", () => {
+  it("says what edytlab is not, including the limit of what has shipped", () => {
     expect(text).toMatch(/not a DAW/i);
-    expect(text).toMatch(/stem separation has not shipped/i);
+    expect(text).toMatch(/stems are estimates/i);
     expect(text).toMatch(/unsigned/i);
   });
 
@@ -587,13 +586,13 @@ describe("/alternatives/audacity", () => {
     expect(main.indexOf("Where Audacity is better") / main.length).toBeLessThan(0.45);
   });
 
-  it("states Audacity's AI plugins from its plugin page, and edytlab's lack of music separation in the same breath", () => {
+  it("states Audacity's AI plugins from its plugin page, and edytlab's own stem separation in the same breath", () => {
     expect(text).toMatch(/OpenVINO/);
     expect(text).toMatch(/music separation/i);
     expect(text).toMatch(/noise suppression/i);
     expect(text).toMatch(/Whisper/);
     expect(text).toMatch(/run 100% locally/);
-    expect(text).toMatch(/edytlab has not shipped stem separation/);
+    expect(text).toMatch(/edytlab separates stems too, with HT-Demucs on your computer/);
     expect(html).toContain('href="https://plugins.audacityteam.org/ai-plugins/ai-plugins"');
     expect(text).not.toMatch(/Audacity (?:has no|lacks|does not (?:have|offer|include)) (?:any )?(?:AI|machine)/i);
   });
@@ -825,8 +824,10 @@ describe("the matrix data", () => {
 
   it("states edytlab's own limits in its row, in the report's words", () => {
     const row = matrix[matrix.length - 1].cells;
-    expect(row.stems.text).toMatch(/^Not yet\./);
-    expect(row.stems.href).toBe(`${siteConfig.github}/issues/385`);
+    // Stem separation ships (v0.9.4), like transcription: on this computer, after a download the user starts.
+    expect(row.stems.text).toMatch(/^Yes, on your computer, after a one-time download of the stem model \(about 171 MB\) that you start from Settings/);
+    expect(row.stems.text).toMatch(/estimates/);
+    expect(row.stems.href).toBe("/docs/user-guide/speech");
     // Transcription ships (v0.8.0): it works, on this computer, after a download the user starts.
     expect(row.transcription.text).toMatch(/^Yes, on your computer, after a one-time download of the speech model/);
     expect(row.transcription.text).toMatch(/about 139 MB/);
@@ -1066,11 +1067,11 @@ describe("/compare", () => {
     expect(headings[headings.length - 1]).toBe("edytlab");
   });
 
-  it("gives edytlab's stem cell 'Not yet' and its transcription cell the download it needs", () => {
+  it("gives edytlab's stem cell and its transcription cell the download each needs", () => {
     const stems = /<div role="cell" data-label="Stem separation"[^>]*>((?:(?!<\/div><\/div>)[\s\S])*)<\/div><\/div>/g;
     const cells = [...body.matchAll(stems)].map((m) => readable(m[1]).trim());
     expect(cells).toHaveLength(matrix.length);
-    expect(cells[cells.length - 1]).toMatch(/^Not yet\./);
+    expect(cells[cells.length - 1]).toMatch(/^Yes, on your computer, after a one-time download of the stem model \(about 171 MB\)/);
     expect(text).toMatch(/after a one-time download of the speech model \(about 139 MB\) that you start from Settings/);
   });
 
@@ -1104,9 +1105,9 @@ describe("/compare", () => {
     expect(text).toMatch(/not a claim that the product lacks the feature/);
   });
 
-  it("says in its first paragraph that stem separation has not shipped", () => {
+  it("says in its first paragraph that edytlab's row says what it does and the note what it does not", () => {
     const lead = readable(body.match(/<h1[\s\S]*?<\/h1>\s*<p[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "");
-    expect(lead).toMatch(/edytlab has not shipped stem separation, and its row says so/);
+    expect(lead).toMatch(/edytlab's row says what it does, and the note beneath says what it does not/);
     expect(text).toMatch(/Not built yet/);
   });
 

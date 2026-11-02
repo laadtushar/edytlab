@@ -20,6 +20,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isTopDialog, useDialog } from "../hooks/useDialog";
+
 export interface TimerRecordProps {
   /** Disabled while a take is already running. */
   busy?: boolean;
@@ -54,6 +56,7 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
   const [startSec, setStartSec] = useState("");
   const [forMin, setForMin] = useState("");
   const [forSec, setForSec] = useState("");
+  const { dialogProps, headingId, ref: dialogRef } = useDialog(open, () => setOpen(false));
   const rootRef = useRef<HTMLDivElement>(null);
 
   const startAfterSec = toSeconds(startMin, startSec);
@@ -63,26 +66,16 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
   // into a disabled button with the reason next to it.
   const armed = startAfterSec !== undefined || durationSec !== undefined;
 
-  // Escape closes, like every other transient surface in the app.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
   // A click outside closes it. Without this the panel outlives the
   // button that opened it and sits over the timeline.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (isTopDialog(dialogRef.current) && !rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
+  }, [open, dialogRef]);
 
   const arm = useCallback(() => {
     if (!armed) return;
@@ -151,6 +144,7 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
 
       {open ? (
         <div
+          {...dialogProps}
           data-testid="timer-record-panel"
           className="
             absolute right-0 top-full z-50 mt-1 w-64
@@ -159,9 +153,9 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
             shadow-(--shadow-pop)
           "
         >
-          <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+          <h2 id={headingId} className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
             Scheduled recording
-          </p>
+          </h2>
 
           <div className="flex flex-col gap-2">
             {field("Start after", startMin, setStartMin, startSec, setStartSec, "timer-start")}

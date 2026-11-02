@@ -1,5 +1,7 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit_then, remap_after_scale, source_channels, Moved};
+use crate::tool::util::{
+    destructive_edit_then, parse_args, remap_after_scale, source_channels, Moved,
+};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -57,9 +59,9 @@ impl Tool for ChangeSpeedTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if args.factor <= 0.0 || !args.factor.is_finite() {
             return Ok(ToolResult::Error(

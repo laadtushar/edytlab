@@ -440,6 +440,9 @@ export function AutomationLane({
                 click on a handle drags it instead of adding another. */}
             <div
               data-testid={`automation-band-${clipIndex}`}
+              // A click adds a point where it lands, so it has no key of its
+              // own; the points it makes are buttons that arrow keys move.
+              role="presentation"
               onClick={(e) => addPoint(clipIndex, e)}
               style={{
                 position: "absolute",

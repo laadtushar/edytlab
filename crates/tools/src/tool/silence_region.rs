@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, destructive_edit, load_head_state};
+use crate::tool::util::{check_track_index, destructive_edit, load_head_state, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Zero every sample in `[start_sec, end_sec)` of `samples`.
@@ -75,9 +75,9 @@ impl Tool for SilenceRegionTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         if args.start_sec >= args.end_sec {

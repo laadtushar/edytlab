@@ -52,9 +52,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::tool::local_model::{
-    self, cache_key, decode_input, into_result, parse_args, resolve_audio_source, round2,
-    LoadedSlot, ModelLookup, ProgressStrip,
+    self, cache_key, decode_input, into_result, resolve_audio_source, round2, LoadedSlot,
+    ModelLookup, ProgressStrip,
 };
+use crate::tool::util::parse_args_message;
 use crate::{Tool, ToolContext, ToolResult};
 
 pub use crate::tool::local_model::ModelRef;
@@ -409,7 +410,7 @@ impl DiarizeTool {
     /// The call, ending at the first thing it must refuse (`Err` is the
     /// `ToolResult::Error`'s message).
     fn run(&self, args: Value, ctx: &ToolContext) -> Result<Value, String> {
-        let args: Args = parse_args(args)?;
+        let args: Args = parse_args_message(args)?;
         for (name, v) in [
             ("num_speakers", args.num_speakers),
             ("min_speakers", args.min_speakers),

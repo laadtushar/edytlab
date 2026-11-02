@@ -270,6 +270,12 @@ pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// `edit_markers` and `delete_markers` (#766) begin with them and every
 /// message uses them ("delete the first five seconds", "make an edit at
 /// 10 s", "find the loudest part"); only "marker" names those tools.
+///
+/// "mute" is here because it is the only distinctive word of
+/// `mute_all_tracks` (#848), and every message about one track says it
+/// ("mute the second track"); `mute_track` is in [`SLIM_CORE_TOOLS`], so it needs no
+/// match. A [`Cue`] sends `mute_all_tracks` when the message also says
+/// "all", "every" or "everything".
 const GENERIC_TOKENS: &[&str] = &[
     "track",
     "tracks",
@@ -304,13 +310,14 @@ const GENERIC_TOKENS: &[&str] = &[
     "find",
     "edit",
     "delete",
+    "mute",
 ];
 
 /// Words that say a message is about an effect on a track: "effect", and
 /// the effects themselves. A [`Cue`] can require one.
 const EFFECT_WORDS: &[&str] = &[
     "effect", "reverb", "echo", "delay", "tremolo", "phaser", "distort", "compress", "limit", "eq",
-    "equali", "filter", "gate", "leveler", "widener", "esser",
+    "equali", "filter", "gate", "leveler", "widener", "esser", "wah",
 ];
 
 /// A way of asking for a tool that is not its name or a word of it.
@@ -376,6 +383,20 @@ const CUES: &[Cue] = &[
         tool: "add_effect",
         any: &["master", "bus"],
         with: EFFECT_WORDS,
+    },
+    // "mute everything" or "unmute all the tracks": "mute" alone is in
+    // [`GENERIC_TOKENS`], because "mute the second track" is `mute_track`.
+    Cue {
+        tool: "mute_all_tracks",
+        any: &["all", "every", "everything"],
+        with: &["mute", "unmute"],
+    },
+    // "add a wah-wah effect": the name match needs a word of four letters
+    // or more, and "wah" is three.
+    Cue {
+        tool: "wah_wah",
+        any: &["wah", "wahwah"],
+        with: &[],
     },
     Cue {
         tool: "vocal_reduction",
@@ -1244,6 +1265,11 @@ mod tests {
             ("put an echo on it", "echo"),
             ("remove the silences", "silence_region"),
             ("add labels", "label"),
+            ("mute all the tracks", "mute_all_tracks"),
+            ("unmute everything", "mute_all_tracks"),
+            ("mute every track but the vocals", "mute_all_tracks"),
+            ("add a wah-wah effect", "wah_wah"),
+            ("put some wah on the guitar", "wah_wah"),
         ] {
             let sent = sent_for(text);
             assert!(

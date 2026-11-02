@@ -185,7 +185,11 @@ pub struct Clip {
     pub length: u64,
     // blake3 of the source file bytes; optional because Phase 1 may not yet
     // know it at construction time. Pinned at render to lock provenance.
-    #[serde(with = "crate::node::hex_array_32_opt")]
+    // `default`: with a custom deserializer serde no longer treats a missing
+    // field as `None`, so it has to be said. It is still always written
+    // (`null` when unknown), so this changes no stored bytes or node ids
+    // (`tests/clip_content_hash_default.rs`).
+    #[serde(default, with = "crate::node::hex_array_32_opt")]
     pub content_hash: Option<[u8; 32]>,
 
     /// M20: requested time-stretch factor for this clip. `None` means

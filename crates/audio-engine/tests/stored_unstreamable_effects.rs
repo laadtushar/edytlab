@@ -32,7 +32,8 @@ const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: usize = SAMPLE_RATE as usize * 2;
 
 /// Effects that exist as destructive tools but cannot run in a chain yet.
-const NOT_YET_STREAMABLE: [&str; 11] = [
+const NOT_YET_STREAMABLE: [&str; 12] = [
+    "wah_wah",
     "tremolo",
     "phaser",
     "echo",
@@ -47,7 +48,7 @@ const NOT_YET_STREAMABLE: [&str; 11] = [
 ];
 
 /// Every kind a stored entry can have that the renderer cannot run: the
-/// eleven above, and one that exists nowhere.
+/// twelve above, and one that exists nowhere.
 fn unrunnable_kinds() -> Vec<&'static str> {
     let mut kinds = NOT_YET_STREAMABLE.to_vec();
     kinds.push("wobbulator");

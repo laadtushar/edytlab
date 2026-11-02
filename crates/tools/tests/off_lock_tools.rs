@@ -86,7 +86,7 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// read only the head, write content-addressed files and append one node; a
 /// re-run has no external side effect. The click source is named `track`, so
 /// the existing re-run guard refuses a changed source after a concurrent edit.
-const OFF_LOCK: [&str; 49] = [
+const OFF_LOCK: [&str; 50] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
@@ -136,6 +136,7 @@ const OFF_LOCK: [&str; 49] = [
     "tremolo",
     "truncate_silence",
     "vocal_reduction",
+    "wah_wah",
 ];
 
 #[test]

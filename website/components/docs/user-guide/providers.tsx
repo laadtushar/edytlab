@@ -68,8 +68,8 @@ export function Providers() {
         <code>bundled</code>; a build from source says{" "}
         <code>not installed in this build</code>. It is a status line: it
         installs nothing and does not mean any on-device audio model is
-        available. No model comes with the runtime, and stem separation still
-        returns an error.
+        available. No model comes with the runtime: each model below is a
+        download you start.
       </p>
       <p>
         The{" "}
@@ -101,6 +101,18 @@ export function Providers() {
         nothing downloads unless you press Download, and the requests carry no
         audio. Until it says <code>Ready</code> the assistant has no speaker
         model to use.
+      </p>
+      <p>
+        The <strong>Stem model</strong> row below it is the same on a larger
+        model (about 171 MB, from Hugging Face): HT-Demucs v4, which splits a
+        recording into vocals, drums, bass and other. <strong>Download</strong>{" "}
+        fetches its two files (the graph and its weights) from{" "}
+        <code>huggingface.co</code>, with the same progress bar,{" "}
+        <strong>Cancel</strong>, <strong>Retry</strong> and{" "}
+        <strong>Remove</strong>, the same checks, and the same promise:
+        nothing downloads unless you press Download, and the requests carry no
+        audio. Until it says <code>Ready</code> the assistant has no stem
+        model to use. Running it needs about 4 GB of free memory.
       </p>
       <p>
         The runtime&rsquo;s licence and notices are installed with it, in{" "}
@@ -140,6 +152,16 @@ export function Providers() {
         </a>
         . Both are pinned to one commit, fetched when you click Download and
         not redistributed. The credit is on the <a href="/terms">Terms page</a>.
+      </p>
+      <p>
+        The stem model is two files from one repository: HT-Demucs v4 by Meta
+        (MIT licence, &copy; Meta Platforms, Inc. and affiliates), as an ONNX
+        export by Intel (also marked MIT):{" "}
+        <a href="https://huggingface.co/Intel/demucs-openvino">
+          Intel/demucs-openvino
+        </a>
+        . It is pinned to one commit, fetched when you click Download and not
+        redistributed. The credit is on the <a href="/terms">Terms page</a>.
       </p>
     </>
   );

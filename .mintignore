@@ -11,6 +11,7 @@
 /docs/brand/
 /docs/saas-evaluation.md
 /docs/archive/
+/docs/agents/
 /docs/README.md
 
 # Not listed here on purpose: docs/contributing.md and docs/adr/README.md. Mintlify never

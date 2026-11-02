@@ -47,7 +47,7 @@ export function MessageBubble({
   // to begin a sentence with three blank lines, and interior formatting
   // is untouched. (Markdown ignores them anyway; the user's bubble does
   // not, and "has any text arrived" is asked of the trimmed string.)
-  const body = text.replace(/^\s+/, "").replace(/\s+$/, "");
+  const body = text.trim();
   const showChips =
     !isUser && !pending && chips && chips.length > 0 && !!onChipClick;
   return (

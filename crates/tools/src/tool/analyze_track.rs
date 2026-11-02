@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, lane_audio_path, load_head_state};
+use crate::tool::util::{check_track_index, lane_audio_path, load_head_state, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// A track in the session, or a file that is not in it (#410).
@@ -73,9 +73,9 @@ impl Tool for AnalyzeTrackTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let audio_path = match (args.track, args.path) {

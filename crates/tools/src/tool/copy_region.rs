@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, flatten_track, load_head_state};
+use crate::tool::util::{check_track_index, flatten_track, load_head_state, parse_args};
 use crate::util::range_resolver::resolve as resolve_range;
 use crate::{Range, Tool, ToolContext, ToolResult};
 
@@ -89,9 +89,9 @@ impl Tool for CopyRegionTool {
             range: Option<Range>,
         }
 
-        let parsed: Args = match serde_json::from_value(args) {
+        let parsed: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let range = match resolve_range(parsed.range, ctx.user_message, true) {

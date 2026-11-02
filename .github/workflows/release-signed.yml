@@ -71,12 +71,16 @@ env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: short
 
+# Read-only by default; each job below asks for the write scope it needs
+# (SonarCloud S8233).
 permissions:
-  contents: write # create the Release and upload assets
+  contents: read
 
 jobs:
   create-release:
     name: create draft release
+    permissions:
+      contents: write # create the draft Release
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -92,6 +96,14 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const tag = process.env.TAG;
+
+            // The tag names the release and the commit it pins, and the
+            // input is whatever the person who dispatched typed: a signed
+            // release is v<major>.<minor>.<patch> and nothing else.
+            if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(tag)) {
+              core.setFailed(`Release tag "${tag}" is not v<major>.<minor>.<patch>`);
+              return;
+            }
 
             // listReleases includes drafts; getReleaseByTag does not
             // reliably return them, so paginate and filter.
@@ -158,6 +170,8 @@ jobs:
   build:
     name: build (${{ matrix.platform.name }})
     needs: create-release
+    permissions:
+      contents: write # upload the signed installers to the draft Release
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 90
     strategy:
@@ -245,7 +259,11 @@ jobs:
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         # No `targets:` — they would install on `stable`, and
         # rust-toolchain.toml pins 1.90. See the next step.
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned to a master commit with `toolchain:` given: the action's per-toolchain
+        # branches (`stable`, ...) are regenerated, so a commit pinned there can vanish.
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
       # Same fix as release-dev.yml, and the long explanation lives
       # there. Short version: passing `targets:` to the action above
@@ -268,7 +286,7 @@ jobs:
           rustup target list --installed
 
       - name: Cache cargo registry & target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # One entry, and it is the repo root. `apps/desktop/src-tauri`
           # is a workspace *member* with no `[workspace]` table of its
@@ -281,7 +299,7 @@ jobs:
           key: release-signed-${{ matrix.platform.name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Install Node
         uses: actions/setup-node@v7
@@ -290,7 +308,12 @@ jobs:
           cache: pnpm
 
       - name: pnpm install
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts (SonarCloud S6505): the only dependencies with install
+        # scripts here are esbuild (a startup optimisation; the platform binary
+        # comes from its optional dependency), fsevents (ships its prebuilt
+        # .node) and unrs-resolver (a fallback for platforms with no binary).
+        # Browsers are fetched by an explicit step, not by an install script.
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       # Same azure-mirror stall that has repeatedly hung CI — see the
       # long note in ci.yml. It matters more here: a release job that
@@ -320,6 +343,12 @@ jobs:
           # sources in deb822 `*.sources` files, so the rewrite covers all three:
           # rewriting only `*.list` left apt on the Azure mirror, and four runs
           # timed out on it on 2026-10-22 (#660, #661, #669).
+          # http:// is deliberate here (SonarCloud S5332 reviewed, safe): apt does
+          # not trust the transport, it verifies every package index and .deb
+          # against the distribution's signing keys (Release.gpg / InRelease), so a
+          # tampered mirror response fails the install instead of being used. The
+          # Ubuntu archive serves plain http for that reason, and the Azure
+          # mirror is the one that stalls (#660, #661, #669).
           sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
             /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
             /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
@@ -376,7 +405,7 @@ jobs:
       # ── Build only. No tagName, no releaseId: see the header. ────
       - name: Build bundles via tauri-action
         id: build
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           # macOS signs and notarizes inside this step when these are
           # present; tauri-action shells out to notarytool itself.
@@ -387,6 +416,8 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          # Opt-in crash reports (#958): see release-dev.yml.
+          EDYTLAB_SENTRY_DSN: ${{ vars.EDYTLAB_SENTRY_DSN || secrets.EDYTLAB_SENTRY_DSN }}
         with:
           projectPath: apps/desktop
           args: ${{ matrix.platform.args }}
@@ -619,6 +650,8 @@ jobs:
   publish:
     name: publish draft release
     needs: [create-release, build]
+    permissions:
+      contents: write # flip the draft Release to published
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Only publish when every leg uploaded. A failed leg leaves the
@@ -630,13 +663,17 @@ jobs:
       - name: Flip draft -> published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Passed as variables, never spliced into the script (S7630).
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
         # `-F` is raw (bool/number), `-f` is string. The releases API
         # wants `draft: bool` and `make_latest: string`.
         # Unlike the dev workflow, these ARE the latest release.
         run: |
           gh api -X PATCH \
-            repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }} \
+            "repos/${REPO}/releases/${RELEASE_ID}" \
             -F draft=false \
             -f make_latest=true \
             >/dev/null
-          echo "Published release ${{ inputs.tag }}"
+          echo "Published release ${TAG}"

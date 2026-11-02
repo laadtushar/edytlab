@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 108 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 113 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -37,9 +37,11 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`compressor`](#compressor) — Apply dynamic compression to a track using an envelope follower.
 - [`copy_region`](#copy_region) — Copy a time range from a track into the in-memory clipboard.
 - [`create_bus`](#create_bus) — Create an effects bus.
+- [`crossfade`](#crossfade) — Crossfade two overlapping clips on one or two tracks over their shared session interval.
 - [`cut_range`](#cut_range) — Remove [start_sample, end_sample) from a track and shift the rest left.
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
+- [`declip`](#declip) — Reconstruct clipped peaks on a track with cubic interpolation.
 - [`delete_markers`](#delete_markers) — Delete markers by `ids` (find_markers) or by filter, not both: `name` is part of a name, any case; `from`/`to` take only labels wholly inside that range.
 - [`diarize`](#diarize) — Find who spoke when, on this computer.
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
@@ -76,6 +78,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`mix_to_new_track`](#mix_to_new_track) — Offline-render the selected tracks together and add the result as a new mixed track.
 - [`mono_to_stereo`](#mono_to_stereo) — Convert a mono track to stereo by duplicating the channel to both L and R.
 - [`move_clip`](#move_clip) — Move one clip to a new start position within its track, leaving the other clips where they are.
+- [`mute_all_tracks`](#mute_all_tracks) — Mute or unmute every track at once.
 - [`mute_track`](#mute_track) — Mute or unmute a track.
 - [`name_node`](#name_node) — Set or replace the human-readable label on a session node.
 - [`noise_gate`](#noise_gate) — Apply a noise gate: audio below threshold_db is silenced.
@@ -94,10 +97,11 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`remove_send`](#remove_send) — Stop routing a track to a bus.
 - [`remove_track`](#remove_track) — Remove a track from the session.
 - [`rename_track`](#rename_track) — Rename a track.
-- [`render_final`](#render_final) — Render a session node to a final audio file at the user's chosen path.
+- [`render_final`](#render_final) — Render a session node to an audio file at the chosen path.
 - [`render_preview`](#render_preview) — Render a session node to a WAV file in the project's preview cache and return its path.
 - [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus").
 - [`reorder_tracks`](#reorder_tracks) — Move a track to new_index; the tracks between shift by one, so indices change.
+- [`repair_span`](#repair_span) — Interpolate a damaged span of up to 100 ms on a track, in session seconds.
 - [`repeat_selection`](#repeat_selection) — Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
@@ -128,6 +132,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
 - [`vocal_reduction`](#vocal_reduction) — Reduce center-panned vocals using L-R channel subtraction (Karaoke effect).
+- [`wah_wah`](#wah_wah) — Apply a wah-wah effect with an LFO-swept band-pass filter.
 
 ---
 
@@ -339,6 +344,20 @@ Create an effects bus. Tracks send a scaled copy of themselves to a bus with `se
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
+## `crossfade`
+
+Crossfade two overlapping clips on one or two tracks over their shared session interval. Replaces both clip envelopes with editable curves; does not move clips or render audio. Equal-power default; equal-gain for correlated material. Position clips to overlap first. Endpoints use the lane's -60 dB floor.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `curve` | one of `equal_power`, `equal_gain` | no |  |
+| `from_clip` | integer | yes |  |
+| `from_track` | integer | yes |  |
+| `to_clip` | integer | yes |  |
+| `to_track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
 ## `cut_range`
 
 Remove [start_sample, end_sample) from a track and shift the rest left. Appends a new session node parented to the current head.
@@ -375,6 +394,17 @@ Reduce harsh sibilant 's' and 'sh' sounds. frequency_hz sets where sibilance det
 | `start_sec` | number | no |  |
 | `threshold_db` | number | yes | Detection threshold in dBFS (e.g. -20) |
 | `track` | integer | yes |  |
+
+## `declip`
+
+Reconstruct clipped peaks on a track with cubic interpolation. Set threshold_dbfs to the clipping level (default -0.01 dBFS, near full scale). Reports same-sign runs per channel, found and repaired; runs without clean edges are left alone. Unclipped audio is kept byte-identical. Restored peaks above full scale apply a shared gain (gain_db) to avoid re-clipping in PCM. Changed audio appends a new node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `threshold_dbfs` | number | no |  |
+| `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `delete_markers`
 
@@ -798,6 +828,14 @@ Move one clip to a new start position within its track, leaving the other clips 
 | `start_sec` | number | yes | New start of the clip, in seconds from the top of the timeline. |
 | `track` | integer | yes |  |
 
+## `mute_all_tracks`
+
+Mute or unmute every track at once. Solo is untouched. New node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `muted` | boolean | yes |  |
+
 ## `mute_track`
 
 Mute or unmute a track. Muted tracks produce silence in the mix. Appends a new session node.
@@ -1007,16 +1045,17 @@ Rename a track. Appends a new session node.
 
 ## `render_final`
 
-Render a session node to a final audio file at the user's chosen path. wav and aiff are uncompressed, flac is lossless at about half the size, mp3 and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another.
+Render a session node to an audio file at the chosen path. wav and aiff are uncompressed, flac is lossless at about half the size, mp3 and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another. range exports part of the session: for "the selection", pass the selection's seconds; ask if there is none.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `bitrate_kbps` | integer | no | MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats. |
+| `bitrate_kbps` | integer | no | MP3 or OGG target bitrate. MP3 is CBR, snapped to a valid Layer III rate; lossless formats ignore it. |
 | `format` | one of `wav`, `aiff`, `flac`, `mp3`, `ogg` | yes |  |
-| `markers_as_chapters` | boolean | no | Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping. |
+| `markers_as_chapters` | boolean | no | Write markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping. |
 | `metadata` | object | no | Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export. |
 | `node_id` | string | yes |  |
 | `out_path` | string | yes |  |
+| `range` | array of number | no | [start, end] in session seconds. The end is exclusive; omit range for the whole session. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -1051,6 +1090,18 @@ Move a track to new_index; the tracks between shift by one, so indices change.
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `new_index` | integer | yes |  |
+| `track` | integer | yes |  |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
+
+## `repair_span`
+
+Interpolate a damaged span of up to 100 ms on a track, in session seconds. Uses bidirectional tonal prediction, or bounded cubic interpolation when prediction is unstable. Needs two clean samples on each side. Preserves duration and channels and appends a new node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `end_sec` | number | yes |  |
+| `start_sec` | number | yes |  |
 | `track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
@@ -1385,5 +1436,17 @@ Reduce center-panned vocals using L-R channel subtraction (Karaoke effect). Work
 |---|---|---|---|
 | `end_sec` | number | no |  |
 | `start_sec` | number | no |  |
+| `track` | integer | yes |  |
+
+## `wah_wah`
+
+Apply a wah-wah effect with an LFO-swept band-pass filter. Depth controls the sweep up to two octaves either side of base_freq_hz; resonance is the filter Q. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `base_freq_hz` | number | no | Centre frequency in Hz (200 to 5000) |
+| `depth` | number | no | Sweep depth (0 to 1) |
+| `rate_hz` | number | no | LFO rate in Hz (0.1 to 10) |
+| `resonance` | number | no | Filter Q (0.1 to 10) |
 | `track` | integer | yes |  |
 

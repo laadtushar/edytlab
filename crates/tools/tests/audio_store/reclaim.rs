@@ -11,9 +11,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use tools::{ToolDispatcher, ToolResult};
 
-#[path = "support/harness.rs"]
-mod harness;
-use harness::{ok, write_sine, Session};
+use crate::harness::{ok, write_sine, Session};
 use tempfile::TempDir;
 
 const SR: u32 = 48_000;
@@ -602,6 +600,66 @@ fn a_project_with_no_history_keeps_nothing_in_derived() {
     let report = tools::reclaim::sweep_orphans(&store).expect("sweep");
     assert_eq!(report.removed_files, 1);
     assert!(!derived.join("leftover.wav").exists());
+}
+
+/// The open sweep also removes a writer's staging file (`.cas-*.wav.part`)
+/// that a killed writer left in `clipboard/` or `generated/`, once it is a
+/// day old, and only while nothing is staged (#719 stage 4). A fresh one may
+/// be a punch-in's take being written with no handle staged, and stays.
+/// Both entry points do it: the one that lists the nodes itself and the one
+/// handed them.
+#[test]
+fn the_open_sweep_removes_a_writers_day_old_staging_files() {
+    let day_and_an_hour = std::time::Duration::from_secs(25 * 60 * 60);
+    for listed in [false, true] {
+        let dir = TempDir::new().expect("tempdir");
+        let store = session::Store::open(dir.path()).expect("open");
+        let now = std::time::SystemTime::now();
+        let mut old = Vec::new();
+        let mut fresh = Vec::new();
+        for folder in [
+            dir.path().join(".audiograph").join("clipboard"),
+            dir.path().join("generated"),
+        ] {
+            std::fs::create_dir_all(&folder).unwrap();
+            let stale = folder.join(".cas-KILLED.wav.part");
+            std::fs::write(&stale, b"half a take").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&stale)
+                .unwrap()
+                .set_modified(now - day_and_an_hour)
+                .unwrap();
+            old.push(stale);
+            let writing = folder.join(".cas-WRITING.wav.part");
+            std::fs::write(&writing, b"a take").unwrap();
+            fresh.push(writing);
+        }
+        let sweep = |store: &session::Store| {
+            if listed {
+                let nodes = store.list_nodes().expect("nodes");
+                tools::reclaim::sweep_orphans_listed(store, &nodes)
+            } else {
+                tools::reclaim::sweep_orphans(store)
+            }
+            .expect("sweep")
+        };
+
+        let staged = store.stage().expect("stage");
+        let report = sweep(&store);
+        assert_eq!(
+            report.removed_stale_staging, 0,
+            "not while staged: {report:?}"
+        );
+        assert!(old.iter().all(|p| p.is_file()));
+        drop(staged);
+
+        let report = sweep(&store);
+        assert_eq!(report.removed_stale_staging, 2, "{report:?}");
+        assert_eq!(report.removed_files, 0, "`derived/`'s count: {report:?}");
+        assert!(old.iter().all(|p| !p.exists()), "listed: {listed}");
+        assert!(fresh.iter().all(|p| p.is_file()), "a fresh one stays");
+    }
 }
 
 // ---------------------------------------------------------------------

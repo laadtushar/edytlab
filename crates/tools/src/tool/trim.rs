@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
-    append_state, check_sample_range, keep_timeline, load_track_state_and_rate, remap_after_cut,
-    set_session_length, snap_range, timeline_end, Moved,
+    append_state, check_sample_range, keep_timeline, load_track_state_and_rate, parse_args,
+    remap_after_cut, set_session_length, snap_range, timeline_end, Moved,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -44,9 +44,9 @@ impl Tool for TrimTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let (mut state, rate) = match load_track_state_and_rate(ctx, args.track) {

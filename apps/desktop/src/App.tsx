@@ -60,6 +60,7 @@ import { ToolProgressBar } from "./components/ToolProgressBar";
 import { TranscriptPane } from "./components/TranscriptPane";
 import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
+import { hasOpenDialog } from "./hooks/useDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { AppHeader } from "./components/AppHeader";
 import { EmptyState } from "./components/EmptyState";
@@ -162,6 +163,7 @@ function AppSession() {
     renderHead,
     head,
     setHeadLocal,
+    reconcileHead,
     resetHead,
     trail,
     peekUndo,
@@ -343,6 +345,9 @@ function AppSession() {
   const [isRecording, setIsRecording] = useState(false);
   // A punch-in is running (#203): the microphone and the speakers are its.
   const [punching, setPunching] = useState(false);
+  // A punch runs outside the edit queue. A successful open or Save As may
+  // therefore have installed another project before its answer arrives.
+  const projectGenerationRef = useRef(0);
   // A scheduled recording is armed (waiting or recording), which `isRecording`
   // also covers; named apart so the Punch control can say which it is.
   const [timerArmed, setTimerArmed] = useState(false);
@@ -485,7 +490,49 @@ function AppSession() {
   // play/pause; Home/End jump to start/end; ←/→ seek 5 s; Shift+←/→
   // seek 1 s.
   useEffect(() => {
+    const handleTimelineKey = (e: KeyboardEvent) => {
+      const t = timelineRef.current;
+      if (!t) return;
+      if (e.key === " ") {
+        e.preventDefault();
+        // One press toggles once, even when the key is held (#431).
+        if (!e.repeat) t.togglePlay();
+      } else if (e.key === "Home") {
+        e.preventDefault(); t.seekTo(0);
+      } else if (e.key === "End") {
+        e.preventDefault(); t.seekTo(t.getDuration());
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault(); t.seekBy(e.shiftKey ? -1 : -5);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault(); t.seekBy(e.shiftKey ? 1 : 5);
+      } else {
+        handleViewKey(e, t);
+      }
+    };
+    const handleViewKey = (e: KeyboardEvent, t: NonNullable<typeof timelineRef.current>) => {
+      if (e.key === "Escape" && selection && !showShortcuts && !showTemplatePicker) {
+        e.preventDefault(); setSelection(null);
+      } else if (e.key === "+" || e.key === "=") {
+        e.preventDefault(); setZoomPxPerSec((z) => Math.min(z + 40, 2000));
+      } else if (e.key === "-") {
+        e.preventDefault(); setZoomPxPerSec((z) => Math.max(z - 40, 0));
+      } else if (e.key === "0") {
+        e.preventDefault(); setZoomPxPerSec(0);
+      } else if ((e.key === "e" || e.key === "E") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault(); t.zoomToSelection();
+      } else if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault(); t.fitToWindow();
+      }
+    };
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+K closes the palette as well as opening it, so it is
+      // answered before the open-dialog check below stands the app down.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K") && paletteOpen) {
+        e.preventDefault();
+        setPaletteOpen(false);
+        return;
+      }
+      if (hasOpenDialog()) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName ?? "";
       const isTyping =
@@ -518,12 +565,13 @@ function AppSession() {
       // text-editing key, so intercepting it there costs nothing.
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setPaletteOpen((open) => !open);
+        setPaletteOpen(true);
         return;
       }
-      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
+      // The picker can be opening before its dialog has mounted.
+      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping && !showTemplatePicker) {
         e.preventDefault();
-        if (!showShortcuts) setShowShortcuts(true);
+        setShowShortcuts(true);
         return;
       }
       if ((e.key === "l" || e.key === "L") && !isTyping) {
@@ -531,59 +579,11 @@ function AppSession() {
         setLoopActive((v) => !v);
         return;
       }
-      const t = timelineRef.current;
-      if (!t) return;
-      if (e.key === " " && !isTyping) {
-        e.preventDefault();
-        // A held key repeats, and each repeat is a toggle: it would start
-        // a play, cancel it, and start a render again. One press, one
-        // toggle (#431).
-        if (!e.repeat) t.togglePlay();
-      } else if (e.key === "Home" && !isTyping) {
-        e.preventDefault();
-        t.seekTo(0);
-      } else if (e.key === "End" && !isTyping) {
-        e.preventDefault();
-        t.seekTo(t.getDuration());
-      } else if (e.key === "ArrowLeft" && !isTyping) {
-        e.preventDefault();
-        t.seekBy(e.shiftKey ? -1 : -5);
-      } else if (e.key === "ArrowRight" && !isTyping) {
-        e.preventDefault();
-        t.seekBy(e.shiftKey ? 1 : 5);
-      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts) {
-        e.preventDefault();
-        setSelection(null);
-      } else if ((e.key === "+" || e.key === "=") && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec((z) => Math.min(z + 40, 2000));
-      } else if (e.key === "-" && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec((z) => Math.max(z - 40, 0));
-      } else if (e.key === "0" && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec(0);
-      } else if (
-        (e.key === "e" || e.key === "E") &&
-        (e.metaKey || e.ctrlKey) &&
-        !isTyping
-      ) {
-        // Audacity's Ctrl+E. Frames the selection rather than leaving
-        // the user to zoom and then hunt for it.
-        e.preventDefault();
-        t.zoomToSelection();
-      } else if (
-        (e.key === "f" || e.key === "F") &&
-        (e.metaKey || e.ctrlKey) &&
-        !isTyping
-      ) {
-        e.preventDefault();
-        t.fitToWindow();
-      }
+      if (!isTyping) handleTimelineKey(e);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, showShortcuts, handleUndo, handleRedo]);
+  }, [selection, showShortcuts, showTemplatePicker, paletteOpen, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1027,6 +1027,7 @@ function AppSession() {
         // left, and one made after it to the project being opened (#498).
         await inOrder(async () => {
           const info = await openProject(path);
+          projectGenerationRef.current += 1;
           // Whatever the last project had on screen is not this one's. A
           // rendered mix outlives a project change otherwise.
           setMixPath(null);
@@ -1138,7 +1139,11 @@ function AppSession() {
       if (!dir) return;
       persistView();
       // In line: it moves the session to the copy, as opening does (#498).
-      const report = await inOrder(() => saveProjectAs(dir));
+      const report = await inOrder(async () => {
+        const saved = await saveProjectAs(dir);
+        projectGenerationRef.current += 1;
+        return saved;
+      });
       setRecents(await listRecentProjects());
       await refreshTracks();
       // Not an error, so it does not go through the error banner — but
@@ -1387,10 +1392,12 @@ function AppSession() {
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
       setMixNodeId(null);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
     // Initial fetch. The backend reopens the default project at every
     // launch and restores its `HEAD`, so a returning user's tracks are
     // already there; a fresh project has no head yet and answers
@@ -1526,8 +1533,10 @@ function AppSession() {
    * when the take is placed, tens of seconds later at most, and is not
    * inside the edit line (`inOrder`): that would hold every other edit for
    * its length. Only adopting the head is in the line, as for any command
-   * that changes the session. An edit made meanwhile makes the backend keep
-   * the take and refuse to apply it, so no older head is ever adopted.
+   * that changes the session. The backend refuses a take if its project or
+   * head changed before application. A later edit or project switch can
+   * still beat the reply, so adoption re-reads the current head in the line
+   * and lets a newer agent event win while that read is in flight.
    */
   const handlePunch = useCallback(
     async ({ track, prerollSec }: { track: number; prerollSec: number }) => {
@@ -1536,29 +1545,49 @@ function AppSession() {
       setPunchNotice(null);
       timelineRef.current?.pause();
       setPunching(true);
+      const projectGeneration = projectGenerationRef.current;
+      let applied = false;
       try {
         const outcome = await punchOutcome(() =>
           punchRecord(track, selection.start, selection.end, prerollSec),
         );
         if (outcome.kind === "applied") {
+          applied = true;
           await inOrder(async () => {
-            applyNewHead(outcome.head);
+            // The response may arrive after a later edit or project switch.
+            // Read the current head inside the line; never adopt the old
+            // response when that read fails or names a newer head.
+            const currentHead = await reconcileHead();
+            if (currentHead !== null) {
+              setMixPath(null);
+              setMixNodeId(null);
+            }
+            const sameProject = projectGenerationRef.current === projectGeneration;
+            if (sameProject && currentHead !== null) owned.clear();
+            await refreshTracks();
+            // Even if an agent event won the head read, the punch was applied
+            // in this project. Keep newer lane input but report the success.
+            if (sameProject) setPunchNotice(appliedText(outcome));
           });
-          // The session moved by itself: let go of what the lanes hold, and
-          // read the tracks again (the region's audio is new).
-          owned.clear();
-          await refreshTracks().catch((err) => setRenderError(String(err)));
-          setPunchNotice(appliedText(outcome));
-        } else if (outcome.kind !== "cancelled") {
+        } else if (outcome.kind === "failed") {
+          // A refused take can be saved in the project the user just left;
+          // the backend's message is the only place its recovery path appears.
+          const leftProject = projectGenerationRef.current !== projectGeneration;
+          setRenderError(leftProject ? `In the project you left: ${outcome.message}` : outcome.message);
+        } else if (outcome.kind === "uncalibrated" && projectGenerationRef.current === projectGeneration) {
           // A refusal or a failure says what to try; "not calibrated" also
           // gets the button that goes there.
           setRenderError(outcome.message);
         }
+      } catch (error) {
+        setRenderError(applied
+          ? `The punch was applied, but the current project could not be refreshed: ${String(error)}. Reopen the project before retrying.`
+          : String(error));
       } finally {
         setPunching(false);
       }
     },
-    [selection, punching, inOrder, applyNewHead, owned, refreshTracks],
+    [selection, punching, inOrder, reconcileHead, owned, refreshTracks],
   );
 
   // Renders what is shown: the previewed node when the graph has one, else
