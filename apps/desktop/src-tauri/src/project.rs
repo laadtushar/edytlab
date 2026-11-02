@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use session::audio_store::AudioFolder;
 use session::Store;
 
 /// View state, inside `.audiograph/`. Stays here: it is the app's own
@@ -198,6 +199,8 @@ pub(crate) fn copy_project_with(
             .map_err(|_| io::Error::other("the project's store lock is poisoned"))?;
         let mut copy = ProjectCopy {
             src: live.project_dir().to_path_buf(),
+            src_audio: live.audio_store(),
+            dest_audio: session::audio_store::AudioStore::new(dest),
             dest,
             report: CopyReport::default(),
             before_each_file: &mut before_each_file,
@@ -254,42 +257,47 @@ fn part_of(rel: &Path, is_dir: bool) -> Part {
 }
 
 /// What a copy of the project cannot be without, relative to it: the
-/// head's node file, and the files the head plays from any folder of the
-/// project's audio store (`derived/`, `clipboard/`, `generated/`: every
+/// head's node file, and the files the head plays that the project's audio
+/// store owns, in any of its folders (`derived/`, `clipboard/`,
+/// `generated/`: `AudioStore::owns` asks every
 /// [`session::audio_store::AudioFolder`], so a folder added later is
-/// covered too). Only what is there now counts, so a copy is never
-/// refused for a file the project had already lost (history audio a sweep
-/// removed, which a replay puts back). Read under the store's lock.
+/// covered too, and compares folders by identity, not by how a clip spells
+/// them). Only what is there now counts, so a copy is never refused for a
+/// file the project had already lost (history audio a sweep removed, which a
+/// replay puts back). Read under the store's lock.
 fn needed_by_head(store: &Store) -> Vec<PathBuf> {
     let Some(head) = store.head() else {
         return Vec::new();
     };
     let src = store.project_dir();
-    let mut needed = vec![session::store::node_path(src, &head.to_hex())];
+    let node_file = session::store::node_path(src, &head.to_hex());
+    let mut needed = Vec::new();
+    if let (true, Ok(rel)) = (node_file.is_file(), node_file.strip_prefix(src)) {
+        needed.push(rel.to_path_buf());
+    }
     if let Ok(node) = store.get(head) {
-        let audio: Vec<PathBuf> = session::audio_store::AudioFolder::ALL
-            .iter()
-            .map(|folder| folder.dir(src))
-            .collect();
+        let audio = store.audio_store();
+        let folders = audio.folders();
         needed.extend(
             node.state
                 .tracks
                 .iter()
                 .flat_map(|t| &t.clips)
-                .map(|c| c.source_path.clone())
-                .filter(|path| audio.iter().any(|dir| path.starts_with(dir))),
+                .filter_map(|c| folders.owns(&c.source_path))
+                .map(|file| file.in_project()),
         );
     }
     needed
-        .into_iter()
-        .filter(|path| path.is_file())
-        .filter_map(|path| path.strip_prefix(src).ok().map(Path::to_path_buf))
-        .collect()
 }
 
 /// One copy in progress, from the project at `src` to `dest`.
 struct ProjectCopy<'a> {
     src: PathBuf,
+    /// The project's audio store, which says which of the folders copied
+    /// are its own.
+    src_audio: session::audio_store::AudioStore,
+    /// The copy's, which its audio is put into whole (`OwnedFile::copy_into`).
+    dest_audio: session::audio_store::AudioStore,
     dest: &'a Path,
     report: CopyReport,
     before_each_file: &'a mut dyn FnMut(&Path),
@@ -301,7 +309,7 @@ impl ProjectCopy<'_> {
         std::fs::create_dir_all(self.dest)?;
         let meta = Path::new(PROJECT_FILE);
         if self.src.join(meta).is_file() {
-            self.file(meta)?;
+            self.file(meta, None)?;
         }
         let store = Path::new(session::STORE_DIR);
         std::fs::create_dir_all(self.dest.join(store))?;
@@ -314,7 +322,7 @@ impl ProjectCopy<'_> {
             if is_dir {
                 self.folder(&rel)?;
             } else if from.is_file() {
-                self.file(&rel)?;
+                self.file(&rel, None)?;
             }
         }
         Ok(())
@@ -324,6 +332,8 @@ impl ProjectCopy<'_> {
     /// part 1 copied, and the caches, which are counted and left.
     fn folder(&mut self, rel: &Path) -> io::Result<()> {
         std::fs::create_dir_all(self.dest.join(rel))?;
+        // Asked once for the folder: is it one of the audio store's?
+        let audio = self.src_audio.folder_at(&self.src.join(rel));
         for rel in self.list(rel)? {
             let from = self.src.join(&rel);
             // A copy made inside the project is not copied into itself.
@@ -335,7 +345,7 @@ impl ProjectCopy<'_> {
                 Part::State => {}
                 Part::Cache => self.report.skipped_cache_files += count_files(&from),
                 Part::Rest if is_dir => self.folder(&rel)?,
-                Part::Rest if from.is_file() => self.file(&rel)?,
+                Part::Rest if from.is_file() => self.file(&rel, audio)?,
                 Part::Rest => {}
             }
         }
@@ -357,10 +367,25 @@ impl ProjectCopy<'_> {
     /// Copy the file `rel`, unless it has gone since it was listed: a
     /// staging file renamed into place, most likely. What the copy cannot
     /// be without is checked at the end.
-    fn file(&mut self, rel: &Path) -> io::Result<()> {
+    ///
+    /// A file of the audio store (`audio` is the store folder `rel` is in)
+    /// goes through the store (`OwnedFile::copy_into`): staged in the copy's
+    /// folder and renamed into place once whole, because a name there is
+    /// trusted on sight, and a Save As killed or out of disk part-way would
+    /// otherwise leave part of a file under it that no rebuild replaces.
+    fn file(&mut self, rel: &Path, audio: Option<AudioFolder>) -> io::Result<()> {
         (self.before_each_file)(rel);
         let from = self.src.join(rel);
-        match std::fs::copy(&from, self.dest.join(rel)) {
+        let owned = audio.and_then(|folder| {
+            self.src_audio
+                .owns(&from)
+                .filter(|f| f.folder() == folder && f.in_project() == rel)
+        });
+        let copied = match owned {
+            Some(file) => file.copy_into(&self.dest_audio),
+            None => std::fs::copy(&from, self.dest.join(rel)),
+        };
+        match copied {
             Ok(bytes) => {
                 self.report.files += 1;
                 self.report.bytes += bytes;
@@ -1160,6 +1185,76 @@ mod tests {
                 folder.name()
             );
         }
+    }
+
+    /// The copy's audio goes through the store (`OwnedFile::copy_into`): each
+    /// file arrives whole under its name in the same folder of the copy, and
+    /// no staging file is left beside it. (That a copy failing part-way leaves
+    /// nothing under the name is `audio_store`'s
+    /// `a_staged_copy_that_fails_part_way_leaves_nothing_under_the_name`.)
+    #[test]
+    fn a_copys_audio_arrives_whole_under_its_names() {
+        let tmp = TempDir::new().unwrap();
+        let p = original(&tmp);
+        let dest = tmp.path().join("copy");
+        copy_project(&p.store, &dest).expect("copy");
+        for folder in session::audio_store::AudioFolder::ALL {
+            let (src, there) = (folder.dir(&p.dir), folder.dir(&dest));
+            let Ok(entries) = std::fs::read_dir(&src) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let copied = there.join(entry.file_name());
+                assert_eq!(
+                    std::fs::read(&copied).unwrap(),
+                    std::fs::read(entry.path()).unwrap(),
+                    "{}",
+                    copied.display()
+                );
+            }
+            let names: Vec<_> = std::fs::read_dir(&there)
+                .map(|d| d.flatten().map(|e| e.file_name()).collect())
+                .unwrap_or_default();
+            assert!(
+                names
+                    .iter()
+                    .all(|n| !n.to_string_lossy().ends_with(".part")),
+                "{names:?}"
+            );
+        }
+        assert!(session::relocate::derived_dir(&dest)
+            .join("first.wav")
+            .is_file());
+        assert!(session::relocate::clipboard_dir(&dest)
+            .join("blob.wav")
+            .is_file());
+    }
+
+    /// Which head files the copy needs is asked of the audio store, which
+    /// compares folders by identity: a project opened through a link whose
+    /// head names its audio by the real path still has that audio checked
+    /// (a check by spelling left it out, #719).
+    #[cfg(unix)]
+    #[test]
+    fn a_head_file_spelled_another_way_is_checked_too() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("original");
+        let audio = session::relocate::derived_dir(&dir).join("played.wav");
+        std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
+        std::fs::write(&audio, vec![3u8; 256]).unwrap();
+        let linked = tmp.path().join("linked");
+        std::os::unix::fs::symlink(&dir, &linked).unwrap();
+        let mut store = session::Store::open(&linked).unwrap();
+        store
+            .append(playing(std::slice::from_ref(&audio), 1))
+            .unwrap();
+        assert!(
+            needed_by_head(&store)
+                .iter()
+                .any(|rel| rel.ends_with(Path::new("derived").join("played.wav"))),
+            "{:?}",
+            needed_by_head(&store)
+        );
     }
 
     #[test]
