@@ -26,13 +26,33 @@
 //! through an [`AudioDeleter`], which [`Store::audio_deleter`] hands out only
 //! while no handle on the project is staged. Which folder each of them works
 //! in is still its own choice (the sweeps `derived/`, compaction `derived/`,
-//! the leftovers `clipboard/` and `generated/`). Repair's copies, Save As and
-//! `rederive`'s put-back are stage 3b.
+//! the leftovers `clipboard/` and `generated/`).
+//!
+//! Stage 3b sends the copiers and resolvers through the store:
+//!
+//! * **A replay's put-back** (`tools::rederive`): what a replay wrote is read
+//!   as a [`Rebuilt`] ([`AudioStore::rebuilt`]), which answers to every name a
+//!   node may record for a file, the one the file has and, for a node written
+//!   before #620, the name its samples had then. [`Rebuilt::put_back`] puts
+//!   the file into this project's `derived/` under the name the node records,
+//!   through [`AudioStore::put_with`].
+//! * **Repair's copies** (`tools::repair`): a clip naming another project's
+//!   file is resolved to a [`Counterpart`] (`Store::counterpart`), this
+//!   project's place for that name, and [`Counterpart::copy_in`] copies it
+//!   there without ever replacing a file.
+//! * **Save As's check** (the desktop's `project.rs`): which of the head's
+//!   files the copy needs is [`AudioStore::owns`] in any folder, and where it
+//!   is in the copy is [`OwnedFile::in_project`].
+//! * **Which folder a path is in** ([`AudioStore::folder_of`]), for a rebuild
+//!   that asks about a file that is not there.
 
-use std::ffi::OsStr;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{OsStr, OsString};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use crate::node::SessionNode;
 use crate::state::Clip;
 use crate::store::{Store, STORE_DIR};
 
@@ -212,6 +232,15 @@ impl AudioName {
         Self(format!("track-{}", hasher.finalize().to_hex()))
     }
 
+    /// The name a node records as the file name `recorded` (`<stem>.wav`).
+    /// Private: only a [`Rebuilt`] adopts a recorded name, and only once a
+    /// file it wrote answers to it, so a put-back writes under the name the
+    /// node reads and under no name the store did not give.
+    fn of_recorded(recorded: &OsStr) -> Option<Self> {
+        let stem = recorded.to_str()?.strip_suffix(".wav")?;
+        (!stem.is_empty()).then(|| Self(stem.to_string()))
+    }
+
     /// The file stem: the name without `.wav`.
     pub fn as_str(&self) -> &str {
         &self.0
@@ -228,6 +257,28 @@ impl AudioName {
 impl std::fmt::Display for AudioName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+/// Where a file under a store name is ([`AudioStore::path_of`]): shown in a
+/// message, or read. It is deliberately not an `AsRef<Path>`, so it cannot be
+/// handed to `std::fs::write`, `File::create` or a WAV writer by accident: a
+/// write straight onto a trusted name could be cut short and stay there.
+/// [`as_path`](Self::as_path) is for a reader that needs the path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorePath(PathBuf);
+
+impl StorePath {
+    /// The path, for a read (a listing, a lookup by path). Never write to it:
+    /// put a file through [`AudioStore::put_with`].
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for StorePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.display().fmt(f)
     }
 }
 
@@ -253,9 +304,13 @@ impl AudioStore {
         folder.dir(&self.project_dir).join(format!("{stem}.wav"))
     }
 
-    /// Where the file named `name` lives in `folder`.
-    pub fn path_of(&self, folder: AudioFolder, name: &AudioName) -> PathBuf {
-        self.path(folder, name.as_str())
+    /// Where the file named `name` lives in `folder`, to name it in a
+    /// message ([`StorePath`] is `Display`) or to read it
+    /// ([`StorePath::as_path`]). Not a path to write to: a file under a store
+    /// name is trusted on sight, so it is written only by the store's puts,
+    /// which stage it and rename it into place.
+    pub fn path_of(&self, folder: AudioFolder, name: &AudioName) -> StorePath {
+        StorePath(self.path(folder, name.as_str()))
     }
 
     /// Put the file `fill` writes under `name` in `folder`, whole or not at
@@ -279,7 +334,7 @@ impl AudioStore {
         name: &AudioName,
         fill: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<PathBuf, String> {
-        let path = self.path_of(folder, name);
+        let path = self.path(folder, name.as_str());
         if path.exists() {
             return Ok(path);
         }
@@ -315,7 +370,7 @@ impl AudioStore {
         verify: impl FnOnce(&Path) -> bool,
         fill: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<PathBuf, String> {
-        let path = self.path_of(folder, name);
+        let path = self.path(folder, name.as_str());
         if path.is_file() && verify(&path) {
             return Ok(path);
         }
@@ -343,7 +398,7 @@ impl AudioStore {
         let bytes =
             std::fs::read(&tmp).map_err(|e| format!("could not read what was written: {e}"))?;
         let name = AudioName::of_file_bytes(&bytes);
-        let path = self.path_of(folder, &name);
+        let path = self.path(folder, name.as_str());
         if path.is_file() {
             return Ok((name, path));
         }
@@ -378,18 +433,22 @@ impl AudioStore {
     ///
     /// The answer says which folder: a deleter that works in one (compaction
     /// in `derived/`) checks it.
+    ///
+    /// A caller asking about many paths at once takes the folders' identities
+    /// once with [`folders`](Self::folders) and asks [`Folders::owns`].
     pub fn owns(&self, path: &Path) -> Option<OwnedFile> {
-        let name = path.file_name()?;
-        let parent = match path.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p,
-            _ => Path::new("."),
-        };
-        let parent_id = crate::live::identify(parent).ok()?.id();
-        let folder = AudioFolder::ALL.into_iter().find(|f| {
-            crate::live::identify(&f.dir(&self.project_dir)).is_ok_and(|d| d.id() == parent_id)
-        })?;
-        let dir = resolved_or_spelled(parent, std::fs::canonicalize(parent))?;
-        owned_entry(folder, dir.join(name))
+        self.folders().owns(path)
+    }
+
+    /// The store's folders as they are now, identified once, for a caller
+    /// that asks [`Folders::owns`] or [`Folders::folder_of`] about many
+    /// paths in one go (the head's clips, a node's missing files). A folder
+    /// made or removed after this is taken is not seen; take it again.
+    pub fn folders(&self) -> Folders<'_> {
+        Folders {
+            store: self,
+            ids: AudioFolder::ALL.map(|f| identity(&f.dir(&self.project_dir))),
+        }
     }
 
     /// Every file the store may delete in `folder` ([`owns`](Self::owns)):
@@ -413,6 +472,70 @@ impl AudioStore {
         Ok(out)
     }
 
+    /// Which of the store's folders `path` is directly in, whether or not a
+    /// file is there. `path`'s parent is compared with each folder by
+    /// identity ([`crate::live::identify`]), as [`owns`](Self::owns)
+    /// compares, and by spelling only when neither of the two can be
+    /// identified (a folder not made yet, or removed: there, the same
+    /// spelling is the same place). It asks nothing about the file, so it is
+    /// for a rebuild asking where a gone file belongs; a delete asks
+    /// [`owns`](Self::owns).
+    pub fn folder_of(&self, path: &Path) -> Option<AudioFolder> {
+        self.folders().folder_of(path)
+    }
+
+    /// Which of the store's folders the folder `dir` is, by identity; `None`
+    /// for any other folder, and for one that cannot be read. Save As asks it
+    /// once per folder it copies.
+    pub fn folder_at(&self, dir: &Path) -> Option<AudioFolder> {
+        let id = identity(dir)?;
+        AudioFolder::ALL
+            .into_iter()
+            .find(|f| identity(&f.dir(&self.project_dir)) == Some(id))
+    }
+
+    /// What a replay wrote into this store's `derived/` (a scratch project's),
+    /// by every name a node may record for each file ([`Rebuilt`]). `nodes`
+    /// are the scratch project's own: a clip of one that names a file this
+    /// store wrote in `derived/` says, by its `content_hash`, what that file
+    /// was called before #620. A folder that cannot be listed wrote nothing.
+    pub fn rebuilt(&self, nodes: &[SessionNode]) -> Rebuilt {
+        let produced: BTreeSet<OsString> = self
+            .files(AudioFolder::Derived)
+            .unwrap_or_default()
+            .iter()
+            .map(|f| f.name().to_os_string())
+            .collect();
+        let folders = self.folders();
+        let mut legacy = BTreeMap::new();
+        for clip in nodes
+            .iter()
+            .flat_map(|n| &n.state.tracks)
+            .flat_map(|t| &t.clips)
+        {
+            let (Some(hash), Some(written)) = (clip.content_hash, clip.source_path.file_name())
+            else {
+                continue;
+            };
+            // Only what this store wrote: the step read the real project's
+            // audio, and a clip naming that is not what the replay made.
+            if !produced.contains(written)
+                || folders.folder_of(&clip.source_path) != Some(AudioFolder::Derived)
+            {
+                continue;
+            }
+            let older = OsString::from(format!("{}.wav", legacy_stem(&hash)));
+            if older != written {
+                legacy.insert(older, written.to_os_string());
+            }
+        }
+        Rebuilt {
+            dir: AudioFolder::Derived.dir(&self.project_dir),
+            produced,
+            legacy,
+        }
+    }
+
     /// A temporary file in `folder` (`.cas-*.wav.part`), making the folder if
     /// it is not there yet, removed on drop unless it is persisted.
     fn temp_in(&self, folder: AudioFolder) -> Result<tempfile::TempPath, String> {
@@ -428,6 +551,61 @@ impl AudioStore {
     }
 }
 
+/// The identity of the folder `dir`, if it can be read.
+fn identity(dir: &Path) -> Option<crate::live::FolderId> {
+    crate::live::identify(dir).ok().map(|i| i.id())
+}
+
+/// `path`'s folder, `.` for a bare file name.
+fn parent_of(path: &Path) -> &Path {
+    match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    }
+}
+
+/// A store's folders with their identities, read once
+/// ([`AudioStore::folders`]).
+#[derive(Debug)]
+pub struct Folders<'a> {
+    store: &'a AudioStore,
+    /// Each of [`AudioFolder::ALL`]'s identity, `None` where it cannot be
+    /// read (not made yet).
+    ids: [Option<crate::live::FolderId>; 3],
+}
+
+impl Folders<'_> {
+    /// [`AudioStore::owns`], against these identities.
+    pub fn owns(&self, path: &Path) -> Option<OwnedFile> {
+        let name = path.file_name()?;
+        let parent = parent_of(path);
+        let parent_id = identity(parent)?;
+        let folder = AudioFolder::ALL
+            .into_iter()
+            .zip(self.ids)
+            .find(|(_, id)| *id == Some(parent_id))?
+            .0;
+        let dir = resolved_or_spelled(parent, std::fs::canonicalize(parent))?;
+        owned_entry(folder, dir.join(name))
+    }
+
+    /// [`AudioStore::folder_of`], against these identities.
+    pub fn folder_of(&self, path: &Path) -> Option<AudioFolder> {
+        path.file_name()?;
+        let parent = parent_of(path);
+        let parent_id = identity(parent);
+        AudioFolder::ALL
+            .into_iter()
+            .zip(self.ids)
+            .find(|(f, id)| match (parent_id, id) {
+                (Some(a), Some(b)) => a == *b,
+                (None, None) => parent == f.dir(&self.store.project_dir),
+                _ => false,
+            })
+            .map(|(f, _)| f)
+    }
+}
+
 /// What a path to delete is spelled as, from what canonicalising `spelled`
 /// gave: the canonical path; `None` when nothing is there; and `spelled`
 /// itself for any other failure, because some volumes cannot give a
@@ -439,6 +617,185 @@ fn resolved_or_spelled(spelled: &Path, canonical: std::io::Result<PathBuf>) -> O
         Ok(path) => Some(path),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => Some(spelled.to_path_buf()),
+    }
+}
+
+/// What a replay wrote into its scratch project's `derived/`, answering to
+/// every name a node may record for each file (#620), made by
+/// [`AudioStore::rebuilt`].
+///
+/// A file answers to the name it has, and, when the clip that names it
+/// records the blake3 of its samples alone as its `content_hash` (what every
+/// edit has always stored there), to the name those samples had before #620,
+/// which is the name a node written then records. Names are compared, never
+/// worked out from a file: a `derived/` file holds 16-bit PCM, not the
+/// samples as they were hashed. Nothing on disk is renamed and no stored op
+/// says which scheme named a file, so this older name is recognised for as
+/// long as a project written before #620 can be opened.
+#[derive(Debug, Clone, Default)]
+pub struct Rebuilt {
+    /// The scratch project's `derived/`.
+    dir: PathBuf,
+    /// The files the replay wrote, by the names it gave them.
+    produced: BTreeSet<OsString>,
+    /// For a file in `produced` that an older build would have called
+    /// something else: that older name, to the file's name.
+    legacy: BTreeMap<OsString, OsString>,
+}
+
+impl Rebuilt {
+    /// The files the replay wrote, by the names it gave them.
+    pub fn produced(&self) -> &BTreeSet<OsString> {
+        &self.produced
+    }
+
+    /// Every name a node may record for what the replay wrote: the names it
+    /// gave the files, and the names an older build would have given them.
+    /// A recorded name in this list is a name the replay rebuilt.
+    pub fn names(&self) -> impl Iterator<Item = &OsString> {
+        self.produced.iter().chain(self.legacy.keys())
+    }
+
+    /// The file that answers to the recorded file name `recorded`, if one
+    /// does: the file of that name, or the one an older build would have
+    /// called that.
+    fn answering(&self, recorded: &OsStr) -> Option<PathBuf> {
+        let written = if self.produced.contains(recorded) {
+            recorded
+        } else {
+            self.legacy.get(recorded)?.as_os_str()
+        };
+        Some(self.dir.join(written))
+    }
+
+    /// Put the file that answers to `recorded` (a file name a node records)
+    /// into `into`'s `derived/` under that recorded name, through
+    /// [`AudioStore::put_with`]: whole or not at all, and a file already
+    /// there is kept. The recorded name is the one the node reads, so a node
+    /// written before #620 has its file back under its older name. `Ok(None)`
+    /// when no file the replay wrote answers to it: the replay did not
+    /// reproduce what the node names.
+    pub fn put_back(&self, recorded: &OsStr, into: &AudioStore) -> Result<Option<PathBuf>, String> {
+        let (Some(from), Some(name)) = (self.answering(recorded), AudioName::of_recorded(recorded))
+        else {
+            return Ok(None);
+        };
+        let place = into.path(AudioFolder::Derived, name.as_str());
+        // `put_with` keeps whatever is under the name; something there that
+        // is not a file (a folder, a link to one) would be kept too, and the
+        // rebuild would then report an edit that is not deterministic.
+        if place.exists() && !place.is_file() {
+            return Err(format!(
+                "cannot put {} back: something that is not a file is there",
+                place.display()
+            ));
+        }
+        into.put_with(AudioFolder::Derived, &name, |tmp| {
+            copy_whole(&from, tmp)
+                .map(drop)
+                .map_err(|e| format!("could not put {} back: {e}", place.display()))
+        })
+        .map(Some)
+    }
+}
+
+/// Copy `from` onto `to`, whole and synced to the disk; how many bytes.
+fn copy_whole(from: &Path, to: &Path) -> io::Result<u64> {
+    let mut src = std::fs::File::open(from)?;
+    let mut dst = std::fs::File::create(to)?;
+    let bytes = io::copy(&mut src, &mut dst)?;
+    dst.sync_all()?;
+    Ok(bytes)
+}
+
+/// How a copy into the project ([`Counterpart::copy_in`]) names its staging
+/// file: `.repair-*.wav.part`. Its own prefix, because a killed copy's
+/// staging files in `clipboard/` and `generated/` are removed by that prefix
+/// ([`AudioDeleter::remove_copy_leftovers`]), which a writer's `.cas-` one
+/// is not: a writer may hold no handle on the project (a punch-in's take).
+const COPY_STAGING_PREFIX: &str = ".repair-";
+const STAGING_SUFFIX: &str = ".wav.part";
+
+/// Put what `fill` writes at `to`, by way of a staging file beside it
+/// (`.repair-*.wav.part`) synced and renamed over `to` once whole. Nothing is
+/// left at `to`, nor a staging file, when `fill` or the rename fails.
+fn put_staged(
+    to: &Path,
+    fill: impl FnOnce(&mut std::fs::File) -> io::Result<u64>,
+) -> io::Result<u64> {
+    let parent = to
+        .parent()
+        .ok_or_else(|| io::Error::other("the destination has no folder"))?;
+    std::fs::create_dir_all(parent)?;
+    let mut part = tempfile::Builder::new()
+        .prefix(COPY_STAGING_PREFIX)
+        .suffix(STAGING_SUFFIX)
+        .tempfile_in(parent)?;
+    let bytes = fill(part.as_file_mut())?;
+    part.as_file().sync_all()?;
+    part.persist(to).map_err(|e| e.error)?;
+    Ok(bytes)
+}
+
+/// Where this project keeps a file a clip names in another project's store
+/// folder: the same name, in this project's folder of the same kind
+/// (`session::relocate`, rule 1), whether or not either file is there. Made
+/// only inside `session`, by `Store::counterpart` (the store's `Rebinder`), for
+/// the store's own project, so a copy into the project goes to a place the
+/// store worked out, never one a caller spelled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Counterpart {
+    folder: AudioFolder,
+    path: PathBuf,
+}
+
+impl Counterpart {
+    pub(crate) fn new(folder: AudioFolder, path: PathBuf) -> Self {
+        Self { folder, path }
+    }
+
+    /// The store's folder it is in.
+    pub fn folder(&self) -> AudioFolder {
+        self.folder
+    }
+
+    /// Where it is: this project's folder as the store spells it, and the
+    /// name.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Copy `from`, the other project's file of this name, here (#612): by
+    /// way of a staging file beside it, renamed into place only when whole
+    /// and only if nothing is here by then, keeping `from`'s modification
+    /// time (which the history sweep takes the oldest by). How many bytes;
+    /// `Ok(None)` when a file was here first, which is kept: the name is the
+    /// content's, so it is the file the clip names.
+    ///
+    /// The rename is `tempfile`'s no-replace rename, and a hard link where
+    /// the volume refuses that; on a volume that allows neither (some FAT and
+    /// network volumes) it is an error, and nothing is written.
+    pub fn copy_in(&self, from: &Path) -> io::Result<Option<u64>> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| io::Error::other("the destination has no folder"))?;
+        std::fs::create_dir_all(parent)?;
+        let mut part = tempfile::Builder::new()
+            .prefix(COPY_STAGING_PREFIX)
+            .suffix(STAGING_SUFFIX)
+            .tempfile_in(parent)?;
+        let mut src = std::fs::File::open(from)?;
+        let bytes = io::copy(&mut src, part.as_file_mut())?;
+        if let Ok(mtime) = src.metadata().and_then(|m| m.modified()) {
+            let _ = part.as_file().set_modified(mtime);
+        }
+        part.as_file().sync_all()?;
+        match part.persist_noclobber(&self.path) {
+            Ok(_) => Ok(Some(bytes)),
+            Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => Ok(None),
+            Err(e) => Err(e.error),
+        }
     }
 }
 
@@ -479,6 +836,37 @@ impl OwnedFile {
     /// Its file name.
     pub fn name(&self) -> &OsStr {
         self.path.file_name().unwrap_or_default()
+    }
+
+    /// Where it is relative to its project's folder
+    /// (`.audiograph/derived/<name>`, `generated/<name>`, ...): where a copy
+    /// of the project holds it.
+    pub fn in_project(&self) -> PathBuf {
+        self.folder.dir(Path::new("")).join(self.name())
+    }
+
+    /// Copy this file into `into`'s folder of the same kind, under the same
+    /// name: Save As copying the project's audio into the new folder (#571).
+    /// By way of a staging file in that folder (`.repair-*.wav.part`, which
+    /// the copy's own sweeps remove if this is cut short), renamed into place
+    /// once whole and synced, so a copy that is killed or runs out of disk
+    /// never leaves part of a file under a name that is trusted on sight (a
+    /// rebuild would take it for the audio and never write it again). The
+    /// file's permissions go with it, as `std::fs::copy` takes them. How many
+    /// bytes.
+    ///
+    /// The rename replaces: the destination is a new project that only this
+    /// copy writes (Save As refuses a folder that is not empty), and a rename
+    /// that replaces works on every volume, where a no-replace one does not.
+    pub fn copy_into(&self, into: &AudioStore) -> io::Result<u64> {
+        let to = self.folder.dir(&into.project_dir).join(self.name());
+        let mut src = std::fs::File::open(&self.path)?;
+        let permissions = src.metadata()?.permissions();
+        put_staged(&to, |part| {
+            let bytes = io::copy(&mut src, part)?;
+            part.set_permissions(permissions)?;
+            Ok(bytes)
+        })
     }
 
     /// Its size when it was found.
@@ -536,6 +924,31 @@ impl AudioDeleter<'_> {
             Some(now) if now.folder == file.folder => std::fs::remove_file(&now.path).is_ok(),
             _ => false,
         }
+    }
+
+    /// Remove the staging files a copy into the project
+    /// ([`Counterpart::copy_in`]) left in `clipboard/` and `generated/` when
+    /// the app was killed mid-copy (the orphan sweep removes those in
+    /// `derived/`); how many went. A copy running now holds a staged handle,
+    /// so while it runs this deleter is not handed out, or refuses at the
+    /// delete. A file that cannot be removed is left for the next open.
+    pub fn remove_copy_leftovers(&self) -> usize {
+        let mut removed = 0;
+        for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
+            let Ok(files) = self.audio.files(folder) else {
+                continue;
+            };
+            for file in files {
+                let name = file.name().to_string_lossy();
+                if name.starts_with(COPY_STAGING_PREFIX)
+                    && name.ends_with(STAGING_SUFFIX)
+                    && self.remove(&file)
+                {
+                    removed += 1;
+                }
+            }
+        }
+        removed
     }
 }
 
@@ -819,7 +1232,7 @@ mod tests {
             .put_named_by_content(AudioFolder::Generated, fill)
             .unwrap();
         assert_eq!(name, AudioName::of_file_bytes(b"mixdown"));
-        assert_eq!(path, store.path_of(AudioFolder::Generated, &name));
+        assert_eq!(path, store.path_of(AudioFolder::Generated, &name).as_path());
         assert_eq!(std::fs::read(&path).unwrap(), b"mixdown");
         // The same content again: the file there is kept, nothing left over.
         let (again, _) = store
@@ -1032,6 +1445,343 @@ mod tests {
         for f in &files {
             assert_eq!(store.owns(f.path()).as_ref(), Some(f));
         }
+    }
+
+    // ---- Copiers and resolvers (stage 3b) ----
+
+    /// A copy into the project never replaces a file: one that is there by
+    /// the time the copy is whole stays as it was, and no staging file is
+    /// left.
+    #[test]
+    fn a_copy_in_never_replaces_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let from = file_at(tmp.path(), "from.wav", b"the original's");
+        let to = file_at(
+            &derived_dir(&tmp.path().join("p")),
+            "abc.wav",
+            b"already here",
+        );
+        let here = Counterpart::new(AudioFolder::Derived, to.clone());
+
+        assert_eq!(here.copy_in(&from).unwrap(), None);
+        assert_eq!(std::fs::read(&to).unwrap(), b"already here");
+        let names: Vec<_> = std::fs::read_dir(to.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(names, vec![OsString::from("abc.wav")]);
+    }
+
+    /// The copy keeps the source's modification time: the history sweep
+    /// takes the oldest first, and a copied file stamped with the time of
+    /// the copy would read as the newest history there is.
+    #[test]
+    fn a_copy_in_keeps_the_sources_time() {
+        let tmp = tempfile::tempdir().unwrap();
+        let from = file_at(tmp.path(), "from.wav", b"audio");
+        let then = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&from)
+            .unwrap()
+            .set_modified(then)
+            .unwrap();
+        let to = derived_dir(&tmp.path().join("p")).join("abc.wav");
+        let here = Counterpart::new(AudioFolder::Derived, to.clone());
+
+        assert_eq!(here.copy_in(&from).unwrap(), Some(5));
+        assert_eq!(std::fs::metadata(&to).unwrap().modified().unwrap(), then);
+    }
+
+    /// Where another project's file goes: this project's folder of the same
+    /// kind, under the same name, for each folder; nothing for this
+    /// project's own files or anything else.
+    #[test]
+    fn a_counterpart_is_the_same_name_in_this_projects_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (here, there) = (tmp.path().join("here"), tmp.path().join("there"));
+        std::fs::create_dir_all(there.join(STORE_DIR)).unwrap();
+        for folder in AudioFolder::ALL {
+            let theirs = folder.dir(&there).join("a.wav");
+            let got = crate::relocate::counterpart(&here, &theirs).expect("theirs");
+            assert_eq!(got.folder(), folder);
+            assert_eq!(got.path(), folder.dir(&here).join("a.wav"));
+            assert!(
+                crate::relocate::counterpart(&here, &folder.dir(&here).join("a.wav")).is_none()
+            );
+        }
+        assert!(crate::relocate::counterpart(&here, &there.join("take.wav")).is_none());
+    }
+
+    /// A killed copy's staging files go from `clipboard/` and `generated/`;
+    /// a writer's `.cas-` staging file and every other file stay, and nothing
+    /// goes while a handle is staged.
+    #[test]
+    fn a_killed_copys_leftovers_go_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
+            let d = folder.dir(dir.path());
+            file_at(&d, ".repair-KILLED.wav.part", b"half");
+            file_at(&d, ".cas-WRITING.wav.part", b"half");
+            file_at(&d, "keep.wav", b"audio");
+        }
+        file_at(&derived_dir(dir.path()), ".repair-X.wav.part", b"half");
+
+        let deleter = store.audio_deleter().unwrap();
+        let staged = store.stage().unwrap();
+        assert_eq!(deleter.remove_copy_leftovers(), 0, "not while staged");
+        drop(staged);
+        assert_eq!(deleter.remove_copy_leftovers(), 2);
+        for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
+            let d = folder.dir(dir.path());
+            assert!(!d.join(".repair-KILLED.wav.part").exists());
+            assert!(d.join(".cas-WRITING.wav.part").is_file());
+            assert!(d.join("keep.wav").is_file());
+        }
+        assert!(
+            derived_dir(dir.path()).join(".repair-X.wav.part").is_file(),
+            "the orphan sweep's, in `derived/`"
+        );
+    }
+
+    /// A Save As copy of a store file that fails part-way (a full disk, a
+    /// read error) leaves nothing under the name, and no staging file.
+    #[test]
+    fn a_staged_copy_that_fails_part_way_leaves_nothing_under_the_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let to = derived_dir(dir.path()).join("abc.wav");
+        let err = put_staged(&to, |part| {
+            io::Write::write_all(part, b"the first half").unwrap();
+            Err(io::Error::from(io::ErrorKind::StorageFull))
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::StorageFull);
+        assert!(!to.exists(), "a part under a trusted name");
+        let left: Vec<_> = std::fs::read_dir(to.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .collect();
+        assert!(left.is_empty(), "no staging file: {left:?}");
+    }
+
+    #[test]
+    fn copy_into_puts_the_file_in_the_same_folder_of_the_other_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let (src, dest) = (dir.path().join("src"), dir.path().join("dest"));
+        for folder in AudioFolder::ALL {
+            let path = file_at(&folder.dir(&src), "a.wav", b"audio");
+            let owned = AudioStore::new(&src).owns(&path).unwrap();
+            assert_eq!(owned.copy_into(&AudioStore::new(&dest)).unwrap(), 5);
+            let copied = folder.dir(&dest).join("a.wav");
+            assert_eq!(std::fs::read(&copied).unwrap(), b"audio");
+            assert_eq!(
+                std::fs::metadata(&copied).unwrap().permissions(),
+                std::fs::metadata(&path).unwrap().permissions()
+            );
+            assert_eq!(std::fs::read_dir(folder.dir(&dest)).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn folder_at_is_by_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AudioStore::new(dir.path());
+        for folder in AudioFolder::ALL {
+            std::fs::create_dir_all(folder.dir(dir.path())).unwrap();
+            assert_eq!(store.folder_at(&folder.dir(dir.path())), Some(folder));
+        }
+        let roundabout = derived_dir(dir.path()).join("..").join(DERIVED_DIR);
+        assert_eq!(store.folder_at(&roundabout), Some(AudioFolder::Derived));
+        assert_eq!(store.folder_at(dir.path()), None);
+        assert_eq!(store.folder_at(&dir.path().join("gone")), None);
+    }
+
+    /// Something that is not a file under the name is an error naming it,
+    /// not a put that "did not reproduce" the file.
+    #[test]
+    fn a_put_back_onto_a_folder_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let scratch = AudioStore::new(dir.path().join("scratch"));
+        let name = AudioName("x".into());
+        scratch
+            .put_with(AudioFolder::Derived, &name, |tmp| {
+                std::fs::write(tmp, b"rebuilt").map_err(|e| e.to_string())
+            })
+            .unwrap();
+        let rebuilt = scratch.rebuilt(&[]);
+        let real = AudioStore::new(dir.path().join("real"));
+        let blocking = derived_dir(&dir.path().join("real")).join("x.wav");
+        std::fs::create_dir_all(&blocking).unwrap();
+        let err = rebuilt.put_back(OsStr::new("x.wav"), &real).unwrap_err();
+        assert!(err.contains(&blocking.display().to_string()), "{err}");
+        assert!(blocking.is_dir());
+    }
+
+    #[test]
+    fn folder_of_needs_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        let store = AudioStore::new(&project);
+        // Before any folder is made: by spelling.
+        for folder in AudioFolder::ALL {
+            assert_eq!(
+                store.folder_of(&folder.dir(&project).join("gone.wav")),
+                Some(folder)
+            );
+        }
+        assert_eq!(store.folder_of(&project.join("take.wav")), None);
+        // Once made: by identity, so another spelling is the same folder,
+        // and a path that only reads as one is not.
+        std::fs::create_dir_all(derived_dir(&project)).unwrap();
+        let roundabout = derived_dir(&project)
+            .join("..")
+            .join(DERIVED_DIR)
+            .join("gone.wav");
+        assert_eq!(store.folder_of(&roundabout), Some(AudioFolder::Derived));
+        let other = derived_dir(&dir.path().join("other")).join("gone.wav");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        assert_eq!(store.folder_of(&other), None, "another project's");
+        let nested = derived_dir(&project).join("sub").join("gone.wav");
+        assert_eq!(store.folder_of(&nested), None);
+        assert_eq!(store.folder_of(&derived_dir(&project).join("..")), None);
+    }
+
+    #[test]
+    fn an_owned_file_says_where_it_is_in_its_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AudioStore::new(dir.path());
+        for folder in AudioFolder::ALL {
+            let path = file_at(&folder.dir(dir.path()), "a.wav", b"x");
+            let rel = store.owns(&path).unwrap().in_project();
+            assert_eq!(rel, folder.dir(Path::new("")).join("a.wav"));
+            assert_eq!(dir.path().join(&rel), path);
+        }
+    }
+
+    /// A clip whose `content_hash` is the blake3 of the samples alone.
+    fn clip_of(path: PathBuf, hash: Option<[u8; 32]>) -> Clip {
+        Clip {
+            source_path: path,
+            start_in_track: 0,
+            source_offset: 0,
+            length: 1,
+            content_hash: hash,
+            time_stretch_factor: None,
+            pitch_shift_semitones: None,
+            beat_grid: None,
+            volume_envelope: Vec::new(),
+            volume_envelope_frames: Default::default(),
+        }
+    }
+
+    fn node_with(clips: Vec<Clip>) -> SessionNode {
+        use crate::state::{BusGraph, SessionState, TempoMap, Track, TrackId};
+        let state = SessionState {
+            tracks: vec![Track {
+                id: TrackId(uuid::Uuid::nil()),
+                name: "Vox".into(),
+                clips,
+                gain_db: 0.0,
+                pan: 0.0,
+                muted: false,
+                soloed: false,
+                effects: Vec::new(),
+                sends: Vec::new(),
+            }],
+            bus_routing: BusGraph::default(),
+            master_chain: Vec::new(),
+            tempo_map: TempoMap::default(),
+            key_map: None,
+            transcript: None,
+            sample_rate: 48_000,
+            length_samples: 1,
+            annotations: Vec::new(),
+            sync_lock: false,
+        };
+        SessionNode {
+            id: crate::NodeId([0; 32]),
+            parent: None,
+            created_at: chrono::Utc::now(),
+            label: None,
+            reasoning: None,
+            state,
+            op: None,
+        }
+    }
+
+    /// The names a replay's file answers to (#620): its own, and the name
+    /// its samples had before #620 when a clip of the scratch project names
+    /// it with that `content_hash`; a clip of another project's audio (what
+    /// the step read) teaches it nothing.
+    #[test]
+    fn a_rebuilt_file_answers_to_its_name_and_the_older_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let scratch = dir.path().join("scratch");
+        let s = samples();
+        let name = AudioName::of_samples(&s, 48_000, 1);
+        let store = AudioStore::new(&scratch);
+        let written = store
+            .put_with(AudioFolder::Derived, &name, |tmp| {
+                std::fs::write(tmp, b"rebuilt").map_err(|e| e.to_string())
+            })
+            .unwrap();
+        // The step read a file of the real project, which has a hash too.
+        let read = file_at(&derived_dir(&dir.path().join("real")), "read.wav", b"r");
+        let nodes = [node_with(vec![
+            clip_of(written.clone(), Some(legacy_sample_hash(&s))),
+            clip_of(read, Some([7; 32])),
+        ])];
+        let rebuilt = store.rebuilt(&nodes);
+
+        let own = OsString::from(format!("{MONO_48K}.wav"));
+        let older = OsString::from(format!("{LEGACY}.wav"));
+        assert_eq!(rebuilt.produced().iter().collect::<Vec<_>>(), [&own]);
+        let mut names: Vec<_> = rebuilt.names().cloned().collect();
+        names.sort();
+        let mut want = vec![own.clone(), older.clone()];
+        want.sort();
+        assert_eq!(names, want, "the step's input is not among them");
+
+        // Put back under each recorded name, into the real project.
+        let real = AudioStore::new(dir.path().join("real"));
+        for recorded in [&own, &older] {
+            let put = rebuilt.put_back(recorded, &real).unwrap().expect("answers");
+            assert_eq!(put, derived_dir(&dir.path().join("real")).join(recorded));
+            assert_eq!(std::fs::read(&put).unwrap(), b"rebuilt");
+        }
+        assert_eq!(
+            rebuilt.put_back(OsStr::new("other.wav"), &real).unwrap(),
+            None,
+            "a name nothing answers to"
+        );
+        // A file already there is kept.
+        let kept = derived_dir(&dir.path().join("real")).join(&own);
+        std::fs::write(&kept, b"there first").unwrap();
+        rebuilt.put_back(&own, &real).unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), b"there first");
+        let left: Vec<_> = std::fs::read_dir(kept.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .filter(|n| n.to_string_lossy().ends_with(".part"))
+            .collect();
+        assert!(left.is_empty(), "no staging file left: {left:?}");
+    }
+
+    /// A clip with no `content_hash`, or one equal to its file's own name,
+    /// adds no older name.
+    #[test]
+    fn a_rebuilt_file_with_no_older_name_answers_to_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AudioStore::new(dir.path());
+        let a = file_at(&derived_dir(dir.path()), "a.wav", b"a");
+        let b = file_at(&derived_dir(dir.path()), &format!("{LEGACY}.wav"), b"b");
+        let hash = *blake3::Hash::from_hex(LEGACY).unwrap().as_bytes();
+        let rebuilt = store.rebuilt(&[node_with(vec![clip_of(a, None), clip_of(b, Some(hash))])]);
+        assert_eq!(rebuilt.names().count(), 2);
+        assert_eq!(rebuilt.produced().len(), 2);
     }
 
     #[test]
