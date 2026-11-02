@@ -60,6 +60,7 @@ import { ToolProgressBar } from "./components/ToolProgressBar";
 import { TranscriptPane } from "./components/TranscriptPane";
 import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
+import { hasOpenDialog } from "./hooks/useDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { AppHeader } from "./components/AppHeader";
 import { EmptyState } from "./components/EmptyState";
@@ -489,7 +490,49 @@ function AppSession() {
   // play/pause; Home/End jump to start/end; ←/→ seek 5 s; Shift+←/→
   // seek 1 s.
   useEffect(() => {
+    const handleTimelineKey = (e: KeyboardEvent) => {
+      const t = timelineRef.current;
+      if (!t) return;
+      if (e.key === " ") {
+        e.preventDefault();
+        // One press toggles once, even when the key is held (#431).
+        if (!e.repeat) t.togglePlay();
+      } else if (e.key === "Home") {
+        e.preventDefault(); t.seekTo(0);
+      } else if (e.key === "End") {
+        e.preventDefault(); t.seekTo(t.getDuration());
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault(); t.seekBy(e.shiftKey ? -1 : -5);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault(); t.seekBy(e.shiftKey ? 1 : 5);
+      } else {
+        handleViewKey(e, t);
+      }
+    };
+    const handleViewKey = (e: KeyboardEvent, t: NonNullable<typeof timelineRef.current>) => {
+      if (e.key === "Escape" && selection && !showShortcuts && !showTemplatePicker) {
+        e.preventDefault(); setSelection(null);
+      } else if (e.key === "+" || e.key === "=") {
+        e.preventDefault(); setZoomPxPerSec((z) => Math.min(z + 40, 2000));
+      } else if (e.key === "-") {
+        e.preventDefault(); setZoomPxPerSec((z) => Math.max(z - 40, 0));
+      } else if (e.key === "0") {
+        e.preventDefault(); setZoomPxPerSec(0);
+      } else if ((e.key === "e" || e.key === "E") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault(); t.zoomToSelection();
+      } else if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault(); t.fitToWindow();
+      }
+    };
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+K closes the palette as well as opening it, so it is
+      // answered before the open-dialog check below stands the app down.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K") && paletteOpen) {
+        e.preventDefault();
+        setPaletteOpen(false);
+        return;
+      }
+      if (hasOpenDialog()) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName ?? "";
       const isTyping =
@@ -522,14 +565,13 @@ function AppSession() {
       // text-editing key, so intercepting it there costs nothing.
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setPaletteOpen((open) => !open);
+        setPaletteOpen(true);
         return;
       }
-      // Not over the template picker: window listeners cannot stop one
-      // another, so one Escape would close both overlays.
+      // The picker can be opening before its dialog has mounted.
       if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping && !showTemplatePicker) {
         e.preventDefault();
-        if (!showShortcuts) setShowShortcuts(true);
+        setShowShortcuts(true);
         return;
       }
       if ((e.key === "l" || e.key === "L") && !isTyping) {
@@ -537,59 +579,11 @@ function AppSession() {
         setLoopActive((v) => !v);
         return;
       }
-      const t = timelineRef.current;
-      if (!t) return;
-      if (e.key === " " && !isTyping) {
-        e.preventDefault();
-        // A held key repeats, and each repeat is a toggle: it would start
-        // a play, cancel it, and start a render again. One press, one
-        // toggle (#431).
-        if (!e.repeat) t.togglePlay();
-      } else if (e.key === "Home" && !isTyping) {
-        e.preventDefault();
-        t.seekTo(0);
-      } else if (e.key === "End" && !isTyping) {
-        e.preventDefault();
-        t.seekTo(t.getDuration());
-      } else if (e.key === "ArrowLeft" && !isTyping) {
-        e.preventDefault();
-        t.seekBy(e.shiftKey ? -1 : -5);
-      } else if (e.key === "ArrowRight" && !isTyping) {
-        e.preventDefault();
-        t.seekBy(e.shiftKey ? 1 : 5);
-      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts && !showTemplatePicker) {
-        e.preventDefault();
-        setSelection(null);
-      } else if ((e.key === "+" || e.key === "=") && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec((z) => Math.min(z + 40, 2000));
-      } else if (e.key === "-" && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec((z) => Math.max(z - 40, 0));
-      } else if (e.key === "0" && !isTyping) {
-        e.preventDefault();
-        setZoomPxPerSec(0);
-      } else if (
-        (e.key === "e" || e.key === "E") &&
-        (e.metaKey || e.ctrlKey) &&
-        !isTyping
-      ) {
-        // Audacity's Ctrl+E. Frames the selection rather than leaving
-        // the user to zoom and then hunt for it.
-        e.preventDefault();
-        t.zoomToSelection();
-      } else if (
-        (e.key === "f" || e.key === "F") &&
-        (e.metaKey || e.ctrlKey) &&
-        !isTyping
-      ) {
-        e.preventDefault();
-        t.fitToWindow();
-      }
+      if (!isTyping) handleTimelineKey(e);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, showShortcuts, showTemplatePicker, handleUndo, handleRedo]);
+  }, [selection, showShortcuts, showTemplatePicker, paletteOpen, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;

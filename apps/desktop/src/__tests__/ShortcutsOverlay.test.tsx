@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { ShortcutsOverlay } from "../components/ShortcutsOverlay";
@@ -24,5 +24,14 @@ describe("ShortcutsOverlay", () => {
     const user = userEvent.setup();
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("closes on a backdrop click but not a click inside the dialog", () => {
+    const onClose = vi.fn();
+    render(<ShortcutsOverlay open onClose={onClose} />);
+    fireEvent.click(screen.getByRole("dialog", { name: "Keyboard Shortcuts" }));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("shortcuts-overlay"));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

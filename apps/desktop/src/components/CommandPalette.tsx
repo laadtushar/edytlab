@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { isTopDialog, useDialog } from "../hooks/useDialog";
 import { usePresence } from "../hooks/usePresence";
 
 export interface CommandPaletteProps {
@@ -215,6 +216,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
   const { mounted, leaving, onAnimationEnd } = usePresence(open);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const { dialogProps, headingId, ref: dialogRef } = useDialog(open && mounted, onClose);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -222,7 +224,6 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
     if (open) {
       setQuery("");
       setActiveIdx(0);
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
 
@@ -262,7 +263,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { onClose(); return; }
+      if (!isTopDialog(dialogRef.current) || e.target !== inputRef.current) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setActiveIdx((i) => Math.min(i + 1, flatFiltered.length - 1));
@@ -282,7 +283,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, onSelect, flatFiltered, activeIdx]);
+  }, [open, onClose, onSelect, flatFiltered, activeIdx, dialogRef]);
 
   if (!mounted) return null;
 
@@ -295,15 +296,18 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
   return (
     <div
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]`}
-      // A pointer-only way out; Escape closes the palette (the key handler above).
+      inert={!open}
+      aria-hidden={!open ? true : undefined}
       role="presentation"
       onClick={handleBackdrop}
       onAnimationEnd={onAnimationEnd}
     >
       <div
+        {...dialogProps}
         className={`${leaving ? "overlay-out" : "overlay-in"} flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-(--shadow-dialog)`}
         style={{ maxHeight: "60vh" }}
       >
+        <h2 id={headingId} className="sr-only">Command palette</h2>
         {/* Search input */}
         <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
           <svg
