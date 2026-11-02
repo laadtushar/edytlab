@@ -272,6 +272,7 @@ pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// 10 s", "find the loudest part"); only "marker" names those tools.
 const GENERIC_TOKENS: &[&str] = &[
     "track",
+    "tracks",
     "effect",
     "effects",
     "region",

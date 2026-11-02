@@ -65,6 +65,7 @@ const TOOL_LABELS: Record<string, string> = {
   // Tracks
   add_track: "Add track",
   remove_track: "Remove track",
+  reorder_tracks: "Reorder tracks",
   rename_track: "Rename track",
   duplicate_track: "Duplicate track",
   mute_track: "Mute track",
