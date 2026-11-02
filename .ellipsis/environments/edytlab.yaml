@@ -1,0 +1,303 @@
+# Ellipsis environment for edytlab (https://www.ellipsis.dev/docs/environments).
+#
+# What a session gets: the toolchains CI uses (Rust from rust-toolchain.toml,
+# cargo-nextest 0.9.146, Node 24, pnpm from packageManager), the Tauri system
+# libraries of CI's Linux leg, every JavaScript dependency (the pnpm workspace
+# and the separate website/), Playwright's Chromium, the pinned ONNX Runtime,
+# and the Rust workspace already compiled for clippy and for the tests, so
+# the acceptance gates in CLAUDE.md run without a cold build.
+#
+# Each hook has 10 minutes (build_base, after_checkout) or 5 (validate). A
+# cold build of the workspace measured 2 min 03 s (clippy) + 3 min 21 s
+# (tests) on CI's 4-vCPU runner (run 40463386782, "No cache found"), so
+# build_base compiles the third-party crates once, against stub sources, and
+# after_checkout compiles only the 19 workspace crates (3 min 02 s on the same
+# runner with the dependencies cached, run 41446289041).
+#
+# No secrets: every test that needs a key is #[ignore]d, and ci.yml sets none.
+
+ellipsis:
+  kind: environment
+  name: edytlab
+  description: Tauri 2 audio editor - Rust workspace, React frontend, website, Playwright Chromium.
+
+repositories:
+  - name: edytlab
+
+# CI's env block (.github/workflows/ci.yml), so the agent's cargo builds the
+# same artifacts setup did. Changing any of these rebuilds everything.
+variables:
+  - name: CARGO_INCREMENTAL
+    value: '0'
+  - name: CARGO_PROFILE_DEV_DEBUG
+    value: '0'
+  - name: CARGO_PROFILE_TEST_DEBUG
+    value: '0'
+  - name: RUST_BACKTRACE
+    value: short
+
+hooks:
+  build_base:
+    # Every repository file this script reads, and nothing else is present
+    # while it runs. A new workspace crate needs its Cargo.toml added here;
+    # the stub step below fails and names it otherwise.
+    inputs:
+      - edytlab/rust-toolchain.toml
+      - edytlab/.cargo/config.toml
+      - edytlab/Cargo.toml
+      - edytlab/Cargo.lock
+      - edytlab/apps/cli/Cargo.toml
+      - edytlab/apps/desktop/src-tauri/Cargo.toml
+      - edytlab/crates/agent_profiles/Cargo.toml
+      - edytlab/crates/ai/Cargo.toml
+      - edytlab/crates/audio-analysis/Cargo.toml
+      - edytlab/crates/audio-decoder/Cargo.toml
+      - edytlab/crates/audio-dsp/Cargo.toml
+      - edytlab/crates/audio-engine/Cargo.toml
+      - edytlab/crates/audio-time/Cargo.toml
+      - edytlab/crates/mcp/Cargo.toml
+      - edytlab/crates/memory/Cargo.toml
+      - edytlab/crates/ml-demucs/Cargo.toml
+      - edytlab/crates/ml-diarize/Cargo.toml
+      - edytlab/crates/ml-pipeline/Cargo.toml
+      - edytlab/crates/ml-whisper/Cargo.toml
+      - edytlab/crates/recorder/Cargo.toml
+      - edytlab/crates/session/Cargo.toml
+      - edytlab/crates/skills/Cargo.toml
+      - edytlab/crates/tools/Cargo.toml
+      - edytlab/package.json
+      - edytlab/pnpm-workspace.yaml
+      - edytlab/pnpm-lock.yaml
+      - edytlab/apps/desktop/package.json
+      - edytlab/website/package.json
+      - edytlab/website/pnpm-lock.yaml
+      - edytlab/website/.npmrc
+      - edytlab/scripts/fetch-ml-runtime.sh
+      - edytlab/apps/desktop/src-tauri/ml-runtime.json
+    run: |
+      set -u
+      cd /sandbox/edytlab
+      if [ -r /etc/os-release ]; then . /etc/os-release; fi
+      echo "base image: ${PRETTY_NAME:-unknown}, $(uname -m), $(nproc) CPUs"
+
+      NODE_VERSION=24.22.2      # what CI's `node-version: 24` resolves to
+      NEXTEST_VERSION=0.9.146   # ci.yml's install-action pin
+      case "$(uname -m)" in
+        x86_64)
+          node_arch=x64
+          node_sha256=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75
+          nextest_arch=x86_64
+          nextest_sha256=682c21b777c333e96fd532e114d3a5a894e0729ab88d94c0a9f20f8419695428
+          ;;
+        aarch64)
+          node_arch=arm64
+          node_sha256=eb187837a2230d4047161ac0be008584e16b46f726e9c9490ee35dc6b17d9ba8
+          nextest_arch=aarch64
+          nextest_sha256=b2e33d7c72de7ade0ff7b3a948ac37516b24f8a836b7a8870c1f634a94be9de9
+          ;;
+        *)
+          echo "no Node/nextest pin for $(uname -m)" >&2
+          exit 1
+          ;;
+      esac
+      tmp=$(mktemp -d)
+
+      # System libraries: the list of CI's "Install Linux build deps" step,
+      # plus xz-utils for the Node archive.
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 update
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 \
+        install -y --no-install-recommends \
+        libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+        librsvg2-dev libssl-dev libasound2-dev libdbus-1-dev pkg-config xz-utils
+
+      # Node 24 (the base image has 22) in the sandbox user's home, linked
+      # into /usr/local/bin because exports do not carry between hooks.
+      curl -fsSL --retry 3 -o "$tmp/node.tar.xz" \
+        "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$node_arch.tar.xz"
+      echo "$node_sha256  $tmp/node.tar.xz" | sha256sum -c -
+      node_home="$HOME/.local/node-v$NODE_VERSION"
+      rm -rf "$node_home"
+      mkdir -p "$node_home"
+      tar -xJf "$tmp/node.tar.xz" -C "$node_home" --strip-components=1
+      for t in node npm npx corepack; do
+        sudo ln -sf "$node_home/bin/$t" "/usr/local/bin/$t"
+      done
+      hash -r
+      if [ "$(command -v node)" != /usr/local/bin/node ]; then
+        echo "another node ($(command -v node)) is ahead of /usr/local/bin on PATH" >&2
+        exit 1
+      fi
+
+      # pnpm at the version package.json's packageManager names.
+      pnpm_version=$(node -p 'require("./package.json").packageManager.replace(/^pnpm@/, "")')
+      npm install -g --prefix "$node_home" --no-fund --no-audit "pnpm@$pnpm_version"
+      for t in pnpm pnpx; do
+        sudo ln -sf "$node_home/bin/$t" "/usr/local/bin/$t"
+      done
+      hash -r
+
+      # Rust: rustup with no default, then the toolchain rust-toolchain.toml
+      # pins (channel, components, profile) from this directory.
+      curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$tmp/rustup-init.sh" https://sh.rustup.rs
+      sh "$tmp/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain none
+      "$HOME/.cargo/bin/rustup" toolchain install
+
+      # cargo-nextest, the prebuilt binary, checked against the digest
+      # taiki-e/install-action records for it (the action CI uses).
+      curl -fsSL --retry 3 -o "$tmp/nextest.tar.gz" \
+        "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$NEXTEST_VERSION/cargo-nextest-$NEXTEST_VERSION-$nextest_arch-unknown-linux-gnu.tar.gz"
+      echo "$nextest_sha256  $tmp/nextest.tar.gz" | sha256sum -c -
+      tar -xzf "$tmp/nextest.tar.gz" -C "$HOME/.cargo/bin"
+      for t in "$HOME"/.cargo/bin/*; do
+        sudo ln -sf "$t" "/usr/local/bin/$(basename "$t")"
+      done
+      hash -r
+      cargo --version
+      cargo nextest --version
+
+      # JavaScript: the workspace (root + apps/desktop), Playwright's
+      # Chromium with the system libraries it needs, and the website, which
+      # is outside the workspace with a lockfile of its own.
+      pnpm install --frozen-lockfile
+      pnpm --filter @edytlab/desktop exec playwright install --with-deps chromium
+      (cd website && pnpm install --frozen-lockfile --ignore-workspace)
+
+      # The ONNX Runtime CI's smoke step loads (x86_64 is the only Linux
+      # build pinned). Outside the checkout: ml-runtime/ is not gitignored.
+      if [ "$(uname -m)" = x86_64 ]; then
+        bash scripts/fetch-ml-runtime.sh linux-x64 "$HOME/.cache/edytlab/ml-runtime/linux-x64"
+      fi
+
+      # Third-party crates, compiled against stub sources (cargo-chef's
+      # technique): an empty lib.rs per crate, `fn main() {}` for each
+      # declared bin/test/bench/example path and, where a crate has
+      # build-dependencies, for its build script. Only files that are not
+      # inputs are written, and the trap deletes them again.
+      created="$tmp/created"
+      : > "$created"
+      cleanup() {
+        tac "$created" | while IFS= read -r p; do
+          if [ -d "$p" ]; then rmdir "$p" 2>/dev/null || true; else rm -f "$p"; fi
+        done
+      }
+      trap cleanup EXIT
+      python3 -I - "$created" <<'PY'
+      import glob, os, sys, tomllib
+
+      log = open(sys.argv[1], "a")
+
+      def make(path, text):
+          if os.path.lexists(path):
+              return
+          new_dirs, d = [], os.path.dirname(path)
+          while d and not os.path.isdir(d):
+              new_dirs.append(d)
+              d = os.path.dirname(d)
+          for d in reversed(new_dirs):
+              os.mkdir(d)
+              log.write(d + "\n")
+          with open(path, "w") as f:
+              f.write(text)
+          log.write(path + "\n")
+          log.flush()
+
+      with open("Cargo.toml", "rb") as f:
+          ws = tomllib.load(f)["workspace"]
+      members = []
+      for pattern in ws.get("members", []):
+          members += sorted(glob.glob(pattern)) if glob.has_magic(pattern) else [pattern]
+      members = [m for m in members if m not in ws.get("exclude", [])]
+      missing = [m + "/Cargo.toml" for m in members if not os.path.isfile(m + "/Cargo.toml")]
+      if missing:
+          sys.exit("add to build_base.inputs: " + ", ".join("edytlab/" + m for m in missing))
+
+      main = "fn main() {}\n"
+      default_dir = {"bin": "src/bin", "test": "tests", "bench": "benches", "example": "examples"}
+      for m in members:
+          with open(m + "/Cargo.toml", "rb") as f:
+              manifest = tomllib.load(f)
+          package = manifest.get("package", {})
+          make(os.path.join(m, manifest.get("lib", {}).get("path", "src/lib.rs")), "")
+          for kind, folder in default_dir.items():
+              for target in manifest.get(kind, []):
+                  path = target.get("path")
+                  if path is None:
+                      if kind == "bin" and target["name"] == package.get("name"):
+                          path = "src/main.rs"
+                      else:
+                          path = f"{folder}/{target['name']}.rs"
+                  make(os.path.join(m, path), main)
+          build = package.get("build")
+          if build is not False and (isinstance(build, str) or "build-dependencies" in manifest):
+              make(os.path.join(m, build if isinstance(build, str) else "build.rs"), main)
+      PY
+
+      # The same two commands after_checkout runs, so every dependency unit
+      # (features, profile, check vs. build) is the one it will ask for.
+      cargo clippy --workspace --all-targets --locked
+      cargo nextest run --workspace --no-run --locked
+
+      # Drop the stub crates' own artifacts; only the third-party ones stay.
+      # Required: a crate without a build script is fresh by mtime alone,
+      # and a checkout whose files are older than this build would link the
+      # empty stub (seen: `unresolved import audio_dsp::dynamics`). `-p`
+      # cleans by name, every version found.
+      cargo metadata --no-deps --format-version 1 --locked --offline > "$tmp/metadata.json"
+      mapfile -t names < <(python3 -I -c 'import json, sys
+      print("\n".join(p["name"] for p in json.load(open(sys.argv[1]))["packages"]))' "$tmp/metadata.json")
+      if [ "${#names[@]}" -eq 0 ]; then
+        echo "cargo metadata listed no workspace packages; not cleaning" >&2
+        exit 1
+      fi
+      clean_args=()
+      for name in "${names[@]}"; do clean_args+=(-p "$name"); done
+      cargo clean "${clean_args[@]}"
+
+  # Runs per commit on top of build_base. Safe to repeat: pnpm and cargo only
+  # redo what is out of date. A commit whose Rust does not compile still gets
+  # a session (the agent may be there to fix it), so those two steps warn
+  # instead of failing; an install that fails is an environment fault and
+  # does fail.
+  after_checkout: |
+    cd /sandbox/edytlab
+    pnpm install --frozen-lockfile --offline
+    (cd website && pnpm install --frozen-lockfile --offline --ignore-workspace)
+    if ! cargo clippy --workspace --all-targets --locked; then
+      echo "warning: cargo clippy failed at this commit; the session starts anyway" >&2
+    fi
+    if ! cargo nextest run --workspace --no-run --locked; then
+      echo "warning: the test build failed at this commit; the session starts anyway" >&2
+    fi
+
+  validate: |
+    cd /sandbox/edytlab
+    command -v cargo
+    command -v cargo-nextest
+    command -v node
+    command -v pnpm
+    channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+    rustc_version=$(rustc --version)
+    case "$rustc_version" in
+      "rustc $channel."*) echo "$rustc_version" ;;
+      *) echo "rustc is '$rustc_version', rust-toolchain.toml pins $channel" >&2; exit 1 ;;
+    esac
+    cargo clippy --version
+    cargo fmt --version
+    cargo nextest --version
+    case "$(node --version)" in
+      v24.*) node --version ;;
+      *) echo "node is $(node --version), CI uses 24" >&2; exit 1 ;;
+    esac
+    test "pnpm@$(pnpm --version)" = "$(node -p 'require("./package.json").packageManager')"
+    test -d node_modules
+    test -d apps/desktop/node_modules
+    test -d website/node_modules
+    (cd apps/desktop && node -e 'const p = require("@playwright/test").chromium.executablePath(); require("fs").accessSync(p); console.log(p)')
+    if [ "$(uname -m)" = x86_64 ]; then
+      test -f "$HOME/.cache/edytlab/ml-runtime/linux-x64/libonnxruntime.so"
+    fi
+
+compute:
+  cpu: 8
+  memory: 16GB
+  timeout: 1h
