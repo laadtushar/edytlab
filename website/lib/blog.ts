@@ -54,7 +54,7 @@ const earlierPosts: BlogPost[] = [
     slug: "ai-audio-editing-local-first",
     title: "AI Audio Editing in 2026: What Local-First Changes",
     date: "2026-05-10",
-    dateModified: "2026-10-22",
+    dateModified: "2026-11-02",
     description:
       "A cloud-based AI audio tool sends your files to someone else's servers. Here is what local-first audio editing changes, and where an LLM still comes in.",
     coverAlt:
@@ -95,7 +95,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · rubato · realfft). Every cut, gain adjustment and pitch shift runs on-device, and stem separation is built to run there too once its model ships. Only the chat conversation hits the network — and you choose which LLM provider that goes to.",
+        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · rubato · realfft). Every cut, gain adjustment and pitch shift runs on-device, and stem separation runs there too, after you download its model once (from v0.9.4). Only the chat conversation hits the network — and you choose which LLM provider that goes to.",
       },
       {
         type: "h2",
@@ -139,13 +139,13 @@ const earlierPosts: BlogPost[] = [
     slug: "stem-separation-explained-demucs",
     title: "Stem Separation Explained: How AI Isolates Vocals and Instruments",
     date: "2026-05-12",
-    dateModified: "2026-10-22",
+    dateModified: "2026-11-02",
     description:
-      "How Demucs splits a mix into vocals, drums, bass and other, what each stem is good for, and where stem separation stands in edytlab (it has not shipped yet).",
+      "How Demucs splits a mix into vocals, drums, bass and other, what each stem is good for, and how edytlab runs it on your computer (from v0.9.4).",
     coverAlt:
       "One wide waveform on the left splitting into four stacked lanes on the right, one for each stem",
     excerpt:
-      "Stem separation used to need the original multitrack session. Demucs can split a stereo mix into vocals, drums, bass and other, and it is built to run on your own machine. In edytlab the tool has not shipped yet, so this post explains the idea.",
+      "Stem separation used to need the original multitrack session. Demucs can split a stereo mix into vocals, drums, bass and other, and it runs on your own machine. In edytlab, from v0.9.4, the separate_stems tool does it after a one-time model download.",
     readTime: 6,
     tags: ["stem separation", "Demucs", "vocal isolation", "music production"],
     body: [
@@ -214,11 +214,11 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Cloud-based stem separation tools such as [LALAL.AI](https://www.lalal.ai/privacy-policy/) and [Moises](https://moises.ai/privacy/) work on files you upload to them: LALAL.AI's privacy policy says its algorithms \"analyze, process, and separate existing user-uploaded audio files\", and Moises' says it keeps \"your media and processed files\" (both read on 2026-10-22). For unreleased material — demos, client work, sync licensing tracks — read their retention terms before you upload. edytlab is built to run Demucs as a local tool call: the model runs on your machine, the stems are written to your local session, and nothing is uploaded. That inference has not shipped yet — today the separate_stems tool returns an error.",
+        text: "Cloud-based stem separation tools such as [LALAL.AI](https://www.lalal.ai/privacy-policy/) and [Moises](https://moises.ai/privacy/) work on files you upload to them: LALAL.AI's privacy policy says its algorithms \"analyze, process, and separate existing user-uploaded audio files\", and Moises' says it keeps \"your media and processed files\" (both read on 2026-10-22). For unreleased material — demos, client work, sync licensing tracks — read their retention terms before you upload. edytlab runs Demucs as a local tool call: the model runs on your machine, the stems are written into your project folder, and nothing is uploaded. The model (about 171 MB) is a one-time download you start from Settings, and the tool needs about 4 GB of free memory.",
       },
       {
         type: "callout",
-        text: 'Once it ships, the workflow in edytlab is one sentence: "separate the vocals from track 1". The agent calls the stem separation tool, Demucs runs on-device, and the separated stems appear as new tracks in your session timeline.',
+        text: 'The workflow in edytlab is one sentence: "separate the stems on track 1". The agent calls the stem separation tool and Demucs runs on-device. The four stems are written as files in your project, and the session is not changed until you ask the agent to load the one you want, which becomes a track in your timeline.',
       },
       {
         type: "h2",
@@ -230,7 +230,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "How long separation takes depends on your hardware and on the variant, and a GPU helps a great deal. edytlab has no separation speed to quote, because the tool has not shipped.",
+        text: "How long separation takes depends on your hardware and on the variant, and a GPU helps a great deal. edytlab runs on the CPU: on a four-core computer a track takes about half its own length. The stems are estimates, so each one carries a little of the others.",
       },
     ],
   },
