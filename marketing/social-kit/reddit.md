@@ -7,7 +7,7 @@ these on the same day (`calendar.md` spaces them out). Read
 [`../brand-voice.md`](../brand-voice.md) before you edit any of them.
 
 This supersedes the older text in `marketing/launch/reddit.md` for these six
-subreddits. It is up to date for v0.9.3 (2026-10-27) and uses all three DJ
+subreddits. It is up to date for v0.9.4 and uses all three DJ
 demos, and the DJ posts say the demo tracks are synthetic. (That file still
 has posts for r/audioengineering, r/podcasting and r/tauri if you want them
 later.)
@@ -16,7 +16,7 @@ later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.9.3 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.3>
+v0.9.4 <https://github.com/laadtushar/edytlab/releases/tag/v0.9.4>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -188,17 +188,15 @@ Disclosure: it's my project, and I build it with Claude Code. Many commits carry
 
 You know the feeling of landing on a repo that says "contributions welcome" and not one word about where to start? I'm trying not to do that, so here is where help would matter most.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You say what edit you want in a chat box, and an AI picks from 99 editing tools that run in a Rust engine on your machine. The model never receives your audio, only text about it. The code is here: https://github.com/laadtushar/edytlab
+edytlab is a desktop audio editor for macOS, Windows and Linux. You say what edit you want in a chat box, and an AI picks from 110 editing tools that run in a Rust engine on your machine. The model never receives your audio, only text about it. The code is here: https://github.com/laadtushar/edytlab
 
 Where I'd love a hand:
 
 - Making more effects run live. Today a gain, a limiter and three filters can sit on the master bus or a bus. Reverb, echo, EQ and the compressor still get baked into a track's audio. That's Rust work in the audio-engine and tools crates, and issue 520 has the background.
 - A Mac. The macOS build has the microphone permission set up, but nobody has checked it on a signed, notarized build. That's issue 464.
 - A Linux desktop with a locked Secret Service, to see what happens to saved keys. That's issue 497.
-- Stem separation. It isn't built yet, which is issue 385, and it's the one I'd most like to see land.
+- Stem separation. It landed in v0.9.4 and runs on your own computer, but it keeps about 2.4 GB of memory after a run, which is issue 868.
 - New audio tools or new AI providers. docs/contributing.md walks through both.
-
-Three open issues are labelled "good first issue", #846 to #848: a wah-wah effect, a curve option for fade and a mute-all-tracks tool. Each one says where in the code to start.
 
 Things this crowd will ask:
 
@@ -230,7 +228,7 @@ first and only partly on the second.
 **Title:**
 
 ```
-I built an open-source audio editor where the model calls 99 tools, with an Ollama provider. I haven't tested local models properly, so I'm asking for your results
+I built an open-source audio editor where the model calls 110 tools, with an Ollama provider. I haven't tested local models properly, so I'm asking for your results
 ```
 
 **Body:**
@@ -238,7 +236,7 @@ I built an open-source audio editor where the model calls 99 tools, with an Olla
 ```
 Disclosure: my project, MIT-licensed. I'm posting here because of the Ollama provider, and because I need data I don't have.
 
-Anyone who has pointed a small local model at a tool-calling app knows how it goes: the tool schemas alone eat the context window. I hit it with my own app. edytlab is a desktop audio editor, and the model chooses and orders calls to 99 audio tools, like EQ, fades, time-stretch, loudness and export, that run in a Rust engine on your machine. The model never receives audio, only text: the session state, measurements like tempo and loudness, and tool results.
+Anyone who has pointed a small local model at a tool-calling app knows how it goes: the tool schemas alone eat the context window. I hit it with my own app. edytlab is a desktop audio editor, and the model chooses and orders calls to 110 audio tools, like EQ, fades, time-stretch, loudness and export, that run in a Rust engine on your machine. The model never receives audio, only text: the session state, measurements like tempo and loudness, and tool results.
 
 At first a one-line request, "Make track 0 louder by 6 dB.", produced a first request of about 15,000 tokens. I pointed the Ollama provider at llama.cpp's llama-server running Qwen2.5-3B with an 8,192-token context, and it refused the request outright. The numbers are in issue 395.
 
@@ -283,7 +281,7 @@ Disclosure: my project, MIT-licensed and developed with Claude Code; the commit 
 
 I planned to use Rubber Band for time-stretching. It needs librubberband-dev on Linux, vcpkg on Windows and Homebrew on macOS, and a native dependency like that breaks every CI target at once. So I dropped it and wrote a phase vocoder on realfft instead, with onset-triggered phase resets to protect transients. The cost is written at the top of crates/audio-time/src/vocoder.rs: dense mixes smear, and the further the factor is from 1.0 the worse it gets.
 
-That's one piece of a desktop audio editor where an LLM agent calls 99 deterministic tools, a Rust workspace of 17 crates behind a Tauri 2 and React shell. A few other parts that might interest this sub:
+That's one piece of a desktop audio editor where an LLM agent calls 110 deterministic tools, a Rust workspace of 17 crates behind a Tauri 2 and React shell. A few other parts that might interest this sub:
 
 audio-dsp has no dependencies, on purpose. It's just functions over &mut [f32] plus a sample rate and channel count. It knows nothing about sessions and does no IO. It sits below both the tools crate and the renderer, so a dependency there would be a dependency everywhere. It exists because the effect algorithms used to be pub(crate) inside tools and the renderer needed them too, which meant a dependency cycle or a second copy.
 
@@ -291,7 +289,7 @@ Session state is a content-addressed DAG: a node's id is the blake3 of its state
 
 Lock discipline was the other lesson. A long tool held the store lock while synchronous Tauri commands waited on it from the main thread, and the window froze. That's #421. Those commands now run off the main thread. A tool that opts in runs on a staged store handle with no lock held and commits only if the head hasn't moved. If it has, the tool runs again on the new head, and a test pins which tools opt in.
 
-Where I'd like review: the vocoder's transient handling, and the lock discipline in the agent loop. Stem separation is still a stub.
+Where I'd like review: the vocoder's transient handling, and the lock discipline in the agent loop.
 
 Source: https://github.com/laadtushar/edytlab
 Demo recordings of DJ jobs, screen-captured from the real app: https://edytlab.com/#demos
@@ -312,9 +310,16 @@ Facts to re-check on the day:
   v0.9.0). The r/opensource post now names only 385 for the ML pieces that are
   still missing. Re-checked on 2026-10-27: 464, 497, 389, 386, 385 and 474 are
   still open; 567 (the Mac checks, passed on v0.9.0 and v0.9.1) is closed.
-- The good first issue sentence names #846 to #848, which carried the label and
-  were open when checked on 2026-11-01. Re-check that they are still open (and
-  still labelled) before posting r/opensource; edit the sentence if one has been taken.
+  Re-checked on 2026-11-02, for v0.9.4: 385 (stem separation, which ships in
+  v0.9.4) and 497 are closed; 464, 389, 386 and 474 are open, and so is 868
+  (stem separation's memory after a run), which the r/opensource post now
+  names in place of 385. Its 497 bullet still points at a closed issue: the
+  owner should decide whether a locked keyring on a real desktop is still the
+  ask before posting.
+- The good first issue sentence named #846 to #848, which carried the label and
+  were open when checked on 2026-11-01. All three were done in v0.9.4 (wah-wah,
+  fade curves, mute all tracks), and on 2026-11-02 no open issue carried the
+  label, so the sentence was taken out. Add one back if new issues are labelled.
 - r/LocalLLaMA numbers: 15,157 tokens (posted as "about 15,000") and the 8,192
   context are v0.4.0's, from issue 395. The 8.7 KB / 67 KB figures are from
   `crates/ai/tests/request_size.rs` (`cargo test -p ai --test request_size --

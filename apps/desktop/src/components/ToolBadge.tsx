@@ -105,6 +105,7 @@ const TOOL_LABELS: Record<string, string> = {
   repeat_selection: "Repeat selection",
   time_shift: "Shift in time",
   truncate_silence: "Truncate silence",
+  crossfade: "Crossfade",
   set_clip_envelope: "Volume envelope",
   set_sync_lock: "Sync-lock",
   duck_under_speech: "Duck under speech",
@@ -128,6 +129,8 @@ const TOOL_LABELS: Record<string, string> = {
   // Repair
   noise_reduction: "Noise reduction",
   click_removal: "Click removal",
+  declip: "Declip",
+  repair_span: "Repair span",
   de_esser: "De-esser",
   vocal_reduction: "Vocal reduction",
 

@@ -21,8 +21,8 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_track_index, load_head_state, seconds_to_frames, set_session_length,
-    shift_track_transcript, timeline_end, track_clip_rate,
+    append_state, check_track_index, load_head_state, parse_args, seconds_to_frames,
+    set_session_length, shift_track_transcript, timeline_end, track_clip_rate,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -68,9 +68,9 @@ impl Tool for AlignEndToEndTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if !args.gap_sec.is_finite() || args.gap_sec < 0.0 {
             return Ok(ToolResult::Error(format!(

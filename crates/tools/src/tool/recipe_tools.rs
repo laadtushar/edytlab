@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 
 use crate::recipe;
 use crate::schema::anthropic_tool;
+use crate::tool::util::parse_args;
 use crate::{Tool, ToolContext, ToolResult};
 
 pub struct ExportRecipeTool;
@@ -57,9 +58,9 @@ impl Tool for ExportRecipeTool {
             #[serde(default)]
             name: Option<String>,
         }
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let Some(head) = ctx.store.head() else {
@@ -165,9 +166,9 @@ impl Tool for ApplyRecipeTool {
             #[serde(default)]
             dry_run: bool,
         }
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let text = match std::fs::read_to_string(&args.path) {

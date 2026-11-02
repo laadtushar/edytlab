@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TemplatePickerModal } from "../components/TemplatePickerModal";
@@ -53,7 +53,19 @@ describe("TemplatePickerModal", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("takes focus when it opens and gives it back when it closes", () => {
+  it("closes on a backdrop click but not a click inside the dialog", () => {
+    const onClose = vi.fn();
+    render(<TemplatePickerModal open templates={TEMPLATES} onSelect={vi.fn()} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog", { name: "Start from template" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    const backdrop = dialog.parentElement;
+    if (!backdrop) throw new Error("Missing backdrop");
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("takes focus when it opens and gives it back when it closes", async () => {
     const trigger = document.createElement("button");
     document.body.appendChild(trigger);
     trigger.focus();
@@ -61,7 +73,7 @@ describe("TemplatePickerModal", () => {
     const { rerender } = render(<TemplatePickerModal open {...props} />);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
     rerender(<TemplatePickerModal open={false} {...props} />);
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
     trigger.remove();
   });
 
@@ -76,7 +88,7 @@ describe("TemplatePickerModal", () => {
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" })),
     );
     rerender(<TemplatePickerModal open={false} {...props} />);
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
     trigger.remove();
   });
 });

@@ -2,7 +2,7 @@
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, insert_gap_timeline, load_head_state, remap_after_insert,
+    destructive_edit_then, insert_gap_timeline, load_head_state, parse_args, remap_after_insert,
     seconds_to_frames, sync_other_tracks, track_channels, track_clip_rates, Moved,
 };
 use crate::{Tool, ToolContext, ToolResult};
@@ -110,9 +110,9 @@ impl Tool for InsertSilenceTool {
             duration: f64,
         }
 
-        let parsed: Args = match serde_json::from_value(args) {
+        let parsed: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let at = parsed.at;

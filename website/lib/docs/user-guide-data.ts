@@ -35,10 +35,11 @@ export const guidePages: GuidePage[] = [
     slug: "sessions-and-tracks",
     title: "Sessions and Tracks",
     summary:
-      "The session graph, undo and redo, and how audio is loaded onto tracks and mixed with lane controls.",
+      "The session graph, undo and redo, how audio is loaded onto tracks and mixed with lane controls, and recording and punching in.",
     headings: [
       { id: "sessions-and-the-session-graph", title: "Sessions and the Session Graph" },
       { id: "tracks", title: "Tracks" },
+      { id: "recording-and-punching-in", title: "Recording and Punching In" },
     ],
   },
   {
@@ -69,10 +70,11 @@ export const guidePages: GuidePage[] = [
   {
     slug: "speech",
     title: "Stem Separation and Transcription",
-    summary: "What stem separation does today, transcribing speech, and finding who speaks when, with models you download.",
+    summary: "Separating stems, transcribing speech, exporting captions and markers, and finding who speaks when, with models you download.",
     headings: [
       { id: "stem-separation", title: "Stem Separation" },
       { id: "transcription", title: "Transcription" },
+      { id: "transcript-export-and-markers", title: "Transcript Export and Markers" },
       { id: "speakers", title: "Who Speaks When" },
     ],
   },

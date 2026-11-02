@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, check_track_index, load_head_state, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -34,9 +34,9 @@ impl Tool for SetTrackGainTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         if !args.db.is_finite() {

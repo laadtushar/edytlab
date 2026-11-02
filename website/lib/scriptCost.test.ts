@@ -23,7 +23,7 @@
  * cannot undo it unnoticed.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -191,6 +191,46 @@ describe("the polyfills Next puts in every page", () => {
       for (const [name, file] of files) {
         expect(/canParse/.test(readFileSync(join(iconsDir, file!), "utf8")), `lucide icon ${name}`).toBe(false);
       }
+    }
+  });
+});
+
+describe("Sentry's browser code and the polyfills Next leaves out (#958)", () => {
+  /**
+   * The browser SDK, `@sentry/react` (loaded through `lib/sentry-browser.ts`
+   * only when the build has a DSN), does mention `URL.canParse`, which the
+   * alias above leaves unpolyfilled for Chrome 111 to 119, Firefox 111 to 114
+   * and Safari 16.4 to 16.x. Every mention is behind `"canParse" in URL`, so
+   * on those browsers it falls back to `new URL` and nothing throws.
+   */
+  it("calls URL.canParse only where the browser has it", () => {
+    const browserPackages = ["@sentry/react", "@sentry/core", "@sentry/browser", "@sentry/browser-utils"];
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.m?js$/.test(entry.name) && /canParse/.test(readFileSync(path, "utf8"))) files.push(path);
+      }
+    };
+    // Each package's own copy, found beside the package that depends on it in
+    // pnpm's store (they are not the site's dependencies, so not hoisted):
+    // `@sentry/react` needs `@sentry/core` and `@sentry/browser`, which needs
+    // `@sentry/browser-utils`.
+    const beside = (from: string, name: string) => realpathSync(join(from, "..", "..", name));
+    const react = realpathSync(join(ROOT, "node_modules/@sentry/react"));
+    const browser = beside(react, "@sentry/browser");
+    const dirs = [react, beside(react, "@sentry/core"), browser, beside(browser, "@sentry/browser-utils")];
+    expect(dirs.map((d) => JSON.parse(readFileSync(join(d, "package.json"), "utf8")).name)).toEqual(browserPackages);
+    // `@sentry/browser` keeps its modules one folder deeper than the others.
+    for (const dir of dirs) walk(join(dir, existsSync(join(dir, "build/esm")) ? "build/esm" : "build/npm/esm"));
+    // `@sentry/core` has a guarded call today; finding none means the scan lost it.
+    expect(files.length, "no file mentions URL.canParse: has this scan lost them?").toBeGreaterThan(0);
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const calls = source.match(/URL\.canParse\(/g) ?? [];
+      const guarded = source.match(/"canParse" in URL && !?URL\.canParse\(/g) ?? [];
+      expect(guarded.length, file).toBe(calls.length);
     }
   });
 });

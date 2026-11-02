@@ -1,7 +1,7 @@
 //! Fade-in / fade-out within a region, with an optional gain curve.
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit, track_channels};
+use crate::tool::util::{destructive_edit, parse_args, track_channels};
 use crate::util::range_resolver::{resolve as resolve_range, RangeError};
 use crate::{Range, Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -222,9 +222,9 @@ impl Tool for FadeTool {
             curve: Curve,
         }
 
-        let parsed: Args = match serde_json::from_value(args) {
+        let parsed: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let range = match crate::util::range_resolver::resolve(parsed.range, ctx.user_message, true)

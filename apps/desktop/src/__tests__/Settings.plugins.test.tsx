@@ -2,6 +2,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 vi.mock('../lib/tauri-bridge', () => ({
+  // The Send crash reports row (#958), off in a build that cannot send.
+  getCrashReports: () => Promise.resolve({ enabled: false, available: false }),
+  setCrashReports: vi.fn(),
   installPlugin: vi.fn(),
   clearApiKey: vi.fn().mockResolvedValue(undefined),
   listModelsFor: vi

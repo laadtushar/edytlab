@@ -21,9 +21,11 @@ Source <https://github.com/laadtushar/edytlab>
 2. Say you made it, in the first sentence.
 3. Put the link where the rules allow (post body or first comment). If links
    are banned in posts, drop it in a comment only when asked.
-4. Do not mention stem separation as a feature anywhere. It does not work.
-   Transcription works from v0.8.0 after the user downloads the speech model;
-   say that, and say what it was checked on (see `marketing/README.md`).
+4. Stem separation works from v0.9.4 after the user downloads the stem model
+   (about 171 MB) in Settings → Account; say that, and say the stems are
+   estimates (see `marketing/README.md`). Transcription works from v0.8.0
+   after the user downloads the speech model; say that, and say what it was
+   checked on (see `marketing/README.md`).
 5. Stay for the replies. A drive-by post reads as spam.
 6. If the sub asks whether AI helped build the project, say yes. It did: the
    repo is developed with Claude Code.
@@ -127,7 +129,7 @@ holds up only if the rules allow it.
 >
 > The idea is simple. The model gets a text description of the session: tracks,
 > levels and effects, plus what its analysis tools measure, like tempo, key,
-> beat grid and EBU R128 loudness. It also gets a list of 99 tools. It picks and orders the tools, and
+> beat grid and EBU R128 loudness. It also gets a list of 110 tools. It picks and orders the tools, and
 > the tools do the audio work, in Rust, on your machine. The same tool call on
 > the same file gives the same bytes. The model's choice of calls is not
 > deterministic, but the processing is, and the model never hears or sees a
@@ -197,14 +199,14 @@ calling, and quantisation. They want real numbers, not slogans. Do not claim
 any model works unless you have tried it.
 
 **Title:**
-`Open-source desktop app where a local model (Ollama) edits audio by calling 99 tools. Which tool-calling models can handle it?`
+`Open-source desktop app where a local model (Ollama) edits audio by calling 110 tools. Which tool-calling models can handle it?`
 
 **Body:**
 
 > Disclosure: my project, MIT-licensed.
 >
 > edytlab is a desktop audio editor you drive by chatting. The model chooses
-> and orders calls to 99 audio tools, and the DSP runs in Rust on your machine.
+> and orders calls to 110 audio tools, and the DSP runs in Rust on your machine.
 > Ollama is one of the AI providers you can pick. It needs no key, the chat
 > stays on your computer too, and the Test button in Settings checks that the
 > model can call tools.
@@ -251,7 +253,7 @@ truth.
 > commit trailers say so.
 >
 > This is the Rust side of a desktop audio editor that an LLM agent drives
-> through 99 tools. I'd like review more than praise, so here is how it's put
+> through 110 tools. I'd like review more than praise, so here is how it's put
 > together.
 >
 > The DSP lives in `audio-dsp`, which has no dependencies on purpose. It's
@@ -278,7 +280,8 @@ truth.
 > lock and freeze the window, #421. Now a tool that opts in runs without the
 > lock and commits only if the head hasn't moved, and runs again if it has.
 >
-> Stem separation is a stub, not built.
+> Stem separation is HT-Demucs v4 on ONNX Runtime, run on the user's machine
+> once they download the model in Settings; the stems are estimates.
 >
 > Source: https://github.com/laadtushar/edytlab
 > Site and demo: https://edytlab.com
