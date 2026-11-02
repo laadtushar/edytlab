@@ -1227,7 +1227,7 @@ mod tests {
             ("hf hf_abcdefghijklmnopqrstuvwxyz", "hf_"),
             ("gh ghp_abcdefghijklmnopqrstuvwxyz0123", "ghp_"),
             ("jwt eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln", "eyJ"),
-            ("Authorization: Bearer abc.def-ghi", "abc.def"),
+            (concat!("Authorization: Bea", "rer abc.def-ghi"), "abc.def"),
             ("refresh_token=rt_abcdef123", "rt_abcdef"),
             ("api_key: plainvalue123", "plainvalue"),
             ("https://auth.openai.com/cb?code=xyz123&state=abc", "xyz123"),

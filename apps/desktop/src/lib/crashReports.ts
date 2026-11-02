@@ -70,12 +70,13 @@ export function forwardWebviewErrors(target: Window = window, send: Send = repor
     if (seen.has(key) || forwarded >= MAX_REPORTS) return;
     seen.add(key);
     forwarded += 1;
-    // A report that cannot be handed over is not a new error to report.
-    try {
-      void send(report).catch(() => undefined);
-    } catch {
-      // `invoke` outside Tauri (a test, a plain browser) throws at once.
-    }
+    // A report that cannot be handed over is not a new error to report:
+    // a rejection, or `invoke` throwing at once outside Tauri (a test, a
+    // plain browser), ends here.
+    // The executor runs at once, so the report is handed over now.
+    new Promise<void>((resolve) => {
+      resolve(send(report));
+    }).catch(() => undefined);
   };
 
   const onError = (event: ErrorEvent) => {

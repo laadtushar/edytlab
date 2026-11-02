@@ -52,7 +52,8 @@ export const DROPPED_INTEGRATIONS = [
 
 /** A URL without its query string and fragment. */
 function withoutQuery(url: string): string {
-  return url.replace(/[?#].*$/, "");
+  const end = url.search(/[?#]/);
+  return end === -1 ? url : url.slice(0, end);
 }
 
 /**
