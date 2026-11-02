@@ -493,39 +493,35 @@ function AppSession() {
     const handleTimelineKey = (e: KeyboardEvent) => {
       const t = timelineRef.current;
       if (!t) return;
-      switch (e.key) {
-        case " ":
-          e.preventDefault();
-          // One press toggles once, even when the key is held (#431).
-          if (!e.repeat) t.togglePlay();
-          break;
-        case "Home": e.preventDefault(); t.seekTo(0); break;
-        case "End": e.preventDefault(); t.seekTo(t.getDuration()); break;
-        case "ArrowLeft": e.preventDefault(); t.seekBy(e.shiftKey ? -1 : -5); break;
-        case "ArrowRight": e.preventDefault(); t.seekBy(e.shiftKey ? 1 : 5); break;
-        default: handleViewKey(e, t);
+      if (e.key === " ") {
+        e.preventDefault();
+        // One press toggles once, even when the key is held (#431).
+        if (!e.repeat) t.togglePlay();
+      } else if (e.key === "Home") {
+        e.preventDefault(); t.seekTo(0);
+      } else if (e.key === "End") {
+        e.preventDefault(); t.seekTo(t.getDuration());
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault(); t.seekBy(e.shiftKey ? -1 : -5);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault(); t.seekBy(e.shiftKey ? 1 : 5);
+      } else {
+        handleViewKey(e, t);
       }
     };
     const handleViewKey = (e: KeyboardEvent, t: NonNullable<typeof timelineRef.current>) => {
-      switch (e.key) {
-        case "Escape":
-          if (selection && !showShortcuts && !showTemplatePicker) {
-            e.preventDefault();
-            setSelection(null);
-          }
-          break;
-        case "+":
-        case "=": e.preventDefault(); setZoomPxPerSec((z) => Math.min(z + 40, 2000)); break;
-        case "-": e.preventDefault(); setZoomPxPerSec((z) => Math.max(z - 40, 0)); break;
-        case "0": e.preventDefault(); setZoomPxPerSec(0); break;
-        case "e":
-        case "E":
-          if (e.metaKey || e.ctrlKey) { e.preventDefault(); t.zoomToSelection(); }
-          break;
-        case "f":
-        case "F":
-          if (e.metaKey || e.ctrlKey) { e.preventDefault(); t.fitToWindow(); }
-          break;
+      if (e.key === "Escape" && selection && !showShortcuts && !showTemplatePicker) {
+        e.preventDefault(); setSelection(null);
+      } else if (e.key === "+" || e.key === "=") {
+        e.preventDefault(); setZoomPxPerSec((z) => Math.min(z + 40, 2000));
+      } else if (e.key === "-") {
+        e.preventDefault(); setZoomPxPerSec((z) => Math.max(z - 40, 0));
+      } else if (e.key === "0") {
+        e.preventDefault(); setZoomPxPerSec(0);
+      } else if ((e.key === "e" || e.key === "E") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault(); t.zoomToSelection();
+      } else if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault(); t.fitToWindow();
       }
     };
     const onKey = (e: KeyboardEvent) => {

@@ -1,25 +1,31 @@
-/** The "export-and-memory" page of the user guide: moved from the one long page, unchanged. */
+/** The "export-and-memory" page of the user guide: moved from the one long page. */
 export function ExportAndMemory() {
   return (
     <>
       <h2 id="export">Export</h2>
-      <p>Export the session to a WAV, FLAC or MP3 file:</p>
       <ul>
         <li>
-          <strong>Full session:</strong>{" "}
-          <code>export to /Users/me/Desktop/final.wav</code>
+          <strong>Full session:</strong> ask for it, as a WAV, AIFF, FLAC,
+          MP3 or OGG (Opus) file:{" "}
+          <code>export to /Users/me/Desktop/final.mp3</code>
         </li>
         <li>
-          <strong>Selection only:</strong> select a region on the waveform, then{" "}
-          <code>export the selection to /path/output.wav</code>
+          <strong>Selection only:</strong> select a region on the waveform,
+          then <code>export the selection to /Users/me/Desktop/take.flac</code>,
+          in any of the same formats. <strong>Export Selection</strong> above
+          the chat also writes a WAV of the region.
         </li>
         <li>
           <strong>Specific range:</strong>{" "}
-          <code>export seconds 30 to 90 to /path/chorus.wav</code>
+          <code>export seconds 30 to 90 to /Users/me/Desktop/chorus.mp3</code>
         </li>
       </ul>
       <p>
         Exports do not change the session graph, so you can export any node.
+        An export is refused if its path is audio the project itself plays or
+        stores (a file you loaded, or anything inside the project&rsquo;s{" "}
+        <code>.audiograph</code> or <code>generated</code> folders), because
+        it would replace that audio; choose another path.
       </p>
 
       <h2 id="memory">Memory</h2>

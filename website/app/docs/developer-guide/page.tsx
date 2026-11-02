@@ -100,7 +100,7 @@ crates/
   audio-time/         Time-stretch and pitch-shift
   audio-analysis/     BPM, key, beat grid
   recorder/           Microphone capture to WAV; recording-latency measurement; the punch-in's monitor and take
-  ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
+  ml-demucs/          Stem separation (HT-Demucs on ONNX; run by separate_stems)
   ml-diarize/         Speaker diarization (pyannote's pipeline on ONNX; the diarize tool runs it)
   ml-whisper/         Transcription (ONNX Whisper; run by transcribe)
   ml-pipeline/        Shared ONNX runtime gate (finds the bundled library), model downloader (called by the user's Download click), inference cache
