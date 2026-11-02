@@ -1,4 +1,5 @@
 import { mkdtempSync, existsSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assert, onboard, openAudio, sleep, waitForWaveform, head } from "./helpers.mjs";
 
@@ -68,7 +69,7 @@ export default [
     async run(ctx) {
       let { d } = ctx;
       await onboard(ctx);
-      const dir = mkdtempSync("/tmp/edytlab-project-");
+      const dir = mkdtempSync(join(tmpdir(), "edytlab-project-"));
       await ctx.chooseThrough("[data-testid='new-project-button']", { path: dir });
       await d.until(async () => (await d.invoke("list_recent_projects")).some((p) => (p.path ?? p) === dir), { label: "project in recents" });
       await ctx.shot("A new, empty project");

@@ -254,5 +254,5 @@ export function shortDate(iso: string): string {
 /** The newest day any cell outside edytlab's row was read: the page's "last verified". */
 export function matrixCheckedOn(): string {
   const days = matrix.flatMap((row) => Object.values(row.cells).map((c) => c.checkedOn)).filter((d): d is string => Boolean(d));
-  return days.reduce((a, b) => (a > b ? a : b));
+  return days.reduce((a, b) => (a > b ? a : b), "");
 }
