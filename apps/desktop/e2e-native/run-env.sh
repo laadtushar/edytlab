@@ -11,13 +11,13 @@ set -euo pipefail
 # edytlab-native-<uid> in it, owner-only, refused if the name is a link, not
 # a folder, or someone else's (a fixed name in a shared folder is somewhere
 # another user can plant a link, S5443).
-if [ -z "${OUT:-}" ]; then
+if [[ -z "${OUT:-}" ]]; then
   tmp=${TMPDIR:-${TMP:-${TEMP:-/tmp}}}
-  [ "${#tmp}" -gt 1 ] && tmp=${tmp%/}
+  [[ ${#tmp} -gt 1 ]] && tmp=${tmp%/}
   OUT="$tmp/edytlab-native-$(id -u)"
   # A file under the name makes mkdir fail; the check below says why.
   mkdir -p -m 700 "$OUT" 2>/dev/null || true
-  if [ -L "$OUT" ] || [ ! -d "$OUT" ] || [ "$(stat -c %u "$OUT")" != "$(id -u)" ]; then
+  if [[ -L "$OUT" || ! -d "$OUT" || "$(stat -c %u "$OUT")" != "$(id -u)" ]]; then
     echo "run-env.sh: $OUT is not a folder of yours; set OUT to a folder you own" >&2
     exit 1
   fi
