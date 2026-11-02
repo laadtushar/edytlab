@@ -232,6 +232,18 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// the request with 60 MCP tools registered is the budget's size, and
 /// `tests/request_size.rs` holds that 500 B under the bound. About 129 B of
 /// new built-in names fit before the 400 B kept for MCP names is reached.
+/// `noise_reduction`'s three noise-range arguments (#769: `noise_from`,
+/// `noise_to`, `noise_track`) added 80 B to its slim descriptor, which took
+/// the 60-MCP-tool request inside the headroom it must keep (the request that
+/// names twenty tools had 1 B to spare, and sends `noise_reduction` whatever
+/// else fits). The budget was lowered to 1,680 B for a moment; it is back at
+/// 1,760 B because the schema was shortened instead. The slim descriptor
+/// keeps a description's first sentence and every property name and type, so
+/// the first sentence is now "Denoise a track." (the method moved to the
+/// second sentence, which only the full list carries), and `analyze_track`'s
+/// two argument descriptions, which that request also sends, are 23 B
+/// shorter. The request is 14 B inside the headroom now. `MCP_ROOM_BYTES`
+/// stays 400 B and so does the 500 B headroom.
 pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
 
 /// A tool whose description begins with this does nothing in this build

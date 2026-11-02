@@ -193,7 +193,10 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // keeping main's 34 B of headroom.
 // #771's `join_clips` and `align_end_to_end` add 1,129 B: measured 74,915 B over
 // main's 73,786 B. The ratchet rises by that delta, keeping main's 34 B of headroom.
-const FULL_TOOLS_MAX_BYTES: usize = 74_949; // main ratchet 73,820 + the 1,129 B of #771
+// #769's `noise_reduction` noise-range arguments add a net 375 B on top
+// (398 B, less the 23 B of `analyze_track`'s two argument descriptions written
+// shorter).
+const FULL_TOOLS_MAX_BYTES: usize = 75_324; // main ratchet 74,949 + the net 375 B of #769
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -788,7 +791,8 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // by that delta, keeping main's 34 B of headroom.
 // #771's two tools add 1,191 B here: measured 78,293 B over main's 77,102 B; the
 // ratchet rises by that delta, keeping main's 34 B of headroom.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 78_327; // main ratchet 77,136 + the 1,191 B of #771
+// #769's net 375 B (above) come on top.
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 78_702; // main ratchet 78,327 + the net 375 B of #769
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
