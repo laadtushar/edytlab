@@ -1,7 +1,7 @@
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     append_state, check_track_index, load_head_state, seconds_to_clip_frames, slice_envelope,
-    snap_on_clips,
+    snap_in_clip,
 };
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -118,17 +118,14 @@ impl Tool for SplitClipTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
         // Convert absolute track position to offset within clip
-        let at_frames = if args.snap_to_zero_crossing {
-            // Only the clip's own audio is split, so only it is searched; a
-            // crossing at the clip's edge would make an empty half, so the
-            // original point stands then.
-            match snap_on_clips(std::slice::from_ref(&clip), at_frames) {
-                Ok(f) if f > clip.start_in_track && f < clip.start_in_track + clip.length => f,
-                Ok(_) => at_frames,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            }
+        // Only the clip's own audio is split, so only it is searched; a
+        // crossing at the clip's edge would make an empty half, so the
+        // original point stands then.
+        let (at_frames, snap_note) = if args.snap_to_zero_crossing {
+            let s = snap_in_clip(&clip, at_frames);
+            (s.frame, s.note)
         } else {
-            at_frames
+            (at_frames, None)
         };
         let clip_at = at_frames.saturating_sub(clip.start_in_track);
         let (left, right) = match split_at(&clip, clip_at) {
@@ -150,13 +147,17 @@ impl Tool for SplitClipTool {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "node_id": new_id.to_hex(),
             "summary": format!(
                 "Split track {} clip {} at {:.3}s",
                 args.track, args.clip_index, args.at_sec
             )
-        })))
+        });
+        if let Some(note) = snap_note {
+            out["snap_note"] = note.into();
+        }
+        Ok(ToolResult::Ok(out))
     }
 }
 

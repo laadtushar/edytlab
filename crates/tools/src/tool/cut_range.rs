@@ -76,13 +76,10 @@ impl Tool for CutRangeTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
-        let (start, end) = if args.snap_to_zero_crossing {
-            match snap_range(&track.clips, start, end, track_len) {
-                Ok(p) => p,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            }
+        let (start, end, snap_note) = if args.snap_to_zero_crossing {
+            snap_range(&track.clips, start, end, track_len)
         } else {
-            (start, end)
+            (start, end, None)
         };
         let cut_len = end - start;
 
@@ -132,7 +129,7 @@ impl Tool for CutRangeTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "node_id": new_id.to_hex(),
             "removed_samples": cut_len,
             "synced_tracks": synced,
@@ -152,7 +149,11 @@ impl Tool for CutRangeTool {
                 },
                 new_id.to_hex(),
             ),
-        })))
+        });
+        if let Some(note) = snap_note {
+            out["snap_note"] = note.into();
+        }
+        Ok(ToolResult::Ok(out))
     }
 }
 

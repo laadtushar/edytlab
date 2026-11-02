@@ -67,13 +67,10 @@ impl Tool for TrimTool {
                 "track has no clips; nothing to trim".into(),
             ));
         }
-        let (start, end) = if args.snap_to_zero_crossing {
-            match snap_range(&track.clips, start, end, track_len) {
-                Ok(p) => p,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            }
+        let (start, end, snap_note) = if args.snap_to_zero_crossing {
+            snap_range(&track.clips, start, end, track_len)
         } else {
-            (start, end)
+            (start, end, None)
         };
 
         let new_length = end - start;
@@ -109,7 +106,7 @@ impl Tool for TrimTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "node_id": new_id.to_hex(),
             "kept_samples": new_length,
             // Dropping a label is the one outcome the caller has to be
@@ -129,6 +126,10 @@ impl Tool for TrimTool {
                 },
                 new_id.to_hex(),
             ),
-        })))
+        });
+        if let Some(note) = snap_note {
+            out["snap_note"] = note.into();
+        }
+        Ok(ToolResult::Ok(out))
     }
 }

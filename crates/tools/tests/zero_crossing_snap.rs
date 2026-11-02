@@ -137,3 +137,86 @@ fn ends_that_would_meet_are_left_alone() {
     );
     assert_eq!(v["removed_samples"], json!(10));
 }
+
+/// A time-stretched or pitch-shifted clip plays other samples than its file
+/// holds, so the file's crossings are not where it plays: the cut stays, and
+/// the answer says why.
+#[test]
+fn a_stretched_clip_is_not_snapped_and_the_answer_says_so() {
+    for (stretch, pitch) in [(Some(1.5), None), (None, Some(2.0))] {
+        let mut s = session();
+        let mut state = s.state();
+        state.tracks[0].clips[0].time_stretch_factor = stretch;
+        state.tracks[0].clips[0].pitch_shift_semitones = pitch;
+        s.append_state("stretch", state);
+        let v = s.ok(
+            "cut_range",
+            json!({ "track": 0, "start_sample": 1010, "end_sample": 2025, "snap_to_zero_crossing": true }),
+        );
+        assert_eq!(v["removed_samples"], json!(1015));
+        assert!(
+            v["snap_note"].as_str().unwrap().contains("not snapped"),
+            "{v}"
+        );
+    }
+}
+
+/// A track whose clips differ in channel count still cuts: a point away from
+/// the other clip snaps as usual (only the clips at the point are read), and
+/// a point where both play stays where it was, with a note, rather than
+/// failing the cut.
+#[test]
+fn clips_of_different_formats_never_fail_a_snapped_cut() {
+    let mut s = session();
+    let stereo = s.dir.path().join("stereo.wav");
+    harness::write_frames(&stereo, RATE, 2, 4000, |_| 0.25);
+    let mut state = s.state();
+    state.tracks[0].clips[0].length = 4000;
+    state.tracks[0]
+        .clips
+        .push(harness::clip(&stereo, 4000, 0, 4000));
+    s.append_state("two formats", state);
+
+    let v = s.ok(
+        "cut_range",
+        json!({ "track": 0, "start_sample": 1010, "end_sample": 2025, "snap_to_zero_crossing": true }),
+    );
+    assert_eq!(v["removed_samples"], json!(1040));
+    assert!(v.get("snap_note").is_none(), "{v}");
+
+    let mut s2 = session();
+    let mut state = s2.state();
+    let stereo = s2.dir.path().join("stereo.wav");
+    harness::write_frames(&stereo, RATE, 2, 4000, |_| 0.25);
+    state.tracks[0].clips[0].length = 4000;
+    state.tracks[0]
+        .clips
+        .push(harness::clip(&stereo, 4000, 0, 4000));
+    s2.append_state("two formats", state);
+    let v = s2.ok(
+        "cut_range",
+        json!({ "track": 0, "start_sample": 3995, "end_sample": 4005, "snap_to_zero_crossing": true }),
+    );
+    assert_eq!(v["removed_samples"], json!(10));
+    assert!(
+        v["snap_note"].as_str().unwrap().contains("not snapped"),
+        "{v}"
+    );
+}
+
+/// A split looks for a crossing in the clip's own audio. The silence before a
+/// clip that starts later is not a crossing: with the clip at 1000, a split
+/// at 1003 used to find the lead-in at 999, throw it away as outside the
+/// clip, and not snap; the crossing at 1040 is inside it.
+#[test]
+fn a_split_ignores_the_silence_before_the_clip() {
+    let mut s = session();
+    let mut state = s.state();
+    state.tracks[0].clips[0].start_in_track = 1000;
+    s.append_state("lead-in", state);
+    s.ok(
+        "split_clip",
+        json!({ "track": 0, "clip_index": 0, "at_sec": 1003.0 / RATE as f64, "snap_to_zero_crossing": true }),
+    );
+    assert_eq!(clips(&s), vec![(1000, 0, 40), (1040, 40, 7960)]);
+}
