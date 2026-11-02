@@ -26,7 +26,28 @@ fn final_wav_contains_only_the_requested_range() {
     let part = read_pcm(&part);
     let channels = result["channels"].as_u64().unwrap() as usize;
     assert_eq!(result["frames_written"], 24_000);
+    assert_eq!(result["range"], json!([0.25, 0.75]));
     assert_eq!(part, full[12_000 * channels..36_000 * channels]);
+}
+
+#[test]
+fn a_range_past_the_end_says_where_the_export_stopped() {
+    // Two seconds of audio: the renderer stops at the session's end, and
+    // the answer gives the seconds written, not the seconds asked for.
+    let mut s = Session::with_sine(48_000, 2);
+    let node = s.head();
+    let path = s.dir.path().join("tail.wav");
+    let result = s.ok(
+        "render_final",
+        json!({
+            "node_id": node, "format": "wav", "out_path": path,
+            "range": [1.5, 5.0]
+        }),
+    );
+    assert_eq!(result["frames_written"], 24_000);
+    assert_eq!(result["range"], json!([1.5, 2.0]));
+    let summary = result["summary"].as_str().unwrap();
+    assert!(summary.contains("1.50 to 2.00"), "{summary}");
 }
 
 #[test]

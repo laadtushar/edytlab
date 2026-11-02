@@ -28,7 +28,7 @@ struct Args {
     /// Tags to write on the exported file (#170). Absent writes none.
     #[serde(default)]
     metadata: Option<MetadataArgs>,
-    /// Markers as chapters. Off by default: a
+    /// Write the session's markers as chapters. Off by default: a
     /// marker is a working annotation, and not every one of them is a
     /// chapter someone wants shipped.
     #[serde(default)]
@@ -68,13 +68,13 @@ impl Tool for RenderFinalTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "render_final",
-            "Render a session to the chosen path. \
+            "Render a session node to a final audio file at the user's chosen path. \
              wav and aiff are uncompressed, flac is lossless at about half the size, mp3 \
              and ogg (Opus) are lossy: prefer flac when quality matters, mp3 for \
              compatibility, ogg for size. bitrate_kbps: mp3 default 192, ogg 128 stereo. \
              An out_path that is audio the project reads (a loaded file, or any file its \
-             history plays) is refused: choose another. For a selection, pass its start and end \
-             from the current selection; ask if there is no selection.",
+             history plays) is refused: choose another. range exports part of the session: for \
+             \"the selection\", pass the selection's seconds; ask if there is none.",
             json!({
                 "type": "object",
                 "properties": {
@@ -84,7 +84,7 @@ impl Tool for RenderFinalTool {
                     "range": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2, "description": "[start, end] in session seconds; end exclusive." },
                     "metadata": {
                         "type": "object",
-                        "description": "File tags. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export.",
+                        "description": "Tags for the exported file. FLAC and OGG get Vorbis comments, MP3 gets ID3v2. WAV and AIFF carry none. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export.",
                         "properties": {
                             "title": { "type": "string" },
                             "artist": { "type": "string" },
@@ -96,13 +96,13 @@ impl Tool for RenderFinalTool {
                     },
                     "markers_as_chapters": {
                         "type": "boolean",
-                        "description": "Markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping.",
+                        "description": "Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping.",
                     },
                     "bitrate_kbps": {
                         "type": "integer",
                         "minimum": MP3_MIN_KBPS,
                         "maximum": MP3_MAX_KBPS,
-                        "description": "MP3 or OGG bitrate. MP3 CBR snaps to a valid Layer III rate; ignored for lossless formats."
+                        "description": "MP3 CBR (snapped to a valid Layer III rate) or OGG target. Ignored for lossless formats."
                     },
                 },
                 "required": ["node_id", "format", "out_path"],
@@ -432,6 +432,17 @@ impl Tool for RenderFinalTool {
                 out_path.display(),
             ),
         });
+        // The renderer stops at the end of the session, so the seconds
+        // written can be fewer than the range asked for: say which.
+        if let Some(r) = range {
+            let start = r.start_frame as f64 / f64::from(node.state.sample_rate);
+            let end = start + report.frames_written as f64 / f64::from(report.sample_rate);
+            out["range"] = json!([start, end]);
+            out["summary"] = json!(format!(
+                "{} (session seconds {start:.2} to {end:.2})",
+                out["summary"].as_str().unwrap_or_default()
+            ));
+        }
         if args.format == "mp3" {
             out["bitrate_kbps"] =
                 json!(args.bitrate_kbps.unwrap_or(audio_engine::MP3_DEFAULT_KBPS));
