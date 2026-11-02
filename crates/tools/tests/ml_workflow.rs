@@ -179,6 +179,7 @@ fn every_action_is_pinned_to_a_released_version() {
         let (spec, comment) = rest
             .split_once('#')
             .map_or((rest, ""), |(s, c)| (s, c.trim()));
+        let action = spec.trim().split('@').next().unwrap_or("");
         let reference = spec.trim().split('@').nth(1).unwrap_or("");
         // A full commit, as SonarCloud's githubactions:S7637 wants, with the
         // version it was resolved from named after it. `dtolnay/rust-toolchain`
@@ -186,8 +187,10 @@ fn every_action_is_pinned_to_a_released_version() {
         // `toolchain:`, because its per-toolchain branches are regenerated.
         if reference.len() == 40 && reference.bytes().all(|b| b.is_ascii_hexdigit()) {
             assert!(
-                comment.starts_with('v') || comment == "master",
-                "{line:?} is pinned to a commit and does not say which release it is (`# v1.2.3`)"
+                comment.starts_with('v')
+                    || (action == "dtolnay/rust-toolchain" && comment == "master"),
+                "{line:?} is pinned to a commit and does not say which release it is (`# v1.2.3`; \
+                 only dtolnay/rust-toolchain, which has no releases, may say `# master`)"
             );
             continue;
         }
