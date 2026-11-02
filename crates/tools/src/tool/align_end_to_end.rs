@@ -18,12 +18,11 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use session::TranscriptSource;
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     append_state, check_track_index, load_head_state, seconds_to_frames, set_session_length,
-    timeline_end, track_clip_rate,
+    shift_track_transcript, timeline_end, track_clip_rate,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -125,16 +124,7 @@ impl Tool for AlignEndToEndTool {
             for clip in clips.iter_mut() {
                 clip.start_in_track = (clip.start_in_track as i64 + delta).max(0) as u64;
             }
-            let id = state.tracks[t].id.clone();
-            if let Some(transcript) = state.transcript.as_mut() {
-                if transcript.source == Some(TranscriptSource::Track { track: id }) {
-                    let shift = delta as f64 / rate;
-                    for w in &mut transcript.words {
-                        w.start_s = (f64::from(w.start_s) + shift) as f32;
-                        w.end_s = (f64::from(w.end_s) + shift) as f32;
-                    }
-                }
-            }
+            shift_track_transcript(&mut state, t, delta as f64 / rate, None);
             let clips = &state.tracks[t].clips;
             end_sec = timeline_end(clips) as f64 / rate;
             moved.push(json!({ "track": t, "start_sec": target as f64 / rate }));

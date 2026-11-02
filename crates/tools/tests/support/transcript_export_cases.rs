@@ -248,7 +248,7 @@ fn srt_keeps_literal_markup_and_normalizes_source_newlines() {
 }
 
 #[test]
-fn export_times_stay_as_transcribed_and_are_flagged_stale_after_reorder_and_clip_move() {
+fn export_times_follow_the_source_clip_after_reorder_and_clip_move() {
     let mut project = track_project(vec![word("Recorded.", 0.125, 1.25)]);
     let source_id = project.state().tracks[0].id.clone();
     project.load("other.wav", &super::speech::tone(0.25, 330.0));
@@ -269,9 +269,10 @@ fn export_times_stay_as_transcribed_and_are_flagged_stale_after_reorder_and_clip
 
     assert_eq!(
         std::fs::read_to_string(project.dir.path().join("recorded.srt")).unwrap(),
-        "1\n00:00:00,125 --> 00:00:01,250\nRecorded.\n\n"
+        "1\n00:00:08,125 --> 00:00:09,250\nRecorded.\n\n"
     );
-    // The file still carries the times of transcription: nothing re-times them.
+    // `move_clip` moved the words with the clip (#899): 8 s later, as the
+    // source track's one clip was moved from 0 to 8 s.
     assert_eq!(result["time_basis"], "session");
     let note = result["time_note"].as_str().unwrap();
     assert!(

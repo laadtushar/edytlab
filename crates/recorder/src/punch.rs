@@ -51,7 +51,8 @@ use std::cell::Cell;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use rubato::{FftFixedInOut, Resampler};
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+use rubato::{Fft, FixedSync, Resampler};
 use thiserror::Error;
 
 use crate::duplex::{play_and_capture, Capture, DevicePair};
@@ -191,8 +192,14 @@ pub fn resample(
         ((frames as u64 * u64::from(to_sr) + u64::from(from_sr) / 2) / u64::from(from_sr)) as usize;
 
     let conv = |e: &dyn std::fmt::Display| PunchError::Convert(e.to_string());
-    let mut r = FftFixedInOut::<f32>::new(from_sr as usize, to_sr as usize, 1024, channels)
-        .map_err(|e| conv(&e))?;
+    let mut r = Fft::<f32>::new(
+        from_sr as usize,
+        to_sr as usize,
+        1024,
+        channels,
+        FixedSync::Both,
+    )
+    .map_err(|e| conv(&e))?;
     let delay = r.output_delay();
     let mut in_buf = vec![vec![0.0f32; r.input_frames_max()]; channels];
     let mut out_buf = vec![vec![0.0f32; r.output_frames_max()]; channels];
@@ -208,8 +215,12 @@ pub fn resample(
             buf.extend((0..available).map(|f| samples[(pos + f) * channels + c]));
             buf.resize(needed, 0.0);
         }
+        let input = SequentialSliceOfVecs::new(&in_buf, channels, needed).map_err(|e| conv(&e))?;
+        let mut output =
+            SequentialSliceOfVecs::new_mut(&mut out_buf, channels, r.output_frames_next())
+                .map_err(|e| conv(&e))?;
         let (_used, written) = r
-            .process_into_buffer(&in_buf, &mut out_buf, None)
+            .process_into_buffer(&input, &mut output, None)
             .map_err(|e| conv(&e))?;
         for (o, b) in out.iter_mut().zip(&out_buf) {
             o.extend_from_slice(&b[..written]);
