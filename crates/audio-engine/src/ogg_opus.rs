@@ -40,6 +40,11 @@ use crate::{Error, Result};
 /// stereo is the usual "transparent for music" Opus setting; mono gets
 /// half, since Opus spends bits per channel.
 pub const OPUS_DEFAULT_KBPS: u32 = 128;
+/// Lowest target bitrate Opus defines (RFC 6716 §2.1.1: 6 kb/s).
+pub const OPUS_MIN_KBPS: u32 = 6;
+/// Highest target bitrate per channel Opus defines (RFC 6716: 256 kb/s
+/// a channel), so a mono export tops out at 256 and a stereo one at 512.
+pub const OPUS_MAX_KBPS_PER_CHANNEL: u32 = 256;
 
 const RATE: u32 = 48_000;
 /// 20 ms, the frame size libopus recommends for music.
@@ -263,6 +268,15 @@ pub fn write_ogg_opus(
     let mut enc = OpusEncoder::new(RATE as i32, ch, Application::Audio)
         .map_err(|e| Error::Encode(format!("opus: {e:?}")))?;
     let kbps = bitrate_kbps.unwrap_or(OPUS_DEFAULT_KBPS * channels as u32 / 2);
+    // Checked here rather than left to the encoder: a young crate, and a
+    // release build aborts on a panic (#908), so what it is handed stays
+    // inside the range Opus defines.
+    let max_kbps = OPUS_MAX_KBPS_PER_CHANNEL * channels as u32;
+    if !(OPUS_MIN_KBPS..=max_kbps).contains(&kbps) {
+        return Err(Error::Encode(format!(
+            "ogg: bitrate_kbps must be between {OPUS_MIN_KBPS} and {max_kbps} for {channels} channel(s); got {kbps}"
+        )));
+    }
     enc.bitrate_bps = (kbps * 1000) as i32;
 
     let serial = {
@@ -278,8 +292,13 @@ pub fn write_ogg_opus(
     let mut ogg = PageWriter::new(std::io::BufWriter::new(file), serial);
     ogg.page(0x02, 0, &[&head(channels as u8, sample_rate)])?;
     let tags = tags_packet(tags);
-    if tags.len() > 255 * 255 {
-        return Err(Error::Encode("ogg: the tags are too large".into()));
+    // One page holds 255 lacing values, and a packet of n bytes needs
+    // n / 255 + 1 of them, so 65,024 bytes is the most it can carry.
+    if tags.len() >= 255 * 255 {
+        return Err(Error::Encode(format!(
+            "ogg: the tags and chapters take {} bytes, over the 65,024 an Ogg page holds; shorten them",
+            tags.len()
+        )));
     }
     ogg.page(0, 0, &[&tags])?;
 

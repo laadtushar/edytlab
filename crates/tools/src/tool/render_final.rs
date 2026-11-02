@@ -135,9 +135,20 @@ impl Tool for RenderFinalTool {
                     args.format
                 )));
             }
-            if !(MP3_MIN_KBPS..=MP3_MAX_KBPS).contains(&kbps) {
+            // Opus's own range (6 to 256 a channel); the channel count is
+            // the render's, so the encoder checks the upper end per channel.
+            let (lo, hi) = if args.format == "ogg" {
+                (
+                    audio_engine::OPUS_MIN_KBPS,
+                    audio_engine::OPUS_MAX_KBPS_PER_CHANNEL * 2,
+                )
+            } else {
+                (MP3_MIN_KBPS, MP3_MAX_KBPS)
+            };
+            if !(lo..=hi).contains(&kbps) {
                 return Ok(ToolResult::Error(format!(
-                    "bitrate_kbps must be between {MP3_MIN_KBPS} and {MP3_MAX_KBPS}; got {kbps}"
+                    "bitrate_kbps for {} must be between {lo} and {hi}; got {kbps}",
+                    args.format
                 )));
             }
         }

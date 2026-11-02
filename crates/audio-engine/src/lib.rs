@@ -16,7 +16,7 @@ pub use encode::{
     write_flac, write_mp3, write_wav, write_wav_f32, WavChunkWriter, MP3_DEFAULT_KBPS,
 };
 pub use metadata::{read_flac_tags, tag_flac, tag_mp3, Chapter, Tags};
-pub use ogg_opus::{write_ogg_opus, OPUS_DEFAULT_KBPS};
+pub use ogg_opus::{write_ogg_opus, OPUS_DEFAULT_KBPS, OPUS_MAX_KBPS_PER_CHANNEL, OPUS_MIN_KBPS};
 pub use render::render_warnings;
 
 use std::path::Path;

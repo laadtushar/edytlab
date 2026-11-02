@@ -163,3 +163,41 @@ fn ogg_opus_refuses_surround_and_handles_empty_audio() {
     write_ogg_opus(&[], 48_000, 2, None, &Tags::default(), &path).unwrap();
     assert_eq!(decode(&path).samples.len(), 0);
 }
+
+/// The encoder is handed only bitrates Opus defines: 6 kb/s up to 256 a
+/// channel. Outside that, a clear error (the young encoder is never asked).
+#[test]
+fn ogg_opus_bitrate_stays_inside_the_opus_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("b.ogg");
+    let mono = vec![0.1f32; 4_800];
+    let stereo = vec![0.1f32; 9_600];
+    for (pcm, ch, kbps, ok) in [
+        (&mono, 1, 6, true),
+        (&mono, 1, 256, true),
+        (&mono, 1, 257, false),
+        (&mono, 1, 5, false),
+        (&stereo, 2, 512, true),
+        (&stereo, 2, 513, false),
+    ] {
+        let r = write_ogg_opus(pcm, 48_000, ch, Some(kbps), &Tags::default(), &path);
+        assert_eq!(r.is_ok(), ok, "{ch} ch at {kbps} kbps: {r:?}");
+        if let Err(e) = r {
+            assert!(e.to_string().contains("bitrate_kbps"), "{e}");
+        }
+    }
+}
+
+/// Tags past what one Ogg page holds (65,024 bytes) are refused with the
+/// size, before anything is encoded.
+#[test]
+fn ogg_opus_refuses_tags_one_page_cannot_hold() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.ogg");
+    let tags = Tags {
+        comment: Some("x".repeat(70_000)),
+        ..Tags::default()
+    };
+    let e = write_ogg_opus(&[0.0; 960], 48_000, 1, None, &tags, &path).unwrap_err();
+    assert!(e.to_string().contains("65,024"), "{e}");
+}
