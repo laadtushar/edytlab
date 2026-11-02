@@ -51,9 +51,12 @@ or not at all, and the one way a file is deleted: only a regular file directly i
 (`AudioStore::owns`, compared by the folder's identity), and only while no handle on the project is
 staged (`Store::audio_deleter`). A replay's put-back (`Rebuilt::put_back`, under the name the node
 records, the pre-#620 one included), a copied project's repair (`Counterpart::copy_in`) and Save As's
-check of the head's audio (`AudioStore::owns`) go through it too
-(`session::audio_store`, #719; ADR 0008, stages 1–3b: every writer, deleter, copier and resolver goes
-through it).
+check of the head's audio (`AudioStore::owns`) go through it too. A writer's staging file
+(`.cas-*.wav.part`) left in `clipboard/` or `generated/` by a writer killed mid-write is removed by
+the orphan sweep once it is a day old, while nothing is staged
+(`AudioDeleter::remove_stale_put_leftovers`). Stems are not in it: they stay in `stem-cache/` and
+enter the project only through `load` (`session::audio_store`, #719; ADR 0008, built: every writer,
+deleter, copier and resolver goes through it).
 
 **Derived file.** Audio the project wrote under a name made from its samples, in
 `.audiograph/derived/` (#620; ADR 0008). See **Audio store**.
