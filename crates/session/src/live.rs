@@ -336,9 +336,9 @@ impl Holder {
     /// is not one to hand to the next open, which builds a working one. It
     /// goes into `keep` rather than being dropped here.
     ///
-    /// That only happens in a dev or test build. The release profile aborts
-    /// on panic (`[profile.release] panic = "abort"`), so a panicking tool
-    /// takes the process with it and no store is left poisoned.
+    /// The release profile unwinds too (#908), so this is how a shipped
+    /// build recovers from a tool that panicked: the poisoned store is set
+    /// aside and the next open builds a working one.
     fn live(&self, keep: &mut Keep) -> Option<Live> {
         match self {
             Holder::Shared(store) => {

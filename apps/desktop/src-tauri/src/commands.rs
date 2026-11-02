@@ -164,10 +164,9 @@ pub enum CommandError {
     /// The task a command's blocking work ran on did not finish: the work
     /// panicked, or the runtime was shutting down. See [`blocking`].
     ///
-    /// The panic case exists in dev and test builds only. The release
-    /// profile sets `panic = "abort"`, so a panic in a shipped build ends
-    /// the app before the task can report anything; what a shipped build
-    /// can see here is the runtime shutting down.
+    /// A panic in the work reaches here in every build: the release profile
+    /// unwinds (#908), so the frontend gets this answer instead of the app
+    /// closing.
     #[error("internal: a command's task did not finish ({0})")]
     TaskFailed(String),
 
@@ -234,12 +233,11 @@ fn lock_std<'a, T>(
 /// CLAUDE.md inside `body`: take the store lock, drop it, then take the
 /// engine's.
 ///
-/// In a dev or test build, a panic in `body` (a poisoned mutex that is
-/// `expect`ed, say) comes back as an error; without this it would end the
-/// command's task and the frontend's promise would never settle. A shipped
-/// build sets `panic = "abort"` in its release profile, so there a panic
-/// ends the app instead, and this covers the runtime shutting down under
-/// the command.
+/// A panic in `body` (a poisoned mutex that is `expect`ed, say) comes back
+/// as an error; without this it would end the command's task and the
+/// frontend's promise would never settle. That holds in a shipped build
+/// too, whose release profile unwinds (#908). This also covers the runtime
+/// shutting down under the command.
 ///
 /// What goes here is any command that can wait on a lock a tool holds.
 /// `tests/main_thread_commands.rs` checks that none is left outside it.
