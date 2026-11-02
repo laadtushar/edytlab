@@ -18,6 +18,7 @@ use audio_decoder::DecodedAudio;
 use ml_demucs::separate::{SegmentModel, Stereo, MODEL_SOURCES};
 use ml_demucs::{Control, DemucsError, Separated};
 use serde_json::{json, Value};
+use session::audio_store::{AudioFolder, AudioName};
 use tools::tool::separate_stems::{answer, ModelRef, SeparateStemsTool, StemFailure, StemModel};
 
 #[path = "support/harness.rs"]
@@ -516,6 +517,75 @@ fn a_stem_loads_as_a_track_that_survives_its_cache_entry() {
         rendered.to_string().len() > 2,
         "the session still renders: {rendered}"
     );
+}
+
+/// Every file in the audio store's folders of the project, by path, with its
+/// bytes.
+fn store_files(p: &Project) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    AudioFolder::ALL
+        .iter()
+        .flat_map(|f| {
+            std::fs::read_dir(f.dir(p.store.project_dir()))
+                .into_iter()
+                .flatten()
+        })
+        .flatten()
+        .map(|e| (e.path(), std::fs::read(e.path()).unwrap()))
+        .collect()
+}
+
+/// #719 stage 5 (ADR 0008, #385): stems stay in `stem-cache/`, outside the
+/// audio store, and enter the project only through `load`, which puts each in
+/// `derived/` under the store's name for its samples. `separate_stems` writes
+/// nothing into a store folder, and the store owns no stem, so no sweep of the
+/// store can take one and no stem is ever trusted under a store name.
+#[test]
+fn stems_enter_the_project_only_through_load_under_store_names() {
+    let fake = Arc::new(Fake::new());
+    let mut p = Project::new(Arc::clone(&fake));
+    let audio = p.store.audio_store();
+    let before = store_files(&p);
+
+    let v = p.ok("separate_stems", json!({ "track": 0 }));
+    let stems = stem_paths(&v);
+
+    assert_eq!(
+        store_files(&p),
+        before,
+        "separate_stems wrote into the store"
+    );
+    for stem in &stems {
+        assert_eq!(audio.owns(stem), None, "{}", stem.display());
+        assert_eq!(audio.folder_of(stem), None, "{}", stem.display());
+    }
+
+    let mut names = std::collections::BTreeSet::new();
+    for (i, stem) in stems.iter().enumerate() {
+        p.ok("load", json!({ "path": stem.to_string_lossy() }));
+        let state = p.store.get(p.store.head().unwrap()).unwrap().state;
+        let clip = &state.tracks[i + 1].clips[0];
+        let decoded = audio_decoder::decode_file(stem).unwrap();
+        let name = AudioName::of_samples(&decoded.samples, decoded.sample_rate, decoded.channels);
+        let owned = audio
+            .owns(&clip.source_path)
+            .unwrap_or_else(|| panic!("not the store's: {}", clip.source_path.display()));
+        assert_eq!(owned.folder(), AudioFolder::Derived);
+        assert_eq!(
+            owned.name(),
+            format!("{name}.wav").as_str(),
+            "{}",
+            stem.display()
+        );
+        names.insert(owned.in_project());
+    }
+
+    let added: std::collections::BTreeSet<PathBuf> = store_files(&p)
+        .into_keys()
+        .filter(|path| !before.contains_key(path))
+        .map(|path| audio.owns(&path).expect("the store's").in_project())
+        .collect();
+    assert_eq!(added, names, "the loads put exactly the stems' files");
+    assert_eq!(names.len(), stems.len(), "one file per stem");
 }
 
 // -- the tool's place ------------------------------------------------------------
