@@ -862,7 +862,7 @@ export const apiAreas: ApiArea[] = [
           {
             name: "getCrashReports()",
             returns: "CrashReportsStatus",
-            desc: "Whether Send crash reports (Settings → Account) is on, as enabled (off on a fresh install), and whether this build can send at all, as available (it was built with a reporting address; no build from source is). Reads memory only.",
+            desc: "Unreleased: arrives after v0.9.4. Whether Send crash reports (Settings → Account) is on, as enabled (off on a fresh install), and whether this build can send at all, as available (it was built with a reporting address; no build from source is). Reads memory only.",
           },
           {
             name: "setCrashReports(enabled)",

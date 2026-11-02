@@ -1607,7 +1607,8 @@ const text = await bridge.thirdPartyNotices(); // plain text, LF line endings
 
 ## Crash Reports
 
-Opt-in error reports (#958), **off by default**. Settings → Account → Send
+Not in a released build yet: these commands arrive in the release after
+v0.9.4. Opt-in error reports (#958), **off by default**. Settings → Account → Send
 crash reports turns them on. Three things have to hold before anything leaves
 the computer: the build was given a reporting address at build time
 (`EDYTLAB_SENTRY_DSN`; the release workflows pass it, and no build from source
