@@ -1,6 +1,6 @@
 # edytlab launch kit
 
-Copy-paste material for launching edytlab v0.9.3. Everything here is written
+Copy-paste material for launching edytlab v0.9.4. Everything here is written
 to be posted as-is, by the owner, from their own accounts. Nothing in this
 folder posts anywhere by itself, and nothing here opens a PR on another repo.
 
@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.9.3 today (published 2026-10-27). (The website's own buttons point at the
+non-prerelease, which is v0.9.4 today. (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -25,7 +25,7 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/show-hn.md`](launch/show-hn.md) | Show HN title, body and the author's first comment, plus answers to the questions HN will ask |
 | [`launch/product-hunt.md`](launch/product-hunt.md) | Tagline, description, maker's first comment, 5 gallery captions, topics |
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
-| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.3 release and the DJ demo |
+| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.9.4 release and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
 | [`social-kit/linkedin/`](social-kit/linkedin/README.md) | The LinkedIn visuals in the website's design: five 1200x1200 images (one per post in `social-kit/linkedin-posts.md`), a seven-page carousel PDF for post 3, the HTML templates, staged screenshots of the real app and the script that renders them |
@@ -71,9 +71,18 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 
 **Never say or imply:**
 
-- Stem separation, vocal isolation or "mashup A's vocals over B's drums". The
-  `separate_stems` tool returns an error in every build today
-  ([#385](https://github.com/laadtushar/edytlab/issues/385)).
+- That stem separation is automatic, bundled, exact or free of a download. It
+  works from v0.9.4 ([#385](https://github.com/laadtushar/edytlab/issues/385)),
+  but only after the user presses Download in Settings → Account for the stem
+  model (HT-Demucs v4, about 171 MB in two files, from Hugging Face). Nothing
+  downloads by itself, and v0.9.3 and earlier cannot separate stems.
+  `separate_stems` splits a track or a file into vocals, drums, bass and other
+  on the user's computer, sends no audio anywhere and writes the four stems
+  into the project. It needs about 4 GB of free memory and takes about half
+  the length of the audio. Stems are estimates: say "splits a track into
+  vocals, drums, bass and other", not "isolates", "clean a cappella" or
+  "studio quality", and quote no quality figure. No recording or demo shows a
+  mashup ("A's vocals over B's drums"), so do not promise one.
 - That transcription is automatic, bundled or free of a download. It works
   from v0.8.0 ([#384](https://github.com/laadtushar/edytlab/issues/384)), but
   only after the user presses Download in Settings → Account for the speech
@@ -124,11 +133,11 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 - That the editor is for live DJ performance. It edits files. Live decks and
   controllers are on the post-v1 roadmap.
 
-**Safe, and verified against the repo and the GitHub release on 2026-10-22 (v0.7.0; the `measure`, `diarize` and formats rows on 2026-10-27, v0.9.3):**
+**Safe, and verified against the repo and the GitHub release on 2026-10-22 (v0.7.0; the `measure` and `diarize` rows on 2026-10-27, v0.9.3; the tool count, export, import, punch-in, `separate_stems` and release rows on 2026-11-02 for v0.9.4, against `docs/tools-reference.md`, the code on `main` and the v0.9.4 changelog entry, before the release was published: check its page before you post):**
 
 | Claim | Where it was checked |
 |---|---|
-| 99 tools | `docs/tools-reference.md` (generated from the tool registry) |
+| 110 tools | `docs/tools-reference.md` (generated from the tool registry) |
 | Six API providers plus your ChatGPT plan: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama, and (from v0.9.0, a preview for Plus and Pro) Continue with ChatGPT | `README.md`, `website/app/docs/getting-started/page.tsx`, `crates/ai/tests/website_provider_claims.rs` |
 | Keys and the ChatGPT sign-in token share one OS-keychain entry, so macOS asks for the login password at most once per launch; provider, model and base URL are in `provider-settings.json`, never a secret | `website/app/privacy/page.tsx`, `docs/adr/0009-settings-and-secrets-storage.md`; counted against fake keychain slots, not yet on a real Mac (see below) |
 | Ollama needs no key and can keep the chat on your machine | `website/app/privacy/page.tsx`, user guide |
@@ -137,13 +146,15 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | The desktop app sends no telemetry. The website uses anonymous Vercel analytics, and Google Analytics 4 only after a visitor accepts the cookie banner, in a build that has a measurement ID | `website/app/privacy/page.tsx`; `<Analytics />`, `<SpeedInsights />` and `<GoogleAnalyticsConsent />` in `website/app/layout.tsx` |
 | Branchable session graph, fork, A/B compare, undo | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, README |
 | Plan first is an optional toggle in the chat box | `apps/desktop/src/components/Chat.tsx` |
-| Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
+| Export to WAV, AIFF, FLAC, MP3 and OGG (Opus), the whole session or a range of it (AIFF, OGG and the range from v0.9.4) | `crates/tools/src/tool/render_final.rs`, the v0.9.4 changelog entry |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
 | `measure` (v0.9.3): integrated, momentary and short-term loudness, loudness range, sample and true peak, RMS, noise floor, digital silence and clipping, with an ACX pass or fail (`check: "acx"`) | `measure` in `docs/tools-reference.md`, the v0.9.3 release notes |
 | `diarize` (v0.9.3): labels who speaks when on a track or file, on this computer, after the user downloads the speaker model (about 33 MB, two files, from Hugging Face) in Settings → Account; it returns turns and edits nothing, and the assistant can hand them to `split_by_speaker`. Say nothing about accuracy beyond "checked on one 40-second meeting excerpt". Same privacy facts as the speech model (GET requests on the click, no audio, no telemetry, using it makes no request). | `diarize` in `docs/tools-reference.md`, the v0.9.3 release notes, `website/app/privacy/page.tsx` |
-| AIFF and Opus (mono and stereo, decoded at 48 kHz) import; M4A/AAC does not, and the app says to convert | the v0.9.3 release notes, `crates/audio-decoder` |
-| macOS universal, Windows, Linux builds; MIT; v0.9.3 | GitHub release v0.9.3 (its page lists the six installers), `LICENSE` |
+| AIFF and Opus (mono and stereo, decoded at 48 kHz) import (v0.9.3); M4A/AAC imports on macOS and Windows through the system's own decoder (v0.9.4), not on Linux, where the app says to convert | the v0.9.3 release notes, the v0.9.4 changelog entry, `crates/audio-decoder` |
+| Punch-in (v0.9.4): replaces one region of a track with a new take while the rest of the mix plays; it needs the recording delay for the speakers and microphone measured or typed once in Settings → Audio, and refuses until then | the v0.9.4 changelog entry, `crates/recorder/src/punch.rs` |
+| `separate_stems` (v0.9.4): splits a track or file into vocals, drums, bass and other, on this computer, after the user downloads the stem model (HT-Demucs v4, about 171 MB, two files, from Hugging Face) in Settings → Account; about 4 GB of free memory, about half the audio's length; stems are estimates. Same privacy facts as the speech model (GET requests on the click, no audio, no telemetry, using it makes no request) | `separate_stems` in `docs/tools-reference.md`, `apps/desktop/src/lib/stemModel.ts`, the v0.9.4 changelog entry |
+| macOS universal, Windows, Linux builds; MIT; v0.9.4 | GitHub release v0.9.4 (its page must list the six installers), `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -216,10 +227,10 @@ getting caught.
 
 ## Before the first post
 
-- [ ] Install the v0.9.3 build on at least one machine per OS you will claim
+- [ ] Install the v0.9.4 build on at least one machine per OS you will claim
       (not v0.9.0: its first message after Continue with ChatGPT failed with
       "Unsupported content type", which v0.9.2 and later fix).
-- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.3 and send a message.
+- [ ] Sign in with a real ChatGPT Plus or Pro plan on v0.9.4 and send a message.
       Until that has worked once, leave every line about the ChatGPT plan out
       of the posts: the fix was checked against a mock of OpenAI's API, not a
       real account.
@@ -237,7 +248,7 @@ getting caught.
       show fake data; the `after-*` set was retaken on 2026-10-26 for v0.9.2 (the status bar says V0.9.2), so it shows the ChatGPT logo on the provider button and the message box at the pane's full width); the `before-*` set is the look v0.5.0 and earlier
       shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
-      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.3 build.
+      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.9.4 build.
       The only UI screenshots in the repo are the `docs/brand/` pair above and the staged ones in `social-kit/linkedin/shots/` (fake data, retaken by `social-kit/linkedin/render.mjs --shots`).
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a

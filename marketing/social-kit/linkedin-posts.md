@@ -18,7 +18,7 @@ come once narration credits are available).
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
 download <https://github.com/laadtushar/edytlab/releases/latest> (the newest
-release, v0.9.3 on 2026-10-27; the posts name no version, so the link is
+release, v0.9.4; the posts name no version, so the link is
 all to check)
 
 **Conventions used in every post:** no emoji; at most 3 hashtags at the end;
@@ -43,7 +43,7 @@ In the video it does three jobs, each asked for in plain English. Blend a 128 BP
 
 The part I care about most: it shows its work. Every edit appears in the chat as a step you can read, check and undo. You stay the DJ. It just does the counting.
 
-And your music stays yours. The AI never hears the audio. It reads a summary of the session and picks from 99 editing tools that run on your own computer, so nothing gets uploaded.
+And your music stays yours. The AI never hears the audio. It reads a summary of the session and picks from 110 editing tools that run on your own computer, so nothing gets uploaded.
 
 It's called edytlab. Free and open source, for macOS, Windows and Linux, and built for prep, not for playing live.
 
@@ -121,7 +121,7 @@ touches a sample, told as how I built it. About 210 words.
 ```
 If you've ever wondered whether an AI audio editor is listening to your music: mine isn't. The model never touches a sample, and everything else in the design follows from that.
 
-It reads a short summary of the session and what its analysis tools measure, like each track's tempo, key and loudness, and picks from 99 editing tools: fades, EQ, filters, time-stretch, loudness, export. Those tools are ordinary Rust code running on your computer. The video shows it sequencing a three-track mix with them.
+It reads a short summary of the session and what its analysis tools measure, like each track's tempo, key and loudness, and picks from 110 editing tools: fades, EQ, filters, time-stretch, loudness, export. Those tools are ordinary Rust code running on your computer. The video shows it sequencing a three-track mix with them.
 
 That one choice gave me the things I care about. Every step is a tool you can read, so nothing happens behind your back. Every edit is a node in a history you can fork, compare and undo, so nothing is lost. And since the model never gets the audio, there is nothing to upload.
 
@@ -185,6 +185,13 @@ What stays on your machine, what leaves, and how to run it with Ollama: https://
 Angle: three specific invitations, including the big unshipped piece. About
 170 words.
 
+**Out of date from v0.9.4: do not post this text as it is.** Two of its three
+invitations are done: the good first issues #846 to #848 (wah-wah, fade
+curves, mute all tracks) are closed and ship in v0.9.4, and so does stem
+separation (#385, closed). Pick new invitations from the open issues (for
+example #868, stem separation's memory after a run, or #867, M4A checks on
+Windows) and re-render the image to match (`linkedin/README.md`).
+
 ```
 You find a project you like, you'd happily help, and you can't tell where to start. So here is where, in mine.
 
@@ -224,7 +231,7 @@ Sources for the claims:
 - "Short loops I generated": `apps/desktop/e2e-native/fixtures.mjs` writes
   the three tracks (32 seconds each) from code. The DJ page and README say
   "tracks", so this is a disclosure the site does not currently make.
-- 99 tools: `docs/tools-reference.md`. Providers and Ollama:
+- 110 tools: `docs/tools-reference.md` (v0.9.4). Providers and Ollama:
   `README.md`. Local-first table: `website/app/use-cases/local-ai-audio-editor/page.tsx`.
   Post 4 deliberately says nothing about context sizes or request sizes; if
   someone asks, the numbers are in `marketing/README.md` ("Known rough edges")

@@ -1,4 +1,4 @@
-# X thread: v0.9.3 and the DJ demo
+# X thread: v0.9.4 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -26,7 +26,7 @@ Sound on.
 ```
 It never hears your music.
 
-The AI reads a summary of your session and what the tools measure, like tempo and loudness, then picks from 99 editing tools. The tools do the work, on your computer.
+The AI reads a summary of your session and what the tools measure, like tempo and loudness, then picks from 110 editing tools. The tools do the work, on your computer.
 
 It decides. Your machine does the work. You stay the DJ.
 ```
@@ -60,17 +60,17 @@ Beatmatching and transitions. Trimming long silences out of a podcast. Checking 
 **6/8**
 
 ```
-New in v0.9.3: it can tell who's speaking when.
+New in v0.9.4: it can split a track into vocals, drums, bass and other.
 
-A two-person interview becomes one track per voice, so each gets its own levels and cleanup. That runs on your computer too, after a one-time download in Settings.
+That runs on your computer too, after a one-time download in Settings. The stems are estimates, so listen before you build on them.
 ```
 
 **7/8**
 
 ```
-Not there yet: stem separation is still being built.
+Not there yet: signed installers.
 
-And the installers aren't signed, so macOS and Windows will warn you the first time you open it. The release notes walk you through it.
+macOS and Windows will warn you the first time you open it. The release notes walk you through it.
 ```
 
 **8/8**
@@ -91,6 +91,6 @@ Which edit would you hand it first?
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.9.3 release notes. Check them against
+- Post 6 repeats the v0.9.4 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.

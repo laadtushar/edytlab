@@ -33,10 +33,10 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
 - [ ] Confirm the five `reel-*.mp4` files exist, play with sound, and match
       the captions (see the note at the bottom of `instagram.md`: trim any
       caption detail the final edit cuts).
-- [ ] Install v0.9.3 on one machine per OS you will claim (not v0.9.0: its
+- [ ] Install v0.9.4 on one machine per OS you will claim (not v0.9.0: its
       first message after Continue with ChatGPT failed). Check the macOS
       `xattr` step in the release notes works as written.
-- [ ] Sign in with a real ChatGPT plan on v0.9.3 and send a message before any
+- [ ] Sign in with a real ChatGPT plan on v0.9.4 and send a message before any
       post that mentions the ChatGPT plan (see `../README.md`, "Before the first post").
 - [ ] Set the Instagram bio link and bio line (`instagram.md`).
 - [ ] Decide the Claude Code disclosure (`linkedin-posts.md` post 3 and the
