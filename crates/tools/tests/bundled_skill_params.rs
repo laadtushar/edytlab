@@ -255,9 +255,160 @@ fn the_loudness_skill_names_the_loudness_tool() {
     );
 }
 
+/// An `add_effect` call written in a skill: its line, the `kind=` it
+/// names and the keys of its `params={...}` object.
+#[derive(Debug)]
+struct EffectCall {
+    line_no: usize,
+    kind: Option<String>,
+    keys: Vec<String>,
+}
+
+/// Every `` `add_effect` `` call in a body. The call runs to the next
+/// backtick, as an argument list does in [`mentions`].
+fn add_effect_calls(body: &str) -> Vec<EffectCall> {
+    const NAME: &str = "`add_effect`";
+    let mut out = Vec::new();
+    for (idx, line) in body.lines().enumerate() {
+        let mut rest = line;
+        while let Some(at) = rest.find(NAME) {
+            let after = &rest[at + NAME.len()..];
+            let call = after.find('`').map_or(after, |end| &after[..end]);
+            let kind = call.split_whitespace().find_map(|word| {
+                word.strip_prefix("kind=")
+                    .map(|k| k.trim_end_matches(|c: char| !is_ident(c)).to_string())
+            });
+            // The object's keys: each quoted string followed by a colon.
+            let keys: Vec<String> = call
+                .find("params={")
+                .map(|at| {
+                    let object = &call[at + "params={".len()..];
+                    let object = object.find('}').map_or(object, |end| &object[..end]);
+                    let parts: Vec<&str> = object.split('"').collect();
+                    (1..parts.len())
+                        .step_by(2)
+                        .filter(|&i| {
+                            parts
+                                .get(i + 1)
+                                .is_some_and(|next| next.trim_start().starts_with(':'))
+                        })
+                        .map(|i| parts[i].to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if kind.is_some() || !keys.is_empty() {
+                out.push(EffectCall {
+                    line_no: idx + 1,
+                    kind,
+                    keys,
+                });
+            }
+            rest = after;
+        }
+    }
+    out
+}
+
+/// `add_effect` takes any string as `kind`, so the schema check above
+/// cannot see a skill that asks for an effect the renderer cannot run in a
+/// chain (`add_effect` refuses it mid-workflow) or names a parameter the
+/// kind does not read. Both lists come from the renderer's own registry.
+#[test]
+fn every_effect_a_bundled_skill_adds_is_one_the_chain_can_run() {
+    let mut problems = Vec::new();
+    let mut checked = 0;
+    for (file, body) in bundled_skills() {
+        for call in add_effect_calls(&body) {
+            checked += 1;
+            let Some(kind) = call.kind.as_deref() else {
+                problems.push(format!(
+                    "{file}:{} — `add_effect` with params but no kind=",
+                    call.line_no
+                ));
+                continue;
+            };
+            let Some(params) = audio_engine::effect_chain::params_of(kind) else {
+                problems.push(format!(
+                    "{file}:{} — kind={kind} cannot run in a chain (it can: {})",
+                    call.line_no,
+                    audio_engine::effect_chain::streamable_kinds()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                continue;
+            };
+            for key in &call.keys {
+                if !params.iter().any(|p| p.name == key.as_str()) {
+                    problems.push(format!(
+                        "{file}:{} — kind={kind} has no parameter {key:?}",
+                        call.line_no
+                    ));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "\n  {}", problems.join("\n  "));
+    assert!(
+        checked >= 10,
+        "only {checked} add_effect calls found across the bundled skills — \
+         the parser is probably no longer matching them"
+    );
+}
+
+/// The mastering recipes (#930): one per target, each stating its loudness
+/// target and true-peak ceiling with the source it took them from, calling
+/// only registered tools, and holding the ceiling the one way that works:
+/// the limiter effect added last, then `measure`'s true peak read back,
+/// because the limiter is a sample-peak limiter.
+const MASTERING_RECIPES: &[&str] = &["genre-master.md", "live-master.md", "lofi-master.md"];
+
+#[test]
+fn each_mastering_recipe_states_its_target_and_checks_the_true_peak() {
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let skills = bundled_skills();
+    let mut problems = Vec::new();
+    for recipe in MASTERING_RECIPES {
+        let Some((_, body)) = skills.iter().find(|(name, _)| name == recipe) else {
+            problems.push(format!("{recipe} is not bundled"));
+            continue;
+        };
+        let calls: Vec<Mention> = mentions(body)
+            .into_iter()
+            .filter(|m| !m.params.is_empty())
+            .collect();
+        if calls.len() < 8 {
+            problems.push(format!(
+                "{recipe}: only {} tool calls found; a recipe is a chain of calls",
+                calls.len()
+            ));
+        }
+        for m in &calls {
+            if schema_properties(&dispatcher, &m.tool).is_none() {
+                problems.push(format!(
+                    "{recipe}:{} — `{}` is not a registered tool",
+                    m.line_no, m.tool
+                ));
+            }
+        }
+        for needle in [
+            "LUFS",
+            "dBTP",
+            "https://",
+            "`measure`",
+            "`peak.true_dbtp`",
+            "kind=limiter",
+        ] {
+            if !body.contains(needle) {
+                problems.push(format!("{recipe}: never mentions {needle:?}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "\n  {}", problems.join("\n  "));
+}
+
 #[cfg(test)]
 mod parser_tests {
-    use super::{mentions, parameters};
+    use super::{add_effect_calls, mentions, parameters};
 
     #[test]
     fn collects_assignments_and_ignores_prose() {
@@ -304,6 +455,17 @@ mod parser_tests {
     /// An argument is often written inside backticks. Skipping those
     /// spans would leave the most argument-shaped text in the file
     /// unchecked.
+    #[test]
+    fn reads_an_add_effect_calls_kind_and_parameter_keys() {
+        let found = add_effect_calls(
+            "`add_effect` scope=master kind=gain params={\"db\": <target − measured>} position=0, \
+             then the `add_effect` result's `position`",
+        );
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].kind.as_deref(), Some("gain"));
+        assert_eq!(found[0].keys, ["db"]);
+    }
+
     #[test]
     fn reads_arguments_written_inside_backticks() {
         let found = mentions("`normalize_loudness` — or `preset=\"spotify\"` for a platform");
