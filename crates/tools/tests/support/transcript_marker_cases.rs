@@ -168,7 +168,7 @@ fn markers_refuse_a_removed_source_track_even_with_an_explicit_offset() {
 }
 
 #[test]
-fn markers_keep_transcribed_times_and_flag_them_stale_after_time_shift() {
+fn markers_follow_the_source_track_after_time_shift() {
     let mut project = track_project(vec![word("Recorded time.", 0.125, 1.0)]);
     let source_id = project.state().tracks[0].id.clone();
     project.load("other.wav", &super::speech::tone(1.0, 330.0));
@@ -178,6 +178,12 @@ fn markers_keep_transcribed_times_and_flag_them_stale_after_time_shift() {
     project.store.append(node).unwrap();
     let before = project.state();
     let nodes_before = project.node_count();
+    // `time_shift` moved the words with the track (#899): 0.125 s + 4 s.
+    assert_eq!(
+        before.transcript.as_ref().unwrap().words[0].start_s,
+        4.125,
+        "the transcript went with its track"
+    );
 
     let result = project.ok("transcript_to_markers", json!({}));
 
@@ -201,7 +207,7 @@ fn markers_keep_transcribed_times_and_flag_them_stale_after_time_shift() {
     );
     assert_eq!(
         after.annotations[0].kind,
-        AnnotationKind::Marker { time_sec: 0.125 }
+        AnnotationKind::Marker { time_sec: 4.125 }
     );
     assert_eq!(project.node_count(), nodes_before + 1);
     let mut expected = before;

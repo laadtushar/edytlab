@@ -168,15 +168,15 @@ pub fn plan_repair(store: &session::Store, cap_bytes: u64) -> RepairPlan {
 /// It also removes staging files a repair left behind when the app was
 /// killed mid-copy, from `clipboard/` and `generated/` (the orphan sweep
 /// removes those in `derived/`), but only while no staged handle on the
-/// project is alive: a repair running now holds one, and its staging file
-/// is not a leftover.
+/// project is alive (`Store::audio_deleter`): a repair running now holds
+/// one, and its staging file is not a leftover.
 pub fn plan_repair_listed(
     store: &session::Store,
     nodes: &[session::SessionNode],
     cap_bytes: u64,
 ) -> RepairPlan {
-    if store.staged_in_flight() == 0 {
-        remove_leftovers(store.project_dir());
+    if let Some(deleter) = store.audio_deleter() {
+        remove_leftovers(&deleter);
     }
 
     // What some clip names in another project, and this one lacks.
@@ -362,20 +362,19 @@ const STAGING_PREFIX: &str = ".repair-";
 const STAGING_SUFFIX: &str = ".wav.part";
 
 /// Remove the staging files a killed repair left in `clipboard/` and
-/// `generated/`. A file that cannot be removed is left for the next open.
-fn remove_leftovers(project_dir: &Path) {
-    for dir in [
-        session::relocate::clipboard_dir(project_dir),
-        session::relocate::generated_dir(project_dir),
-    ] {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
+/// `generated/`, through the audio store, which deletes only a regular file
+/// directly in one of its folders. A file that cannot be removed is left for
+/// the next open.
+fn remove_leftovers(deleter: &session::audio_store::AudioDeleter<'_>) {
+    use session::audio_store::AudioFolder;
+    for folder in [AudioFolder::Clipboard, AudioFolder::Generated] {
+        let Ok(files) = deleter.audio().files(folder) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
+        for file in files {
+            let name = file.name().to_string_lossy();
             if name.starts_with(STAGING_PREFIX) && name.ends_with(STAGING_SUFFIX) {
-                let _ = std::fs::remove_file(entry.path());
+                deleter.remove(&file);
             }
         }
     }

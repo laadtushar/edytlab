@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "../../../test-support/rust_source_scan.rs"]
 mod rust_source_scan;
-use rust_source_scan::{lex, without_test_items};
+use rust_source_scan::{lex, without_test_items, Tok, Token};
 
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::json;
@@ -291,7 +291,8 @@ fn the_sweep_and_a_rebuild_treat_a_shared_file_as_one_file() {
 // other crate can construct) and every write (`put_with`, `put_verified`,
 // `put_then_name`). The type stops a tool from naming a file itself; what it
 // cannot stop is a tool building a path into the store's folders by hand and
-// writing there. These two scans hold that line.
+// writing there. These two scans hold that line, and the delete scan below
+// holds the same line for deleting.
 
 /// Source files that may hash with blake3 outside their tests, and why: none
 /// of them names audio.
@@ -301,14 +302,14 @@ const MAY_HASH: &[(&str, &str)] = &[(
 )];
 
 /// Source files that may spell a path into the store's folders outside their
-/// tests, and why: each reads, lists, checks, or (the stage 3 callers) moves
-/// files the store wrote; none writes a new one.
+/// tests, and why: each reads, lists, checks, or (the stage 3b callers) moves
+/// files the store wrote; none writes a new one, and none deletes one (the
+/// sweeps and compaction list and delete through the store, stage 3a).
 const MAY_SPELL_STORE_PATHS: &[(&str, &str)] = &[
     (
         "tools/src/provenance.rs",
         "re-exports the folders and finds a clipboard blob to read it back",
     ),
-    ("tools/src/reclaim.rs", "the sweeps (stage 3a)"),
     ("tools/src/rederive.rs", "a replay's put-back (stage 3b)"),
     ("tools/src/repair.rs", "repair (stage 3b)"),
     (
@@ -448,6 +449,115 @@ fn only_the_store_spells_paths_into_its_folders() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Only the audio store deletes the project's audio (#719, stage 3a)
+// ---------------------------------------------------------------------------
+//
+// The sweeps, compaction and a repair's leftovers delete through
+// `session::Store::audio_deleter`: only a file `AudioStore::owns` places in
+// one of its folders, and never while a handle on the project is staged. A
+// delete written by hand anywhere else could skip either check, and a path
+// does not say lexically where it points, so every delete in these crates'
+// shipped code is listed here with what it deletes and how many times the
+// file names a delete: a new one in a listed file fails too.
+//
+// It reads the token stream, not lines: a delete's name is flagged wherever
+// it is an identifier, called or not (`.for_each(fs::remove_file)`), imported
+// under another name (`use std::fs::remove_file as rm`) or after a string
+// holding `//`, and never inside a string or a comment.
+
+/// Source files that may name a delete outside their tests, how many times,
+/// and why: none of them deletes in the store's folders, but for the store's
+/// own deleter.
+const MAY_DELETE: &[(&str, usize, &str)] = &[
+    (
+        "session/src/audio_store.rs",
+        1,
+        "`AudioDeleter::remove`, the store's one delete",
+    ),
+    (
+        "session/src/store.rs",
+        1,
+        "a node file (`Store::remove_node`)",
+    ),
+    (
+        "tools/src/preview_cache.rs",
+        4,
+        "the preview cache's own entries and staging files",
+    ),
+    (
+        "tools/src/tool/render_preview.rs",
+        1,
+        "a cached preview that does not decode",
+    ),
+    (
+        "desktop/commands.rs",
+        2,
+        "a skill or an agent profile the user deletes",
+    ),
+    ("desktop/state.rs", 1, "the active agent profile's sidecar"),
+];
+
+/// The names that delete a file or a folder.
+const DELETES: &[&str] = &["remove_file", "remove_dir", "remove_dir_all"];
+
+/// How many times `tokens` name a delete.
+fn delete_count(tokens: &[Token]) -> usize {
+    tokens
+        .iter()
+        .filter(|t| matches!(&t.tok, Tok::Ident(name) if DELETES.contains(&name.as_str())))
+        .count()
+}
+
+/// The non-test tokens of every source file of `tools`, the desktop crate
+/// and `session`, as (`tools/src/...`, `desktop/...` or `session/src/...`,
+/// its tokens).
+fn delete_sources() -> Vec<(String, Vec<Token>)> {
+    let tools = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let roots = [
+        (tools.join("src"), "tools/src"),
+        (tools.join("../../apps/desktop/src-tauri/src"), "desktop"),
+        (tools.join("../session/src"), "session/src"),
+    ];
+    let mut out = Vec::new();
+    for (root, label) in roots {
+        let mut files = Vec::new();
+        rust_files(&root, &mut files);
+        for file in files {
+            let rel = file
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            let text = std::fs::read_to_string(&file).unwrap();
+            out.push((format!("{label}/{rel}"), without_test_items(&lex(&text))));
+        }
+    }
+    assert!(out.len() > 60, "found the sources: {}", out.len());
+    out
+}
+
+#[test]
+fn only_the_store_deletes_the_projects_audio() {
+    let offenders: Vec<String> = delete_sources()
+        .into_iter()
+        .filter_map(|(rel, tokens)| {
+            let found = delete_count(&tokens);
+            let allowed = MAY_DELETE
+                .iter()
+                .find(|(r, _, _)| *r == rel)
+                .map_or(0, |(_, n, _)| *n);
+            (found > allowed).then(|| format!("{rel}: {found} (allowed {allowed})"))
+        })
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "these delete files by hand; delete the project's audio through \
+         `session::Store::audio_deleter` (or list the file in MAY_DELETE with the count \
+         and what it deletes, which must not be in the store's folders): {offenders:?}"
+    );
+}
+
 #[test]
 fn every_allowance_is_still_needed() {
     // An allowance nothing uses any more is a door left open.
@@ -462,6 +572,18 @@ fn every_allowance_is_still_needed() {
         assert!(
             lines.iter().any(|l| spells_store_path(l)),
             "{rel} no longer spells a store path ({why})"
+        );
+    }
+    let sources = delete_sources();
+    for (rel, count, why) in MAY_DELETE {
+        let (_, tokens) = sources
+            .iter()
+            .find(|(r, _)| r == rel)
+            .unwrap_or_else(|| panic!("{rel} is gone ({why})"));
+        assert_eq!(
+            delete_count(tokens),
+            *count,
+            "{rel} names a delete another number of times than its allowance says ({why})"
         );
     }
 }
@@ -482,4 +604,26 @@ fn the_scan_sees_code_and_not_tests_or_comments() {
     assert_eq!(flagged.len(), 2, "{flagged:?}");
     assert!(flagged[0].contains("derived_dir(x); }"));
     assert!(flagged[1].contains("Generated.dir("));
+
+    let deletes_in = |source: &str| delete_count(&without_test_items(&lex(source)));
+    // Called, passed as a function, imported under another name, and after
+    // a string that holds `//`.
+    assert_eq!(deletes_in("fn a() { std::fs::remove_file(&p).ok(); }"), 1);
+    assert_eq!(
+        deletes_in("fn a() { paths.iter().for_each(fs::remove_file); }"),
+        1
+    );
+    assert_eq!(deletes_in("use std::fs::remove_file as rm;"), 1);
+    assert_eq!(
+        deletes_in("fn a() { let u = \"http://x\"; fs::remove_dir_all(&d)?; }"),
+        1
+    );
+    assert_eq!(deletes_in("fn a() { fs::remove_dir(&d)?; }"), 1);
+    // Not in a comment, a string or a test.
+    assert_eq!(deletes_in("// std::fs::remove_file(&p)\nfn a() {}"), 0);
+    assert_eq!(deletes_in("fn a() { let s = \"remove_file\"; }"), 0);
+    assert_eq!(
+        deletes_in("#[cfg(test)]\nmod tests { fn t() { std::fs::remove_file(&p).unwrap(); } }"),
+        0
+    );
 }
