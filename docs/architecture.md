@@ -102,7 +102,7 @@ edytlab/
     ├── recorder/                 # Microphone capture to WAV; recording-latency measurement; the punch-in's monitor and take (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # 110 deterministic audio-editing tools
+    └── tools/                    # 111 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
