@@ -2130,6 +2130,223 @@ pub fn clip_frames_to_seconds(clip: &Clip, frames: u64) -> Result<f64, String> {
     Ok(frames as f64 / rate)
 }
 
+/// How far a cut point may move to reach a zero crossing, in milliseconds
+/// (#771). A few ms: far enough to find one in voiced sound, near enough that
+/// the cut stays where the caller meant it.
+pub(crate) const ZERO_CROSSING_WINDOW_MS: f64 = 5.0;
+
+/// The frame nearest `frame` (within `window_ms`) at which the signal crosses
+/// zero, for the cut tools' `snap_to_zero_crossing` (#771).
+///
+/// `samples` is interleaved and `frame` counts frames of it; the crossing is
+/// looked for in the mean of the channels, so one cut point serves them all.
+/// A frame `f` is a crossing when the signal changes sign between `f - 1` and
+/// `f` (or `f` is exactly zero), so cutting before frame `f` joins two
+/// samples either side of zero. Ties go to the earlier frame. With no
+/// crossing in reach, or `frame` outside the buffer, `frame` comes back
+/// unchanged.
+pub(crate) fn nearest_zero_crossing(
+    samples: &[f32],
+    channels: u16,
+    rate: f64,
+    frame: u64,
+    window_ms: f64,
+) -> u64 {
+    let ch = channels.max(1) as usize;
+    let frames = (samples.len() / ch) as u64;
+    if frame == 0 || frame >= frames {
+        return frame;
+    }
+    let at = |f: u64| -> f32 {
+        let i = f as usize * ch;
+        samples[i..i + ch].iter().sum::<f32>() / ch as f32
+    };
+    let reach = ((window_ms / 1000.0) * rate).round().max(0.0) as u64;
+    let crossing = |f: u64| -> bool {
+        let (a, b) = (at(f - 1), at(f));
+        b == 0.0 || (a < 0.0) != (b < 0.0) && a != 0.0
+    };
+    for d in 0..=reach {
+        if frame >= d && frame - d >= 1 && crossing(frame - d) {
+            return frame - d;
+        }
+        let f = frame + d;
+        if d > 0 && f < frames && crossing(f) {
+            return f;
+        }
+    }
+    frame
+}
+
+/// Why a cut point asked to snap was left where it was, for the tool's result.
+pub(crate) const SNAP_SKIPPED_STRETCH: &str = "not snapped: a clip there is time-stretched or \
+     pitch-shifted, so its file's zero crossings are not where it plays";
+/// See [`SNAP_SKIPPED_STRETCH`].
+pub(crate) const SNAP_SKIPPED_UNREADABLE: &str =
+    "not snapped: the audio there could not be read as one format";
+
+/// Frames either side of a cut point within which a clip may matter: 5 ms at
+/// 384 kHz, the highest rate a clip's file is expected to have. Only the
+/// clips this near are decoded; the search window itself is cut to the
+/// clip's own rate.
+const SNAP_GUARD_FRAMES: u64 = 1_920;
+
+/// A cut point after [`snap_frame`]: where it is now, and why it was left
+/// unchanged when it was.
+pub(crate) struct Snapped {
+    pub frame: u64,
+    pub note: Option<&'static str>,
+}
+
+/// Source files decoded for one snap, shared by both ends of a range so a
+/// file is decoded once.
+type DecodeCache = Vec<(PathBuf, std::rc::Rc<audio_decoder::DecodedAudio>)>;
+
+fn decoded(
+    cache: &mut DecodeCache,
+    path: &Path,
+) -> Option<std::rc::Rc<audio_decoder::DecodedAudio>> {
+    if let Some((_, d)) = cache.iter().find(|(p, _)| p == path) {
+        return Some(d.clone());
+    }
+    let d = std::rc::Rc::new(audio_decoder::decode_file(path).ok()?);
+    cache.push((path.to_path_buf(), d.clone()));
+    Some(d)
+}
+
+/// [`nearest_zero_crossing`] for a cut point `frame` on the timeline of
+/// `clips` (frames of the clips' files), searching only inside
+/// `[lo, hi)`.
+///
+/// Only the clips within [`SNAP_GUARD_FRAMES`] of the point are decoded, and
+/// only a window of [`ZERO_CROSSING_WINDOW_MS`] either side is laid out (the
+/// clips summed, gaps silent, as the track plays), so an hour-long track
+/// costs a decode of the one or two files at the point, not a buffer of the
+/// whole track (#771 review). A point the search cannot be trusted on comes
+/// back unchanged with a note: a clip there that is time-stretched or
+/// pitch-shifted (its file's samples are not what plays), or clips there
+/// that cannot be decoded or disagree on rate or channels.
+fn snap_frame(
+    clips: &[Clip],
+    frame: u64,
+    (lo, hi): (u64, u64),
+    cache: &mut DecodeCache,
+) -> Snapped {
+    let unchanged = |note| Snapped { frame, note };
+    let near: Vec<&Clip> = clips
+        .iter()
+        .filter(|c| {
+            c.start_in_track <= frame.saturating_add(SNAP_GUARD_FRAMES)
+                && c.start_in_track
+                    .saturating_add(c.length)
+                    .saturating_add(SNAP_GUARD_FRAMES)
+                    >= frame
+        })
+        .collect();
+    if near.is_empty() {
+        return unchanged(None);
+    }
+    let as_recorded = |c: &&Clip| {
+        c.time_stretch_factor.is_none_or(|f| f == 1.0)
+            && c.pitch_shift_semitones.is_none_or(|p| p == 0.0)
+    };
+    if !near.iter().all(as_recorded) {
+        return unchanged(Some(SNAP_SKIPPED_STRETCH));
+    }
+    let mut sources = Vec::with_capacity(near.len());
+    for c in &near {
+        match decoded(cache, &c.source_path) {
+            Some(d) if d.channels > 0 => sources.push((*c, d)),
+            _ => return unchanged(Some(SNAP_SKIPPED_UNREADABLE)),
+        }
+    }
+    let (rate, ch) = (sources[0].1.sample_rate, sources[0].1.channels);
+    if sources
+        .iter()
+        .any(|(_, d)| d.sample_rate != rate || d.channels != ch)
+    {
+        return unchanged(Some(SNAP_SKIPPED_UNREADABLE));
+    }
+    let reach = ((ZERO_CROSSING_WINDOW_MS / 1000.0) * rate as f64).round() as u64;
+    let w_lo = lo.max(frame.saturating_sub(reach + 1));
+    let w_hi = hi.min(frame.saturating_add(reach + 1));
+    if frame < w_lo || frame >= w_hi {
+        return unchanged(None);
+    }
+    let stride = ch as usize;
+    let mut window = vec![0.0f32; (w_hi - w_lo) as usize * stride];
+    for (c, d) in &sources {
+        let src_frames = (d.samples.len() / stride) as u64;
+        let from = c.start_in_track.max(w_lo);
+        let to = c.start_in_track.saturating_add(c.length).min(w_hi);
+        for t in from..to {
+            let s = c.source_offset + (t - c.start_in_track);
+            if s >= src_frames {
+                break;
+            }
+            let (src, dst) = (s as usize * stride, (t - w_lo) as usize * stride);
+            for k in 0..stride {
+                // Overlapping clips sum, as the renderer mixes them.
+                window[dst + k] += d.samples[src + k];
+            }
+        }
+    }
+    let local = nearest_zero_crossing(
+        &window,
+        ch,
+        rate as f64,
+        frame - w_lo,
+        ZERO_CROSSING_WINDOW_MS,
+    );
+    Snapped {
+        frame: w_lo + local,
+        note: None,
+    }
+}
+
+/// A split point inside `clip`, moved to its nearest zero crossing in the
+/// clip's own audio (the silence before or after the clip is not searched),
+/// and kept strictly inside the clip so neither half is empty.
+pub(crate) fn snap_in_clip(clip: &Clip, frame: u64) -> Snapped {
+    let end = clip.start_in_track.saturating_add(clip.length);
+    let s = snap_frame(
+        std::slice::from_ref(clip),
+        frame,
+        (clip.start_in_track, end),
+        &mut Vec::new(),
+    );
+    if s.frame > clip.start_in_track && s.frame < end {
+        s
+    } else {
+        Snapped {
+            frame,
+            note: s.note,
+        }
+    }
+}
+
+/// Both ends of `[start, end)` on `clips`, each moved to its nearest zero
+/// crossing inside the track (`[0, track_len)`). If the move would leave no
+/// range, the ends are returned as they came. The note says why an end was
+/// left unchanged, when one was.
+pub(crate) fn snap_range(
+    clips: &[Clip],
+    start: u64,
+    end: u64,
+    track_len: u64,
+) -> (u64, u64, Option<&'static str>) {
+    let mut cache = Vec::new();
+    let s = snap_frame(clips, start, (0, track_len), &mut cache);
+    let e = snap_frame(clips, end, (0, track_len), &mut cache);
+    let note = s.note.or(e.note);
+    let e_frame = e.frame.min(track_len);
+    if s.frame < e_frame {
+        (s.frame, e_frame, note)
+    } else {
+        (start, end, note)
+    }
+}
+
 #[cfg(test)]
 mod abort_tests {
     //! A failing edit must leave the session exactly as it found it
