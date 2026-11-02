@@ -1387,10 +1387,12 @@ function AppSession() {
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
       setMixNodeId(null);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
     // Initial fetch. The backend reopens the default project at every
     // launch and restores its `HEAD`, so a returning user's tracks are
     // already there; a fresh project has no head yet and answers

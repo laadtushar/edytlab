@@ -13,13 +13,14 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { Driver } from "./webdriver.mjs";
+import { outDir } from "./out-dir.mjs";
 import { chooseThrough, screenshotRoot } from "./native.mjs";
 import { writeFixtures } from "./fixtures.mjs";
 import { stories } from "./stories/index.mjs";
 import { fakeSource, markSources, proxySource, recordStory } from "./tool-calls.mjs";
 
 const APP = process.env.APP ?? "/home/user/edytlab/target/debug/edytlab-desktop";
-const OUT = process.env.OUT ?? "/tmp/edytlab-native";
+const OUT = outDir();
 
 // Tauri finds a build's resources (templates/, bundled-skills/) beside the
 // binary only when the binary sits in a cargo output folder: <x>/target/<profile>

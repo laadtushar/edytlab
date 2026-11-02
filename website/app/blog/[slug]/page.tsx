@@ -149,6 +149,12 @@ function renderBlock(block: Block, i: number) {
       return (
         <pre
           key={i}
+          // A read-only text field to a screen reader, which is what a focus
+          // stop on text that scrolls is for.
+          role="textbox"
+          aria-readonly="true"
+          aria-multiline="true"
+          aria-label="Code"
           tabIndex={0}
           className="mt-4 overflow-x-auto rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 font-mono text-sm leading-6 text-foreground"
         >

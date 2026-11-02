@@ -57,7 +57,8 @@ export function createTrailWriter(send: (trail: SavedTrail) => Promise<unknown>)
       .then(() => {
         sending = false;
         pump();
-      });
+      })
+      .catch(nothing);
   };
 
   return {

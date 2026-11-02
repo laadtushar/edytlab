@@ -298,7 +298,7 @@ export function useAgentStream(): UseAgentStreamResult {
         } else {
           assign(fn);
         }
-      });
+      }).catch(() => undefined);
     };
 
     attach(
@@ -402,7 +402,7 @@ export function useAgentStream(): UseAgentStreamResult {
         // Coerce each step object to the typed PlanEntry shape. A cast
         // is not a coercion: a step with a number for its description
         // would have reached the card as one.
-        const steps = rawSteps.map(toPlanStep);
+        const steps = rawSteps.map((step, index) => toPlanStep(step, index));
         const entry: PlanEntry = { kind: "plan", id: crypto.randomUUID(), steps };
         setEntries((prev) => [...prev, entry]);
         setPendingPlan(entry);

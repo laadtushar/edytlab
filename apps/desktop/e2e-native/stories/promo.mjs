@@ -17,7 +17,8 @@
 // (fake-llm.mjs, free), to rehearse the screen work; that is a rehearsal, not
 // footage. `marketing/promo-v0.7.0/record/make-footage.mjs` turns what these
 // leave in $OUT (videos/, results.json, promo/) into the footage folder.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { x } from "../native.mjs";
@@ -83,7 +84,9 @@ async function connect(ctx) {
 
 /** Where a shot's audio lives. */
 // A short path, because the History graph prints the path of a loaded file on its node.
-const audioDir = (ctx, name) => join("/tmp/promo-audio", name);
+// One folder of its own per run, made when first asked for (not a fixed name in the shared temp folder, S5443).
+let audioRoot;
+const audioDir = (ctx, name) => join((audioRoot ??= mkdtempSync(join(tmpdir(), "promo-"))), name);
 
 /** Load `files` ({ "Name.wav": parts }) as tracks through the real file chooser, as Open Audio does:
  * the files are alone in a folder of their own, which is opened and everything in it selected, so

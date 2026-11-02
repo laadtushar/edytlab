@@ -5,8 +5,9 @@
 # Stops only what it started, by PID: `pkill -f` matches any command line
 # that merely mentions the name, including the caller's own shell.
 set -euo pipefail
-OUT=${OUT:-/tmp/edytlab-native}
-mkdir -p "$OUT"
+# The same folder out-dir.mjs picks when OUT is unset: owner-only, one per user.
+OUT=${OUT:-${TMPDIR:-/tmp}/edytlab-native-$(id -u)}
+mkdir -p -m 700 "$OUT"
 # Stop what a previous run started. By exact process name (`-x`), not by
 # command line: `pkill -f` would match this shell too.
 for name in edytlab-desktop WebKitWebDriver tauri-driver openbox Xvfb; do

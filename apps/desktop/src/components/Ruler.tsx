@@ -83,6 +83,9 @@ export function Ruler({
   return (
     <div
       data-testid="ruler"
+      // Placing a marker is a gesture at a point on the strip, so it has no
+      // key of its own; the assistant adds one at the playhead ("add a marker").
+      role="presentation"
       style={{
         display: "flex",
         height: 20,

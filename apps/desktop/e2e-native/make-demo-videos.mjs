@@ -16,8 +16,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { outDir } from "./out-dir.mjs";
 
-const OUT = process.env.OUT ?? "/tmp/edytlab-native";
+const OUT = outDir();
 const DEST = process.env.DEST;
 // The pace of a recording without pace marks, and before the first one.
 const SPEED = Number(process.env.SPEED ?? 1.25);

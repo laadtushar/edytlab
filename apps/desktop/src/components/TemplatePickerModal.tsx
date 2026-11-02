@@ -25,11 +25,15 @@ export function TemplatePickerModal({
   return (
     <div
       className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
+      // A pointer-only way out of the picker; its templates are buttons.
+      role="presentation"
       onClick={onClose}
       onAnimationEnd={onAnimationEnd}
     >
       <div
         className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-80 p-6`}
+        // Keeps a click inside the card from reaching the backdrop's close.
+        role="presentation"
         onClick={e => e.stopPropagation()}
       >
         <h2 className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">

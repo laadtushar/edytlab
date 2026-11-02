@@ -11,7 +11,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { createServer as createHttp } from "node:http";
+import { createServer as createHttp, request as httpRequest } from "node:http";
 import { createServer as createNet } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,4 +115,32 @@ test("no header, key or body is kept or served", async () => {
   assert.deepEqual(Object.keys(JSON.parse(served)), ["seen", "turns"]);
   // The usage log is what it was: counts, the model and the status.
   assert.deepEqual(Object.keys(JSON.parse(log.split("\n")[0])).sort(), ["cache_create", "cache_read", "input", "model", "output", "path", "status", "stream", "t"]);
+});
+
+test("a request line that is not a path on the upstream is refused, and the key goes nowhere", async () => {
+  const before = seen.length;
+  const hits = [];
+  const other = createHttp((req, res) => {
+    hits.push(req.url);
+    res.end("{}");
+  });
+  await new Promise((r) => other.listen(0, "127.0.0.1", r));
+  try {
+    const port = new URL(base).port;
+    for (const path of [`@127.0.0.1:${other.address().port}/v1/messages`, `//127.0.0.1:${other.address().port}/v1/messages`, `http://127.0.0.1:${other.address().port}/v1/messages`]) {
+      const status = await new Promise((resolve, reject) => {
+        const req = httpRequest({ host: "127.0.0.1", port, method: "POST", path, headers: { "x-api-key": KEY, "content-type": "application/json" } }, (res) => {
+          res.resume();
+          res.on("end", () => resolve(res.statusCode));
+        });
+        req.on("error", reject);
+        req.end("{}");
+      });
+      assert.equal(status, 400, `${path} is refused`);
+    }
+    assert.deepEqual(hits, [], "nothing reached the other host");
+    assert.equal(seen.length, before, "nothing reached the upstream either");
+  } finally {
+    other.close();
+  }
 });

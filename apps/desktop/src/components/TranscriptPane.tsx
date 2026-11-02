@@ -157,6 +157,12 @@ export function TranscriptPane({
     <div
       data-testid="transcript-pane"
       className="fade-in"
+      // Read-only text with a keyboard selection model (arrows, Shift, Delete,
+      // Escape), which is what this role says; it is why the pane takes focus.
+      role="textbox"
+      aria-readonly="true"
+      aria-multiline="true"
+      aria-label="Transcript"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       style={{
@@ -204,6 +210,8 @@ export function TranscriptPane({
           <span
             key={i}
             data-testid="transcript-word"
+            // The pointer half of the pane's keyboard selection (above).
+            role="presentation"
             data-selected={selected ? "true" : "false"}
             onMouseDown={(e) => {
               if (e.button !== 0) return;
