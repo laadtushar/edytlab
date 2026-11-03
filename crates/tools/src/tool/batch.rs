@@ -29,6 +29,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
+use crate::tool::util::parse_args;
 use crate::{recipe, Tool, ToolContext, ToolDispatcher, ToolResult};
 
 /// Extensions the decoder can actually open on this platform (M4A only where
@@ -92,9 +93,9 @@ impl Tool for BatchApplyTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let text = match std::fs::read_to_string(&args.recipe_path) {

@@ -20,6 +20,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isTopDialog, useDialog } from "../hooks/useDialog";
+
 import {
   DEFAULT_PREROLL_SEC,
   LONG_REGION_SEC,
@@ -59,6 +61,7 @@ export function PunchRecord({
   const [track, setTrack] = useState(0);
   const [preroll, setPreroll] = useState(String(DEFAULT_PREROLL_SEC));
   const [latency, setLatency] = useState<RecordingLatency | undefined | "failed">(undefined);
+  const { dialogProps, headingId, ref: dialogRef } = useDialog(open, () => setOpen(false));
   const rootRef = useRef<HTMLDivElement>(null);
 
   const reason = punchDisabledReason(gate);
@@ -86,22 +89,17 @@ export function PunchRecord({
   // exists.
   const picked = Math.min(track, Math.max(0, tracks.length - 1));
 
-  // Escape closes, and a click outside, like every other transient surface.
+  // A click outside closes only the top dialog.
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
+    if (!open) return undefined;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (isTopDialog(dialogRef.current) && !rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onDown);
     return () => {
-      window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onDown);
     };
-  }, [open]);
+  }, [open, dialogRef]);
 
   // Nothing to punch into any more (the selection was cleared, a take
   // started): the popover goes, as its button is off.
@@ -146,6 +144,7 @@ export function PunchRecord({
 
       {open && region ? (
         <div
+          {...dialogProps}
           data-testid="punch-panel"
           className="
             absolute right-0 top-full z-50 mt-1 w-72
@@ -154,9 +153,9 @@ export function PunchRecord({
             shadow-(--shadow-pop)
           "
         >
-          <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+          <h2 id={headingId} className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
             Punch in
-          </p>
+          </h2>
 
           <p
             data-testid="punch-region"

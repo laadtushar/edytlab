@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::load_track_audio;
+use crate::tool::util::{load_track_audio, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 const FFT_SIZE: usize = 4096;
@@ -218,9 +218,9 @@ impl Tool for PlotSpectrumTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if args.start_sec >= args.end_sec {
             return Ok(ToolResult::Error("start_sec must be < end_sec".into()));

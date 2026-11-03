@@ -35,7 +35,9 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::speech_detect::{speech_in_track, track_list, unique_tracks};
-use crate::tool::util::{append_state, check_track_index, clip_source_rate, load_head_state};
+use crate::tool::util::{
+    append_state, check_track_index, clip_source_rate, load_head_state, parse_args,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// How much to drop the music under speech, in dB.
@@ -141,9 +143,9 @@ impl Tool for DuckUnderSpeechTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         let duck_db = args.duck_db.unwrap_or(DEFAULT_DUCK_DB);

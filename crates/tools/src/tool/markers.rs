@@ -46,7 +46,7 @@ use uuid::Uuid;
 use crate::schema::anthropic_tool;
 use crate::session_lines::{marker_line_with_id, markers_by_time};
 use crate::tool::list_session::{paged, PAGE_MAX_ITEMS};
-use crate::tool::util::{append_state, load_head_state};
+use crate::tool::util::{append_state, args_and_head, load_head_state, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// The most items a writer takes in one call, and the most markers the
@@ -74,10 +74,6 @@ fn echo(text: &str) -> String {
 
 fn refuse(message: impl Into<String>) -> crate::Result<ToolResult> {
     Ok(ToolResult::Error(message.into()))
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
-    serde_json::from_value(args).map_err(|e| format!("invalid arguments: {e}"))
 }
 
 // ---------------------------------------------------------------------
@@ -253,9 +249,9 @@ impl Tool for FindMarkersTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: FindArgs = match parse(args) {
+        let args: FindArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return refuse(e),
+            Err(r) => return Ok(r),
         };
         if let Err(e) = args.selector.check() {
             return refuse(e);
@@ -447,13 +443,9 @@ impl Tool for AddMarkersTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: AddArgs = match parse(args) {
-            Ok(a) => a,
-            Err(e) => return refuse(e),
-        };
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return refuse(e),
+        let (args, mut state) = match args_and_head::<AddArgs>(args, ctx) {
+            Ok(v) => v,
+            Err(r) => return Ok(r),
         };
         let new = if args.markers.is_some() && args.every.is_some() {
             return refuse("give `markers` or `every`, not both");
@@ -548,9 +540,9 @@ impl Tool for EditMarkersTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: EditArgs = match parse(args) {
+        let args: EditArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return refuse(e),
+            Err(r) => return Ok(r),
         };
         if args.edits.is_empty() {
             return refuse("`edits` is empty; give at least one {id, ...}");
@@ -673,9 +665,9 @@ impl Tool for DeleteMarkersTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: DeleteArgs = match parse(args) {
+        let args: DeleteArgs = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return refuse(e),
+            Err(r) => return Ok(r),
         };
         if let Err(e) = args.selector.check() {
             return refuse(e);

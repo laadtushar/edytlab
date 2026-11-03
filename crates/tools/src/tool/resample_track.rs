@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit_resample;
+use crate::tool::util::{destructive_edit_resample, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Linear interpolation resample: interleaved `channels`-channel input
@@ -69,9 +69,9 @@ impl Tool for ResampleTrackTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if args.target_sample_rate == 0 {
             return Ok(ToolResult::Error(

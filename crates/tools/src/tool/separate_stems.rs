@@ -65,9 +65,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::tool::local_model::{
-    self, cache_key, decode_input, into_result, parse_args, resolve_audio_source, round2,
-    LoadedSlot, ModelLookup, ProgressStrip,
+    self, cache_key, decode_input, into_result, resolve_audio_source, round2, LoadedSlot,
+    ModelLookup, ProgressStrip,
 };
+use crate::tool::util::parse_args_message;
 use crate::{Tool, ToolContext, ToolResult};
 
 pub use crate::tool::local_model::ModelRef;
@@ -153,6 +154,25 @@ pub struct DemucsStems;
 /// The loaded model, kept for the next call. One slot.
 static LOADED: LoadedSlot<DemucsModel> = LoadedSlot::new();
 
+/// Return unused glibc heap pages after inference (#868). This is only a
+/// request: live model allocations stay cached and the allocator may return
+/// nothing. glibc inspects process-wide arenas, so this can briefly contend
+/// with other threads, including another run of the model; do it once after
+/// this run has released its network lock, and not on a cache hit.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn release_allocator_pages() {
+    unsafe extern "C" {
+        fn malloc_trim(pad: usize) -> std::ffi::c_int;
+    }
+
+    // SAFETY: glibc provides malloc_trim on this target; zero is a valid pad,
+    // and the function is thread-safe and only releases free allocator pages.
+    let _ = unsafe { malloc_trim(0) };
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn release_allocator_pages() {}
+
 impl DemucsStems {
     fn load(model: &ModelRef) -> Result<Arc<DemucsModel>, StemFailure> {
         LOADED
@@ -216,13 +236,15 @@ impl StemModel for DemucsStems {
         control: &Control<'_>,
     ) -> Result<Separated, StemFailure> {
         let loaded = Self::load(model)?;
-        loaded
-            .separate_to_dir(audio, dest, control)
-            .map_err(|e| match e {
-                DemucsError::Cancelled => StemFailure::Cancelled,
-                ref other if ml_demucs::is_oom_error(other) => StemFailure::OutOfMemory,
-                other => StemFailure::Failed(public_reason(&other)),
-            })
+        let result = loaded.separate_to_dir(audio, dest, control);
+        // The call has returned, so its network guard and temporary buffers
+        // are gone. Reclaim on success, cancellation and errors alike.
+        release_allocator_pages();
+        result.map_err(|e| match e {
+            DemucsError::Cancelled => StemFailure::Cancelled,
+            ref other if ml_demucs::is_oom_error(other) => StemFailure::OutOfMemory,
+            other => StemFailure::Failed(public_reason(&other)),
+        })
     }
 }
 
@@ -362,7 +384,7 @@ impl SeparateStemsTool {
     /// The call, ending at the first thing it must refuse (`Err` is the
     /// `ToolResult::Error`'s message).
     fn run(&self, args: Value, ctx: &ToolContext) -> Result<Value, String> {
-        let args: Args = parse_args(args)?;
+        let args: Args = parse_args_message(args)?;
         let model_id = args.model.as_deref().unwrap_or(ml_demucs::DEFAULT_MODEL_ID);
         if !ml_demucs::SUPPORTED_MODEL_IDS.contains(&model_id) {
             return Err(format!(

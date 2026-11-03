@@ -47,6 +47,7 @@ pub mod compressor;
 pub mod dynamics;
 pub mod effects;
 pub mod eq;
+pub mod repair;
 
 pub use biquad::{Biquad, BiquadCoeffs, BiquadState};
 pub use dynamics::{Gain, Limiter};

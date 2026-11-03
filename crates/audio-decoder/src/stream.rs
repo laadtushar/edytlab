@@ -27,7 +27,7 @@
 //! streaming through the symphonia pipeline yet.
 
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use hound::{SampleFormat, WavReader};
@@ -47,8 +47,91 @@ pub struct WavStreamReader {
     bits_per_sample: u16,
     sample_format: SampleFormat,
     total_frames: u64,
+    seekable: bool,
     /// Frames already returned by [`read_frames`]; bounds [`frames_remaining`].
     frames_read: u64,
+}
+
+/// Byte stride for the sample formats whose hound seeks are supported.
+fn packed_sample_bytes(spec: hound::WavSpec) -> Option<u64> {
+    match (spec.sample_format, spec.bits_per_sample) {
+        (SampleFormat::Int, 8) => Some(1),
+        (SampleFormat::Int, 16) => Some(2),
+        (SampleFormat::Int, 24) => Some(3),
+        (SampleFormat::Int, 32) | (SampleFormat::Float, 32) => Some(4),
+        _ => None,
+    }
+}
+
+/// Check the data chunk against both hound's sample count and the file extent.
+/// The reader starts immediately after the data chunk length field.
+fn checked_data_extent(
+    reader: &mut BufReader<File>,
+    samples: u32,
+    bytes_per_sample: u64,
+    file_length: u64,
+) -> Option<u64> {
+    let data_start = reader.stream_position().ok()?;
+    reader
+        .seek(SeekFrom::Start(data_start.checked_sub(4)?))
+        .ok()?;
+    let mut length = [0_u8; 4];
+    reader.read_exact(&mut length).ok()?;
+    let data_length = u64::from(u32::from_le_bytes(length));
+    if u64::from(samples).checked_mul(bytes_per_sample)? != data_length
+        || data_start.checked_add(data_length)? > file_length
+    {
+        return None;
+    }
+    Some(data_start)
+}
+
+/// Validate the container stride independently of hound's sample count.
+fn check_block_alignment(
+    reader: &mut BufReader<File>,
+    spec: hound::WavSpec,
+    bytes_per_sample: u64,
+    data_start: u64,
+) -> Option<()> {
+    reader.seek(SeekFrom::Start(12)).ok()?;
+    let expected_alignment = bytes_per_sample.checked_mul(u64::from(spec.channels))?;
+    loop {
+        let position = reader.stream_position().ok()?;
+        if position.checked_add(8)? > data_start {
+            return None;
+        }
+        let mut header = [0_u8; 8];
+        reader.read_exact(&mut header).ok()?;
+        let size = u64::from(u32::from_le_bytes(header[4..].try_into().ok()?));
+        if &header[..4] == b"fmt " {
+            return check_format_alignment(reader, size, expected_alignment);
+        }
+        let next = position
+            .checked_add(8)?
+            .checked_add(size)?
+            .checked_add(size % 2)?;
+        if next > data_start {
+            return None;
+        }
+        reader.seek(SeekFrom::Start(next)).ok()?;
+    }
+}
+
+fn check_format_alignment(
+    reader: &mut BufReader<File>,
+    size: u64,
+    expected_alignment: u64,
+) -> Option<()> {
+    if size < 16 {
+        return None;
+    }
+    let mut format = [0_u8; 16];
+    reader.read_exact(&mut format).ok()?;
+    let alignment = u64::from(u16::from_le_bytes([format[12], format[13]]));
+    if alignment != expected_alignment {
+        return None;
+    }
+    Some(())
 }
 
 impl WavStreamReader {
@@ -63,15 +146,78 @@ impl WavStreamReader {
             bits_per_sample: spec.bits_per_sample,
             sample_format: spec.sample_format,
             total_frames,
+            seekable: false,
             frames_read: 0,
             inner,
         })
     }
 
+    /// Open a regular, complete, packed PCM WAV for direct frame seeks.
+    ///
+    /// Hound's seek uses `bits_per_sample / 8`, not the WAV container's
+    /// block alignment. In particular it cannot seek 24 valid bits stored
+    /// in four bytes. Probe the same file handle and fall back to `open`
+    /// for any layout or file whose seek safety cannot be established.
+    pub fn open_seekable(path: &Path) -> Option<Self> {
+        // Do not consume a FIFO producer just to check eligibility. This
+        // path check is point-in-time: a concurrent replacement between it
+        // and File::open can still change the kind of file being opened.
+        if !std::fs::metadata(path).ok()?.is_file() {
+            return None;
+        }
+        let file = File::open(path).ok()?;
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file() {
+            return None;
+        }
+        let mut reader = BufReader::new(file);
+        let (spec, samples) = {
+            let probe = WavReader::new(&mut reader).ok()?;
+            (probe.spec(), probe.len())
+        };
+        let bytes_per_sample = packed_sample_bytes(spec)?;
+        let data_start =
+            checked_data_extent(&mut reader, samples, bytes_per_sample, metadata.len())?;
+        check_block_alignment(&mut reader, spec, bytes_per_sample, data_start)?;
+        reader.rewind().ok()?;
+        let inner = WavReader::new(reader).ok()?;
+        Some(Self {
+            sample_rate: spec.sample_rate,
+            channels: spec.channels,
+            bits_per_sample: spec.bits_per_sample,
+            sample_format: spec.sample_format,
+            total_frames: inner.duration() as u64,
+            seekable: true,
+            frames_read: 0,
+            inner,
+        })
+    }
+
+    /// Seek an `open_seekable` reader to a frame at or before its end.
+    ///
+    /// Readers made by [`Self::open`] reject this operation; only
+    /// [`Self::open_seekable`] validates hound's byte stride.
+    pub fn seek_frame(&mut self, frame: u64) -> Result<(), DecodeError> {
+        if !self.seekable
+            || frame > self.total_frames
+            || frame
+                .checked_mul(u64::from(self.channels))
+                .is_none_or(|n| n > u64::from(u32::MAX))
+        {
+            return Err(DecodeError::Corrupt);
+        }
+        let frame = u32::try_from(frame).map_err(|_| DecodeError::Corrupt)?;
+        self.inner.seek(frame)?;
+        self.frames_read = u64::from(frame);
+        Ok(())
+    }
+
+    /// Sample rate in Hz from the WAV header.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
+    /// Number of interleaved samples in each frame.
     pub fn channels(&self) -> u16 {
         self.channels
     }
@@ -89,11 +235,9 @@ impl WavStreamReader {
 
     /// Skip up to `frames` frames forward without returning them.
     ///
-    /// Used by the render graph to seek past the source-offset prefix of a
-    /// clip: the streaming WAV reader has no random access (we don't want
-    /// to depend on `WavReader::seek`'s 32-bit `time` argument for long
-    /// files), so we drain bytes through the existing iterator. This stays
-    /// O(1) memory regardless of how far we skip.
+    /// Drains the existing iterator, including malformed and unusual WAV
+    /// layouts for which direct seeking could change decoding behaviour.
+    /// This stays O(1) memory regardless of how far we skip.
     pub fn skip_frames(&mut self, frames: u64) -> Result<(), DecodeError> {
         let available = self.frames_remaining();
         let to_skip = frames.min(available);
@@ -167,86 +311,27 @@ impl WavStreamReader {
         if want_frames == 0 {
             return Ok(0);
         }
-        let mut written_samples = 0usize;
         let want_samples = want_frames * chans;
-
-        match self.sample_format {
+        let dst = &mut dst[..want_samples];
+        let written_samples = match self.sample_format {
             SampleFormat::Int => match self.bits_per_sample {
+                // Hound widens 8-bit PCM to i16; re-narrow to match symphonia.
                 8 => {
-                    let mut iter = self.inner.samples::<i16>();
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                // hound returns 8-bit PCM widened to i16 (it
-                                // upcasts `(byte - 128)` to i16). To match
-                                // symphonia's 8-bit -> f32 (`s as f32 /
-                                // 128.0`) we re-narrow.
-                                let s8 = (s.clamp(-128, 127)) as i8;
-                                dst[written_samples] = s8 as f32 / 128.0;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
+                    self.read_samples::<i16>(dst, |s| (s.clamp(-128, 127) as i8) as f32 / 128.0)?
                 }
-                16 => {
-                    let mut iter = self.inner.samples::<i16>();
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                dst[written_samples] = s as f32 / 32_768.0;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
-                }
+                16 => self.read_samples::<i16>(dst, |s| s as f32 / 32_768.0)?,
                 24 => {
-                    let mut iter = self.inner.samples::<i32>();
-                    let denom = (1i32 << 23) as f32; // 2^23 = 8_388_608
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                dst[written_samples] = s as f32 / denom;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
+                    let denom = (1i32 << 23) as f32;
+                    self.read_samples::<i32>(dst, |s| s as f32 / denom)?
                 }
                 32 => {
-                    let mut iter = self.inner.samples::<i32>();
-                    let denom = (1i64 << 31) as f32; // 2^31 = 2_147_483_648
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                dst[written_samples] = s as f32 / denom;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
+                    let denom = (1i64 << 31) as f32;
+                    self.read_samples::<i32>(dst, |s| s as f32 / denom)?
                 }
                 other => return Err(unsupported_bits(other)),
             },
-            SampleFormat::Float => {
-                let mut iter = self.inner.samples::<f32>();
-                while written_samples < want_samples {
-                    match iter.next() {
-                        Some(Ok(s)) => {
-                            dst[written_samples] = s;
-                            written_samples += 1;
-                        }
-                        Some(Err(e)) => return Err(map_hound_err(e)),
-                        None => break,
-                    }
-                }
-            }
-        }
+            SampleFormat::Float => self.read_samples::<f32>(dst, |s| s)?,
+        };
 
         // Partial trailing frame would mean the source was truncated mid-
         // frame; surface that as Corrupt so callers don't accidentally
@@ -257,6 +342,28 @@ impl WavStreamReader {
         let frames = written_samples / chans;
         self.frames_read += frames as u64;
         Ok(frames)
+    }
+
+    /// Read sample values in order, retaining the caller's exact conversion
+    /// arithmetic and the first decoder error or EOF position.
+    fn read_samples<S: hound::Sample>(
+        &mut self,
+        dst: &mut [f32],
+        convert: impl Fn(S) -> f32,
+    ) -> Result<usize, DecodeError> {
+        let mut written = 0;
+        let mut samples = self.inner.samples::<S>();
+        while written < dst.len() {
+            match samples.next() {
+                Some(Ok(sample)) => {
+                    dst[written] = convert(sample);
+                    written += 1;
+                }
+                Some(Err(error)) => return Err(map_hound_err(error)),
+                None => break,
+            }
+        }
+        Ok(written)
     }
 }
 

@@ -67,7 +67,7 @@ use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::tool::ducking::{join_gap, join_passages, speech_passages, Passage};
 use crate::tool::speech_detect::{speech_in_track, track_list, unique_tracks};
-use crate::tool::util::{check_track_index, load_head_state};
+use crate::tool::util::{check_track_index, load_head_state, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// What a selector resolved to, and what it was found from.
@@ -189,9 +189,9 @@ impl Tool for SelectRegionTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
 
         // Exactly one selector. Accepting several and picking one would

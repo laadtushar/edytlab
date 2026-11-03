@@ -31,21 +31,10 @@ use std::sync::{Arc, Mutex};
 use audio_decoder::DecodedAudio;
 use ml_pipeline::ContentHash;
 use ml_pipeline::ModelArtifact;
-use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use crate::tool::util::{check_track_index, flattened_track_wav, lane_audio_path, load_head_state};
 use crate::{ToolContext, ToolResult};
-
-// ---------------------------------------------------------------------
-// Arguments
-// ---------------------------------------------------------------------
-
-/// The arguments of a call as the tool's own `Args`, or the message for the
-/// `ToolResult::Error` when they are not that.
-pub fn parse_args<T: DeserializeOwned>(args: Value) -> Result<T, String> {
-    serde_json::from_value(args).map_err(|e| format!("invalid arguments: {e}"))
-}
 
 /// A tool's answer: the value, or the message of the `ToolResult::Error`.
 /// These tools are written as a `run` that returns `Result<Value, String>`,

@@ -48,7 +48,7 @@ description: "Workspace layout, the AI subsystem, tool dispatch, the session gra
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
      │  crates/│  │ crates/ │  │    crates/   │  │   crates/   │
      │  ai     │  │ tools   │  │    session   │  │   audio-*   │
-     │  agent  │  │110 tools│  │    DAG store │  │   ml-*      │
+     │  agent  │  │113 tools│  │    DAG store │  │   ml-*      │
      └──────┬──┘  └────┬────┘  └──────────┬───┘  └──────┬──────┘
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
@@ -102,7 +102,7 @@ edytlab/
     ├── recorder/                 # Microphone capture to WAV; recording-latency measurement; the punch-in's monitor and take (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # 110 deterministic audio-editing tools
+    └── tools/                    # 113 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -748,7 +748,7 @@ pub struct ToolContext<'a> {
 
 impl ToolDispatcher {
     pub fn new() -> Self                    // empty
-    pub fn default_dispatcher() -> Self     // registers all 110 built-in tools
+    pub fn default_dispatcher() -> Self     // registers all 113 built-in tools
     pub fn register(&mut self, tool: Box<dyn Tool>)
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
@@ -785,7 +785,7 @@ There are four ways to open a store. `Store::open_shared` is the project the win
 
 ### The Tools
 
-There are 110, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
+There are 113, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
 `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) runs HT-Demucs on this computer once the user has downloaded the stem model with the Stem model row in Settings → Account (or a developer points `DEMUCS_MODEL_PATH` at it) and returns the paths of four stem WAVs; the agent `load`s the ones it wants. `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) runs the speech model on this computer once the user has downloaded it in Settings → Account (see "Whisper (Transcription)" below), and `cut_words`, `remove_fillers` and the `text` mode of `select_region` work from the transcript it makes. `duck_under_speech` and `select_region`'s `speech_passage` do not need one: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
@@ -1189,7 +1189,7 @@ Memory fragments are injected into the system prompt on every turn:
 </edytlab-memory>
 ```
 
-The agent sees memory on every turn but has no tool to write it: none of the 110 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
+The agent sees memory on every turn but has no tool to write it: none of the 113 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
 
 ### Skills System
 
@@ -1341,7 +1341,37 @@ Save As (`project::copy_project`) takes the store lock alone, to copy the histor
 
 - Audio processing runs 100% in-process
 - ONNX models run locally. Whisper does (`transcribe`, #384) and so does Demucs (`separate_stems`, #385). Audio bytes never leave the machine. What the speech model hears does reach the model provider as text: the words `transcribe` returns are a tool result, and tool results are part of the chat request (a bounded listing, `RESULT_BUDGET_BYTES`, never the audio)
-- Network traffic is LLM API calls (text tokens only), the requests of the plugin URLs and MCP servers you configure, and, from 0.8.0, the speech model download you start by clicking Download in Settings (the files come from `huggingface.co`; see "The speech model download" above), and, only if you sign in with ChatGPT, requests to `auth.openai.com` (the sign-in and token renewal) and `api.openai.com` (the model calls and the model list)
+- Network traffic is LLM API calls (text tokens only), the requests of the plugin URLs and MCP servers you configure, and, from 0.8.0, the speech model download you start by clicking Download in Settings (the files come from `huggingface.co`; see "The speech model download" above), and, only if you sign in with ChatGPT, requests to `auth.openai.com` (the sign-in and token renewal) and `api.openai.com` (the model calls and the model list), and, only if you turn on Send crash reports (off by default), scrubbed error reports to Sentry (see "Crash Reports" below)
+
+### Crash Reports (opt-in)
+
+`src-tauri/src/crash_reports.rs` (#958). Reporting is **off by default** and
+inert unless three things hold: the build was given a DSN at build time
+(`option_env!("EDYTLAB_SENTRY_DSN")`, which `release-dev.yml` and
+`release-signed.yml` pass from a repository variable or secret; none is
+committed, and a build from source or CI has none), the person turned on Send
+crash reports in Settings → Account (`crash_reports` in
+`~/.edytlab/settings.json`, beside Plan first, never the keychain), and the
+event has been through `scrub_event`, the client's `before_send`. Until the
+switch is on no `sentry::Client` exists, so there is no transport, no thread
+and no request; turning it off closes the client, turning it on makes a new
+one, and neither needs a restart. The client is built by hand (no
+`sentry::init`: nothing reads `SENTRY_*` from the environment, no default
+integration installs a hook) and sends through `HttpTransport`, the
+`reqwest` 0.12 + rustls the app already uses. Panics are reported from a hook
+installed once at startup in a build with a DSN (release builds unwind, #908);
+the webview's uncaught errors come through `report_webview_error`
+(`lib/crashReports.ts` forwards `error` and `unhandledrejection`, each distinct
+error once, at most 20 a launch), so there is one client and one consent check
+and the CSP is unchanged. No tracing, sessions, logs, metrics, breadcrumbs or
+replay; `send_default_pii` is false. The scrubber removes the user, request,
+host name, breadcrumbs, `extra`, modules, debug images, frame variables and
+source lines, and in every other string the home folder, each project folder
+opened in the launch and the app's own folders (replaced by `~`,
+`<project>`, `<app config>`, `<app data>`), anything quoted, keys and tokens,
+email addresses and, in messages, every other absolute path. Its rules are
+pinned by the module's tests, which also run the real transport against a
+local listener to show that nothing connects while the switch is off.
 
 ### Tauri Permissions
 

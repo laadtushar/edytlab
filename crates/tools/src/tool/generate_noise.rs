@@ -4,7 +4,7 @@ use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state_or_empty, set_session_length};
+use crate::tool::util::{append_state, load_head_state_or_empty, parse_args, set_session_length};
 use crate::{Tool, ToolContext, ToolResult};
 
 fn lcg_next(state: &mut u64) -> f32 {
@@ -92,9 +92,9 @@ impl Tool for GenerateNoiseTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match serde_json::from_value(args) {
+        let args: Args = match parse_args(args) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Err(r) => return Ok(r),
         };
         if args.duration_sec <= 0.0 {
             return Ok(ToolResult::Error("duration_sec must be positive".into()));

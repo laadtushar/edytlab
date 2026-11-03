@@ -115,7 +115,8 @@ Vercel analytics breaks out UTM parameters.
 - No upvote, star or share asks, on any platform.
 - Never post the same text twice: every caption in `captions.md` is written for its platform.
 - Keep the "Real app, real Claude" and "Real app, recorded live" labels on every frame; do not crop them out.
-- No stem separation, vocal isolation or mashup claims, and no version number, count or ranking that is not on the
-  images. A caption tells the story of its image; it does not list providers, formats or tools.
+- No stem separation, vocal isolation or mashup claims in a caption: no image shows them (stem separation works from
+  v0.9.4 only after a model download, and the stems are estimates; see `../../README.md`). No version number, count or
+  ranking that is not on the images. A caption tells the story of its image; it does not list providers, formats or tools.
 - No "best" or "fastest". Say "unsigned" in any post that links a download.
 - Do not stack two community posts on one day, and do not post a community thread you cannot stay in.

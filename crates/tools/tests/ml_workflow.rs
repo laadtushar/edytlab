@@ -286,10 +286,61 @@ fn it_runs_ignored_tests_that_exist_and_are_ignored_with_a_reason() {
             "crates/ml-whisper/tests/transcribe_smoke.rs".to_string(),
             "crates/tools/tests/diarize_end_to_end.rs".to_string(),
             "crates/tools/tests/separate_stems_end_to_end.rs".to_string(),
+            "crates/tools/tests/stem_memory_probe.rs".to_string(),
+            "crates/tools/tests/stem_trim_lifecycle.rs".to_string(),
             "crates/tools/tests/transcribe_end_to_end.rs".to_string(),
             "crates/tools/tests/transcribe_load_errors.rs".to_string(),
         ],
         "the workflow must run the shared builder's identity inference, the model tests and the ignored tests in ml-whisper's source"
+    );
+}
+
+#[test]
+fn stem_trim_checks_run_in_the_linux_stem_job_after_their_inputs_are_fetched() {
+    let yaml = workflow();
+    let stems = yaml
+        .split_once("\n  stems:\n")
+        .expect("the stems job exists")
+        .1;
+    // Stop at the next job if one is added later, so a step in another job
+    // cannot satisfy this check.
+    let job = stems
+        .lines()
+        .take_while(|line| line.is_empty() || line.starts_with("    "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(job.contains("runs-on: ubuntu-22.04"));
+    for (name, test, model_required) in [
+        (
+            "Stem allocator cleanup lifecycle",
+            "stem_trim_lifecycle",
+            false,
+        ),
+        ("Stem allocator RSS measurement", "stem_memory_probe", true),
+    ] {
+        let body: Vec<_> = step_body(&job, name).map(str::trim).collect();
+        assert!(body.contains(
+            &"ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so"
+        ));
+        assert_eq!(
+            body.contains(&"DEMUCS_MODEL_PATH: ${{ github.workspace }}/ml-models/htdemucs"),
+            model_required,
+            "{name}: the real model is required only for the RSS probe"
+        );
+        assert!(body.contains(&format!("run: cargo test -p tools --release --test {test} -- --ignored --nocapture --test-threads=1").as_str()));
+        assert!(
+            !body.iter().any(|line| line.starts_with("if:")),
+            "{name} must not be silently skipped"
+        );
+    }
+    let at = |name: &str| job.find(&format!("- name: {name}")).unwrap();
+    assert!(at("Fetch ONNX Runtime (stems)") < at("Stem allocator cleanup lifecycle"));
+    assert!(at("Fetch the stem model") < at("Stem allocator RSS measurement"));
+    assert!(
+        !code_lines(&yaml)
+            .iter()
+            .any(|line| line.contains("STEM_MAX_POST_MIB")),
+        "RSS is diagnostic and must not become a platform-dependent CI gate"
     );
 }
 

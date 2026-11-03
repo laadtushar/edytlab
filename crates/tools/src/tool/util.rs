@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, EnvelopePoint, NodeId, SessionNode, SessionState, Track};
@@ -561,16 +562,34 @@ pub(crate) fn keep_timeline(clips: &[Clip], start: u64, end: u64) -> Vec<Clip> {
     out
 }
 
+/// A call's arguments as the tool's own `Args`, or the message of the
+/// `ToolResult::Error` when they are not that. This is the one place the
+/// "invalid arguments: …" text is written (#934): [`parse_args`] and
+/// [`args_and_head`] wrap it, and a tool written as a `run` returning
+/// `Result<_, String>` (`diarize`, `separate_stems`) calls it with `?`.
+/// `crates/tools/tests/tool_args_preamble.rs` fails a tool that spells it out again.
+pub(crate) fn parse_args_message<T: DeserializeOwned>(args: Value) -> Result<T, String> {
+    serde_json::from_value(args).map_err(|e| format!("invalid arguments: {e}"))
+}
+
+/// Parse a tool's arguments, for a tool that does not read the head next
+/// (it validates them first, reads the head some other way, or hands them
+/// to [`EffectEdit`]). The failure is the `ToolResult::Error` the model is
+/// shown, so a tool writes
+/// `let args: Args = match parse_args(args) { Ok(a) => a, Err(r) => return Ok(r) };`.
+pub(crate) fn parse_args<T: DeserializeOwned>(args: Value) -> Result<T, ToolResult> {
+    parse_args_message(args).map_err(ToolResult::Error)
+}
+
 /// Parse a tool's arguments and read the head state, the two steps nearly
 /// every editing tool opens with. Either failure is the `ToolResult::Error`
 /// the model is shown, so a tool writes
 /// `let (args, mut state) = match args_and_head::<Args>(args, ctx) { Ok(v) => v, Err(r) => return Ok(r) };`.
-pub(crate) fn args_and_head<T: serde::de::DeserializeOwned>(
+pub(crate) fn args_and_head<T: DeserializeOwned>(
     args: Value,
     ctx: &ToolContext,
 ) -> Result<(T, SessionState), ToolResult> {
-    let args = serde_json::from_value(args)
-        .map_err(|e| ToolResult::Error(format!("invalid arguments: {e}")))?;
+    let args = parse_args(args)?;
     let state = load_head_state(ctx).map_err(ToolResult::Error)?;
     Ok((args, state))
 }
