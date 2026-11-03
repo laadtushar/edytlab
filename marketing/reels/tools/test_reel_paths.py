@@ -141,7 +141,7 @@ class PaidGenerationPathsTests(unittest.TestCase):
             outside.write_bytes(b"original bytes")
             if target_name == "out":
                 out.symlink_to(external, target_is_directory=True)
-                refused = out / "sfx"
+                refused = out / "sfx" if command == "sfx" else out
             elif target_name == "work":
                 work.symlink_to(external, target_is_directory=True)
                 refused = tts
@@ -163,10 +163,17 @@ class PaidGenerationPathsTests(unittest.TestCase):
                     mock.patch.object(narrate, "tts_call") as paid, \
                     mock.patch.object(narrate, "subscription") as subscription, \
                     mock.patch.object(narrate, "ledger_add") as ledger, \
+                    mock.patch.object(narrate, "ledger_total", return_value=0) as ledger_read, \
                     mock.patch.object(narrate.requests, "post") as post:
                 with self.assertRaises(SystemExit) as error:
                     if command == "generate":
                         narrate.generate_line(text)
+                    elif command == "timeline":
+                        narrate.generate_timeline({
+                            "file": "synthetic", "cues": [{
+                                "id": "R1", "narration": text, "narration_spoken": text,
+                            }],
+                        })
                     elif command == "sfx":
                         narrate.gen_sfx()
                     else:
@@ -178,15 +185,22 @@ class PaidGenerationPathsTests(unittest.TestCase):
                 paid.assert_not_called()
                 subscription.assert_not_called()
                 ledger.assert_not_called()
+                ledger_read.assert_not_called()
                 post.assert_not_called()
             self.assertEqual(outside.read_bytes(), b"original bytes")
             self.assertEqual(sorted(path.name for path in Path(external).iterdir()), ["untouched"])
 
-    def test_generate_preflights_audio_metadata_and_ledger(self):
-        """Generate validates all local targets, including a symlinked work directory."""
-        for target in ("mp3", "metadata", "ledger", "work"):
+    def test_generate_preflights_audio_metadata_ledger_and_usage(self):
+        """Generation validates every local audio and bookkeeping target before paid calls."""
+        for target in ("mp3", "metadata", "ledger", "usage", "out", "work"):
             with self.subTest(target=target):
                 self.check_preflight("generate", target)
+
+    def test_timeline_preflights_usage_and_output_before_generation(self):
+        """The batch's later usage log cannot reject an output after its line was paid for."""
+        for target in ("usage", "out"):
+            with self.subTest(target=target):
+                self.check_preflight("timeline", target)
 
     def test_speed_preflights_audio_ledger_and_usage(self):
         """The speed experiment validates bookkeeping before its first provider call."""

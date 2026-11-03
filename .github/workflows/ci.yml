@@ -144,6 +144,44 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
+      - name: Marketing tool syntax
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import py_compile
+          import subprocess
+          import tempfile
+
+          roots = tuple(map(Path, (
+              "marketing/launch-video", "marketing/promo-v0.7.0",
+              "marketing/reels", "marketing/social-kit",
+          )))
+          tracked = subprocess.run(
+              ["git", "ls-files", "-z", "--", *map(str, roots)],
+              stdout=subprocess.PIPE, check=True,
+          ).stdout
+          commands = {".mjs": ["node", "--check"], ".sh": ["bash", "-n"]}
+          counts = {".py": 0, ".mjs": 0, ".sh": 0}
+          with tempfile.TemporaryDirectory() as cache:
+              for index, raw in enumerate(tracked.split(b"\0")):
+                  if not raw:
+                      continue
+                  path = Path(os.fsdecode(raw))
+                  if path.suffix not in counts:
+                      continue
+                  root = next(root for root in roots if path.is_relative_to(root))
+                  resolved = path.resolve(strict=True)
+                  if not resolved.is_relative_to(Path.cwd().resolve() / root) or not resolved.is_file():
+                      raise ValueError(f"Source must be a file inside {root}: {path!r}")
+                  if path.suffix == ".py":
+                      py_compile.compile(path, cfile=str(Path(cache) / f"{index}.pyc"), doraise=True)
+                  else:
+                      subprocess.run([*commands[path.suffix], str(path)], check=True)
+                  counts[path.suffix] += 1
+          print(f"Syntax checks passed: {counts}")
+          PY
       - name: Promo recording and Remotion JavaScript path contracts
         if: runner.os == 'Linux'
         run: >-

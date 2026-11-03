@@ -204,7 +204,7 @@ def generate_line(text, lang=None, previous_ids=None, next_text=None, settings=N
     h = line_hash(text, lang, settings)
     mp3 = f"{TTS}/{h}.mp3"
     metadata = f"{TTS}/{h}.json"
-    for path in (mp3, metadata, LEDGER):
+    for path in (mp3, metadata, LEDGER, OUT, USAGE_LOG):
         checked_reel_path(path)
     used = ledger_total()
     if used + len(text) > BUDGET:
