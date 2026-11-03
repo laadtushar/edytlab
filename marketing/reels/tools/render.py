@@ -524,7 +524,8 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
         parts.append("[ed]")
     f.append("".join(parts) + f"concat=n={len(parts)}:v=1:a=0[outv]")
     script = f"{work}/graph.txt"
-    open(checked_reel_path(script), "w").write(";\n".join(f))
+    with open(checked_reel_path(script), "w") as graph_file:
+        graph_file.write(";\n".join(f))
     out_path = out_path or f"{work}/video.mp4"
     checked_reel_path(out_path)
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[outv]", "-an",
@@ -565,7 +566,8 @@ def render_app_audio(tl, out_wav):
         labels.append(f"[a{k}]")
     f.append("".join(labels) + f"concat=n={len(labels)}:v=0:a=1[aout]")
     script = f"{WORK}/{name}-audio-graph.txt"
-    open(checked_reel_path(script), "w").write(";\n".join(f))
+    with open(checked_reel_path(script), "w") as graph_file:
+        graph_file.write(";\n".join(f))
     run(["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[aout]",
         "-c:a", "pcm_s16le", "-ar", "48000", out_wav])
     return out_wav

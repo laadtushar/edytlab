@@ -263,12 +263,12 @@ if [[ -s "$TMP/sfx.args" ]]; then
   SFX_FILTER=$(awk 'BEGIN{ORS=";"} {print}' "$TMP/sfx.filter")
   for k in "${!SIN[@]}"; do
     SFX_FILTER=${SFX_FILTER//\{IDX$k\}/$((k+2))}
-    SFX_LABELS="$SFX_LABELS[s$k]"
+    SFX_LABELS="${SFX_LABELS}[s${k}]"
   done
 fi
 NMIX=$((2 + ${#SARGS[@]}/2))
 cat > "$TMP/mix.filter" <<EOF
-[0:a]aresample=48000:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,apad=whole_dur=$VDUR,atrim=end=$VDUR[app];
+[0:a]aresample=48000:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,apad=whole_dur=$VDUR,atrim=end=${VDUR}[app];
 [1:a]volume=${VGAIN}dB,asplit=2[vkey][vmix];
 [app][vkey]sidechaincompress=threshold=$THR:ratio=20:attack=$ATTACK_MS:release=$RELEASE_MS:makeup=1:knee=1.5:link=average:detection=rms,asplit=2[ducked][dkcopy];
 ${SFX_FILTER}

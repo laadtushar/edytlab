@@ -179,10 +179,10 @@ def demo_blend(P, t, style):
         """Cuts overlap by 0.3 s (crossfade)."""
     )
     ig = style == "ig"
-    chat_low = "CHAT_LOW"
     prev = None
 
     def nxt(c, tt, dur):
+        """Crossfade the previous clip and return the next clip's start time."""
         nonlocal prev
         if prev is not None and prev is not c:
             prev.fade_out = 0.3
@@ -190,12 +190,22 @@ def demo_blend(P, t, style):
         return tt + dur - 0.3
 
     # 1. describe it: a question typed into the composer (real typing, real send)
-    d = P.clip(BT, 23.6 if ig else 23.4, 4.4 if ig else 5.0, t, [dict(t=0, crop="WIDE"), dict(t=0.9, crop="TYPE", move=0.8)], caps=("BT04",))
-    P.step("*1* · Describe it in plain English" if not ig else "*1* · Say it in plain English", t + 0.15, t + d.dur - 0.12)
+    d = P.clip(
+        BT, 23.6 if ig else 23.4, 4.4 if ig else 5.0, t,
+        [dict(t=0, crop="WIDE"), dict(t=0.9, crop="TYPE", move=0.8)], caps=("BT04",),
+    )
+    P.step(
+        "*1* · Describe it in plain English" if not ig else "*1* · Say it in plain English",
+        t + 0.15, t + d.dur - 0.12,
+    )
     P.call(d, (930, 578, 345, 124), "You type the edit", 1.2, d.dur - 0.9, sides=("t",))
     t = nxt(d, t, d.dur)
     # 2. the agent calls a tool: "Time stretch" runs, the chip turns green
-    d = P.clip(BT, 40.0, 3.5, t, [dict(t=0, crop="TYPE"), dict(t=0.4, crop="CHAT_MID", move=0.6)], caps=("BT05",), fade_in=0.3, rise=False)
+    d = P.clip(
+        BT, 40.0, 3.5, t,
+        [dict(t=0, crop="TYPE"), dict(t=0.4, crop="CHAT_MID", move=0.6)],
+        caps=("BT05",), fade_in=0.3, rise=False,
+    )
     P.step("*2* · The agent calls a tool", t + 0.15, t + d.dur - 0.12)
     P.call(d, (937, 181, 108, 22), "A real tool call", 0.9, 3.0, sides=("r", "b"))
     if not ig:
@@ -203,21 +213,40 @@ def demo_blend(P, t, style):
     t = nxt(d, t, d.dur)
     if not ig:
         # 3. it reports what it did: the reply lands (src 52 to 54.5)
-        d = P.clip(BT, 50.6, 3.9, t, [dict(t=0, crop="CHAT_MID")], caps=("BT06",), fade_in=0.3, rise=False)
+        d = P.clip(
+            BT, 50.6, 3.9, t, [dict(t=0, crop="CHAT_MID")],
+            caps=("BT06",), fade_in=0.3, rise=False,
+        )
         P.step("*3* · It reports what changed", t + 0.15, t + d.dur - 0.12)
         P.call(d, (945, 160, 250, 92), "It says what it did", 2.2, 3.7, sides=("b",))
         t = nxt(d, t, d.dur)
-    # 4. describe the blend: the request is sent (src 65), the reply lists three edits (from 68), then the fades on the waveforms
+    # 4. describe the blend: the request is sent (src 65), the reply lists three edits
+    # (from 68), then the fades on the waveforms
     s0, d4, k_w = (64.0, 7.0, 5.2) if ig else (63.0, 8.0, 6.2)
     shots = [dict(t=0, crop="CHAT_TALL"), dict(t=k_w, crop="WAVES", move=0.9)]
     d = P.clip(BT, s0, d4, t, shots, caps=("BT07",), fade_in=0.3, rise=False)
-    P.step("*4* · Describe the blend" if not ig else "*3* · Describe the blend", t + 0.15, t + d.dur - 0.12)
+    P.step(
+        "*4* · Describe the blend" if not ig else "*3* · Describe the blend",
+        t + 0.15, t + d.dur - 0.12,
+    )
     if not ig:
-        P.call(d, (995, 395, 255, 150), "Fades + low-pass, in plain English", 1.9, 3.1, sides=("t", "b"))
-        P.call(d, (940, 110, 260, 300), "Three edits, one request", 3.7, k_w - 0.1, sides=("r", "l"))
+        P.call(
+            d, (995, 395, 255, 150), "Fades + low-pass, in plain English", 1.9, 3.1,
+            sides=("t", "b"),
+        )
+        P.call(
+            d, (940, 110, 260, 300), "Three edits, one request", 3.7, k_w - 0.1,
+            sides=("r", "l"),
+        )
     else:
-        P.call(d, (940, 110, 260, 300), "Three edits, one request", 2.7, k_w - 0.1, sides=("r", "l"))
-    P.call(d, (495, 110, 385, 400), "The crossfade", k_w + 0.5, d.dur - 0.3, sides=("t", "b", "l"))
+        P.call(
+            d, (940, 110, 260, 300), "Three edits, one request", 2.7, k_w - 0.1,
+            sides=("r", "l"),
+        )
+    P.call(
+        d, (495, 110, 385, 400), "The crossfade", k_w + 0.5, d.dur - 0.3,
+        sides=("t", "b", "l"),
+    )
     t = nxt(d, t, d.dur)
     return t, prev, nxt
 
