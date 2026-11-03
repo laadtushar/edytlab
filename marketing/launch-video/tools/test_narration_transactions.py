@@ -586,6 +586,84 @@ class NarrationTransactions(unittest.TestCase):
         expected = b'2026-01-01 00:00:00  line take 1  2 chars' + os.linesep.encode()
         self.assertEqual(paths[2].read_bytes(), expected)
 
+    def stage_legacy_take(self, folder, stop_before):
+        """Run the old unindexed publication protocol until a chosen replacement."""
+        takes = folder / 'takes'
+        takes.mkdir()
+        paths = narrate._take_paths(str(takes / 'line_t1'), takes)
+        receipt = dict(id='line', take=1, text='hi', timestamp='2026-01-01 00:00:00',
+                       response=json.loads(RESPONSE))
+        for suffix in ('request', 'response'):
+            store.write_state(store.state_file(paths, suffix),
+                              store.text_bytes(json.dumps(receipt)))
+        replace = store.os.replace
+
+        def interrupt(source, destination):
+            """Preserve the prepared legacy journal at the selected crash boundary."""
+            if Path(destination) == paths[stop_before]:
+                raise OSError('legacy interruption')
+            return replace(source, destination)
+
+        with mock.patch.object(store.os, 'replace', side_effect=interrupt), \
+                self.assertRaises(OSError):
+            narrate._save_take(paths, receipt)
+        return paths, receipt
+
+    def test_equal_legacy_ledger_refuses_even_when_media_already_match(self):
+        """A second paid take can create the same visible row before migration."""
+        for stop_before in (1, 2):
+            for command in ('gen', 'pick'):
+                with self.subTest(stop_before=stop_before, command=command), \
+                        tempfile.TemporaryDirectory(dir=self.folder) as temporary:
+                    folder = Path(temporary)
+                    with mock.patch.object(store, 'ROOT', folder):
+                        paths, receipt = self.stage_legacy_take(folder, stop_before)
+                        other = folder / 'other'
+                        other.mkdir()
+                        other_response = dict(receipt['response'], audio_base64='REVG')
+                        other_receipt = dict(receipt, response=other_response)
+                        # Both old writers address the same canonical aliased ledger.
+                        narrate._save_take([other / 'line_t1.mp3', other / 'line_t1.json',
+                                            paths[2]], other_receipt)
+                        journal = store.state_file(paths, 'pending')
+                        self.assertEqual((journal / '2').read_bytes(), paths[2].read_bytes())
+                        index = store._ledger_index(paths[2])
+                        self.assertFalse(index.exists())
+                        markers = [store.state_file(paths, suffix)
+                                   for suffix in ('request', 'response')]
+                        observed = [*paths, *markers, *journal.iterdir()]
+                        before = {path: path.read_bytes() for path in observed if path.is_file()}
+                        alignment_existed = paths[1].exists()
+                        with mock.patch.object(narrate, 'curl') as service, \
+                                mock.patch.object(narrate, 'status',
+                                                  return_value=(0, 100, 'test')), \
+                                mock.patch.object(narrate, 'dur', return_value=0.2), \
+                                contextlib.redirect_stdout(io.StringIO()), \
+                                self.assertRaisesRegex(
+                                    SystemExit, 'Conflicting legacy narration ledger'):
+                            if command == 'gen':
+                                narrate.gen(str(self.lines), str(folder / 'takes'), 1)
+                            else:
+                                narrate.pick(str(self.lines), str(folder / 'takes'),
+                                             str(folder / 'chosen.json'))
+                        service.assert_not_called()
+                        self.assertEqual({path: path.read_bytes() for path in before}, before)
+                        self.assertEqual(paths[1].exists(), alignment_existed)
+                        self.assertFalse(index.exists())
+                        self.assertFalse((folder / 'chosen.json').exists())
+                        self.assertFalse((folder / 'chosen.srt').exists())
+
+    def test_legacy_media_can_finish_its_unwritten_ledger(self):
+        """Matching media remain recoverable when the ledger still needs this row."""
+        paths, _receipt = self.stage_legacy_take(self.folder, 2)
+        self.assertTrue(paths[0].exists() and paths[1].exists())
+        self.assertFalse(paths[2].exists())
+        with mock.patch.object(narrate, 'curl') as service:
+            self.generate()
+            service.assert_not_called()
+        expected = b'2026-01-01 00:00:00  line take 1  2 chars' + os.linesep.encode()
+        self.assertEqual(paths[2].read_bytes(), expected)
+
     def test_legacy_staging_symlinks_are_refused_before_external_reads(self):
         """Migration applies the same confinement as normal journal recovery."""
         self.takes.mkdir()

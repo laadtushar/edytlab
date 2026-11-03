@@ -147,7 +147,8 @@ def _recover_paths(paths, legacy=False):
             current = paths[2].read_bytes() if paths[2].exists() else b""
             staged = checked_path(journal / "2").read_bytes()
             entry = _usage_entry(json.loads(response.read_text())) if response.exists() else None
-            if staged != current and (entry is None or staged != current + entry):
+            # Visible rows are not unique receipts: equality may be another paid take.
+            if entry is None or staged != current + entry:
                 raise SystemExit(f"Conflicting legacy narration ledger: {journal}. "
                                  "Reconcile its saved usage with the current ledger "
                                  "before retrying; "
