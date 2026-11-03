@@ -392,8 +392,9 @@ class NarrationTransactions(unittest.TestCase):
                 paths[0].symlink_to(redirected)
             except OSError as error:
                 self.skipTest(f'filesystem symlinks unavailable: {error}')
-            with self.assertRaisesRegex(SystemExit, str(index)):
+            with self.assertRaises(SystemExit) as error:
                 self.generate()
+            self.assertIn(str(index), str(error.exception))
             with self.assertRaisesRegex(SystemExit, 'owner destination changed'):
                 narrate.pick(str(self.lines), str(self.takes), str(self.folder / 'narr.json'))
             self.assertEqual(service.call_count, 1)
@@ -553,8 +554,9 @@ class NarrationTransactions(unittest.TestCase):
         unknown = self.folder / '.narrate-unknown.response'
         unknown.write_text('{}')
         with mock.patch.object(narrate, 'curl') as service:
-            with self.assertRaisesRegex(SystemExit, str(unknown)):
+            with self.assertRaises(SystemExit) as error:
                 self.generate()
+            self.assertIn(str(unknown), str(error.exception))
             service.assert_not_called()
         self.assertEqual(unknown.read_text(), '{}')
 
