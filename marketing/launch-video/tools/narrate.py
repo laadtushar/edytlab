@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def checked_path(path):
     resolved = Path(path).resolve()
-    if not resolved.is_relative_to(ROOT):
+    if resolved != ROOT and ROOT not in resolved.parents:
         raise SystemExit(f"Refused path {str(path)!r}: must resolve inside {ROOT}")
     return resolved
 
@@ -116,6 +116,8 @@ def dur(path):
 
 
 def pick(lines_path, outdir, out_json):
+    if not out_json.endswith(".json"):
+        raise SystemExit(f"Output must end in .json: {out_json!r}")
     lines = json.load(open(checked_path(lines_path)))
     checked_path(outdir)
     checked_path(out_json)

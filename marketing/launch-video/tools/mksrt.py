@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def checked_path(path):
     resolved = Path(path).resolve()
-    if not resolved.is_relative_to(ROOT):
+    if resolved != ROOT and ROOT not in resolved.parents:
         raise SystemExit(f"Refused path {path!r}: must resolve inside {ROOT}")
     return resolved
 

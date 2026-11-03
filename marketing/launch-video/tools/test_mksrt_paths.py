@@ -19,10 +19,14 @@ class MksrtPaths(unittest.TestCase):
         self.source = self.folder / 'cues.json'
         self.source.write_text(json.dumps({'captions': [[0, 1, 'Hello']]}))
         self.output = self.folder / 'new.srt'
+        self.external = tempfile.TemporaryDirectory()
+        self.addCleanup(self.external.cleanup)
+        self.external_folder = Path(self.external.name)
 
-    def run_script(self, source, output):
+    @staticmethod
+    def run_script(source, output):
         return subprocess.run([sys.executable, '-I', str(SCRIPT), str(source), str(output)],
-                              capture_output=True, text=True, cwd=ROOT)
+                              capture_output=True, text=True, cwd=ROOT, check=False)
 
     def test_in_root_input_and_new_output_keep_srt_bytes(self):
         result = self.run_script(self.source, self.output)
@@ -30,8 +34,8 @@ class MksrtPaths(unittest.TestCase):
         self.assertEqual(self.output.read_bytes(), b'1\n00:00:00,000 --> 00:00:01,000\nHello\n\n')
 
     def test_external_input_and_output_are_refused(self):
-        for source, output, refused in [(Path('/tmp/cues.json'), self.output, '/tmp/cues.json'),
-                                        (self.source, Path('/tmp/new.srt'), '/tmp/new.srt')]:
+        for source, output, refused in [(self.external_folder / 'cues.json', self.output, str(self.external_folder / 'cues.json')),
+                                        (self.source, self.external_folder / 'new.srt', str(self.external_folder / 'new.srt'))]:
             with self.subTest(refused=refused):
                 result = self.run_script(source, output)
                 self.assertNotEqual(result.returncode, 0)
@@ -41,7 +45,7 @@ class MksrtPaths(unittest.TestCase):
 
     def test_parent_traversal_and_symlink_escape_are_refused(self):
         link = self.folder / 'outside'
-        link.symlink_to('/tmp', target_is_directory=True)
+        link.symlink_to(self.external_folder, target_is_directory=True)
         for path in [self.folder / '..' / '..' / '..' / 'outside.srt', link / 'new.srt']:
             with self.subTest(path=path):
                 result = self.run_script(self.source, path)
@@ -52,9 +56,32 @@ class MksrtPaths(unittest.TestCase):
 
 class NarrationPaths(unittest.TestCase):
     setUp = MksrtPaths.setUp
-    def run_pick(self, lines, outdir, output):
+    @staticmethod
+    def run_pick(lines, outdir, output):
         return subprocess.run([sys.executable, '-I', str(NARRATE), 'pick', str(lines),
-                               str(outdir), str(output)], capture_output=True, text=True, cwd=ROOT)
+                               str(outdir), str(output)], capture_output=True, text=True, cwd=ROOT, check=False)
+
+    def test_narration_symlink_refused_before_generation(self):
+        self.source.write_text('[]')
+        link = self.folder / 'outside'
+        link.symlink_to(self.external_folder, target_is_directory=True)
+        for command in ['pick', 'gen']:
+            args = [sys.executable, '-I', str(NARRATE), command, str(self.source), str(link)]
+            if command == 'pick':
+                args.append(str(self.folder / 'narr.json'))
+            result = subprocess.run(args, capture_output=True, text=True, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(str(ROOT), result.stderr)
+            self.assertIn(str(link), result.stderr)
+            self.assertEqual(list(self.external_folder.iterdir()), [])
+
+    def test_pick_rejects_missing_json_suffix_without_writing(self):
+        self.source.write_text('[]')
+        output = self.folder / 'narration'
+        result = self.run_pick(self.source, self.folder, output)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Output must end in .json', result.stderr)
+        self.assertFalse(output.exists())
 
     def test_pick_in_root_writes_empty_results(self):
         self.source.write_text('[]')
@@ -66,9 +93,9 @@ class NarrationPaths(unittest.TestCase):
     def test_pick_rejects_external_paths_and_ids(self):
         self.source.write_text(json.dumps([{'id': '../../outside'}]))
         for lines, outdir, output, refused in [
-            ('/tmp/lines.json', self.folder, self.folder / 'narr.json', '/tmp/lines.json'),
-            (self.source, '/tmp', self.folder / 'narr.json', '/tmp'),
-            (self.source, self.folder, '/tmp/narr.json', '/tmp/narr.json'),
+            (self.external_folder / 'lines.json', self.folder, self.folder / 'narr.json', str(self.external_folder / 'lines.json')),
+            (self.source, self.external_folder, self.folder / 'narr.json', str(self.external_folder)),
+            (self.source, self.folder, self.external_folder / 'narr.json', str(self.external_folder / 'narr.json')),
             (self.source, self.folder, self.folder / 'narr.json', '../../outside'),
         ]:
             with self.subTest(refused=refused):
