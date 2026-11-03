@@ -73,6 +73,16 @@ describe("snapToZeroCrossing", () => {
     expect(Math.round(snapped * SR)).toBe(500);
   });
 
+  it("snaps to an exact zero at the start of the buffer", () => {
+    const samples = new Float32Array(1000).fill(0.5);
+    samples[0] = 0;
+    const requested = 100 / SR;
+    expect(snapToZeroCrossing(samples, SR, requested)).toBe(0);
+
+    samples[0] = 0.5;
+    expect(snapToZeroCrossing(samples, SR, requested)).toBe(requested);
+  });
+
   it("returns the time unchanged for an empty buffer or a point outside it", () => {
     expect(snapToZeroCrossing(new Float32Array(0), SR, 1)).toBe(1);
     expect(snapToZeroCrossing(sine(100, 20), SR, 999)).toBe(999);
@@ -80,6 +90,16 @@ describe("snapToZeroCrossing", () => {
 });
 
 describe("snapRange", () => {
+  it("snaps a selection's start to an exact zero at the first sample", () => {
+    const samples = new Float32Array(4800).fill(0.5);
+    samples[0] = 0;
+    samples[2880] = 0;
+    expect(snapRange(samples, SR, { start: 100 / SR, end: 2880 / SR })).toEqual({
+      start: 0,
+      end: 2880 / SR,
+    });
+  });
+
   it("snaps both edges", () => {
     const samples = sine(SR, 480);
     const snapped = snapRange(samples, SR, {
