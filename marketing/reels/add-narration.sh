@@ -25,7 +25,7 @@
 #                         AAC_BITRATE (192k)  KEEP_TMP=1 keeps the work directory
 set -euo pipefail
 
-if [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+if [[ "$#" -eq 1 && ( "$1" = "--help" || "$1" = "-h" ) ]]; then
   echo "usage: $0 <video.mp4> <cues.json> <audio-dir> <out.mp4>"
   echo "Cue/audio inputs, outputs and scratch must resolve inside marketing/reels, including symlinks."
   echo "Copy external inputs (including /tmp files) into the project first."

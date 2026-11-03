@@ -6,7 +6,7 @@
 # Needs: pnpm install --ignore-workspace, node 22, ffmpeg, Python 3.12 or older with Pillow (the contact sheet),
 # and a Chromium (REMOTION_BROWSER_EXECUTABLE; see remotion.config.ts).
 set -euo pipefail
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+if [[ "${1:-}" = "--help" || "${1:-}" = "-h" ]]; then
   sed -n '2,7s/^# //p' "$0"
   exit 0
 fi

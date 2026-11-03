@@ -97,7 +97,7 @@ class NarrationTransactions(unittest.TestCase):
 
     def setUp(self):
         """Create private synthetic data inside the project boundary."""
-        scratch = tempfile.TemporaryDirectory(dir=narrate.ROOT)
+        scratch = tempfile.TemporaryDirectory(dir=store.ROOT)
         self.addCleanup(scratch.cleanup)
         self.folder = Path(scratch.name)
         root = mock.patch.object(store, 'ROOT', self.folder)
@@ -685,7 +685,7 @@ class NarrationTransactions(unittest.TestCase):
                         self.skipTest(f'filesystem symlinks unavailable: {error}')
                     read = Path.read_bytes
 
-                    def guarded_read(path):
+                    def guarded_read(path, read=read):
                         """Fail if the external payload reaches the filesystem reader."""
                         if path.resolve() == outside:
                             raise AssertionError('external staging payload was read')

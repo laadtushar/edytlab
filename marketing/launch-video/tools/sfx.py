@@ -59,7 +59,7 @@ def tick(d=0.12):
 def chime(d=1.6):
     n = int(SR * d)
     out = [0.0] * n
-    for k, (f, delay, amp) in enumerate(((784.0, 0.0, 1.0), (987.8, 0.07, 0.8), (1174.7, 0.14, 0.7))):
+    for f, delay, amp in ((784.0, 0.0, 1.0), (987.8, 0.07, 0.8), (1174.7, 0.14, 0.7)):
         s0 = int(delay * SR)
         for i in range(n - s0):
             t = i / SR
@@ -71,8 +71,8 @@ def chime(d=1.6):
 
 
 _sounds = (("whoosh", whoosh), ("tick", tick), ("chime", chime))
-for name, _ in _sounds:
-    checked_path(f"{OUT}/{name}.wav")
-for name, fn in _sounds:
-    save(name, fn())
+for sound, _ in _sounds:
+    checked_path(f"{OUT}/{sound}.wav")
+for sound, fn in _sounds:
+    save(sound, fn())
 print("sfx ok")

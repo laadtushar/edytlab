@@ -35,7 +35,7 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
     raise SystemExit(0)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launch_paths import ROOT as ROOT, checked_path as _checked_path
+from launch_paths import checked_path as _checked_path
 
 from engine import (  # noqa: E402
     BarsBG, Callout, EndCard, FPS, Flow, FootageClip, Image, ImageDraw,
@@ -290,7 +290,7 @@ def build(key):
         t = 2.2
 
     first_clip_t = t
-    t, last, nxt = demo_blend(P, t, key)
+    t, _last, nxt = demo_blend(P, t, key)
     P.scenes += [("demo", first_clip_t, t)]
     # 5. hear it: the cut starts as the sound does and ends inside it
     ldur = 9.2 if not ig else 7.0

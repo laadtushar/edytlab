@@ -37,7 +37,7 @@ def run_sfx(directory, path=TOOLS / 'sfx.py'):
     namespace = {'__file__': str(path), '__name__': 'launch_sfx_output_fixture'}
     with mock.patch.object(sys, 'argv', ['sfx.py', str(directory)]), \
             mock.patch.object(sys, 'path', list(sys.path)):
-        exec(compile(module, str(path), 'exec'), namespace)
+        exec(compile(module, str(path), 'exec'), namespace)  # skipcq: PYL-W0122
     return namespace
 
 

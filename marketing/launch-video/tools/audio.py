@@ -14,7 +14,7 @@ limiter iterate until -14 LUFS with a true peak below -1 dBTP. AAC uses 48 kHz s
 the video stream is copied. Local file: URLs retain FFmpeg's one-prefix filename semantics;
 other protocols and virtual streams are refused.
 """
-import audioop
+import audioop  # skipcq: PYL-W0402 -- the mixer is built on audioop (docstring above)
 import json
 import os
 import re

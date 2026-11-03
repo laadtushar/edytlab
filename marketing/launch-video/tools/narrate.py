@@ -34,7 +34,7 @@ from pathlib import Path
 
 # Keep the project helper importable when Python's isolated mode omits script paths.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launch_paths import ROOT as ROOT, checked_path as _checked_path
+from launch_paths import checked_path as _checked_path
 import narration_store as store
 
 VOICE = "CwhRBWXzGAHq8TQ4Fs17"

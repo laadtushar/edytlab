@@ -30,21 +30,21 @@ FRAMES = {"9x16": (1080, 1920), "16x9": (1920, 1080), "1x1": (1080, 1080)}
 problems = []
 
 
-def probe(path):
+def probe(media):
     """Read stream metadata for a previously checked output file."""
     q = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries",
          "stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,"
          "sample_rate,channels,duration",
-         "-of", "json", path],
+         "-of", "json", media],
         capture_output=True, text=True, check=True).stdout
     return json.loads(q)["streams"]
 
 
-def loudness(path):
+def loudness(media):
     """Measure final encoded audio with the original ebur128 command."""
     q = subprocess.run(
-        ["ffmpeg", "-nostdin", "-hide_banner", "-i", path, "-vn", "-af", "ebur128=peak=true", "-f",
+        ["ffmpeg", "-nostdin", "-hide_banner", "-i", media, "-vn", "-af", "ebur128=peak=true", "-f",
          "null", "-"],
         capture_output=True, text=True, check=False).stderr
     return float(
