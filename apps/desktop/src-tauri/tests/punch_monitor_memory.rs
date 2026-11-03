@@ -94,9 +94,11 @@ impl Counts {
 
 fn track(f: impl FnOnce(&mut Counts)) {
     let _ = COUNTS.try_with(|counts| {
-        let mut c = counts.borrow_mut();
-        if c.enabled {
-            f(&mut c);
+        // Panic formatting can allocate while a borrow is held.
+        if let Ok(mut c) = counts.try_borrow_mut() {
+            if c.enabled {
+                f(&mut c);
+            }
         }
     });
 }
@@ -104,7 +106,7 @@ fn track(f: impl FnOnce(&mut Counts)) {
 struct CountingAllocator;
 
 // SAFETY: allocation and deallocation are delegated unchanged to System;
-// accounting uses allocation-free thread-local Cells.
+// accounting uses an allocation-free thread-local RefCell and skips re-entry.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let ptr = unsafe { System.alloc(layout) };
@@ -145,6 +147,25 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
+
+#[test]
+fn allocator_skips_accounting_while_counts_are_borrowed() {
+    let layout = Layout::from_size_align(1024, 8).unwrap();
+    COUNTS.with(|counts| {
+        counts.borrow_mut().begin();
+        let c = counts.borrow();
+        // Explicit allocator calls cannot be optimized away. Both operations
+        // re-enter the tracker while the shared borrow is held.
+        let ptr = unsafe { std::alloc::alloc(layout) };
+        if !ptr.is_null() {
+            unsafe { std::alloc::dealloc(ptr, layout) };
+        }
+        assert!(!ptr.is_null());
+        assert_eq!(c.live, 0);
+        assert_eq!(c.peak, 0);
+    });
+    COUNTS.with(|counts| counts.borrow_mut().enabled = false);
+}
 
 fn pair() -> DevicePair {
     DevicePair {
