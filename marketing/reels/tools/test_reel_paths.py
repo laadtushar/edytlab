@@ -1,10 +1,12 @@
 """Regression checks for untrusted cached paths and markup token boundaries."""
+import importlib.util
 import itertools
 import json
 import subprocess
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -17,6 +19,7 @@ with mock.patch.dict(os.environ, {"EDYTLAB_REEL_ROOT": str(PROJECT)}):
         import spec
         import narrate
         import render
+        import build
 
 
 class ReelPathsTests(unittest.TestCase):
@@ -143,15 +146,186 @@ class RendererPathsTests(unittest.TestCase):
                 run.assert_not_called()
 
 
+class BuildAndDocsPathsTests(unittest.TestCase):
+    """Guard derived build and documentation paths without rendering media."""
+
+    setUp = ReelPathsTests.setUp
+
+    def load_docs(self):
+        """Import the documentation writer with synthetic local usage records."""
+        (self.root / "work").mkdir(exist_ok=True)
+        (self.root / "out").mkdir(exist_ok=True)
+        (self.root / "work/ledger.json").write_text('{"entries": [], "spent": 0}')
+        (self.root / "out/usage.log").write_text("")
+        module_spec = importlib.util.spec_from_file_location("reel_docs_test", TOOLS / "docs.py")
+        module = importlib.util.module_from_spec(module_spec)
+        with mock.patch.object(spec, "ROOT", str(self.root)), \
+                mock.patch.object(sys, "path", [str(TOOLS), *sys.path]):
+            module_spec.loader.exec_module(module)
+        return module
+
+    def assert_operation_refused(self, call, path):
+        """Require a path-specific refusal before external I/O can occur."""
+        with self.assertRaises(SystemExit) as error:
+            call()
+        message = str(error.exception)
+        self.assertIn("Refused path", message)
+        self.assertIn(str(PROJECT), message)
+        self.assertIn(str(path), message)
+
+    def test_build_writers_refuse_directory_and_leaf_symlink_escapes(self):
+        """Every cue/SRT writer guards both symlinked parents and existing files."""
+        tl = {"file": "synthetic", "duration": 2, "fps": 30, "cues": []}
+        with tempfile.TemporaryDirectory() as external:
+            target = Path(external) / "untouched"
+            target.write_bytes(b"original bytes")
+            directory = self.root / "out"
+            directory.symlink_to(external, target_is_directory=True)
+            leaf = self.root / "leaf"
+            leaf.symlink_to(target)
+            with mock.patch.object(build.C, "build_demo", return_value=tl), \
+                    mock.patch.object(build.C, "check", return_value=[]), \
+                    mock.patch.object(build.subprocess, "run") as run:
+                for path in (directory / "new", leaf):
+                    for writer in (
+                        lambda path=path: build.write_srt(tl, {}, str(path)),
+                        lambda path=path: build.write_plain_cues(tl, str(path)),
+                        lambda path=path: build.write_cues(tl, {}, str(path)),
+                        lambda path=path: build.write_demo_cues("BT", str(path)),
+                    ):
+                        with self.subTest(path=path, writer=writer):
+                            self.assert_operation_refused(writer, path)
+                with mock.patch.object(build, "OUT", str(directory)), \
+                        mock.patch.object(build, "get_tl") as get_tl:
+                    self.assert_operation_refused(
+                        lambda: build.build_plain("highlights"), directory
+                    )
+                    get_tl.assert_not_called()
+                for call in (
+                    lambda: build.mean_volume(str(leaf)),
+                    lambda: build.run_add("external-demo.mp4", str(leaf), str(self.root),
+                                          str(self.root / "result.mp4")),
+                    lambda: build.run_add("external-demo.mp4", str(self.root / "cues.json"),
+                                          str(directory), str(self.root / "result.mp4")),
+                    lambda: build.run_add("external-demo.mp4", str(self.root / "cues.json"),
+                                          str(self.root), str(leaf)),
+                ):
+                    with self.assertRaises(SystemExit):
+                        call()
+                run.assert_not_called()
+            self.assertEqual(target.read_bytes(), b"original bytes")
+            self.assertEqual(sorted(path.name for path in Path(external).iterdir()), ["untouched"])
+
+    def test_successful_json_and_srt_bytes(self):
+        """Keep JSON order, Unicode, numeric formatting and final newlines exact."""
+        tl = {"file": "synthetic", "duration": 2, "fps": 30, "cues": []}
+        plain = self.root / "plain.json"
+        build.write_plain_cues(tl, str(plain))
+        self.assertEqual(plain.read_bytes(), (
+            '{\n  "video": "synthetic.mp4",\n  "duration": 2,\n  "fps": 30,\n'
+            '  "size": "1080x1920",\n'
+            '  "note": "Plain reel: app audio only, no narration. Cut lengths are the edit list\'s '
+            '(spec.py). The narration lines for the earlier takes are in transcripts.md.",\n'
+            '  "cues": []\n}\n'
+        ).encode())
+        narrated = self.root / "narrated.json"
+        build.write_cues(tl, {}, str(narrated))
+        self.assertEqual(narrated.read_bytes(), (
+            '{\n  "video": "synthetic.mp4",\n  "duration": 2,\n'
+            '  "audio_dir": "audio/synthetic",\n'
+            '  "narration_voice": "Roger - Laid-Back, Casual, Resonant (CwhRBWXzGAHq8TQ4Fs17)",\n'
+            '  "narration_model": "eleven_v4",\n  "cues": [],\n  "fps": 30\n}'
+        ).encode())
+        demo = self.root / "demo.json"
+        with mock.patch.object(build.C, "build_demo", return_value=tl), \
+                mock.patch.object(build.C, "check", return_value=[]) as check:
+            self.assertEqual(build.write_demo_cues("BT", str(demo)), [])
+            check.assert_called_once_with(tl)
+        self.assertEqual(demo.read_bytes(), (
+            '{\n  "video": "dj-beatmatched-transition.mp4",\n  "duration": 2,\n'
+            '  "narration_status": "The narration lines were written for the earlier (amber-UI) '
+            'takes of the demos. Check each against this footage before re-narrating; '
+            'see transcripts.md.",\n  "cues": []\n}\n'
+        ).encode())
+        srt = self.root / "captions.srt"
+        tl["cues"] = [{"id": "A", "start": 0.25, "end": 2}]
+        timing = {"A": {"words": [{"start": 0.1, "end": 0.5, "text": "Olá"}]}}
+        self.assertEqual(build.write_srt(tl, timing, str(srt)), 1)
+        self.assertEqual(srt.read_bytes(), "1\n00:00:00,350 --> 00:00:01,000\nOlá\n\n".encode())
+
+    def test_docs_refuse_symlinked_inputs_and_output_paths(self):
+        """Documentation checks timing, usage, ledger and each transcript destination."""
+        docs = self.load_docs()
+        tl = {"file": "synthetic", "cues": [{
+            "id": "A", "narration": "Olá", "narration_spoken": "Olá"}]}
+        with tempfile.TemporaryDirectory() as external:
+            target = Path(external) / "untouched"
+            target.write_bytes(b"original bytes")
+            paths = [
+                (self.root / "out/synthetic-narration-timing.json",
+                 lambda: docs.timing("synthetic")),
+                (self.root / "work/ledger.json", docs.usage_text),
+                (self.root / "out/usage.log", docs.usage_text),
+            ]
+            for path, call in paths:
+                if path.exists():
+                    original = path.read_bytes()
+                    path.unlink()
+                else:
+                    original = None
+                path.symlink_to(target)
+                self.assert_operation_refused(call, path)
+                path.unlink()
+                if original is not None:
+                    path.write_bytes(original)
+            transcripts = self.root / "out/transcripts"
+            transcripts.symlink_to(external, target_is_directory=True)
+            self.assert_operation_refused(docs.write_txt, transcripts / "es")
+            transcripts.unlink()
+            (transcripts / "es").mkdir(parents=True)
+            leaf = transcripts / "A.txt"
+            leaf.symlink_to(target)
+            with mock.patch.object(docs, "KEYS", [("highlights", "Synthetic")]), \
+                    mock.patch.object(docs, "DEMOS", {}), \
+                    mock.patch.object(docs, "get_tl", return_value=tl):
+                self.assert_operation_refused(docs.write_txt, leaf)
+                markdown = self.root / "out/transcripts.md"
+                markdown.symlink_to(target)
+                with mock.patch.object(docs, "KEYS", []):
+                    self.assert_operation_refused(docs.main, markdown)
+                leaf.unlink()
+                self.assertEqual(docs.write_txt(), 1)
+                self.assertEqual(leaf.read_bytes(), "Olá\n".encode())
+            timing = self.root / "out/synthetic-narration-timing.json"
+            timing.write_bytes(b'{"A": {"tempo": 1.0}}')
+            self.assertEqual(docs.timing("synthetic"), {"A": {"tempo": 1.0}})
+            self.assertEqual(target.read_bytes(), b"original bytes")
+            self.assertEqual(sorted(path.name for path in Path(external).iterdir()), ["untouched"])
+
+
 class ShellPathsTests(unittest.TestCase):
     """Check shell argv, scratch and metadata boundaries."""
-    setUp = ReelPathsTests.setUp
+
+    def setUp(self):
+        """Provide all checked commands while forbidding real media processing."""
+        ReelPathsTests.setUp(self)
+        self.bash = shutil.which("bash")
+        self.assertIsNotNone(self.bash)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.tool_log = self.root / "unexpected-tools.log"
+        (self.bin / "python3").symlink_to(sys.executable)
+        for command in ("ffmpeg", "ffprobe", "awk"):
+            stub = self.bin / command
+            stub.write_text('#!/bin/sh\necho "$0" >> "$REEL_TEST_TOOL_LOG"\nexit 99\n')
+            stub.chmod(0o755)
 
     def invoke(self, args, **extra_env):
         """Run the narration shell with an isolated scratch directory."""
         return subprocess.run(
-            ["bash", str(PROJECT / "add-narration.sh"), *map(str, args)],
-            env={**os.environ, "TMPDIR": str(self.root / "scratch"), **extra_env},
+            [self.bash, str(PROJECT / "add-narration.sh"), *map(str, args)],
+            env={**os.environ, "TMPDIR": str(self.root / "scratch"),
+                 "PATH": str(self.bin), "REEL_TEST_TOOL_LOG": str(self.tool_log), **extra_env},
             capture_output=True, text=True, check=False,
         )
 
@@ -170,11 +344,13 @@ class ShellPathsTests(unittest.TestCase):
                 self.assertIn("Refused path", result.stderr)
                 self.assertIn(str(PROJECT), result.stderr)
                 self.assertIn(str(escaped[index]), result.stderr)
+                self.assertFalse(self.tool_log.exists(), "media/awk stub was executed")
             result = self.invoke(args, TMPDIR=external)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Refused path", result.stderr)
             self.assertIn(external, result.stderr)
             self.assertIn(str(PROJECT), result.stderr)
+            self.assertFalse(self.tool_log.exists(), "media/awk stub was executed")
 
     def test_shell_cue_and_sfx_escapes_before_audio_processing(self):
         # Invoke the shell's cue-reader block with synthetic duration, so this

@@ -211,7 +211,8 @@ def build(cut, voice, outdir, tempos, tag):
     return metrics
 
 
-if __name__ == '__main__':
+def main():
+    """Read the original positional CLI arguments and build one narrated cut."""
     if sys.argv[1:] in (['-h'], ['--help']):
         print(__doc__)
         raise SystemExit(0)
@@ -231,3 +232,7 @@ if __name__ == '__main__':
     m = build(cut, voice, outdir, tempos, tag)
     print(json.dumps({k: m[k] for k in ('cut', 'I_orig',
           'TP_orig', 'I', 'TP', 'final_gain_db', 'tempos')}))
+
+
+if __name__ == '__main__':
+    main()

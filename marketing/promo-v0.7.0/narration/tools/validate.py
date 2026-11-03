@@ -47,8 +47,8 @@ def check(metrics_path):
     src = mix.SRC % slug
     out = m['out']
     pre_path = f"work/{m['voice']}-{m['cut']}/pre.wav"
-    nar_path = out.replace('edytlab-v0.7.0-%s-narrated-%s.mp4' %
-                           (slug, m['tag']), 'narration-%s-%s.wav' % (slug, m['tag']))
+    nar_path = out.replace(f"edytlab-v0.7.0-{slug}-narrated-{m['tag']}.mp4",
+                           f"narration-{slug}-{m['tag']}.wav")
     for path in (src, out, pre_path, nar_path):
         prof.checked_path(path)
     pa, pb = probe(src), probe(out)
@@ -79,9 +79,9 @@ def check(metrics_path):
     for pl in m['placed']:
         a, b = int(pl['start']*SR), int(pl['end']*SR)
 
-        def r(x):
+        def r(x, start=a, end=b):
             """Measure RMS decibels over the current narration window."""
-            return float(20*np.log10(np.sqrt((x[a:b]**2).mean()+1e-12)))
+            return float(20*np.log10(np.sqrt((x[start:end]**2).mean()+1e-12)))
 
         step = r(fin) - r(pre)
         dk = pre[:n] - nar[:n]
@@ -99,5 +99,5 @@ if __name__ == '__main__':
     if sys.argv[1:] in (['-h'], ['--help']):
         print(__doc__)
         raise SystemExit(0)
-    r = check(sys.argv[1])
-    print(json.dumps(r, indent=1, default=float))
+    result = check(sys.argv[1])
+    print(json.dumps(result, indent=1, default=float))

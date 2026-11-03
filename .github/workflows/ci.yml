@@ -97,6 +97,26 @@ jobs:
           echo "native=$native" >> "$GITHUB_OUTPUT"
           echo "native=$native"
 
+  narration:
+    name: narration (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      # These tests use only the standard library and mocked provider calls.
+      # Both lock implementations must pass concurrency and crash recovery.
+      - name: Narration transactions
+        run: python -m unittest discover -s marketing/launch-video/tools -p test_narration_transactions.py
+
   build:
     name: build (${{ matrix.platform.name }})
     needs: changes

@@ -28,8 +28,11 @@ KEYS = [("highlights", "Highlights reel (reel-highlights)"),
 
 
 def timing(file):
-    p = f"{OUT}/{file}-narration-timing.json"
-    return json.load(open(p)) if os.path.exists(p) else {}
+    p = checked_reel_path(f"{OUT}/{file}-narration-timing.json")
+    if not os.path.exists(p):
+        return {}
+    with open(p) as source:
+        return json.load(source)
 
 
 def cell(s):
@@ -60,27 +63,31 @@ def table(tl):
 
 
 def write_txt():
-    os.makedirs(f"{OUT}/transcripts/es", exist_ok=True)
+    os.makedirs(checked_reel_path(f"{OUT}/transcripts/es"), exist_ok=True)
     n = 0
     all_tl = [(k, get_tl(k)) for k, _ in KEYS] + [(code, C.build_demo(code)) for code in DEMOS]
     for key, tl in all_tl:
         sub = "es/" if key.endswith("-es") else ""
         for c in tl["cues"]:
             if c.get("narration") and not c.get("silent"):
-                open(f"{OUT}/transcripts/{sub}{c['id']}.txt", "w").write(c["narration_spoken"] + "\n")
+                path = checked_reel_path(f"{OUT}/transcripts/{sub}{c['id']}.txt")
+                with open(path, "w") as output:
+                    output.write(c["narration_spoken"] + "\n")
                 n += 1
     return n
 
 
 def usage_text():
-    d = json.load(open(f"{ROOT}/work/ledger.json"))
+    with open(checked_reel_path(f"{ROOT}/work/ledger.json")) as source:
+        d = json.load(source)
     tts = sum(n for t, w, n in d["entries"] if w.startswith("tts") and "speed" not in w)
     spd = sum(n for t, w, n in d["entries"] if "speed" in w)
     sfx = sum(n for t, w, n in d["entries"] if w.startswith("sfx"))
     last = ""
-    for line in open(f"{OUT}/usage.log"):
-        if "status: character_count=" in line:
-            last = line.strip()
+    with open(checked_reel_path(f"{OUT}/usage.log")) as source:
+        for line in source:
+            if "status: character_count=" in line:
+                last = line.strip()
     lines = [
         f"- text-to-speech: {tts} characters in {sum(1 for t, w, n in d['entries'] if w.startswith('tts') and 'speed' not in w)} calls (every distinct line of the reels, the three demos and the Spanish reel; "
         f"a line that appears in several files was generated once). Included: one line regenerated because its first take had unparsed markup, and one line replaced by a shorter wording to fit its window",
@@ -93,7 +100,8 @@ def usage_text():
 
 
 _u, _spent = usage_text()
-INTRO = open(f"{REELS_DIR}/tools/intro.md").read().replace("@@USAGE@@", _u).replace("@@CHARS@@", f"{_spent:,}")
+with open(checked_reel_path(f"{REELS_DIR}/tools/intro.md")) as source:
+    INTRO = source.read().replace("@@USAGE@@", _u).replace("@@CHARS@@", f"{_spent:,}")
 
 
 def main():
@@ -113,7 +121,8 @@ def main():
         parts.append(f"\n### {d['title']} (demo-{d['slug']})\n")
         parts.append(f"Video: `{d['slug']}.mp4` (the website video, untouched) / `demo-{d['slug']}-narrated.mp4`, {d['duration']:.1f} s. Cue file: `demo-{d['slug']}-cues.json`. Audio: `audio/demo-{d['slug']}/<cue-id>.mp3`.\n")
         parts.append(table(tl))
-    open(f"{OUT}/transcripts.md", "w").write("\n".join(parts) + "\n")
+    with open(checked_reel_path(f"{OUT}/transcripts.md"), "w") as output:
+        output.write("\n".join(parts) + "\n")
     print("txt files:", write_txt())
 
 

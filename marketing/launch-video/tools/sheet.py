@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 # Keep the project helper importable when Python's isolated mode omits script paths.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launch_paths import ROOT as ROOT, checked_path as checked_path
+from launch_paths import ROOT, checked_path
 
 v, out, cols, tw = str(checked_path(sys.argv[1])), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 checked_out = checked_path(out)

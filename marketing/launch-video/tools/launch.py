@@ -34,7 +34,7 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
     raise SystemExit(0)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launch_paths import ROOT as ROOT, checked_path as _checked_path
+from launch_paths import ROOT, checked_path as _checked_path
 
 from engine import (  # noqa: E402
     BarsBG, Callout, EndCard, FPS, Flow, FootageClip, Image, ImageDraw,
@@ -88,16 +88,28 @@ def check_shot(demo, src0, dur, caps, listen=False):
     code = CODE[demo]
     lo, hi = caption_window(code, caps)
     end = src0 + dur
-    assert lo - 1e-6 <= src0 and end <= hi + 0.05, (demo, caps, "outside its caption", src0, end, lo, hi)
+    if not (lo - 1e-6 <= src0 and end <= hi + 0.05):
+        raise AssertionError((demo, caps, "outside its caption", src0, end, lo, hi))
     windows = list(spec.DEMOS[code]["audio"].values())
     if listen:
         w = [w for w in windows if w[0] - LISTEN_LEAD_MAX <= src0 <= w[1]]
-        assert w, (demo, caps, "a Listen shot must start at most 0.3 s before the app's sound", src0, windows)
+        if not w:
+            raise AssertionError((
+                demo, caps, "a Listen shot must start at most 0.3 s before the app's sound",
+                src0, windows,
+            ))
         onset, offset = w[0]
-        assert src0 >= onset - LISTEN_LEAD_MAX - 1e-6 and end <= offset + 0.02, (demo, caps, "must end inside the sound", src0, end, onset, offset)
+        if not (src0 >= onset - LISTEN_LEAD_MAX - 1e-6 and end <= offset + 0.02):
+            raise AssertionError((
+                demo, caps, "must end inside the sound", src0, end, onset, offset,
+            ))
     else:
         for onset, offset in windows:
-            assert end <= onset + 1e-6 or src0 >= offset - 1e-6, (demo, caps, "the app's sound would leak into a silent shot", src0, end, onset, offset)
+            if not (end <= onset + 1e-6 or src0 >= offset - 1e-6):
+                raise AssertionError((
+                    demo, caps, "the app's sound would leak into a silent shot",
+                    src0, end, onset, offset,
+                ))
 
 
 class Plan:
@@ -355,7 +367,21 @@ def cues_json(P):
                 clips=[dict(demo=c.demo, src0=c.src0, dur=c.dur, t0=c.t0, fade_in=c.fade_in, fade_out=c.fade_out) for c in P.clips])
 
 
-if __name__ == "__main__":
+def render_output_argument(args):
+    """Require a final output argument that is not a render option or its value."""
+    index = 0
+    while index < len(args):
+        if args[index] in ("--from", "--to"):
+            index += 2
+        elif index == len(args) - 1:
+            return args[index]
+        else:
+            index += 1
+    raise SystemExit("render requires an explicit output path after its options")
+
+
+def main():
+    """Validate command outputs before constructing the plan or rendering media."""
     plat, cmd = sys.argv[1], sys.argv[2]
     if cmd == "still":
         out = f"{HERE}/work/qc_{plat}.png"
@@ -363,7 +389,7 @@ if __name__ == "__main__":
     elif cmd == "cues":
         checked = checked_output(sys.argv[3])
     elif cmd == "render":
-        checked = checked_output(sys.argv[-1])
+        checked = checked_output(render_output_argument(sys.argv[3:]))
     P = BUILDERS[plat]()
     if cmd == "still":
         times = [float(x) for x in sys.argv[3:]]
@@ -386,3 +412,7 @@ if __name__ == "__main__":
         t_to = float(a[a.index("--to") + 1]) if "--to" in a else None
         P.piece.render(str(checked), t_from, t_to)
         print(a[-1])
+
+
+if __name__ == "__main__":
+    main()

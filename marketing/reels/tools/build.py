@@ -55,6 +55,7 @@ def get_tl(key, narrated=False):
 
 def mean_volume(path):
     """Read the mean loudness reported by the existing volume-detect filter."""
+    checked_reel_path(path)
     p = subprocess.run(["ffmpeg",
                         "-nostdin",
                         "-hide_banner",
@@ -109,6 +110,7 @@ def wrap2(text, width=42):
 
 def write_srt(tl, timing, path):
     """One entry per narrated cue, timed from the character alignment (first word in -> last word out)."""
+    path = checked_reel_path(path)
     entries = []
     cs = [c for c in tl["cues"] if c["id"] in timing]
     for i, c in enumerate(cs):
@@ -135,8 +137,9 @@ def write_plain_cues(tl, path):
                note="Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). "
                     "The narration lines for the earlier takes are in transcripts.md.",
                cues=tl["cues"])
-    json.dump(doc, open(path, "w"), indent=2, ensure_ascii=False)
-    open(path, "a").write("\n")
+    with open(checked_reel_path(path), "w") as output:
+        json.dump(doc, output, indent=2, ensure_ascii=False)
+        output.write("\n")
 
 
 def write_cues(tl, timing, path, sfx=None, audio_rel=None, video_name=None):
@@ -162,7 +165,8 @@ def write_cues(tl, timing, path, sfx=None, audio_rel=None, video_name=None):
         doc["language"] = tl["lang"]
     if sfx:
         doc["sfx"] = sfx
-    json.dump(doc, open(path, "w"), indent=2, ensure_ascii=False)
+    with open(checked_reel_path(path), "w") as output:
+        json.dump(doc, output, indent=2, ensure_ascii=False)
 
 
 def write_demo_cues(code, path):
@@ -170,13 +174,16 @@ def write_demo_cues(code, path):
     starts). The lines are spec.LINES, written for the earlier takes, so the file says so."""
     tl = C.build_demo(code)
     doc = dict(video=f"{DEMOS[code]['slug']}.mp4", duration=tl["duration"], narration_status=STATUS, cues=tl["cues"])
-    json.dump(doc, open(path, "w"), indent=2, ensure_ascii=False)
-    open(path, "a").write("\n")
+    with open(checked_reel_path(path), "w") as output:
+        json.dump(doc, output, indent=2, ensure_ascii=False)
+        output.write("\n")
     return C.check(tl)
 
 
 def run_add(video, cues_path, audio_dir, out):
     """Run the narration mixer and surface its output on failure."""
+    for path in (cues_path, audio_dir, out):
+        checked_reel_path(path)
     p = subprocess.run([ADD, video, cues_path, audio_dir, out],
                        capture_output=True, text=True, check=False)
     sys.stderr.write(p.stderr)
@@ -186,7 +193,7 @@ def run_add(video, cues_path, audio_dir, out):
 
 
 def build_plain(key):
-    os.makedirs(OUT, exist_ok=True)
+    os.makedirs(checked_reel_path(OUT), exist_ok=True)
     tl = get_tl(key)
     res = dict(key=key, file=tl["file"], duration=tl["duration"])
     write_plain_cues(tl, f"{OUT}/{tl['file']}-cues.json")

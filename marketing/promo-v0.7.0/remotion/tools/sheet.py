@@ -18,10 +18,10 @@ if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
     print(__doc__)
     raise SystemExit(0)
 
-from PIL import Image, ImageDraw, ImageFont
-
 video, out = str(checked_path(sys.argv[1])), sys.argv[2]
 checked_out = checked_path(out)
+
+from PIL import Image, ImageDraw, ImageFont
 n = int(sys.argv[3]) if len(sys.argv) > 3 else 20
 p = subprocess.run(
     ["ffprobe", "-v", "error", "-show_entries", "stream=width,height,duration", "-select_streams",

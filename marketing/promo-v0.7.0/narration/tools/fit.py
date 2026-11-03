@@ -35,7 +35,7 @@ def trimmed(source, out):
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', source, '-af', silence,
                     '-ar', '48000', '-ac', '1', out], check=True)
     result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                             '-of', 'csv=p=0', out], capture_output=True, text=True, check=False)
+                             '-of', 'csv=p=0', out], capture_output=True, text=True, check=True)
     return float(result.stdout)
 
 

@@ -41,5 +41,5 @@ if __name__ == '__main__':
     for i in range(0, len(x), n):
         c = x[i:i+n]
         r = np.sqrt((c**2).mean()+1e-12)
-        out.append('%d:%d' % (i/48000, round(20*np.log10(r))))
+        out.append(f'{int(i / 48000)}:{round(20 * np.log10(r))}')
     print(' '.join(out))

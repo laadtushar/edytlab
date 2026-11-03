@@ -1,9 +1,12 @@
 """Containment checks for the promo narration fit tool."""
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import script
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = Path(__file__).with_name('fit.py')
@@ -54,6 +57,24 @@ class FitPaths(unittest.TestCase):
         self.assertIn(str(ROOT), result.stderr)
         self.assertIn('lines/voice/', result.stderr)
         self.assertEqual(list(self.external.iterdir()), [])
+
+    def test_failed_probe_reports_subprocess_error(self):
+        """Report a failed probe before attempting to parse its empty duration."""
+        takes = self.cwd / 'lines' / 'voice'
+        takes.mkdir(parents=True)
+        (takes / f"{script.L[0]['id']}.mp3").write_bytes(b'fixture')
+        commands = self.cwd / 'commands'
+        commands.mkdir()
+        for name, code in (('ffmpeg', 0), ('ffprobe', 1)):
+            command = commands / name
+            command.write_text(f'#!/bin/sh\nexit {code}\n')
+            command.chmod(0o700)
+        environment = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'])
+        result = subprocess.run([sys.executable, str(SCRIPT), 'voice'], cwd=self.cwd,
+                                env=environment, capture_output=True, text=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('CalledProcessError', result.stderr)
+        self.assertNotIn('ValueError', result.stderr)
 
 
 if __name__ == '__main__':

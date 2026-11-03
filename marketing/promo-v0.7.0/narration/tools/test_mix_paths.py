@@ -47,14 +47,14 @@ class NarrationPaths(unittest.TestCase):
                 self.external / 'new.wav', os.path.relpath(self.external / 'new.wav'),
                 'linked/new.wav'):
             with self.subTest(target=target):
-                self.assert_refused(lambda: prof.checked_path(target), target)
+                self.assert_refused(lambda target=target: prof.checked_path(target), target)
 
     def test_decoder_probe_and_measure_refuse_before_starting_process(self):
         """Validate each reader path before invoking its external process."""
         target = self.external / 'media.mp4'
         for operation in (prof.load, mix.dur, mix.read_wav_f32, mix.measure, validate.probe):
             with self.subTest(operation=operation.__name__), patch('subprocess.run') as run:
-                self.assert_refused(lambda: operation(target), target)
+                self.assert_refused(lambda operation=operation: operation(target), target)
                 run.assert_not_called()
 
     def test_build_preflights_output_symlinks_before_writing(self):

@@ -63,11 +63,17 @@ const foreground = token(dark, 'foreground');
 const primary = token(dark, 'primary');
 const mutedForeground = token(dark, 'muted-foreground');
 const border = token(dark, 'border');
-const radiusPx = Math.round(Number.parseFloat(/--radius:\s*([\d.]+)rem/.exec(CSS)![1]) * 16);
+/** Require a numeric CSS capture before parsing a website brand value. */
+function cssNumber(pattern: RegExp, text: string): number {
+  const match = pattern.exec(text);
+  if (!match) throw new Error(`CSS value not found for ${pattern}`);
+  return Number.parseFloat(match[1]);
+}
+const radiusPx = Math.round(cssNumber(/--radius:\s*([\d.]+)rem/, CSS) * 16);
 const gradient = hsls(rule('.gradient-text')).slice(0, 2);
 const aurora = hsls(CSS.slice(CSS.indexOf('.aurora::before {'))).slice(0, 2);
-const auroraOpacity = Number.parseFloat(/opacity:\s*([\d.]+)/.exec(rule('.aurora::before,\n  .aurora::after'))![1]);
-const fills = [...new Set([...LOGO.matchAll(/(?:fill|stroke)="#([0-9A-Fa-f]{6})"/g)].map((m) => '#' + m[1].toUpperCase()))];
+const auroraOpacity = cssNumber(/opacity:\s*([\d.]+)/, rule('.aurora::before,\n  .aurora::after'));
+const fills = [...new Set([...LOGO.matchAll(/(?:fill|stroke)="#([0-9A-Fa-f]{6})"/g)].map((m) => `#${m[1].toUpperCase()}`))];
 if (fills.length !== 2) throw new Error(`expected two colours in website/public/logo.svg, found ${fills}`);
 
 // ---------------------------------------------------------------- contrast (WCAG 2)

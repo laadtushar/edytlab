@@ -9,7 +9,7 @@ import {mkdirSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {CUTS} from '../src/cuts.ts';
 import {placements, segStarts, srt} from '../src/captions.ts';
-import {CLIPS, joined, ringSpan, shown, srcToOut, type Cut} from '../src/timeline.ts';
+import {CLIPS, joined, ringSpan, shown, srcToOut, type Cut, type Shot, type Seg} from '../src/timeline.ts';
 import {PUBLIC_DIR, ROOT, WORK} from './common.ts';
 import {projectPath} from './paths.ts';
 
@@ -49,6 +49,13 @@ export interface CueFile {
   sfx: [number, 'whoosh' | 'tick' | 'chime', number, number?][];
 }
 
+/** Refuse a silent cut when its source stretch contains audible app audio. */
+function requireSilence(file: string, cutId: string, part: Shot, segment: Seg, rate: number): void {
+  if (peak(file, segment.a, segment.b) > 0.01) {
+    throw new Error(`${cutId}/${part.id}: the clip's sound is audible in ${segment.a}..${segment.b} s, but this stretch does not play it (rate ${rate}, audio ${!!part.audio})`);
+  }
+}
+
 function build(cut: Cut): CueFile {
   const at = placements(cut);
   const clips: CueFile['clips'] = [];
@@ -68,9 +75,7 @@ function build(cut: Cut): CueFile {
       const file = projectPath(resolve(PUBLIC_DIR, wav));
       const rate = g.rate ?? 1;
       if (p.audio && rate === 1) clips.push({wav, src0: g.a, dur: g.b - g.a, t0: T + starts[k]});
-      else if (peak(file, g.a, g.b) > 0.01) {
-        throw new Error(`${cut.id}/${p.id}: the clip's sound is audible in ${g.a}..${g.b} s, but this stretch does not play it (rate ${rate}, audio ${!!p.audio})`);
-      }
+      else requireSilence(file, cut.id, p, g, rate);
     });
     // a tick when a label lands
     for (const r of p.rings) {
@@ -85,10 +90,10 @@ function build(cut: Cut): CueFile {
   // thin out ticks that land within 0.12 s of another
   sfx.sort((x, y) => x[0] - y[0]);
   const kept: CueFile['sfx'] = [];
-  for (const s of sfx) {
-    const prev = [...kept].reverse().find((k) => k[1] === s[1]);
-    if (s[1] === 'tick' && prev && s[0] - prev[0] < 0.08) continue;
-    kept.push(s);
+  for (const cue of sfx) {
+    const prev = [...kept].reverse().find((keptCue) => keptCue[1] === cue[1]);
+    if (cue[1] === 'tick' && prev && cue[0] - prev[0] < 0.08) continue;
+    kept.push(cue);
   }
   return {id: cut.id, slug: cut.slug, title: cut.title, platform: cut.platform, total: last.start + last.dur, clips, sfx: kept};
 }

@@ -19,6 +19,7 @@ LAUNCH = Path(__file__).with_name('launch.py')
 
 class MksrtPaths(unittest.TestCase):
     """Subtitle paths stay within the project and preserve valid output."""
+
     def setUp(self):
         """Create private in-project and external fixtures for each path check."""
         self.scratch = tempfile.TemporaryDirectory(dir=ROOT)
@@ -30,6 +31,11 @@ class MksrtPaths(unittest.TestCase):
         self.external = tempfile.TemporaryDirectory()
         self.addCleanup(self.external.cleanup)
         self.external_folder = Path(self.external.name)
+        (self.external_folder / 'cues.json').write_text(
+            json.dumps({'captions': [[0, 1, 'Hello']]})
+        )
+        (self.external_folder / 'lines.json').write_text('[]')
+        self.external_entries = sorted(self.external_folder.iterdir())
 
     @staticmethod
     def run_script(source, output):
@@ -54,6 +60,7 @@ class MksrtPaths(unittest.TestCase):
             with self.subTest(refused=refused):
                 result = self.run_script(source, output)
                 self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Refused path', result.stderr)
                 self.assertIn(str(ROOT), result.stderr)
                 self.assertIn(refused, result.stderr)
         self.assertFalse(self.output.exists())
@@ -66,12 +73,14 @@ class MksrtPaths(unittest.TestCase):
             with self.subTest(path=path):
                 result = self.run_script(self.source, path)
                 self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Refused path', result.stderr)
                 self.assertIn(str(ROOT), result.stderr)
                 self.assertIn(str(path), result.stderr)
 
 
 class NarrationPaths(unittest.TestCase):
     """Narration paths and IDs stay within the project before any writes."""
+
     setUp = MksrtPaths.setUp
 
     @staticmethod
@@ -93,9 +102,10 @@ class NarrationPaths(unittest.TestCase):
                 args.append(str(self.folder / 'narr.json'))
             result = subprocess.run(args, capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Refused path', result.stderr)
             self.assertIn(str(ROOT), result.stderr)
             self.assertIn(str(link), result.stderr)
-            self.assertEqual(list(self.external_folder.iterdir()), [])
+            self.assertEqual(sorted(self.external_folder.iterdir()), self.external_entries)
 
     def test_pick_rejects_missing_json_suffix_without_writing(self):
         """Refuse an output suffix that could overwrite the narration JSON."""
@@ -129,9 +139,9 @@ class NarrationPaths(unittest.TestCase):
             )
         output = self.folder / 'narr.json'
         stdout = io.StringIO()
-        with mock.patch.object(narrate, 'dur', return_value=2.0):
-            with contextlib.redirect_stdout(stdout):
-                narrate.pick(str(self.source), str(self.folder), str(output))
+        with mock.patch.object(narrate, 'dur', return_value=2.0), \
+                contextlib.redirect_stdout(stdout):
+            narrate.pick(str(self.source), str(self.folder), str(output))
         expected = [{'id': 'line', 't': 1, 'file': str(self.folder / 'line_t2.mp3'),
                      'gain_db': 0, 'tempo': 1.0, 'speech_end': 1.2, 'win': 1.5, 'text': 'Hello'}]
         self.assertEqual(output.read_text(), json.dumps(expected, indent=1))
@@ -154,8 +164,29 @@ class NarrationPaths(unittest.TestCase):
             with self.subTest(refused=refused):
                 result = self.run_pick(lines, outdir, output)
                 self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Refused path', result.stderr)
                 self.assertIn(str(ROOT), result.stderr)
                 self.assertIn(refused, result.stderr)
+
+    def test_duration_stops_at_a_failed_probe(self):
+        """Keep ffprobe's failure and stderr instead of parsing failed output."""
+        spec = importlib.util.spec_from_file_location('test_probe_narration', NARRATE)
+        narrate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(narrate)
+        take = self.folder / 'invalid.mp3'
+        failure = subprocess.CalledProcessError(1, ['ffprobe'], stderr='Invalid media')
+
+        def failed_probe(_args, **kwargs):
+            """Model subprocess.run raising only when failure checking is enabled."""
+            if kwargs.get('check'):
+                raise failure
+            return subprocess.CompletedProcess(['ffprobe'], 1, '', 'Invalid media')
+
+        with mock.patch.object(narrate.subprocess, 'run', side_effect=failed_probe):
+            with self.assertRaises(subprocess.CalledProcessError) as error:
+                narrate.dur(take)
+        self.assertIs(error.exception, failure)
+        self.assertEqual(error.exception.stderr, 'Invalid media')
 
 
 class SheetPaths(unittest.TestCase):
@@ -183,6 +214,7 @@ class SheetPaths(unittest.TestCase):
                     capture_output=True, text=True, cwd=ROOT, check=False,
                 )
                 self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Refused path', result.stderr)
                 self.assertIn(str(ROOT), result.stderr)
                 self.assertIn(str(refused), result.stderr)
         self.assertFalse(output.exists())
@@ -205,9 +237,46 @@ class LaunchPaths(unittest.TestCase):
                         capture_output=True, text=True, cwd=ROOT, check=False,
                     )
                     self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('Refused path', result.stderr)
                     self.assertIn(str(ROOT), result.stderr)
                     self.assertIn(str(output), result.stderr)
-        self.assertEqual(list(self.external_folder.iterdir()), [])
+        self.assertEqual(sorted(self.external_folder.iterdir()), self.external_entries)
+
+    def test_render_requires_destination_before_path_checks_or_plan_construction(self):
+        """Bare or option-only render commands cannot start building or encoding."""
+        spec = importlib.util.spec_from_file_location('test_launch_cli', LAUNCH)
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        for args in ([], ['--from'], ['--from', '1'], ['--to', '2'],
+                     ['--from', '1', '--to', '2'],
+                     ['--from', '1', '--from', '2'], ['--from', '1', '--to']):
+            with self.subTest(args=args):
+                with mock.patch.object(sys, 'argv', [str(LAUNCH), 'li', 'render', *args]):
+                    with mock.patch.object(launch, 'checked_output') as check_output:
+                        with mock.patch.dict(launch.BUILDERS, {'li': mock.Mock()}) as builders:
+                            with self.assertRaisesRegex(SystemExit, 'explicit output path'):
+                                launch.main()
+                            check_output.assert_not_called()
+                            builders['li'].assert_not_called()
+
+    def test_valid_render_options_keep_the_destination_and_time_range(self):
+        """A valid render still passes the checked target and original range."""
+        spec = importlib.util.spec_from_file_location('test_launch_render', LAUNCH)
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        output = self.folder / 'render.mp4'
+        plan = mock.Mock()
+        for options, start, end in (([], 0.0, None), (['--from', '1'], 1.0, None),
+                                    (['--from', '1', '--to', '2'], 1.0, 2.0)):
+            with self.subTest(options=options):
+                plan.reset_mock()
+                with mock.patch.object(sys, 'argv',
+                                       [str(LAUNCH), 'li', 'render', *options, str(output)]):
+                    with mock.patch.dict(launch.BUILDERS, {'li': lambda: plan}):
+                        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+                            launch.main()
+                plan.piece.render.assert_called_once_with(str(output.resolve()), start, end)
+                self.assertEqual(stdout.getvalue(), str(output) + '\n')
 
 
 if __name__ == '__main__':
