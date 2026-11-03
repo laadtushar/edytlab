@@ -59,7 +59,7 @@ def observe_contention(gates):
         yield
 
 
-def generate_worker(folder, start, gates=None):
+def generate_worker(folder, start, gates=None, lines=None, outdir=None):
     """Generate only after the parent releases ready, contending clients."""
     folder = Path(folder)
     store.ROOT = folder
@@ -81,7 +81,7 @@ def generate_worker(folder, start, gates=None):
             gates['ready'].set()
         if not start.wait(15):
             raise RuntimeError('parent did not release the narration start gate')
-        narrate.gen(str(folder / 'lines.json'), str(folder / 'takes'), 1)
+        narrate.gen(str(lines or folder / 'lines.json'), str(outdir or folder / 'takes'), 1)
 
 
 def hold_lock_worker(folder, acquired):
@@ -268,6 +268,381 @@ class NarrationTransactions(unittest.TestCase):
         self.assertTrue(alignment.exists())
         self.assertEqual(len((self.takes / 'usage.log').read_text().splitlines()), 1)
         self.assertFalse(list(self.takes.glob('.narrate-*')))
+
+    def test_interrupted_other_take_recovers_before_new_ledger_snapshot(self):
+        """A-only recovery cannot erase B after a B-only invocation."""
+        self._other_take_recovery(False)
+
+    def test_interrupted_take_recovers_through_canonical_ledger_alias(self):
+        """Distinct directories sharing a ledger recover its owner first."""
+        self._other_take_recovery(True)
+
+    def _other_take_recovery(self, alias, same_id=False):
+        """Exercise actual gen interleaving with a held prepared journal."""
+        self.takes.mkdir()
+        other = self.takes
+        if alias:
+            other = self.folder / 'other'
+            other.mkdir()
+            ledger = self.folder / 'shared.log'
+            ledger.write_bytes(b'')
+            try:
+                (self.takes / 'usage.log').symlink_to(ledger)
+                (other / 'usage.log').symlink_to(ledger)
+            except OSError as error:
+                self.skipTest(f'filesystem symlinks unavailable: {error}')
+        first, second = ('same', 'same') if same_id else ('A', 'B')
+        self.lines.write_text(json.dumps([dict(id=first, text='hi')]))
+        replace = store.os.replace
+
+        def stop_at_alignment(source, destination):
+            """Interrupt A after audio, leaving its old ledger snapshot prepared."""
+            if Path(destination) == self.takes / f'{first}_t1.json':
+                raise OSError('interrupted A publication')
+            return replace(source, destination)
+
+        with mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)) as service, \
+                mock.patch.object(narrate.time, 'strftime', return_value='2026-01-01 00:00:00'):
+            with mock.patch.object(store.os, 'replace', side_effect=stop_at_alignment), \
+                    self.assertRaises(OSError):
+                self.generate()
+            self.lines.write_text(json.dumps([dict(id=second, text='hi')]))
+            with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                narrate.gen(str(self.lines), str(other), 1)
+            self.lines.write_text(json.dumps([dict(id=first, text='hi')]))
+            self.generate()
+            self.assertEqual(service.call_count, 2)
+        rows = (self.takes / 'usage.log').read_text().splitlines()
+        self.assertEqual(len(rows), 2)
+        if same_id:
+            self.assertEqual(rows[0], rows[1])
+        self.assertIn(f'  {first} take 1  2 chars', rows[0])
+        self.assertIn(f'  {second} take 1  2 chars', rows[1])
+        self.assertEqual((other / f'{second}_t1.mp3').read_bytes(), b'ABC')
+        self.assertEqual((self.takes / f'{first}_t1.mp3').read_bytes(), b'ABC')
+
+    def test_identical_visible_entries_from_aliased_takes_are_both_retained(self):
+        """Two distinct paid takes may have identical legacy ledger bytes."""
+        self._other_take_recovery(True, same_id=True)
+
+    def test_pick_recovers_unselected_ledger_owner(self):
+        """Selecting B must complete interrupted A even though A is not selected."""
+        self.lines.write_text(json.dumps([dict(id='A', text='hi', t=0, win=1)]))
+        replace = store.os.replace
+
+        def interrupt(source, destination):
+            """Leave A prepared before its metadata is installed."""
+            if Path(destination) == self.takes / 'A_t1.json':
+                raise OSError('interrupted A')
+            return replace(source, destination)
+
+        with mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)) as service:
+            with mock.patch.object(store.os, 'replace', side_effect=interrupt), \
+                    self.assertRaises(OSError):
+                self.generate()
+            self.lines.write_text(json.dumps([dict(id='missing', text='hi', t=0, win=1)]))
+            with contextlib.redirect_stdout(io.StringIO()):
+                narrate.pick(str(self.lines), str(self.takes), str(self.folder / 'narr.json'))
+            self.assertEqual(service.call_count, 1)
+        self.assertTrue((self.takes / 'A_t1.json').exists())
+        self.assertIn('  A take 1  ', (self.takes / 'usage.log').read_text())
+        self.assertEqual((self.folder / 'narr.json').read_bytes(), b'[]')
+
+    def test_fresh_independent_ledger_proceeds_while_another_owner_is_active(self):
+        """An indexed A transaction is not mistaken for unrelated legacy state."""
+        context = multiprocessing.get_context('spawn')
+        start = context.Event()
+        gates = dict(ready=context.Event(), contended=context.Event(),
+                     service_started=context.Event(), release_service=context.Event())
+        process = context.Process(target=generate_worker, args=(str(self.folder), start, gates))
+        process.start()
+        try:
+            self.assertTrue(gates['ready'].wait(15))
+            start.set()
+            self.assertTrue(gates['service_started'].wait(15))
+            other = self.folder / 'independent'
+            with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')), \
+                    mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)) as service, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                narrate.gen(str(self.lines), str(other), 1)
+                self.assertEqual(service.call_count, 1)
+            self.assertEqual((other / 'line_t1.mp3').read_bytes(), b'ABC')
+            self.assertTrue(process.is_alive(), 'A must remain held while B finishes')
+        finally:
+            gates['release_service'].set()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join()
+        self.assertEqual(process.exitcode, 0)
+
+    def test_changed_owner_destination_keeps_unknown_request_and_prevents_recharge(self):
+        """An in-root leaf retarget cannot change the saved request's identity."""
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        request = store.state_file(paths, 'request')
+        with mock.patch.object(narrate, 'curl', return_value=(0, '')) as service:
+            with self.assertRaisesRegex(SystemExit, 'No HTTP response'):
+                self.generate()
+            marker = request.read_bytes()
+            index = store._ledger_index(paths[-1])
+            owner = index.read_bytes()
+            redirected = self.folder / 'redirected.mp3'
+            try:
+                paths[0].symlink_to(redirected)
+            except OSError as error:
+                self.skipTest(f'filesystem symlinks unavailable: {error}')
+            with self.assertRaisesRegex(SystemExit, str(index)):
+                self.generate()
+            with self.assertRaisesRegex(SystemExit, 'owner destination changed'):
+                narrate.pick(str(self.lines), str(self.takes), str(self.folder / 'narr.json'))
+            self.assertEqual(service.call_count, 1)
+        self.assertEqual(request.read_bytes(), marker)
+        self.assertEqual(index.read_bytes(), owner)
+        self.assertFalse(redirected.exists())
+        self.assertFalse((self.takes / 'usage.log').exists())
+
+    def test_other_index_is_validated_from_one_atomic_snapshot(self):
+        """Retiring another ledger between reads must not turn paths into None."""
+        self.takes.mkdir()
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        index = store._ledger_index(paths[-1])
+        store._write_owner(index, paths, paths[-1])
+        response = store.state_file(paths, 'response')
+        response.write_text('{}')
+        read, reads = Path.read_text, []
+
+        def retire_after_read(path, *args, **kwargs):
+            """Return its active snapshot while the real index becomes idle."""
+            text = read(path, *args, **kwargs)
+            if path == index:
+                reads.append(path)
+                response.unlink(missing_ok=True)
+                store._write_owner(index, None, paths[-1])
+            return text
+
+        with mock.patch.object(Path, 'read_text', new=retire_after_read):
+            self.assertTrue(store._indexed_state(response, index.parent))
+        self.assertEqual(len(reads), 1)
+        self.assertFalse(response.exists())
+
+    def test_independent_ledger_proceeds_during_indexed_pick_publication(self):
+        """An active two-output pick journal has an exact coordinator owner."""
+        output = self.folder / 'narr.json'
+        other = self.folder / 'independent'
+        replace = store.os.replace
+        observed = []
+
+        def generate_during_pick(source, destination):
+            """Invoke B while A's prepared selection journal still exists."""
+            if Path(destination) == output:
+                observed.append(True)
+                self.assertTrue(store.state_file(
+                    [output, output.with_suffix('.srt')], 'pending').exists())
+                narrate.gen(str(self.lines), str(other), 1)
+            return replace(source, destination)
+
+        with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')), \
+                mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)) as service, \
+                mock.patch.object(store.os, 'replace', side_effect=generate_during_pick), \
+                contextlib.redirect_stdout(io.StringIO()):
+            narrate.pick(str(self.lines), str(self.takes), str(output))
+            self.assertEqual(service.call_count, 1)
+        self.assertEqual(observed, [True])
+        self.assertEqual(output.read_bytes(), b'[]')
+        self.assertEqual((other / 'line_t1.mp3').read_bytes(), b'ABC')
+
+    def test_interrupted_indexed_pick_remains_discoverable_to_another_ledger(self):
+        """Pair ownership survives failure and is recovered with its pair lock."""
+        output = self.folder / 'narr.json'
+        replace = store.os.replace
+
+        def interrupt(source, destination):
+            """Leave A's prepared pair and its durable owner behind."""
+            if Path(destination) == output:
+                raise OSError('interrupted indexed pick')
+            return replace(source, destination)
+
+        with mock.patch.object(store.os, 'replace', side_effect=interrupt), \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(OSError):
+            narrate.pick(str(self.lines), str(self.takes), str(output))
+        other = self.folder / 'independent'
+        with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')), \
+                mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            narrate.gen(str(self.lines), str(other), 1)
+        with mock.patch.object(narrate, '_pick_lines', side_effect=RuntimeError('next input')), \
+                self.assertRaisesRegex(RuntimeError, 'next input'):
+            narrate.pick(str(self.lines), str(self.takes), str(output))
+        self.assertEqual(output.read_bytes(), b'[]')
+        self.assertEqual(output.with_suffix('.srt').read_bytes(), b'')
+        self.assertEqual((other / 'line_t1.mp3').read_bytes(), b'ABC')
+
+    def test_directory_ledger_alias_is_rejected_before_any_lock(self):
+        """Crossed directory aliases cannot invert directory and ledger locks."""
+        self.takes.mkdir()
+        other = self.folder / 'other'
+        other.mkdir()
+        try:
+            (self.takes / 'usage.log').symlink_to(other, target_is_directory=True)
+            (other / 'usage.log').symlink_to(self.takes, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f'filesystem symlinks unavailable: {error}')
+        with mock.patch.object(store, 'locked') as locks, \
+                mock.patch.object(narrate, 'curl') as service:
+            for outdir in (self.takes, other):
+                with self.subTest(outdir=outdir):
+                    with self.assertRaisesRegex(SystemExit, 'regular file'):
+                        narrate.gen(str(self.lines), str(outdir), 1)
+                    with self.assertRaisesRegex(SystemExit, 'regular file'):
+                        narrate.pick(str(self.lines), str(outdir), str(self.folder / 'narr.json'))
+            locks.assert_not_called()
+            service.assert_not_called()
+
+    def test_alias_generators_contend_for_the_canonical_ledger(self):
+        """Different directory locks cannot admit simultaneous ledger writers."""
+        self.takes.mkdir()
+        other = self.folder / 'other'
+        other.mkdir()
+        ledger = self.folder / 'shared.log'
+        ledger.write_bytes(b'')
+        try:
+            (self.takes / 'usage.log').symlink_to(ledger)
+            (other / 'usage.log').symlink_to(ledger)
+        except OSError as error:
+            self.skipTest(f'filesystem symlinks unavailable: {error}')
+        alternate = self.folder / 'other-lines.json'
+        alternate.write_text(json.dumps([dict(id='other', text='hi')]))
+        context = multiprocessing.get_context('spawn')
+        start, contended = context.Event(), context.Event()
+        service_started, release_service = context.Event(), context.Event()
+        gates = [dict(ready=context.Event(), contended=contended,
+                      service_started=service_started, release_service=release_service)
+                 for _ in range(2)]
+        processes = [context.Process(target=generate_worker, args=(
+            str(self.folder), start, gates[index], str(lines), str(outdir)))
+            for index, (lines, outdir) in enumerate(((self.lines, self.takes), (alternate, other)))]
+        for process in processes:
+            process.start()
+        try:
+            for gate in gates:
+                self.assertTrue(gate['ready'].wait(15))
+            start.set()
+            self.assertTrue(service_started.wait(15))
+            self.assertTrue(contended.wait(15), 'aliased ledger was not locked')
+            self.assertEqual((self.folder / 'charges').read_text(), 'request\n')
+            release_service.set()
+            for process in processes:
+                process.join(15)
+                self.assertFalse(process.is_alive())
+                self.assertEqual(process.exitcode, 0)
+        finally:
+            release_service.set()
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+                    process.join()
+        self.assertEqual((self.folder / 'charges').read_text(), 'request\nrequest\n')
+        rows = ledger.read_text().splitlines()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(any('  line take 1  ' in row for row in rows))
+        self.assertTrue(any('  other take 1  ' in row for row in rows))
+
+    def test_unindexed_unknown_state_refuses_before_paid_work(self):
+        """Legacy hashes cannot be reverse-mapped by guessing receipt IDs."""
+        unknown = self.folder / '.narrate-unknown.response'
+        unknown.write_text('{}')
+        with mock.patch.object(narrate, 'curl') as service:
+            with self.assertRaisesRegex(SystemExit, str(unknown)):
+                self.generate()
+            service.assert_not_called()
+        self.assertEqual(unknown.read_text(), '{}')
+
+    def test_owning_command_migrates_known_legacy_journal(self):
+        """Exact known legacy paths may recover when no later ledger conflicts."""
+        self.takes.mkdir()
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        receipt = dict(id='line', take=1, text='hi', timestamp='2026-01-01 00:00:00',
+                       response=json.loads(RESPONSE))
+        store.write_state(store.state_file(paths, 'response'),
+                          store.text_bytes(json.dumps(receipt)))
+        replace = store.os.replace
+
+        def stop_at_alignment(source, destination):
+            """Prepare the old unindexed protocol before its second replacement."""
+            if Path(destination) == paths[1]:
+                raise OSError('legacy interruption')
+            return replace(source, destination)
+
+        with mock.patch.object(store.os, 'replace', side_effect=stop_at_alignment), \
+                self.assertRaises(OSError):
+            narrate._save_take(paths, receipt)
+        with mock.patch.object(narrate, 'curl') as service:
+            self.generate()
+            service.assert_not_called()
+        self.assertEqual(paths[0].read_bytes(), b'ABC')
+        expected = b'2026-01-01 00:00:00  line take 1  2 chars' + os.linesep.encode()
+        self.assertEqual(paths[2].read_bytes(), expected)
+
+    def test_legacy_staging_symlinks_are_refused_before_external_reads(self):
+        """Migration applies the same confinement as normal journal recovery."""
+        self.takes.mkdir()
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        journal = store.state_file(paths, 'pending')
+        journal.mkdir()
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / 'sentinel'
+            outside.write_bytes(b'external sentinel')
+            for child in ('ready', '2'):
+                with self.subTest(child=child):
+                    for old in journal.iterdir():
+                        old.unlink()
+                    if child == '2':
+                        (journal / 'ready').write_text('3')
+                    try:
+                        (journal / child).symlink_to(outside)
+                    except OSError as error:
+                        self.skipTest(f'filesystem symlinks unavailable: {error}')
+                    read = Path.read_bytes
+
+                    def guarded_read(path):
+                        """Fail if the external payload reaches the filesystem reader."""
+                        if path.resolve() == outside:
+                            raise AssertionError('external staging payload was read')
+                        return read(path)
+
+                    with mock.patch.object(Path, 'read_bytes', new=guarded_read), \
+                            self.assertRaisesRegex(SystemExit, 'Refused path'):
+                        narrate._recover_paths(paths, legacy=True)
+            self.assertEqual(outside.read_bytes(), b'external sentinel')
+
+    def test_legacy_stale_snapshot_cannot_erase_newer_ledger(self):
+        """An already conflicting old journal needs explicit reconciliation."""
+        self.takes.mkdir()
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        receipt = dict(id='line', take=1, text='hi', timestamp='2026-01-01 00:00:00',
+                       response=json.loads(RESPONSE))
+        store.write_state(store.state_file(paths, 'response'),
+                          store.text_bytes(json.dumps(receipt)))
+        replace = store.os.replace
+
+        def stop_at_alignment(source, destination):
+            """Preserve a staged legacy ledger and its original response."""
+            if Path(destination) == paths[1]:
+                raise OSError('legacy interruption')
+            return replace(source, destination)
+
+        with mock.patch.object(store.os, 'replace', side_effect=stop_at_alignment), \
+                self.assertRaises(OSError):
+            narrate._save_take(paths, receipt)
+        paths[2].write_bytes(b'newer independent B entry\n')
+        with mock.patch.object(narrate, 'curl') as service:
+            with self.assertRaisesRegex(SystemExit, 'Conflicting legacy narration ledger'):
+                self.generate()
+            service.assert_not_called()
+        self.assertEqual(paths[2].read_bytes(), b'newer independent B entry\n')
+        self.assertTrue(store.state_file(paths, 'response').exists())
+        self.assertTrue((store.state_file(paths, 'pending') / 'ready').exists())
 
     def test_saved_response_recovers_before_any_publication(self):
         """A receipt survives failure before staging starts."""

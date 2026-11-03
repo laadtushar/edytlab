@@ -6,9 +6,10 @@ that bypass this protocol. Recovery covers process interruption; filesystem
 and hardware durability guarantees still depend on the operating system.
 """
 import contextlib
-import hashlib
 import errno
+import hashlib
 import io
+import json
 import os
 import shutil
 import time
@@ -147,3 +148,127 @@ def publish(paths, payloads):
             os.fsync(stream.fileno())
     write_state(journal / 'ready', text_bytes(str(len(paths))))
     recover(paths)
+
+
+def _ledger_index(ledger):
+    """Locate the private coordinator for a canonical usage ledger."""
+    folder = checked_path(ROOT / 'work' / '.narrate-ledgers')
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / (_identity([ledger]) + '.json')
+    if path.is_symlink():
+        raise SystemExit(f'Refused transaction symlink {path}: project root {ROOT}')
+    return checked_path(path)
+
+
+def _ledger_owner(index, ledger, record=None):
+    """Validate the recorded destinations before attempting recovery."""
+    if record is None:
+        record = json.loads(index.read_text())
+    if not isinstance(record, dict) or record.get('version') != 1 or 'owner' not in record:
+        raise RuntimeError(f'Invalid narration ledger coordinator: {index}')
+    owner = record['owner']
+    if owner is None:
+        return None
+    if not isinstance(owner, list) or len(owner) not in (2, 3):
+        raise RuntimeError(f'Invalid narration ledger owner: {index}')
+    paths = [checked_path(path) for path in owner]
+    if any(os.path.normcase(str(path)) != os.path.normcase(recorded)
+           for path, recorded in zip(paths, owner)):
+        raise SystemExit(f'Narration owner destination changed: {index}. '
+                         'Restore or reconcile its recorded paths before retrying; '
+                         'no new request was sent.')
+    recorded_ledger = record.get('ledger', paths[-1] if len(paths) == 3 else None)
+    if (recorded_ledger is None or checked_path(recorded_ledger) != checked_path(ledger)
+            or (len(paths) == 3 and paths[-1] != checked_path(ledger))):
+        raise RuntimeError(f'Wrong narration ledger owner: {index}')
+    return paths
+
+
+def _write_owner(index, paths, ledger):
+    """Persist ownership before any paid request or take publication."""
+    write_state(index, text_bytes(json.dumps(dict(
+        version=1, ledger=str(ledger),
+        owner=None if paths is None else [str(path) for path in paths]))))
+
+
+def _indexed_state(candidate, folder):
+    """Recognize other ledgers' active state only from exact owner manifests."""
+    for index in folder.glob('*.json'):
+        if index.is_symlink():
+            raise SystemExit(f'Refused transaction symlink {index}: project root {ROOT}')
+        record = json.loads(index.read_text())
+        owner = record.get('owner') if isinstance(record, dict) else None
+        if not isinstance(owner, list) or len(owner) not in (2, 3):
+            continue
+        ledger = record.get('ledger', owner[-1] if len(owner) == 3 else None)
+        paths = _ledger_owner(index, ledger, record)
+        if index.name != _identity([ledger]) + '.json':
+            raise RuntimeError(f'Invalid narration ledger coordinator name: {index}')
+        suffixes = ('pending', 'request', 'response') if len(paths) == 3 else ('pending',)
+        if candidate in {state_file(paths, suffix) for suffix in suffixes}:
+            return True
+    return False
+
+
+@contextlib.contextmanager
+def ledger_locked(ledger, known, reconcile, outputs=()):
+    """Recover a ledger's previous owner before admitting another writer.
+
+    Directory locks are acquired first, then this canonical-ledger lock. The
+    persistent idle coordinator makes legacy discovery a once-only migration.
+    Legacy state names contain hashes, not destination manifests: never infer
+    destinations from receipt IDs or silently discard unknown private state.
+    """
+    ledger = checked_path(ledger)
+    with locked([ledger]):
+        index = _ledger_index(ledger)
+        if not index.exists():
+            known = [[checked_path(path) for path in paths] for paths in known]
+            names = {state_file(paths, suffix) for paths in known
+                     for suffix in ('pending', 'request', 'response')}
+            if outputs:
+                names.add(state_file(outputs, 'pending'))
+            for candidate in ROOT.rglob('.narrate-*'):
+                # Another ledger may finish while its index is inspected;
+                # recheck existence before refusing a stale directory entry.
+                if (candidate.suffix in ('.pending', '.request', '.response')
+                        and candidate not in names and candidate.exists()
+                        and not _indexed_state(candidate, index.parent) and candidate.exists()):
+                    raise SystemExit(f'Unindexed narration transaction: {candidate}. '
+                                     'Reconcile it with its original owning command '
+                                     'before retrying; '
+                                     'no new request was sent.')
+            for paths in known:
+                if any(state_file(paths, suffix).exists()
+                       for suffix in ('pending', 'request', 'response')):
+                    reconcile(paths, legacy=True)
+            _write_owner(index, None, ledger)
+        owner = _ledger_owner(index, ledger)
+        if owner is not None:
+            if len(owner) == 3:
+                reconcile(owner)
+            else:
+                with locked(owner):
+                    recover(owner)
+            _write_owner(index, None, ledger)
+        yield
+
+
+def claim_ledger(paths, ledger=None):
+    """Record the active take while its canonical-ledger lock is held."""
+    paths = [checked_path(path) for path in paths]
+    ledger = checked_path(ledger if ledger is not None else paths[-1])
+    index = _ledger_index(ledger)
+    if _ledger_owner(index, ledger) is not None:
+        raise RuntimeError(f'Unrecovered narration ledger owner: {index}')
+    _write_owner(index, paths, ledger)
+
+
+def release_ledger(paths, ledger=None):
+    """Retire ownership only after the take and its markers are complete."""
+    paths = [checked_path(path) for path in paths]
+    ledger = checked_path(ledger if ledger is not None else paths[-1])
+    index = _ledger_index(ledger)
+    if _ledger_owner(index, ledger) != paths:
+        raise RuntimeError(f'Unexpected narration ledger owner: {index}')
+    _write_owner(index, None, ledger)

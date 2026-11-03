@@ -95,10 +95,25 @@ def words_from_alignment(al, text):
     return words
 
 
+def _ledger_path(outdir):
+    """Require a file-shaped canonical ledger before acquiring any locks."""
+    ledger = checked_path(f"{outdir}/usage.log")
+    if ledger.exists() and not ledger.is_file():
+        raise SystemExit(f"Usage ledger must be a regular file: {ledger}")
+    return ledger
+
+
 def _take_paths(base, outdir):
     """Identify the take pair and its serialized usage ledger."""
     return [checked_path(base + ".mp3"), checked_path(base + ".json"),
-            checked_path(f"{outdir}/usage.log")]
+            _ledger_path(outdir)]
+
+
+def _usage_entry(receipt):
+    """Keep the original visible usage-log encoding and entry format."""
+    return store.text_bytes(
+        f"{receipt['timestamp']}  {receipt['id']} take {receipt['take']}  "
+        f"{len(receipt['text'])} chars\n")
 
 
 def _save_take(paths, receipt):
@@ -107,11 +122,9 @@ def _save_take(paths, receipt):
     alignment = dict(text=receipt["text"],
                      words=words_from_alignment(data["alignment"], receipt["text"]))
     log = paths[2].read_bytes() if paths[2].exists() else b""
-    entry = (f"{receipt['timestamp']}  {receipt['id']} take {receipt['take']}  "
-             f"{len(receipt['text'])} chars\n")
     store.publish(paths, [base64.b64decode(data["audio_base64"]),
                           store.text_bytes(json.dumps(alignment)),
-                          log + store.text_bytes(entry)])
+                          log + _usage_entry(receipt)])
 
 
 def _recover_take(base, outdir):
@@ -121,9 +134,24 @@ def _recover_take(base, outdir):
     automatic new charge until the operator reconciles that request with the
     provider and removes its named request marker. No API key is stored.
     """
-    paths = _take_paths(base, outdir)
+    _recover_paths(_take_paths(base, outdir))
+
+
+def _recover_paths(paths, legacy=False):
+    """Recover known destinations; refuse ambiguous pre-coordinator snapshots."""
     request = store.state_file(paths, "request")
     response = store.state_file(paths, "response")
+    if legacy:
+        journal = store.state_file(paths, "pending")
+        if checked_path(journal / "ready").exists():
+            current = paths[2].read_bytes() if paths[2].exists() else b""
+            staged = checked_path(journal / "2").read_bytes()
+            entry = _usage_entry(json.loads(response.read_text())) if response.exists() else None
+            if staged != current and (entry is None or staged != current + entry):
+                raise SystemExit(f"Conflicting legacy narration ledger: {journal}. "
+                                 "Reconcile its saved usage with the current ledger "
+                                 "before retrying; "
+                                 "no outputs were replaced and no new request was sent.")
     store.recover(paths)
     if paths[0].exists() and paths[1].exists():
         request.unlink(missing_ok=True)
@@ -146,14 +174,17 @@ def gen(lines_path, outdir, n_takes):
     with open(checked_path(lines_path)) as lines_file:
         lines = json.load(lines_file)
     checked_path(outdir)
-    checked_path(f"{outdir}/usage.log")
+    _ledger_path(outdir)
     # Validate IDs before making directories or sending requests.
     for ln in lines:
         for k in range(1, n_takes + 1):
             checked_path(f"{outdir}/{ln['id']}_t{k}.mp3")
             checked_path(f"{outdir}/{ln['id']}_t{k}.json")
     os.makedirs(checked_path(outdir), exist_ok=True)
-    with store.locked([checked_path(outdir)]):
+    known = [_take_paths(f"{outdir}/{ln['id']}_t{k}", outdir)
+             for ln in lines for k in range(1, n_takes + 1)]
+    with store.locked([checked_path(outdir)]), store.ledger_locked(
+            _ledger_path(outdir), known, _recover_paths):
         _generate_lines(lines, outdir, n_takes)
 
 
@@ -184,6 +215,7 @@ def _generate_lines(lines, outdir, n_takes):
             paths = _take_paths(base, outdir)
             request = store.state_file(paths, "request")
             response = store.state_file(paths, "response")
+            store.claim_ledger(paths)
             store.write_state(request, store.text_bytes(json.dumps(dict(
                 id=ln["id"], take=k, text=ln["text"], created=time.time()))))
             body = {
@@ -203,6 +235,7 @@ def _generate_lines(lines, outdir, n_takes):
                 # Preserve the original explicit-error retry behavior. An HTTP
                 # code does not establish whether the provider billed a request.
                 request.unlink()
+                store.release_ledger(paths)
                 print(f"{ln['id']} take {k}: HTTP {code}: {txt[:200]}")
                 continue
             receipt = dict(id=ln["id"], take=k, text=ln["text"],
@@ -211,6 +244,7 @@ def _generate_lines(lines, outdir, n_takes):
             _save_take(paths, receipt)
             request.unlink()
             response.unlink()
+            store.release_ledger(paths)
             total += len(ln["text"])
             print(f"{ln['id']} take {k}: ok ({len(ln['text'])} chars)")
     used1, limit, _ = status()
@@ -260,9 +294,14 @@ def pick(lines_path, outdir, out_json):
     checked_path(out_json)
     checked_path(out_json.replace(".json", ".srt"))
     outputs = [checked_path(out_json), checked_path(out_json.replace(".json", ".srt"))]
-    with store.locked([checked_path(outdir)]), store.locked(outputs):
+    known = [_take_paths(f"{outdir}/{ln['id']}_t{k}", outdir)
+             for ln in lines for k in range(1, 6)]
+    with store.locked([checked_path(outdir)]), store.ledger_locked(
+            _ledger_path(outdir), known, _recover_paths, outputs), store.locked(outputs):
         store.recover(outputs)
+        store.claim_ledger(outputs, _ledger_path(outdir))
         _pick_lines(lines, outdir, outputs)
+        store.release_ledger(outputs, _ledger_path(outdir))
 
 
 def _pick_lines(lines, outdir, outputs):
