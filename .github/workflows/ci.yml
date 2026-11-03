@@ -136,6 +136,19 @@ jobs:
       - name: Promo narration contracts
         if: runner.os == 'Linux'
         run: python -m unittest discover -s marketing/promo-v0.7.0/narration/tools -p "test_*.py"
+      - name: Promo Remotion path contracts
+        if: runner.os == 'Linux'
+        run: python -m unittest discover -s marketing/promo-v0.7.0/remotion/tools -p "test_*.py"
+      - name: Install Node for marketing path contracts
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Promo recording and Remotion JavaScript path contracts
+        if: runner.os == 'Linux'
+        run: >-
+          node --test marketing/promo-v0.7.0/record/paths.test.mjs
+          marketing/promo-v0.7.0/remotion/scripts/paths.test.ts
 
   build:
     name: build (${{ matrix.platform.name }})
