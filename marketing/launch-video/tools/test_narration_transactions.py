@@ -225,7 +225,10 @@ class NarrationTransactions(unittest.TestCase):
                 narrate.pick(str(self.lines), str(self.takes), str(output))
         chosen = json.loads(output.read_text())
         self.assertEqual([line['text'] for line in chosen], ['first', 'second'])
-        self.assertEqual([line['file'] for line in chosen], [str(self.takes / 'line_t1.mp3')] * 2)
+        # The original JSON preserves the supplied directory spelling and
+        # appends "/<id>_t1.mp3", including mixed separators on Windows.
+        expected_file = f'{self.takes}/line_t1.mp3'
+        self.assertEqual([line['file'] for line in chosen], [expected_file] * 2)
         self.assertIn('missing: NO TAKE', stdout.getvalue())
 
 
