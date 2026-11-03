@@ -534,9 +534,8 @@ fn source_alias_uses_the_original_range_path() {
         );
         let out = if hard_link {
             let link = dir.path().join("linked-output.wav");
-            if std::fs::hard_link(&source, &link).is_err() {
-                continue;
-            }
+            std::fs::hard_link(&source, &link)
+                .expect("the alias regression requires hard-link support in the test directory");
             link
         } else {
             source.clone()
