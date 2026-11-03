@@ -160,6 +160,19 @@ def _ledger_index(ledger):
     return checked_path(path)
 
 
+def _owner_paths(index, owner):
+    """Validate the owner destination list and its pinned canonical paths."""
+    if not isinstance(owner, list) or len(owner) not in (2, 3):
+        raise RuntimeError(f'Invalid narration ledger owner: {index}')
+    paths = [checked_path(path) for path in owner]
+    if any(os.path.normcase(str(path)) != os.path.normcase(recorded)
+           for path, recorded in zip(paths, owner)):
+        raise SystemExit(f'Narration owner destination changed: {index}. '
+                         'Restore or reconcile its recorded paths before retrying; '
+                         'no new request was sent.')
+    return paths
+
+
 def _ledger_owner(index, ledger, record=None):
     """Validate the recorded destinations before attempting recovery."""
     if record is None:
@@ -169,14 +182,7 @@ def _ledger_owner(index, ledger, record=None):
     owner = record['owner']
     if owner is None:
         return None
-    if not isinstance(owner, list) or len(owner) not in (2, 3):
-        raise RuntimeError(f'Invalid narration ledger owner: {index}')
-    paths = [checked_path(path) for path in owner]
-    if any(os.path.normcase(str(path)) != os.path.normcase(recorded)
-           for path, recorded in zip(paths, owner)):
-        raise SystemExit(f'Narration owner destination changed: {index}. '
-                         'Restore or reconcile its recorded paths before retrying; '
-                         'no new request was sent.')
+    paths = _owner_paths(index, owner)
     recorded_ledger = record.get('ledger', paths[-1] if len(paths) == 3 else None)
     if (recorded_ledger is None or checked_path(recorded_ledger) != checked_path(ledger)
             or (len(paths) == 3 and paths[-1] != checked_path(ledger))):
@@ -210,6 +216,31 @@ def _indexed_state(candidate, folder):
     return False
 
 
+def _bootstrap_ledger(index, ledger, known, reconcile, outputs):
+    """Reconcile known legacy state before creating a ledger coordinator."""
+    if not index.exists():
+        known = [[checked_path(path) for path in paths] for paths in known]
+        names = {state_file(paths, suffix) for paths in known
+                 for suffix in ('pending', 'request', 'response')}
+        if outputs:
+            names.add(state_file(outputs, 'pending'))
+        for candidate in ROOT.rglob('.narrate-*'):
+            # Another ledger may finish while its index is inspected;
+            # recheck existence before refusing a stale directory entry.
+            if (candidate.suffix in ('.pending', '.request', '.response')
+                    and candidate not in names and candidate.exists()
+                    and not _indexed_state(candidate, index.parent) and candidate.exists()):
+                raise SystemExit(f'Unindexed narration transaction: {candidate}. '
+                                 'Reconcile it with its original owning command '
+                                 'before retrying; '
+                                 'no new request was sent.')
+        for paths in known:
+            if any(state_file(paths, suffix).exists()
+                   for suffix in ('pending', 'request', 'response')):
+                reconcile(paths, legacy=True)
+        _write_owner(index, None, ledger)
+
+
 @contextlib.contextmanager
 def ledger_locked(ledger, known, reconcile, outputs=()):
     """Recover a ledger's previous owner before admitting another writer.
@@ -222,27 +253,7 @@ def ledger_locked(ledger, known, reconcile, outputs=()):
     ledger = checked_path(ledger)
     with locked([ledger]):
         index = _ledger_index(ledger)
-        if not index.exists():
-            known = [[checked_path(path) for path in paths] for paths in known]
-            names = {state_file(paths, suffix) for paths in known
-                     for suffix in ('pending', 'request', 'response')}
-            if outputs:
-                names.add(state_file(outputs, 'pending'))
-            for candidate in ROOT.rglob('.narrate-*'):
-                # Another ledger may finish while its index is inspected;
-                # recheck existence before refusing a stale directory entry.
-                if (candidate.suffix in ('.pending', '.request', '.response')
-                        and candidate not in names and candidate.exists()
-                        and not _indexed_state(candidate, index.parent) and candidate.exists()):
-                    raise SystemExit(f'Unindexed narration transaction: {candidate}. '
-                                     'Reconcile it with its original owning command '
-                                     'before retrying; '
-                                     'no new request was sent.')
-            for paths in known:
-                if any(state_file(paths, suffix).exists()
-                       for suffix in ('pending', 'request', 'response')):
-                    reconcile(paths, legacy=True)
-            _write_owner(index, None, ledger)
+        _bootstrap_ledger(index, ledger, known, reconcile, outputs)
         owner = _ledger_owner(index, ledger)
         if owner is not None:
             if len(owner) == 3:
