@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Synthesise the few UI sounds the launch cuts use (code-driven sound design, no samples, no licence strings).
+"""Synthesise UI sounds for launch cuts, without samples or licence strings.
 The existing output directory must resolve inside marketing/launch-video.
-whoosh : band-limited noise whose low-pass sweeps up then down under a smooth envelope (scene change)
+whoosh : band-limited noise with a low-pass sweep and smooth envelope (scene change)
 tick   : a 35 ms sine ping with a hair of noise (callout ring closes)
 chime  : three soft sine partials and a low sub thump (the wordmark lands)
 All 48 kHz mono 16-bit; peaks stay under 0.5 so the mix never clips.
@@ -27,7 +27,9 @@ def save(name, x):
     pk = max(abs(v) for v in x) or 1
     x = [v / pk * 0.5 for v in x]
     with wave.open(destination, "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SR)
         w.writeframes(b"".join(struct.pack("<h", int(max(-1, min(1, v)) * 32767)) for v in x))
 
 

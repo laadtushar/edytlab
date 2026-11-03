@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -76,6 +77,7 @@ class AudioOutputPaths(unittest.TestCase):
         calls = []
 
         def ffmpeg(command, **_kwargs):
+            """Record the exact encoder arguments and write only synthetic fixture bytes."""
             calls.append(command)
             Path(command[-1]).write_bytes(b'synthetic ffmpeg output')
 
@@ -284,6 +286,114 @@ class AudioOutputPaths(unittest.TestCase):
             namespace['save']('extra', [0.0, 0.125, -0.25])
         writer.assert_not_called()
         self.assertFalse(external.exists())
+
+    def test_media_paths_preserve_one_file_prefix_and_native_drive_semantics(self):
+        """Match FFmpeg's literal file opener without rewriting permitted arguments."""
+        local = str(self.root / 'local.wav')
+        once = 'file:' + local
+        literal = 'file:local.wav'
+        with mock.patch.object(self.audio, 'checked_path') as check:
+            for raw, target in ((local, local), (once, local),
+                                ('file:' + literal, literal), ('file:-', '-'),
+                                ('./actual:name.wav', './actual:name.wav')):
+                with self.subTest(raw=raw):
+                    self.assertEqual(self.audio._checked_media_path(raw), raw)
+                    check.assert_called_with(target)
+            with mock.patch.object(self.audio.os, 'name', 'nt'), \
+                    mock.patch.object(self.audio.os.path, 'splitdrive', return_value=('C:', '\\x')):
+                self.assertEqual(self.audio._checked_media_path('C:\\x'), 'C:\\x')
+                check.assert_called_with('C:\\x')
+        if os.name != 'nt':
+            with self.assertRaises(SystemExit):
+                self.audio._checked_media_path('C:\\x')
+
+    def test_cli_refuses_protocols_streams_and_external_file_urls_before_media(self):
+        """Every ordinary FFmpeg operand preflights before decoder or writer calls."""
+        manifest = self.root / 'protocol-narration.json'
+        candidates = ('https://example.invalid/never-requested.wav', 'http:/never-requested',
+                      'concat:one|two', 'crypto+file:outside', 'pipe:0', 'fd:0', '-',
+                      'subfile,,start,0,end,1,,:outside.wav', 'file:' + str(self.outside / 'x.wav'))
+        for candidate in candidates:
+            manifest.write_text(json.dumps([{'t': 0, 'file': candidate}]))
+            video = self.audio_argv()
+            video[3] = candidate
+            output = self.audio_argv()
+            output[4] = candidate
+            variants = {
+                'video': video,
+                'output': output,
+                'narration': self.audio_argv() + ['--narration', str(manifest)],
+                'sfx_dir': self.audio_argv() + ['--sfx-dir', candidate],
+            }
+            for kind, argv in variants.items():
+                with self.subTest(kind=kind, candidate=candidate), \
+                        mock.patch.object(sys, 'argv', argv), \
+                        mock.patch.object(self.audio.os, 'makedirs') as mkdir, \
+                        mock.patch.object(self.audio, 'mix_pcm') as decoder, \
+                        mock.patch.object(self.audio, 'run') as encoder, \
+                        mock.patch.object(self.audio, 'measure') as meter, \
+                        self.assertRaises(SystemExit) as error:
+                    self.audio.main()
+                self.assertIn(candidate, str(error.exception))
+                self.assertIn(str(self.root), str(error.exception))
+                mkdir.assert_not_called()
+                decoder.assert_not_called()
+                encoder.assert_not_called()
+                meter.assert_not_called()
+
+    def test_file_urls_resolve_actual_existing_and_dangling_symlink_targets(self):
+        """A file URL validates the real target rather than a fictitious file: folder."""
+        for dangling in (False, True):
+            with self.subTest(dangling=dangling):
+                target = self.outside / ('missing.wav' if dangling else 'existing.wav')
+                if not dangling:
+                    target.write_bytes(b'outside sentinel')
+                alias = self.root / f'url-alias-{dangling}.wav'
+                alias.symlink_to(target)
+                raw = 'file:' + str(alias)
+                with self.assertRaises(SystemExit) as error:
+                    self.audio._checked_media_path(raw)
+                self.assertIn(raw, str(error.exception))
+                self.assertIn(str(self.root), str(error.exception))
+
+    def test_public_media_readers_refuse_protocols_before_their_subprocess(self):
+        """Reusable loudness and PCM helpers enforce their ordinary media boundary."""
+        cues = {'total': 0.001, 'clips': [], 'sfx': []}
+        for raw in ('file:' + str(self.outside / 'outside.wav'), 'pipe:0', '-'):
+            with self.subTest(raw=raw), \
+                    mock.patch.object(self.audio, 'run') as runner, \
+                    mock.patch.object(self.audio, 'decode') as decoder:
+                with self.assertRaises(SystemExit):
+                    self.audio.measure(raw)
+                with self.assertRaises(SystemExit):
+                    self.audio.mix_pcm(cues, [{'t': 0, 'file': raw}],
+                                       str(self.root / 'sfx'), False, -3, -2)
+                runner.assert_not_called()
+                decoder.assert_not_called()
+
+    def test_command_assertion_survives_optimized_execution_with_same_diagnostic(self):
+        """An unsupported command keeps the original empty AssertionError under -O."""
+        code = r"""
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location('audio_optimized_fixture', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+sys.argv = ['audio.py', 'not-mix']
+try:
+    module.main()
+except AssertionError as error:
+    print(type(error).__name__, repr(error.args))
+else:
+    raise RuntimeError('command guard disappeared')
+"""
+        for optimization in ([], ['-O']):
+            with self.subTest(optimization=optimization):
+                result = subprocess.run(
+                    [sys.executable, '-I', *optimization, '-c', code, str(TOOLS / 'audio.py')],
+                    capture_output=True, text=True, check=True,
+                )
+                self.assertEqual(result.stdout, 'AssertionError ()\n')
 
 
 if __name__ == '__main__':
