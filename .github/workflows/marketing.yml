@@ -76,6 +76,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         # Read the existing root packageManager pin, as the core CI jobs do.
+      # Only syntax/type checks run here: skip lifecycle scripts and browser/media setup.
       - name: Install Remotion typecheck dependencies
         if: runner.os == 'Linux'
         working-directory: marketing/promo-v0.7.0/remotion

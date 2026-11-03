@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Assemble a cut's audio from its cue file and mux it onto the silent video.
-
+CLI data inputs and outputs stay in marketing/launch-video; copy external data there first.
   audio.py mix  cues.json video.mp4 out.mp4 [--narration narr.json] [--sfx-dir DIR] [--no-sfx]
 
 Sources, all placed on the cut's own clock:
@@ -20,6 +20,10 @@ import re
 import subprocess
 import sys
 import wave
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import checked_path  # noqa: E402
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # <repo>/website/public/demos (this file is <repo>/marketing/launch-video/tools/audio.py); EDYTLAB_DEMO_DIR overrides it.
@@ -52,7 +56,15 @@ def place(buf, frag, t):
     buf[off:off + len(frag)] = audioop.add(bytes(buf[off:off + len(frag)]), frag, 2)
 
 
+def _sfx_file(directory, name):
+    """Validate a sound's actual file while retaining its original path spelling."""
+    path = f"{directory}/{name}.wav"
+    checked_path(path)
+    return path
+
+
 def mix_pcm(cues, narration, sfx_dir, use_sfx, music_db, sfx_db_shift):
+    checked_path(sfx_dir)
     total = cues["total"]
     buf = bytearray(int(round(total * SR)) * FRAME)
     for c in cues["clips"]:
@@ -64,9 +76,12 @@ def mix_pcm(cues, narration, sfx_dir, use_sfx, music_db, sfx_db_shift):
         for t, name, db in cues["sfx"]:
             key = (name, db)
             if key not in cache:
-                cache[key] = decode(["-i", f"{sfx_dir}/{name}.wav"], f"{FMT},volume={db + sfx_db_shift}dB")
+                cache[key] = decode(
+                    ["-i", _sfx_file(sfx_dir, name)], f"{FMT},volume={db + sfx_db_shift}dB",
+                )
             place(buf, cache[key], t)
     for item in narration:
+        checked_path(item["file"])
         tempo = f"atempo={item['tempo']}," if item.get("tempo", 1.0) != 1.0 else ""
         place(buf, decode(["-i", item["file"]], f"{tempo}{FMT},volume={item.get('gain_db', 0) + 3}dB"), item["t"])
     return bytes(buf)
@@ -82,23 +97,40 @@ def measure(path):
 def main():
     a = sys.argv[1:]
     assert a[0] == "mix"
-    cues = json.load(open(a[1]))
+    checked_path(a[1])
+    with open(a[1]) as cues_file:
+        cues = json.load(cues_file)
     video, out = a[2], a[3]
-    narration = json.load(open(a[a.index("--narration") + 1])) if "--narration" in a else []
+    checked_path(video)
+    narration = []
+    if "--narration" in a:
+        manifest = a[a.index("--narration") + 1]
+        checked_path(manifest)
+        with open(manifest) as narration_file:
+            narration = json.load(narration_file)
     sfx_dir = a[a.index("--sfx-dir") + 1] if "--sfx-dir" in a else f"{HERE}/work/sfx"
     use_sfx = "--no-sfx" not in a
+    checked_path(sfx_dir)
+    if use_sfx:
+        for _, name, _ in cues["sfx"]:
+            _sfx_file(sfx_dir, name)
+    for item in narration:
+        checked_path(item["file"])
     work = f"{HERE}/work/audio"
-    os.makedirs(work, exist_ok=True)
     tag = os.path.splitext(os.path.basename(out))[0]
+    mixed = f"{work}/{tag}_mix.wav"
+    normed = f"{work}/{tag}_norm.wav"
+    # Validate every writer before mkdir, decoding or the first scratch write.
+    for destination in (work, mixed, normed, out):
+        checked_path(destination)
+    os.makedirs(work, exist_ok=True)
     # the UI sounds sit under the music; with a voice the real playback is 3 dB lower and the voice 3 dB higher so they balance
     pcm = mix_pcm(cues, narration, sfx_dir, use_sfx, music_db=-6 if narration else -3, sfx_db_shift=-4 if narration else -2)
-    mixed = f"{work}/{tag}_mix.wav"
     with wave.open(mixed, "wb") as w:
         w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR); w.writeframes(pcm)
     # Gain + a look-ahead limiter, iterated until -14 LUFS with a true peak under -1 dBTP, then the AAC file itself is
     # measured (the encoder adds overshoot to the peaks: one cut came out at -0.4 dBTP from a -1.7 dBTP source) and the
     # limiter is lowered and the file re-encoded until it too is under -1 dBTP.
-    normed = f"{work}/{tag}_norm.wav"
     i_in, _ = measure(mixed)
     g, limit = -14.0 - i_in + 2.0, 0.78
     for attempt in range(6):

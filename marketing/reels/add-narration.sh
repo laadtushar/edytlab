@@ -285,10 +285,10 @@ $FF -i "$VIDEO" -i "$TMP/voice.wav" "${SARGS[@]}" -filter_complex_script "$TMP/m
     -map "[dkcopy]" -c:a pcm_s16le -ar 48000 "$TMP/ducked.wav"
 
 # --- 4. loudness: gain, lookahead limiter, AAC; measure the AAC itself and iterate ----------------------
-read -r MI MP < <(measure "$TMP/mix.wav")
+read -r MI _ < <(measure "$TMP/mix.wav")
 GAIN=$(awk -v t="$TARGET_LUFS" -v i="$MI" 'BEGIN{printf "%.3f", t-i}')
 CEIL=$(awk -v tp="$TARGET_TP" 'BEGIN{printf "%.2f", tp-0.6}')
-for n in 1 2 3 4 5 6 7 8; do
+for _ in 1 2 3 4 5 6 7 8; do
   LIM=$(awk -v c="$CEIL" 'BEGIN{printf "%.4f", 10^(c/20)}')
   $FF -i "$TMP/mix.wav" -af "volume=${GAIN}dB,alimiter=limit=$LIM:attack=4:release=60:level=0,aresample=48000" \
       -c:a aac -b:a "$AAC_BITRATE" -ar 48000 -ac 2 "$TMP/mix.m4a"

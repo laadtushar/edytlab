@@ -3,12 +3,12 @@ import contextlib
 import importlib.util
 import io
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 TOOLS = Path(__file__).resolve().parent

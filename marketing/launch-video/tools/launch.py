@@ -193,7 +193,7 @@ def demo_blend(P, t, style):
     # 1. describe it: a question typed into the composer (real typing, real send)
     d = P.clip(
         BT, 23.6 if ig else 23.4, 4.4 if ig else 5.0, t,
-        [dict(t=0, crop="WIDE"), dict(t=0.9, crop="TYPE", move=0.8)], caps=("BT04",),
+        [{"t": 0, "crop": "WIDE"}, {"t": 0.9, "crop": "TYPE", "move": 0.8}], caps=("BT04",),
     )
     P.step(
         "*1* · Describe it in plain English" if not ig else "*1* · Say it in plain English",
@@ -204,7 +204,7 @@ def demo_blend(P, t, style):
     # 2. the agent calls a tool: "Time stretch" runs, the chip turns green
     d = P.clip(
         BT, 40.0, 3.5, t,
-        [dict(t=0, crop="TYPE"), dict(t=0.4, crop="CHAT_MID", move=0.6)],
+        [{"t": 0, "crop": "TYPE"}, {"t": 0.4, "crop": "CHAT_MID", "move": 0.6}],
         caps=("BT05",), fade_in=0.3, rise=False,
     )
     P.step("*2* · The agent calls a tool", t + 0.15, t + d.dur - 0.12)
@@ -215,7 +215,7 @@ def demo_blend(P, t, style):
     if not ig:
         # 3. it reports what it did: the reply lands (src 52 to 54.5)
         d = P.clip(
-            BT, 50.6, 3.9, t, [dict(t=0, crop="CHAT_MID")],
+            BT, 50.6, 3.9, t, [{"t": 0, "crop": "CHAT_MID"}],
             caps=("BT06",), fade_in=0.3, rise=False,
         )
         P.step("*3* · It reports what changed", t + 0.15, t + d.dur - 0.12)

@@ -168,3 +168,51 @@ test("an old regular OUT file is still replaced with the output directory", (t) 
   assert.equal(result.effects[0].name, out);
   assert.ok(fs.lstatSync(out).isDirectory());
 });
+
+for (const existing of [false, true]) {
+  test(`copy preflights a link parent after following its ${existing ? "existing" : "dangling"} target`, (t) => {
+    const f = fixture(t);
+    fs.mkdirSync(path.join(f.outside, "nested"));
+    fs.symlinkSync(path.join(f.outside, "nested"), path.join(f.artifact, "bridge"));
+    if (existing) fs.writeFileSync(path.join(f.outside, "victim"), "untouched");
+    const destination = path.join(f.artifact, "social-kit.html");
+    // Keep the raw target: path.join would remove the parent component itself.
+    fs.symlinkSync("bridge/../victim", destination);
+    refused(f, "build.mjs", destination);
+    assert.equal(fs.existsSync(path.join(f.outside, "victim")), existing);
+    if (existing) assert.equal(fs.readFileSync(path.join(f.outside, "victim"), "utf8"), "untouched");
+  });
+}
+
+test("copy accepts an internal link with a parent component without changing its lexical write", (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.artifact, "retained", "nested"), { recursive: true });
+  fs.symlinkSync(path.join(f.artifact, "retained", "nested"), path.join(f.artifact, "bridge"));
+  const destination = path.join(f.artifact, "social-kit.html");
+  fs.symlinkSync("bridge/../generated.html", destination);
+  const result = run(f, "build.mjs");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0].name, destination);
+});
+
+test("nested dangling links follow parent components before preflight", (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.outside, "nested"));
+  fs.symlinkSync(path.join(f.outside, "nested"), path.join(f.artifact, "bridge"));
+  fs.symlinkSync("bridge/../victim", path.join(f.artifact, "intermediate"));
+  const destination = path.join(f.artifact, "social-kit.html");
+  fs.symlinkSync("intermediate", destination);
+  refused(f, "build.mjs", destination);
+  assert.equal(fs.existsSync(path.join(f.outside, "victim")), false);
+});
+
+test("cyclic output links fail before any output effect", (t) => {
+  const f = fixture(t);
+  const destination = path.join(f.artifact, "social-kit.html");
+  fs.symlinkSync("social-kit.html", destination);
+  const result = run(f, "build.mjs");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Too many symbolic links/);
+  assert.deepEqual(result.effects, []);
+});
