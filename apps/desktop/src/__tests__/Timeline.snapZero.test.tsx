@@ -165,6 +165,25 @@ describe("snap to zero crossings", () => {
     expect(sel.end).toBeGreaterThan(sel.start);
   });
 
+  it("snaps a selection near the first sample to the start of the lane", () => {
+    pinWidth();
+    const onSelectionChange = vi.fn();
+    render(
+      <Timeline
+        tracks={MATCHED}
+        selection={null}
+        snapToZero
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+
+    // 0.2083 px is 100 samples, closer to sample 0 than the next crossing.
+    dragAcross((100 / SR / LANE_SECONDS) * PANE_WIDTH, 6);
+    const selection = lastSelection(onSelectionChange);
+    expect(selection.start).toBe(0);
+    expect(selection.end).toBeGreaterThan(0.05);
+  });
+
   /**
    * Past the end of the lane's audio there are no samples to snap to.
    * The crossing it would find belongs to no audio at that time, so

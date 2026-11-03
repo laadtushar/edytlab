@@ -34,10 +34,11 @@ export const DEFAULT_SEARCH_WINDOW_SEC = 0.01;
  * without a step.
  */
 function isCrossing(samples: Float32Array, i: number): boolean {
-  if (i <= 0 || i >= samples.length) return false;
-  const prev = samples[i - 1];
+  if (i < 0 || i >= samples.length) return false;
   const cur = samples[i];
   if (cur === 0) return true;
+  if (i === 0) return false;
+  const prev = samples[i - 1];
   return (prev < 0 && cur >= 0) || (prev > 0 && cur <= 0);
 }
 
