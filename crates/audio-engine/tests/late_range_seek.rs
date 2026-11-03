@@ -351,6 +351,32 @@ fn resampled_range_matches_full_render_at_unaligned_frame() {
 }
 
 #[test]
+fn padded_stereo_container_is_not_seekable() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("padded-stereo.wav");
+    let spec = WavSpec {
+        channels: 2,
+        sample_rate: RATE,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut writer = WavWriter::new(File::create(&source).unwrap(), spec).unwrap();
+    for _ in 0..20 {
+        writer.write_sample(100_i16).unwrap();
+    }
+    writer.finalize().unwrap();
+    let mut bytes = std::fs::read(&source).unwrap();
+    let fmt = bytes.windows(4).position(|chunk| chunk == b"fmt ").unwrap() + 8;
+    // A five-byte frame leaves a padding byte after two 16-bit channels.
+    // Hound's per-sample integer division loses this remainder.
+    bytes[fmt + 12..fmt + 14].copy_from_slice(&5_u16.to_le_bytes());
+    bytes[fmt + 8..fmt + 12].copy_from_slice(&(RATE * 5).to_le_bytes());
+    std::fs::write(&source, bytes).unwrap();
+    assert!(audio_decoder::WavStreamReader::open(&source).is_ok());
+    assert!(audio_decoder::WavStreamReader::open_seekable(&source).is_none());
+}
+
+#[test]
 fn padded_24_bit_wav_with_source_offset_retains_sample_alignment() {
     let dir = TempDir::new().unwrap();
     let source = dir.path().join("padded.wav");

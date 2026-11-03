@@ -132,6 +132,8 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: GlobalAlloc callers provide the live allocation and its layout.
+        // On failure System leaves the old allocation live; retain its accounting.
         let new_ptr = unsafe { System.realloc(ptr, layout, new_size) };
         if !new_ptr.is_null() {
             track(|c| {
@@ -148,6 +150,29 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
+// Own explicit test allocations so unwinding always frees the original layout.
+struct TestBlock {
+    ptr: std::ptr::NonNull<u8>,
+    layout: Layout,
+}
+
+impl TestBlock {
+    fn new(layout: Layout) -> Self {
+        // SAFETY: Layout has nonzero size and valid alignment at every caller.
+        let ptr = unsafe { std::alloc::alloc(layout) };
+        let ptr =
+            std::ptr::NonNull::new(ptr).unwrap_or_else(|| std::alloc::handle_alloc_error(layout));
+        Self { ptr, layout }
+    }
+}
+
+impl Drop for TestBlock {
+    fn drop(&mut self) {
+        // SAFETY: this guard uniquely owns the allocation and original layout.
+        unsafe { std::alloc::dealloc(self.ptr.as_ptr(), self.layout) };
+    }
+}
+
 #[test]
 fn allocator_skips_accounting_while_counts_are_borrowed() {
     let layout = Layout::from_size_align(1024, 8).unwrap();
@@ -156,11 +181,8 @@ fn allocator_skips_accounting_while_counts_are_borrowed() {
         let c = counts.borrow();
         // Explicit allocator calls cannot be optimized away. Both operations
         // re-enter the tracker while the shared borrow is held.
-        let ptr = unsafe { std::alloc::alloc(layout) };
-        if !ptr.is_null() {
-            unsafe { std::alloc::dealloc(ptr, layout) };
-        }
-        assert!(!ptr.is_null());
+        let block = TestBlock::new(layout);
+        drop(block);
         assert_eq!(c.live, 0);
         assert_eq!(c.peak, 0);
     });
@@ -209,7 +231,7 @@ fn preparing_a_long_punch_does_not_keep_multiple_full_length_audio_buffers() {
     const SOURCE_RATE: usize = 48_000;
     let dir = tempfile::tempdir().unwrap();
     let project_dir = dir.path().join("project");
-    std::fs::create_dir(&project_dir).unwrap();
+    std::fs::create_dir_all(&project_dir).unwrap();
     let lead = dir.path().join("lead.wav");
     let bed = dir.path().join("bed.wav");
     let samples = vec![0.25; SECONDS * SOURCE_RATE * 2];
@@ -256,18 +278,16 @@ fn preparing_a_long_punch_does_not_keep_multiple_full_length_audio_buffers() {
     // is freed during the window. Use the global allocator explicitly so the
     // optimiser cannot eliminate the allocations under test.
     let layout = Layout::from_size_align(1024, 8).unwrap();
-    let old = unsafe { std::alloc::alloc(layout) };
-    assert!(!old.is_null());
+    let old = TestBlock::new(layout);
     COUNTS.with(|counts| counts.borrow_mut().begin());
-    unsafe { std::alloc::dealloc(old, layout) };
-    let fresh = unsafe { std::alloc::alloc(layout) };
-    assert!(!fresh.is_null());
+    drop(old);
+    let fresh = TestBlock::new(layout);
     COUNTS.with(|counts| {
         let c = counts.borrow();
         assert_eq!(c.live, 1024);
         assert!(!c.overflow);
     });
-    unsafe { std::alloc::dealloc(fresh, layout) };
+    drop(fresh);
     COUNTS.with(|counts| {
         let mut c = counts.borrow_mut();
         assert_eq!(c.live, 0);
@@ -285,9 +305,9 @@ fn preparing_a_long_punch_does_not_keep_multiple_full_length_audio_buffers() {
     let expected_samples = SECONDS * 44_100 * 2;
     assert_eq!(audio.monitor_samples.get(), expected_samples);
     let monitor_bytes = expected_samples * std::mem::size_of::<f32>();
-    // Room for the monitor, converter/renderer scratch, and unrelated small
-    // allocations, while excluding two more full monitor-sized buffers.
-    let limit = monitor_bytes * 2 + 8 * 1024 * 1024;
+    // One monitor plus bounded scratch. Even one extra full source render
+    // (15,360,000 bytes here) must exceed this allowance.
+    let limit = monitor_bytes + 8 * 1024 * 1024;
     eprintln!(
         "punch preparation: peak={peak} bytes, monitor={monitor_bytes} bytes, limit={limit} bytes"
     );

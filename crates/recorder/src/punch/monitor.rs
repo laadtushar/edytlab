@@ -48,7 +48,7 @@ impl Source {
         if end > file.get_ref().metadata().map_err(|e| read_error(&e))?.len() {
             return Err(read_error(&"unexpected end of WAV"));
         }
-        file.seek(SeekFrom::Start(0)).map_err(|e| read_error(&e))?;
+        file.rewind().map_err(|e| read_error(&e))?;
         let reader = Reader::new(file).map_err(|e| read_error(&e))?;
         let channels = (spec.channels as usize).max(1);
         let frames = reader.len() as usize / channels;

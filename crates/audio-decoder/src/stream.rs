@@ -112,7 +112,39 @@ impl WavStreamReader {
         {
             return None;
         }
-        reader.seek(SeekFrom::Start(0)).ok()?;
+        // Validate the container stride independently of hound's sample count.
+        reader.seek(SeekFrom::Start(12)).ok()?;
+        let expected_alignment = bytes_per_sample.checked_mul(u64::from(spec.channels))?;
+        loop {
+            let position = reader.stream_position().ok()?;
+            if position.checked_add(8)? > data_start {
+                return None;
+            }
+            let mut header = [0_u8; 8];
+            reader.read_exact(&mut header).ok()?;
+            let size = u64::from(u32::from_le_bytes(header[4..].try_into().ok()?));
+            if &header[..4] == b"fmt " {
+                if size < 16 {
+                    return None;
+                }
+                let mut format = [0_u8; 16];
+                reader.read_exact(&mut format).ok()?;
+                let alignment = u64::from(u16::from_le_bytes([format[12], format[13]]));
+                if alignment != expected_alignment {
+                    return None;
+                }
+                break;
+            }
+            let next = position
+                .checked_add(8)?
+                .checked_add(size)?
+                .checked_add(size % 2)?;
+            if next > data_start {
+                return None;
+            }
+            reader.seek(SeekFrom::Start(next)).ok()?;
+        }
+        reader.rewind().ok()?;
         let inner = WavReader::new(reader).ok()?;
         Some(Self {
             sample_rate: spec.sample_rate,
