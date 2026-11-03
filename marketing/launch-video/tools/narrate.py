@@ -115,28 +115,35 @@ def dur(path):
     return float(p.stdout.strip())
 
 
+def best_take(ln, outdir):
+    best = None
+    for k in range(1, 6):
+        base = f"{outdir}/{ln['id']}_t{k}"
+        if not os.path.exists(checked_path(base + ".mp3")):
+            continue
+        d = dur(base + ".mp3")
+        with open(checked_path(base + ".json")) as take_file:
+            w = json.load(take_file)["words"]
+        gaps = [w[i + 1][1] - w[i][2] for i in range(len(w) - 1)] or [0]
+        speech_end = w[-1][2] / ln.get("tempo", 1.0)
+        fit = speech_end <= ln["win"]
+        score = (0 if fit else 1, max(gaps), speech_end)
+        if best is None or score < best[0]:
+            best = (score, base, d, speech_end, max(gaps), fit)
+    return best
+
+
 def pick(lines_path, outdir, out_json):
     if not out_json.endswith(".json"):
         raise SystemExit(f"Output must end in .json: {out_json!r}")
-    lines = json.load(open(checked_path(lines_path)))
+    with open(checked_path(lines_path)) as lines_file:
+        lines = json.load(lines_file)
     checked_path(outdir)
     checked_path(out_json)
     checked_path(out_json.replace(".json", ".srt"))
     chosen, report, srt = [], [], []
     for ln in lines:
-        best = None
-        for k in range(1, 6):
-            base = f"{outdir}/{ln['id']}_t{k}"
-            if not os.path.exists(checked_path(base + ".mp3")):
-                continue
-            d = dur(base + ".mp3")
-            w = json.load(open(checked_path(base + ".json")))["words"]
-            gaps = [w[i + 1][1] - w[i][2] for i in range(len(w) - 1)] or [0]
-            speech_end = w[-1][2] / ln.get("tempo", 1.0)
-            fit = speech_end <= ln["win"]
-            score = (0 if fit else 1, max(gaps), speech_end)
-            if best is None or score < best[0]:
-                best = (score, base, d, speech_end, max(gaps), fit)
+        best = best_take(ln, outdir)
         if not best:
             report.append(f"{ln['id']}: NO TAKE")
             continue
@@ -144,7 +151,8 @@ def pick(lines_path, outdir, out_json):
         chosen.append(dict(id=ln["id"], t=ln["t"], file=base + ".mp3", gain_db=ln.get("gain_db", 0), tempo=ln.get("tempo", 1.0), speech_end=se, win=ln["win"], text=ln["text"]))
         report.append(f"{ln['id']}: {os.path.basename(base)} speech {se:.2f}s of {ln['win']:.1f}s window, longest pause {mg:.2f}s {'OK' if fit else 'TOO LONG'}")
         srt.append((ln["t"], ln["t"] + se + 0.15, ln["text"]))
-    json.dump(chosen, open(checked_path(out_json), "w"), indent=1)
+    with open(checked_path(out_json), "w") as output_file:
+        json.dump(chosen, output_file, indent=1)
     srt = [list(x) for x in srt]
     for i in range(len(srt) - 1):
         if srt[i][1] > srt[i + 1][0] - 0.03:

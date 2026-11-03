@@ -1,10 +1,14 @@
 """Path-boundary and output compatibility tests for mksrt.py."""
+import contextlib
+import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = Path(__file__).with_name('mksrt.py')
@@ -89,6 +93,27 @@ class NarrationPaths(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.folder / 'narr.json').read_text(), '[]')
         self.assertEqual((self.folder / 'narr.srt').read_text(), '')
+
+    def test_pick_keeps_the_best_fitting_take_and_output(self):
+        spec = importlib.util.spec_from_file_location('test_narration', NARRATE)
+        narrate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(narrate)
+        lines = [{'id': 'line', 't': 1, 'win': 1.5, 'text': 'Hello'},
+                 {'id': 'missing', 't': 4, 'win': 1, 'text': 'Missing'}]
+        self.source.write_text(json.dumps(lines))
+        for take, end in [(1, 2.0), (2, 1.2), (3, 1.4)]:
+            (self.folder / f'line_t{take}.mp3').touch()
+            (self.folder / f'line_t{take}.json').write_text(json.dumps({'words': [['Hello', 0, end]]}))
+        output = self.folder / 'narr.json'
+        stdout = io.StringIO()
+        with mock.patch.object(narrate, 'dur', return_value=2.0), contextlib.redirect_stdout(stdout):
+            narrate.pick(str(self.source), str(self.folder), str(output))
+        expected = [{'id': 'line', 't': 1, 'file': str(self.folder / 'line_t2.mp3'),
+                     'gain_db': 0, 'tempo': 1.0, 'speech_end': 1.2, 'win': 1.5, 'text': 'Hello'}]
+        self.assertEqual(output.read_text(), json.dumps(expected, indent=1))
+        self.assertEqual((self.folder / 'narr.srt').read_text(),
+                         '1\n00:00:01,000 --> 00:00:02,350\nHello\n\n')
+        self.assertIn('missing: NO TAKE', stdout.getvalue())
 
     def test_pick_rejects_external_paths_and_ids(self):
         self.source.write_text(json.dumps([{'id': '../../outside'}]))
