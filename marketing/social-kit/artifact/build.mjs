@@ -1,10 +1,15 @@
 // Build the social-kit artifact page from the reviewed markdown copy files.
 import fs from "node:fs";
 import path from "node:path";
+if (process.argv.includes("--help")) {
+  console.log("Usage: node marketing/social-kit/artifact/build.mjs\nBuild the reviewed copy into artifact/social-kit.html.");
+  process.exit(0);
+}
+
 const dir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const tabs = [
   { id: "linkedin", label: "LinkedIn", file: "linkedin-posts.md", limit: { re: /.*/, n: 3000, name: "LinkedIn" } },
-  { id: "instagram", label: "Instagram", file: "instagram.md", limit: { re: /^\d\.|reel/i, n: 2200, name: "Instagram caption" } },
+  { id: "instagram", label: "Instagram", file: "instagram.md", limit: { re: /(?:^\d\.)|reel/i, n: 2200, name: "Instagram caption" } },
   { id: "reddit", label: "Reddit", file: "reddit.md" },
   { id: "more", label: "X, Bluesky, Mastodon, TikTok, YouTube, HN", file: "more.md" },
   { id: "calendar", label: "Two-week plan", file: "calendar.md" },

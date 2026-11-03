@@ -12,7 +12,19 @@ printed, logged or written. Load it per command:   set -a; . <env file>; set +a;
 Lines are cached by (text, model, voice settings, language): a line shared by several reels or
 a demo is generated once.
 """
-import base64, hashlib, json, os, subprocess, sys, time
+import base64
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+    print(__doc__)
+    print("EDYTLAB_REEL_ROOT and local input/output paths must resolve inside marketing/reels. "
+          "Copy external files (including /tmp inputs) into the project first.")
+    raise SystemExit(0)
+
 import requests
 from spec import *
 import cues as C
@@ -46,10 +58,11 @@ def hdr(extra=None):
 
 
 def log(msg):
-    os.makedirs(OUT, exist_ok=True)
+    """Append a narration usage entry inside the project."""
+    os.makedirs(checked_reel_path(OUT), exist_ok=True)
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {msg}"
     print(line, flush=True)
-    with open(USAGE_LOG, "a") as f:
+    with open(checked_reel_path(USAGE_LOG), "a") as f:
         f.write(line + "\n")
 
 
@@ -64,14 +77,22 @@ LEDGER = f"{ROOT}/work/ledger.json"
 
 
 def ledger_total():
-    return json.load(open(LEDGER))["spent"] if os.path.exists(LEDGER) else 0
+    """Read the locally tracked spend, or zero before the first call."""
+    return json.load(open(checked_reel_path(LEDGER)))[
+        "spent"] if os.path.exists(checked_reel_path(LEDGER)) else 0
 
 
 def ledger_add(n, what):
-    d = json.load(open(LEDGER)) if os.path.exists(LEDGER) else dict(spent=0, entries=[])
+    """Record narration spend in the validated local ledger."""
+    d = json.load(
+        open(
+            checked_reel_path(LEDGER))) if os.path.exists(
+        checked_reel_path(LEDGER)) else dict(
+                spent=0,
+        entries=[])
     d["spent"] += n
     d["entries"].append([time.strftime("%H:%M:%S"), what, n])
-    json.dump(d, open(LEDGER, "w"))
+    json.dump(d, open(checked_reel_path(LEDGER), "w"))
 
 
 def spent():
@@ -87,7 +108,19 @@ def checkpoint(label, before=None):
 
 
 def ffprobe_duration(path):
-    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], capture_output=True, text=True)
+    """Probe the duration of a validated project audio file."""
+    path = checked_reel_path(path)
+    p = subprocess.run(["ffprobe",
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "csv=p=0",
+                        path],
+                       capture_output=True,
+                       text=True,
+                       check=False)
     return float(p.stdout.strip())
 
 
@@ -115,14 +148,15 @@ def tts_call(text, lang=None, settings=None, previous_ids=None, next_text=None):
 
 
 def cached(text, lang=None):
+    """Load cached narration metadata from the project."""
     h = line_hash(text, lang)
-    p = f"{TTS}/{h}.json"
+    p = checked_reel_path(f"{TTS}/{h}.json")
     return json.load(open(p)) if os.path.exists(p) else None
 
 
 def generate_line(text, lang=None, previous_ids=None, next_text=None, settings=None):
     """Generate (or fetch from cache) one line; returns its meta dict."""
-    os.makedirs(TTS, exist_ok=True)
+    os.makedirs(checked_reel_path(TTS), exist_ok=True)
     m = cached(text, lang)
     if m:
         return m
@@ -133,11 +167,11 @@ def generate_line(text, lang=None, previous_ids=None, next_text=None, settings=N
     ledger_add(len(text), "tts " + text[:30])
     h = line_hash(text, lang, settings)
     mp3 = f"{TTS}/{h}.mp3"
-    open(mp3, "wb").write(audio)
+    open(checked_reel_path(mp3), "wb").write(audio)
     meta = dict(hash=h, text=text, lang=lang, request_id=rid, made=time.time(), mp3=mp3, alignment=al, normalized_alignment=nal,
                 duration=ffprobe_duration(mp3), chars=len(text), used_previous_ids=bool(previous_ids), used_next_text=bool(next_text),
                 settings=settings or SETTINGS)
-    json.dump(meta, open(f"{TTS}/{h}.json", "w"))
+    json.dump(meta, open(checked_reel_path(f"{TTS}/{h}.json"), "w"))
     return meta
 
 
@@ -172,12 +206,12 @@ def word_times(markup, meta):
 def write_speech():
     """work/speech.json: spoken text -> end of the last word, for every cached English or Spanish line."""
     d = {}
-    for f in os.listdir(TTS):
+    for f in os.listdir(checked_reel_path(TTS)):
         if f.endswith(".json") and f != "speech.json":
-            m = json.load(open(f"{TTS}/{f}"))
+            m = json.load(open(checked_reel_path(f"{TTS}/{f}")))
             if m.get("alignment"):
                 d[m["text"]] = round(m["alignment"]["character_end_times_seconds"][-1], 3)
-    json.dump(d, open(f"{ROOT}/work/speech.json", "w"), indent=0)
+    json.dump(d, open(checked_reel_path(f"{ROOT}/work/speech.json"), "w"), indent=0)
     return d
 
 
@@ -234,7 +268,8 @@ def generate_timeline(tl, previous_ids=None):
 def prepare(tl):
     """Copy/tempo-fit each cue's clip into out/audio/<file>/<cue-id>.(mp3|wav) and write the timing json."""
     lang = tl.get("lang")
-    adir = f"{OUT}/audio/{tl['file']}"
+    adir = checked_reel_path(f"{OUT}/audio/{tl['file']}")
+    timing_path = checked_reel_path(f"{OUT}/{tl['file']}-narration-timing.json")
     os.makedirs(adir, exist_ok=True)
     timing, report = {}, []
     for c in voiced(tl):
@@ -242,6 +277,8 @@ def prepare(tl):
         if not m:
             report.append((c["id"], "MISSING"))
             continue
+        source = checked_reel_path(m["mp3"])
+        outputs = {ext: checked_reel_path(f"{adir}/{c['id']}.{ext}") for ext in ("mp3", "wav")}
         words = word_times(c["narration"], m)
         end = speech_end(words)
         window = c.get("voice_end", c["end"]) - c["start"]
@@ -253,24 +290,25 @@ def prepare(tl):
             if tempo < 1.02:
                 tempo = 1.0
         for pat in ("mp3", "wav"):
-            p = f"{adir}/{c['id']}.{pat}"
+            p = outputs[pat]
             if os.path.exists(p):
                 os.remove(p)
         if tempo > 1.0001:
-            dst = f"{adir}/{c['id']}.wav"
-            subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", m["mp3"], "-af", f"atempo={tempo:.4f}", "-ar", "44100", dst], check=True)
+            dst = outputs["wav"]
+            subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", source,
+                           "-af", f"atempo={tempo:.4f}", "-ar", "44100", dst], check=True)
             for w in words:
                 w["start"] = round(w["start"] / tempo, 3)
                 w["end"] = round(w["end"] / tempo, 3)
             end /= tempo
         else:
-            dst = f"{adir}/{c['id']}.mp3"
-            subprocess.run(["cp", m["mp3"], dst], check=True)
+            dst = outputs["mp3"]
+            subprocess.run(["cp", "--", source, dst], check=True)
         status = "ok" if end <= window - BREATHING_ROOM + 1e-6 else ("tight" if end <= limit + 1e-6 else "OVER")
         timing[c["id"]] = dict(words=words, speech_end=round(end, 3), tempo=round(tempo, 4), clip=os.path.basename(dst),
                                window=round(window, 3), status=status, request_id=m.get("request_id", ""))
         report.append((c["id"], status, round(end, 2), round(window, 2), round(tempo, 3)))
-    json.dump(timing, open(f"{OUT}/{tl['file']}-narration-timing.json", "w"), indent=1)
+    json.dump(timing, open(timing_path, "w"), indent=1)
     return timing, report
 
 
@@ -283,9 +321,10 @@ SFX = {
 
 
 def gen_sfx():
-    os.makedirs(f"{OUT}/sfx", exist_ok=True)
+    """Generate missing project-local sound effects within the budget."""
+    os.makedirs(checked_reel_path(f"{OUT}/sfx"), exist_ok=True)
     for name, spec in SFX.items():
-        p = f"{OUT}/sfx/{name}.mp3"
+        p = checked_reel_path(f"{OUT}/sfx/{name}.mp3")
         if os.path.exists(p):
             continue
         est = int(spec["duration_seconds"] * 40) + 5
@@ -303,6 +342,8 @@ def gen_sfx():
 
 # -------------------------------------------------------------------- CLI
 def main():
+    """Dispatch narration commands after validating the reels work root."""
+    checked_reel_path(ROOT)
     cmd = sys.argv[1]
     if cmd == "status":
         checkpoint("status")
@@ -322,7 +363,7 @@ def main():
         s = dict(SETTINGS, speed=1.15)
         audio, al, nal, rid = tts_call(text, None, s)
         ledger_add(len(text), "tts speed test")
-        p = f"{TTS}/speedtest.mp3"
+        p = checked_reel_path(f"{TTS}/speedtest.mp3")
         open(p, "wb").write(audio)
         checkpoint(f"test 2: speed=1.15, audio={ffprobe_duration(p):.2f}s", before)
     elif cmd == "gen":

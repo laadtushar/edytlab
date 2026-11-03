@@ -89,7 +89,7 @@ function collect({ rootSelector, index }) {
     runs.push({
       text: text.slice(0, 48),
       rects: rects.map(rel),
-      fontSize: parseFloat(style.fontSize),
+      fontSize: Number.parseFloat(style.fontSize),
       color: gradient ? null : parse(style.webkitTextFillColor !== "rgba(0, 0, 0, 0)" && style.webkitTextFillColor ? style.webkitTextFillColor : style.color),
       // A gradient's colours, for `background-clip: text`.
       stops: gradient ? [...style.backgroundImage.matchAll(/rgba?\([^)]+\)/g)].map((m) => parse(m[0])) : null,

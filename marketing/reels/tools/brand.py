@@ -169,6 +169,7 @@ def add_grain(bg, grain, seed=2026):
     is encoded. Seeded, so a rebuild gives the same bytes."""
     w, h = bg.size
     width = grain * 12 ** 0.5   # a uniform spread of this width has std. dev. `grain`
+    # This PRNG only draws reproducible film grain; it generates no secrets or identifiers.
     noise = Image.frombytes("L", (w, h), random.Random(seed).randbytes(w * h)).point(lambda v: 128 + round((v / 255 - 0.5) * width))
     return ImageChops.add(bg, noise.convert("RGB"), 1.0, -128)
 

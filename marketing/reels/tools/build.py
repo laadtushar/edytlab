@@ -15,7 +15,16 @@ lines in spec.LINES were written for the earlier takes, see the README):
   build.py reel <key> narrated|both     (highlights-es for the Spanish reel)
   build.py demo <BT|EI|MM>              narrated version of a full website demo (+ srt)
 """
-import json, os, subprocess, sys
+import json
+import os
+import subprocess
+import sys
+if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+    print(__doc__)
+    print("EDYTLAB_REEL_ROOT and local input/output paths must resolve inside marketing/reels. "
+          "Copy external files (including /tmp inputs) into the project first.")
+    raise SystemExit(0)
+
 from render import *
 import cues as C
 
@@ -45,7 +54,20 @@ def get_tl(key, narrated=False):
 
 
 def mean_volume(path):
-    p = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-i", path, "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True)
+    """Read the mean loudness reported by the existing volume-detect filter."""
+    p = subprocess.run(["ffmpeg",
+                        "-nostdin",
+                        "-hide_banner",
+                        "-i",
+                        path,
+                        "-af",
+                        "volumedetect",
+                        "-f",
+                        "null",
+                        "-"],
+                       capture_output=True,
+                       text=True,
+                       check=False)
     return float(re.search(r"mean_volume:\s+(-?[\d.]+) dB", p.stderr).group(1))
 
 
@@ -127,6 +149,8 @@ def write_cues(tl, timing, path, sfx=None, audio_rel=None, video_name=None):
         if t:
             c["clip"] = t["clip"]
             c["clip_speech_seconds"] = t["speech_end"]
+            # Exact identity sentinel, not an approximate measurement: prepare()
+            # writes 1.0 when it copies a clip without applying a tempo filter.
             if t["tempo"] != 1.0:
                 c["clip_tempo"] = t["tempo"]
         cues.append(c)
@@ -152,7 +176,9 @@ def write_demo_cues(code, path):
 
 
 def run_add(video, cues_path, audio_dir, out):
-    p = subprocess.run([ADD, video, cues_path, audio_dir, out], capture_output=True, text=True)
+    """Run the narration mixer and surface its output on failure."""
+    p = subprocess.run([ADD, video, cues_path, audio_dir, out],
+                       capture_output=True, text=True, check=False)
     sys.stderr.write(p.stderr)
     if p.returncode != 0:
         raise RuntimeError("add-narration failed:\n" + p.stdout + p.stderr)
@@ -224,6 +250,7 @@ def build_demo(code):
 
 
 if __name__ == "__main__":
+    checked_reel_path(ROOT)
     cmd = sys.argv[1]
     if cmd == "reel":
         res = build_reel_key(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "plain")

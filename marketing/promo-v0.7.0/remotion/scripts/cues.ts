@@ -11,9 +11,20 @@ import {CUTS} from '../src/cuts.ts';
 import {placements, segStarts, srt} from '../src/captions.ts';
 import {CLIPS, joined, ringSpan, shown, srcToOut, type Cut} from '../src/timeline.ts';
 import {PUBLIC_DIR, ROOT, WORK} from './common.ts';
+import {projectPath} from './paths.ts';
 
-const outDir = process.argv[2] ?? resolve(ROOT, '../out');
-mkdirSync(resolve(WORK, 'cues'), {recursive: true});
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log('usage: node scripts/cues.ts [outDir]\nPaths must resolve inside marketing/promo-v0.7.0. Copy external /tmp inputs into the project first.');
+  process.exit(0);
+}
+const outDir = projectPath(process.argv[2] ?? resolve(ROOT, '../out'));
+const cueDir = projectPath(resolve(WORK, 'cues'));
+// Validate every destination before creating directories or writing any cut.
+for (const cut of CUTS) {
+  projectPath(resolve(cueDir, `${cut.id}.json`));
+  projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`));
+}
+mkdirSync(cueDir, {recursive: true});
 mkdirSync(outDir, {recursive: true});
 
 /** Peak (0..1) of a stretch of a wav, decoded by ffmpeg. */
@@ -54,7 +65,7 @@ function build(cut: Cut): CueFile {
     const wav = CLIPS[p.clip].wav;
     p.segs.forEach((g, k) => {
       if (!wav) return;
-      const file = resolve(PUBLIC_DIR, wav);
+      const file = projectPath(resolve(PUBLIC_DIR, wav));
       const rate = g.rate ?? 1;
       if (p.audio && rate === 1) clips.push({wav, src0: g.a, dur: g.b - g.a, t0: T + starts[k]});
       else if (peak(file, g.a, g.b) > 0.01) {
@@ -84,7 +95,7 @@ function build(cut: Cut): CueFile {
 
 for (const cut of CUTS) {
   const c = build(cut);
-  writeFileSync(resolve(WORK, 'cues', `${cut.id}.json`), JSON.stringify(c, null, 1));
-  writeFileSync(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`), srt(cut));
+  writeFileSync(projectPath(resolve(cueDir, `${cut.id}.json`)), JSON.stringify(c, null, 1));
+  writeFileSync(projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`)), srt(cut));
   console.log(`${cut.id}: ${c.total.toFixed(2)} s, ${c.clips.length} app-audio stretch(es), ${c.sfx.length} UI sounds`);
 }

@@ -63,10 +63,10 @@ const foreground = token(dark, 'foreground');
 const primary = token(dark, 'primary');
 const mutedForeground = token(dark, 'muted-foreground');
 const border = token(dark, 'border');
-const radiusPx = Math.round(parseFloat(/--radius:\s*([\d.]+)rem/.exec(CSS)![1]) * 16);
+const radiusPx = Math.round(Number.parseFloat(/--radius:\s*([\d.]+)rem/.exec(CSS)![1]) * 16);
 const gradient = hsls(rule('.gradient-text')).slice(0, 2);
 const aurora = hsls(CSS.slice(CSS.indexOf('.aurora::before {'))).slice(0, 2);
-const auroraOpacity = parseFloat(/opacity:\s*([\d.]+)/.exec(rule('.aurora::before,\n  .aurora::after'))![1]);
+const auroraOpacity = Number.parseFloat(/opacity:\s*([\d.]+)/.exec(rule('.aurora::before,\n  .aurora::after'))![1]);
 const fills = [...new Set([...LOGO.matchAll(/(?:fill|stroke)="#([0-9A-Fa-f]{6})"/g)].map((m) => '#' + m[1].toUpperCase()))];
 if (fills.length !== 2) throw new Error(`expected two colours in website/public/logo.svg, found ${fills}`);
 

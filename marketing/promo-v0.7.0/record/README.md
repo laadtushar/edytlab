@@ -58,9 +58,20 @@ Two things about the capture, both measured and handled:
 
 ## Cutting
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:676528849d372d250244b58145586bdf584ff18b9f2b7c3b7e594d60a6693d86 -->
+
+The cutter requires every data input and output to resolve inside `marketing/promo-v0.7.0`, including through symlinks. The native suite can still record to `/tmp`; copy that completed run into the promo project before cutting. Use a fresh destination name for each run so recordings are not mixed.
+
 ```bash
-OUT=/tmp/promo-run DEST=marketing/promo-v0.7.0/footage node marketing/promo-v0.7.0/record/make-footage.mjs [clip …]
+cp -R /tmp/promo-run marketing/promo-v0.7.0/native-run
+OUT=marketing/promo-v0.7.0/native-run DEST=marketing/promo-v0.7.0/footage node marketing/promo-v0.7.0/record/make-footage.mjs [clip …]
 ```
+
+Unset `OUT` no longer selects the native suite's per-user temporary folder. Set it explicitly to the copied run. Inputs or destinations outside the project are refused with the path and required root.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 It refuses a recording that ends before its story did (ffmpeg fell behind) or that dropped more than 15% of its frames, and
 says to record it again. `REENCODE=1` re-encodes a clip whose `.mp4` already exists.

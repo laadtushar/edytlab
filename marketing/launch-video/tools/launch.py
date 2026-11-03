@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
-"""The three edytlab launch cuts as code: scene scripts -> Piece (video) + audio events + caption cues.
+"""The three edytlab launch cuts as code: scene scripts -> Piece (video) + audio events + \
+caption cues.
 
   python3 launch.py <li|rd|ig> still T1 T2 ...      contact-sheet stills (QC)
   python3 launch.py <li|rd|ig> render [--from a --to b] out.mp4
-  python3 launch.py <li|rd|ig> cues out.json         timing of every scene, sfx and caption (for audio + narration)
+  python3 launch.py <li|rd|ig> cues out.json         timing of every scene, sfx and \
+caption (for audio + narration)
 
-li = LinkedIn 1:1 1080x1080, rd = Reddit 16:9 1920x1080, ig = Instagram Reels 9:16 1080x1920.
-Every shot is a stretch of one of the three real demo recordings in website/public/demos/ (re-filmed in the app's violet look,
-#581). Times are demo-video seconds, the clock the reels measured: where each burned-in step caption starts (`detect_captions.py`)
-and where the app's sound is audible are in marketing/reels/tools/spec.py, which this file reads, and `Plan.clip` asserts that
-every shot lies inside the caption it is cut from, that a shot with no sound never overlaps the app's sound, and that a Listen
-shot starts at most 0.3 s before the sound and ends inside it. Nothing on screen is invented UI; the one diagram is labelled.
+li = LinkedIn 1:1 1080x1080, rd = Reddit 16:9 1920x1080, ig = Instagram Reels 9:16 \
+1080x1920.
+Every shot is a stretch of one of the three real demo recordings in \
+website/public/demos/ (re-filmed in the app's violet look,
+#581). Times are demo-video seconds, the clock the reels measured: where each burned-in \
+step caption starts (`detect_captions.py`)
+and where the app's sound is audible are in marketing/reels/tools/spec.py, which this \
+file reads, and `Plan.clip` asserts that
+every shot lies inside the caption it is cut from, that a shot with no sound never \
+overlaps the app's sound, and that a Listen
+shot starts at most 0.3 s before the sound and ends inside it. Nothing on screen is \
+invented UI; the one diagram is labelled.
 
 Command output paths must resolve inside marketing/launch-video. Copy external
 inputs into that folder first; the documented demo recordings are configured
@@ -25,23 +33,24 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
     print(__doc__)
     raise SystemExit(0)
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from engine import *  # noqa
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import ROOT as ROOT, checked_path as _checked_path
+
+from engine import (  # noqa: E402
+    BarsBG, Callout, EndCard, FPS, Flow, FootageClip, Image, ImageDraw,
+    ImageFont, Lockup, Note, Piece, Progress, Stack, Title,
+)
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROOT = Path(HERE).resolve()
 
 
 def checked_output(path):
-    """Resolve a command output and reject escapes from the project root."""
-    resolved = Path(path).resolve()
-    if resolved != ROOT and ROOT not in resolved.parents:
-        raise SystemExit(f"Refused path {str(path)!r}: must resolve inside {ROOT}")
-    return resolved
+    """Resolve command outputs through the shared project-root policy."""
+    return _checked_path(str(path))
 
 
-# The reels' spec.py holds the caption windows and the audible windows measured on the re-filmed demos. It wants a scratch
-# root for the narration work it does not do here; nothing of it is used.
+# The reels' spec.py holds measured caption and audio windows from the re-filmed demos.
+# Its narration scratch root is configured here but unused by the launch scripts.
 os.environ.setdefault("EDYTLAB_REEL_ROOT", os.path.join(HERE, "work"))
 import spec  # noqa: E402
 
@@ -362,7 +371,10 @@ if __name__ == "__main__":
         if len(times) == 1:
             P.piece.still(times[0]).save(checked)
         else:
-            contact(P, times, checked, cols=4 if plat != "rd" else 3, w=480 if plat != "rd" else 640)
+            contact(
+                P, times, checked, cols=4 if plat != "rd" else 3,
+                w=480 if plat != "rd" else 640,
+            )
         print(out)
     elif cmd == "cues":
         with open(checked, "w") as cues_file:

@@ -144,7 +144,13 @@ export function logoSvg(className = "logo") {
   const component = read(join(SITE, "components/motion/logo.tsx"));
   const viewBox = /viewBox="([^"]+)"/.exec(component)?.[1];
   const file = read(join(SITE, "public/logo.svg"));
-  const shapes = /<g transform="[^"]*">([\s\S]*)<\/g>\s*<\/svg>/.exec(file)?.[1];
+  // Find the first opening group and last valid closing group in separate scans.
+  // A failed greedy whole-file match would retry the suffix for every opening group.
+  const open = /<g transform="[^"]*">/.exec(file);
+  let close;
+  for (const match of file.matchAll(/<\/g>\s*<\/svg>/g)) close = match;
+  const start = open ? open.index + open[0].length : -1;
+  const shapes = start >= 0 && close && close.index >= start ? file.slice(start, close.index) : undefined;
   if (!viewBox || !shapes) throw new Error("could not read the logo from website/");
   return `<svg class="${className}" viewBox="${viewBox}" aria-hidden="true" focusable="false">${shapes}</svg>`;
 }

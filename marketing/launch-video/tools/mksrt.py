@@ -8,15 +8,9 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def checked_path(path):
-    """Resolve a path and reject escapes from the launch-video project."""
-    resolved = Path(path).resolve()
-    if resolved != ROOT and ROOT not in resolved.parents:
-        raise SystemExit(f"Refused path {path!r}: must resolve inside {ROOT}")
-    return resolved
+# Keep the project helper importable when Python's isolated mode omits script paths.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import ROOT as ROOT, checked_path as checked_path
 
 
 def ts(x):

@@ -14,6 +14,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+if (process.argv.includes("--help")) {
+  console.log("Usage: node marketing/social-kit/artifact/launch-hub.mjs\nBuild the launch hub into artifact/out/launch-hub/, copying existing assets without publishing.");
+  process.exit(0);
+}
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MK = path.resolve(HERE, "../.."); // marketing/
 const REPO = path.resolve(MK, "..");
@@ -77,17 +82,43 @@ function bullets(ls) {
 function labelled(blockText, name) {
   const m = new RegExp("\\*\\*" + name + ":?\\*\\*:?\\s*([\\s\\S]*?)(?:\\n\\n|$)").exec(blockText);
   if (!m) return "";
-  return m[1].replace(/\s*\n\s*/g, " ").trim();
+  // Consume each whitespace run once; only runs containing a line break join lines.
+  return m[1].replace(/\s+/g, (space) => space.includes("\n") ? " " : space).trim();
 }
 
 // ---------------------------------------------------------------- html helpers
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${text}</a>`;
+/** Replace markdown links in one scan, including labels containing opening brackets. */
+function replaceLinks(text, externalOnly) {
+  const parts = [];
+  let copied = 0, scan = 0;
+  while (scan < text.length) {
+    const start = text.indexOf("[", scan);
+    if (start < 0) break;
+    const labelEnd = text.indexOf("]", start + 1);
+    if (labelEnd < 0) break;
+    scan = labelEnd + 1;
+    if (labelEnd === start + 1 || text[labelEnd + 1] !== "(") continue;
+    const urlStart = labelEnd + 2;
+    if (externalOnly && !text.startsWith("http:", urlStart) && !text.startsWith("https:", urlStart)) continue;
+    const end = text.indexOf(")", urlStart);
+    if (end < 0) break;
+    const url = text.slice(urlStart, end);
+    if (!url || (externalOnly && (url === "http:" || url === "https:"))) continue;
+    const label = text.slice(start + 1, labelEnd);
+    parts.push(text.slice(copied, start), externalOnly ? ext(url.replace(/&amp;/g, "&"), label) : label);
+    copied = end + 1;
+    scan = copied;
+  }
+  parts.push(text.slice(copied));
+  return parts.join("");
+}
 function inline(md) {
   let s = esc(md);
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
-  s = s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, (m, t, u) => ext(u.replace(/&amp;/g, "&"), t));
-  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // relative repo links: text only
+  s = replaceLinks(s, true);
+  s = replaceLinks(s, false); // relative repo links: text only
   s = s.replace(/&lt;(https?:\/\/[^&]+?)&gt;/g, (m, u) => ext(u, u.replace(/^https?:\/\//, "")));
   s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   return s;
@@ -159,8 +190,9 @@ const cap = (() => {
   const ls = lines("social-kit/images/captions.md");
   const themes = [];
   let cur = null, plat = null;
-  for (let i = 0; i < ls.length; i++) {
-    const l = ls[i];
+  let i = 0;
+  while (i < ls.length) {
+    const l = ls[i++];
     const th = /^## (\d)\. (.+)$/.exec(l);
     if (th) { cur = { n: +th[1], title: th[2], image: "", videoLine: "", caps: {} }; themes.push(cur); plat = null; continue; }
     if (!cur) continue;
@@ -168,10 +200,10 @@ const cap = (() => {
     const pm = /^\*\*(X|LinkedIn|Instagram|Facebook|Threads|Bluesky|TikTok|YouTube|Pinterest)\*\*$/.exec(l);
     if (pm) {
       const body = [];
-      let j = i + 1;
+      let j = i;
       while (j < ls.length && ls[j].trim() !== "" && ls[j] !== "---") body.push(ls[j++]);
       cur.caps[pm[1]] = body.join("\n").trim();
-      i = j - 1;
+      i = j;
     }
   }
   return themes;
@@ -509,7 +541,7 @@ function pressHtml() {
   return `<div class="dest" id="dest-press">${h3("Press kit")}${sourceNote("press-kit.md")}
 ${card("press-one", "One-sentence description", one, { nolimit: true, meta: "<p>The file wraps the sentence at 80 columns; the line break is kept here, as in the file.</p>" })}
 ${card("press-boiler", "Boilerplate", boilerText, { nolimit: true, meta: "<p>The file wraps the paragraph at 80 columns; the line breaks are kept here, as in the file.</p>" })}
-${bio.map((b, i) => card("press-bio-" + i, b.match(/\d+ words/)[0] + " bio", b.replace(/^\*\*\d+ words:\*\* /, ""), { nolimit: true })).join("")}
+${bio.map((b, i) => card("press-bio-" + i, b.match(/^\*\*(\d+ words):\*\*/)[1] + " bio", b.replace(/^\*\*\d+ words:\*\* /, ""), { nolimit: true })).join("")}
 ${card("press-quote", "Approved description of the demo (the only one to quote)", quote, { nolimit: true, badge: "derived", meta: "<p>The blockquote in the file, with its line breaks joined into one paragraph.</p>" })}
 <h4>Fact sheet</h4>${table(facts)}
 <h4>What is not shipped (state this plainly if asked)</h4>${ul(notShipped)}</div>`;
@@ -556,11 +588,34 @@ ${themes}
 function videosHtml() {
   const vts = fs.readFileSync(path.join(REPO, "website/lib/videos.ts"), "utf8");
   const dts = fs.readFileSync(path.join(REPO, "website/lib/demos.ts"), "utf8");
-  const entries = (src) => src.split(/\n\s*slug: "/).slice(1).map((chunk) => {
-    const slug = chunk.slice(0, chunk.indexOf('"'));
-    const g = (k) => { const m = new RegExp("\\n\\s*" + k + ": \"?([^\",\\n]+)").exec(chunk); return m ? m[1] : ""; };
-    return { slug, title: g("title"), seconds: +g("seconds"), width: +g("width"), height: +g("height") };
-  });
+  const entries = (src) => {
+    const chunks = [];
+    let from = 0, scan = 0;
+    while (scan < src.length) {
+      const slug = src.indexOf('slug: "', scan);
+      if (slug < 0) break;
+      let start = slug, newline = -1;
+      while (start > 0 && /\s/.test(src[start - 1])) {
+        start--;
+        if (src[start] === "\n") newline = start;
+      }
+      scan = slug + 7;
+      if (newline < 0) continue;
+      chunks.push(src.slice(from, newline));
+      from = scan;
+    }
+    chunks.push(src.slice(from));
+    return chunks.slice(1).map((chunk) => {
+      const slug = chunk.slice(0, chunk.indexOf('"'));
+      const fields = chunk.split("\n").slice(1);
+      const g = (k) => {
+        const re = new RegExp("^\\s*" + k + ": \"?([^\",\\n]+)");
+        for (const line of fields) { const m = re.exec(line); if (m) return m[1]; }
+        return "";
+      };
+      return { slug, title: g("title"), seconds: +g("seconds"), width: +g("width"), height: +g("height") };
+    });
+  };
   const V1 = entries(vts), D1 = entries(dts);
   const want = [
     ["launch-video", V1, "videos", "Launch video", "Theme 1 (describe the edit); the YouTube upload for the Product Hunt gallery."],
@@ -697,6 +752,7 @@ ${js}</script>
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(src, dst);
   }
+  // Binary path order is part of files.json output; locale collation would change its bytes.
   const map = Object.fromEntries(Object.keys(files).sort().map((p) => [p, path.join(OUT, p)]));
   fs.writeFileSync(path.join(OUT, "files.json"), JSON.stringify(map, null, 2) + "\n");
   fs.writeFileSync(path.join(OUT, "existing-files.txt"), existing.join("\n") + "\n");

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""ElevenLabs narration for the launch cuts: one clip per line, a few takes each, pick the take that fits its window.
+"""ElevenLabs narration for the launch cuts: one clip per line, a few takes each, pick the \
+take that fits its window.
 
   narrate.py status                         -> prints credits used / limit (never the key)
-  narrate.py gen  lines.json OUTDIR [N]     -> N takes (default 2) per line, with word timings; logs characters to OUTDIR/usage.log
-  narrate.py pick lines.json OUTDIR OUT.json -> best take per line (fits its window, fewest odd pauses) as audio.py's narration json + .srt
+  narrate.py gen  lines.json OUTDIR [N]     -> N takes (default 2) per line, with word \
+timings; logs characters to OUTDIR/usage.log
+  narrate.py pick lines.json OUTDIR OUT.json -> best take per line (fits its window, \
+fewest odd pauses) as audio.py's narration json + .srt
 
-Voice Roger (CwhRBWXzGAHq8TQ4Fs17), model eleven_v4, stability 0.5, similarity 0.75, mp3_44100_128. The key is read from the
-environment variable ELEVENLABS_API_KEY (load it with `set -a; . <env file>; set +a` in the same command) and is handed to curl on
+Voice Roger (CwhRBWXzGAHq8TQ4Fs17), model eleven_v4, stability 0.5, similarity 0.75, \
+mp3_44100_128. The key is read from the
+environment variable ELEVENLABS_API_KEY (load it with `set -a; . <env file>; set +a` in \
+the same command) and is handed to curl on
 stdin, so it never appears in an argument list, a log or a file.
 
 Inputs and outputs must resolve inside marketing/launch-video. Copy external
@@ -20,40 +25,52 @@ import sys
 import time
 from pathlib import Path
 
+# Keep the project helper importable when Python's isolated mode omits script paths.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import ROOT as ROOT, checked_path as _checked_path
+
 VOICE = "CwhRBWXzGAHq8TQ4Fs17"
 MODEL = "eleven_v4"
 API = "https://api.elevenlabs.io/v1"
-ROOT = Path(__file__).resolve().parent.parent
 
 
 def checked_path(path):
-    """Resolve an input or output path and reject escapes from the project."""
-    resolved = Path(path).resolve()
-    if resolved != ROOT and ROOT not in resolved.parents:
-        raise SystemExit(f"Refused path {str(path)!r}: must resolve inside {ROOT}")
-    return resolved
+    """Resolve paths through the shared policy, preserving string refusal labels."""
+    return _checked_path(str(path))
 
 
 def curl(method, path, body=None, out=None):
-    """Call the narration service with the API key supplied on stdin."""
+    """Call the narration service with the API key supplied on stdin.
+
+    Keep the legacy out keyword accepted; responses are always returned as text.
+    """
+    _ = out
     key = os.environ["ELEVENLABS_API_KEY"]
     cfg = f'header = "xi-api-key: {key}"\nheader = "Content-Type: application/json"\n'
     cmd = ["curl", "-sS", "-m", "120", "-K", "-", "-X", method, API + path, "-w", "\n%{http_code}"]
     if body is not None:
         cmd += ["--data-binary", json.dumps(body)]
-    p = subprocess.run(cmd, input=cfg, capture_output=True, text=True)
+    p = subprocess.run(cmd, input=cfg, capture_output=True, text=True, check=False)
     txt, _, code = p.stdout.rpartition("\n")
     return int(code or 0), txt
 
 
 def status():
-    code, txt = curl("GET", "/user/subscription")
+    """Read current narration credits and subscription tier."""
+    _code, txt = curl("GET", "/user/subscription")
     d = json.loads(txt)
     return d.get("character_count"), d.get("character_limit"), d.get("tier")
 
 
 def words_from_alignment(al, text):
-    chars, st, en = al["characters"], al["character_start_times_seconds"], al["character_end_times_seconds"]
+    """Group aligned characters into words with their start and end times.
+
+    The text argument remains accepted for callers of the original helper.
+    """
+    _ = text
+    chars = al["characters"]
+    st = al["character_start_times_seconds"]
+    en = al["character_end_times_seconds"]
     words, cur, s0, e0 = [], "", None, None
     for ch, a, b in zip(chars, st, en):
         if ch.isspace():
@@ -90,16 +107,25 @@ def gen(lines_path, outdir, n_takes):
             base = f"{outdir}/{ln['id']}_t{k}"
             if os.path.exists(checked_path(base + ".mp3")):
                 continue
-            body = {"text": ln["text"], "model_id": MODEL, "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
+            body = {
+                "text": ln["text"], "model_id": MODEL,
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+            }
             if ln.get("prev"):
                 body["previous_text"] = ln["prev"]
             if ln.get("next"):
                 body["next_text"] = ln["next"]
-            code, txt = curl("POST", f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body)
+            code, txt = curl(
+                "POST",
+                f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body,
+            )
             if code != 200 and ("previous_text" in body or "next_text" in body):
                 body.pop("previous_text", None)
                 body.pop("next_text", None)
-                code, txt = curl("POST", f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body)
+                code, txt = curl(
+                    "POST",
+                    f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body,
+                )
             if code != 200:
                 print(f"{ln['id']} take {k}: HTTP {code}: {txt[:200]}")
                 continue
@@ -107,18 +133,31 @@ def gen(lines_path, outdir, n_takes):
             with open(checked_path(base + ".mp3"), "wb") as audio_file:
                 audio_file.write(base64.b64decode(d["audio_base64"]))
             with open(checked_path(base + ".json"), "w") as alignment_file:
-                json.dump(dict(text=ln["text"], words=words_from_alignment(d["alignment"], ln["text"])), alignment_file)
+                json.dump(
+                    dict(text=ln["text"], words=words_from_alignment(d["alignment"], ln["text"])),
+                    alignment_file,
+                )
             total += len(ln["text"])
             with open(checked_path(f"{outdir}/usage.log"), "a") as f:
-                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {ln['id']} take {k}  {len(ln['text'])} chars\n")
+                f.write(
+                    f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {ln['id']} "
+                    f"take {k}  {len(ln['text'])} chars\n"
+                )
             print(f"{ln['id']} take {k}: ok ({len(ln['text'])} chars)")
     used1, limit, _ = status()
-    print(f"characters sent this run: {total}; credits after: {used1}/{limit}; remaining {limit - used1}")
+    print(
+        f"characters sent this run: {total}; credits after: {used1}/{limit}; "
+        f"remaining {limit - used1}"
+    )
 
 
 def dur(path):
     """Return the duration reported by ffprobe for an in-project take."""
-    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(checked_path(path))], capture_output=True, text=True, check=False)
+    p = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+         str(checked_path(path))],
+        capture_output=True, text=True, check=False,
+    )
     return float(p.stdout.strip())
 
 
@@ -157,8 +196,14 @@ def pick(lines_path, outdir, out_json):
             report.append(f"{ln['id']}: NO TAKE")
             continue
         _, base, _duration, se, mg, fit = best
-        chosen.append(dict(id=ln["id"], t=ln["t"], file=base + ".mp3", gain_db=ln.get("gain_db", 0), tempo=ln.get("tempo", 1.0), speech_end=se, win=ln["win"], text=ln["text"]))
-        report.append(f"{ln['id']}: {os.path.basename(base)} speech {se:.2f}s of {ln['win']:.1f}s window, longest pause {mg:.2f}s {'OK' if fit else 'TOO LONG'}")
+        chosen.append(dict(
+            id=ln["id"], t=ln["t"], file=base + ".mp3", gain_db=ln.get("gain_db", 0),
+            tempo=ln.get("tempo", 1.0), speech_end=se, win=ln["win"], text=ln["text"],
+        ))
+        report.append(
+            f"{ln['id']}: {os.path.basename(base)} speech {se:.2f}s of {ln['win']:.1f}s window, "
+            f"longest pause {mg:.2f}s {'OK' if fit else 'TOO LONG'}"
+        )
         srt.append((ln["t"], ln["t"] + se + 0.15, ln["text"]))
     with open(checked_path(out_json), "w") as output_file:
         json.dump(chosen, output_file, indent=1)
@@ -173,6 +218,7 @@ def pick(lines_path, outdir, out_json):
 
 
 def ts(x):
+    """Format seconds as an SRT timestamp."""
     h, r = divmod(x, 3600)
     m, s = divmod(r, 60)
     return f"{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s - int(s)) * 1000)):03d}"
