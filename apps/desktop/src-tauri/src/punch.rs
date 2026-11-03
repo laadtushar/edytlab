@@ -341,29 +341,31 @@ pub fn run(
         end_sec: end_sec - begins,
     };
 
-    let dir = tempfile::Builder::new()
-        .prefix("edytlab-punch-")
-        .tempdir()
-        .map_err(|e| format!("could not make a folder for the renders: {e}"))?;
-    let rendered = render_pair(
-        state,
-        &snap,
-        req,
-        dir.path(),
-        audio_engine::TimeRange {
-            start_frame,
-            end_frame,
-        },
-        cancel,
-    )?;
-    let (as_is, muted) = match rendered {
-        Some(rendered) => rendered,
-        None => return Ok(cancelled()),
-    };
-    let monitor =
+    // Temporary renders are removed before the next cancellation check and
+    // before audio capture starts, including on every early return.
+    let monitor = {
+        let dir = tempfile::Builder::new()
+            .prefix("edytlab-punch-")
+            .tempdir()
+            .map_err(|e| format!("could not make a folder for the renders: {e}"))?;
+        let rendered = render_pair(
+            state,
+            &snap,
+            req,
+            dir.path(),
+            audio_engine::TimeRange {
+                start_frame,
+                end_frame,
+            },
+            cancel,
+        )?;
+        let (as_is, muted) = match rendered {
+            Some(rendered) => rendered,
+            None => return Ok(cancelled()),
+        };
         punch::build_monitor_from_wavs(&as_is, muted.as_deref(), region, pair.out_sr, pair.out_ch)
-            .map_err(|e| e.to_string())?;
-    drop(dir);
+            .map_err(|e| e.to_string())?
+    };
     if cancel() {
         return Ok(cancelled());
     }

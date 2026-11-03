@@ -92,6 +92,101 @@ fn map_frame(input: &[f32], output: &mut [f32]) {
     }
 }
 
+fn sample_reader(reader: &mut Reader) -> Box<dyn Iterator<Item = Result<f32, hound::Error>> + '_> {
+    let spec = reader.spec();
+    let samples: Box<dyn Iterator<Item = Result<f32, hound::Error>> + '_> =
+        match (spec.sample_format, spec.bits_per_sample) {
+            (hound::SampleFormat::Float, 32) => Box::new(reader.samples::<f32>()),
+            (hound::SampleFormat::Int, bits @ 8..=32) => {
+                let scale = 1.0 / (1u64 << (bits - 1)) as f32;
+                Box::new(
+                    reader
+                        .samples::<i32>()
+                        .map(move |s| s.map(|v| v as f32 * scale)),
+                )
+            }
+            _ => unreachable!("Source::open checked the format"),
+        };
+    samples
+}
+
+struct ConversionFrames {
+    source: Vec<f32>,
+    mapped: Vec<f32>,
+    output: Vec<f32>,
+}
+
+/// Feed the same FFT chunks, flush and delay trimming as the buffered path.
+fn resample_frames(
+    source_rate: u32,
+    to_rate: u32,
+    source_frames: usize,
+    wanted: usize,
+    frames: &mut ConversionFrames,
+    mut read_frame: impl FnMut(&mut [f32]) -> Result<(), PunchError>,
+    mut emit: impl FnMut(usize, &[f32]),
+) -> Result<(), PunchError> {
+    let conv = |e: &dyn std::fmt::Display| PunchError::Convert(e.to_string());
+    let mut r = Fft::<f32>::new(
+        source_rate as usize,
+        to_rate as usize,
+        1024,
+        frames.mapped.len(),
+        FixedSync::Both,
+    )
+    .map_err(|e| conv(&e))?;
+    let delay = r.output_delay();
+    let mut in_buf = vec![vec![0.0f32; r.input_frames_max()]; frames.mapped.len()];
+    let mut out_buf = vec![vec![0.0f32; r.output_frames_max()]; frames.mapped.len()];
+    let mut pos = 0usize;
+    let mut produced = 0usize;
+    let mut emitted = 0usize;
+    while produced < delay + wanted {
+        let needed = r.input_frames_next();
+        let available = source_frames.saturating_sub(pos).min(needed);
+        for buf in &mut in_buf {
+            buf.clear();
+            buf.resize(needed, 0.0);
+        }
+        for f in 0..available {
+            read_frame(&mut frames.source)?;
+            map_frame(&frames.source, &mut frames.mapped);
+            for (channel, sample) in in_buf.iter_mut().zip(&frames.mapped) {
+                channel[f] = *sample;
+            }
+        }
+        let input = SequentialSliceOfVecs::new(&in_buf, frames.mapped.len(), needed)
+            .map_err(|e| conv(&e))?;
+        let mut output = SequentialSliceOfVecs::new_mut(
+            &mut out_buf,
+            frames.mapped.len(),
+            r.output_frames_next(),
+        )
+        .map_err(|e| conv(&e))?;
+        let (_, written) = r
+            .process_into_buffer(&input, &mut output, None)
+            .map_err(|e| conv(&e))?;
+        for f in 0..written {
+            if produced >= delay && emitted < wanted {
+                for (sample, channel) in frames.mapped.iter_mut().zip(&out_buf) {
+                    *sample = channel[f];
+                }
+                map_frame(&frames.mapped, &mut frames.output);
+                emit(emitted, &frames.output);
+                emitted += 1;
+            }
+            produced += 1;
+        }
+        pos += available;
+    }
+    // A complete read checks the same source errors even when the FFT's
+    // rounded output length does not need its final input frame.
+    for _ in pos..source_frames {
+        read_frame(&mut frames.source)?;
+    }
+    Ok(())
+}
+
 /// Decode and convert a whole source, delivering interleaved frames in order.
 /// The FFT's chunk size, zero flush, and delay removal match `resample`.
 fn convert_source(
@@ -101,25 +196,12 @@ fn convert_source(
     mut emit: impl FnMut(usize, &[f32]),
 ) -> Result<(), PunchError> {
     let wanted = source.output_frames(to_rate)?;
-    let spec = source.reader.spec();
-    let mut samples: Box<dyn Iterator<Item = Result<f32, hound::Error>> + '_> =
-        match (spec.sample_format, spec.bits_per_sample) {
-            (hound::SampleFormat::Float, 32) => Box::new(source.reader.samples::<f32>()),
-            (hound::SampleFormat::Int, bits @ 8..=32) => {
-                let scale = 1.0 / (1u64 << (bits - 1)) as f32;
-                Box::new(
-                    source
-                        .reader
-                        .samples::<i32>()
-                        .map(move |s| s.map(|v| v as f32 * scale)),
-                )
-            }
-            _ => unreachable!("Source::open checked the format"),
-        };
-    let mut source_frame = vec![0.0; source.channels];
-    let work_ch = source.channels.min(to_ch);
-    let mut mapped = vec![0.0; work_ch];
-    let mut output_frame = vec![0.0; to_ch];
+    let mut samples = sample_reader(&mut source.reader);
+    let mut frames = ConversionFrames {
+        source: vec![0.0; source.channels],
+        mapped: vec![0.0; source.channels.min(to_ch)],
+        output: vec![0.0; to_ch],
+    };
     let mut read_frame = |frame: &mut [f32]| -> Result<(), PunchError> {
         for sample in frame {
             *sample = samples
@@ -132,72 +214,140 @@ fn convert_source(
 
     if source.rate == to_rate || source.frames == 0 {
         for f in 0..source.frames {
-            read_frame(&mut source_frame)?;
-            map_frame(&source_frame, &mut output_frame);
-            emit(f, &output_frame);
+            read_frame(&mut frames.source)?;
+            map_frame(&frames.source, &mut frames.output);
+            emit(f, &frames.output);
         }
     } else {
-        let conv = |e: &dyn std::fmt::Display| PunchError::Convert(e.to_string());
-        let mut r = Fft::<f32>::new(
-            source.rate as usize,
-            to_rate as usize,
-            1024,
-            work_ch,
-            FixedSync::Both,
-        )
-        .map_err(|e| conv(&e))?;
-        let delay = r.output_delay();
-        let mut in_buf = vec![vec![0.0f32; r.input_frames_max()]; work_ch];
-        let mut out_buf = vec![vec![0.0f32; r.output_frames_max()]; work_ch];
-        let mut pos = 0usize;
-        let mut produced = 0usize;
-        let mut emitted = 0usize;
-        while produced < delay + wanted {
-            let needed = r.input_frames_next();
-            let available = source.frames.saturating_sub(pos).min(needed);
-            for buf in &mut in_buf {
-                buf.clear();
-                buf.resize(needed, 0.0);
-            }
-            for f in 0..available {
-                read_frame(&mut source_frame)?;
-                map_frame(&source_frame, &mut mapped);
-                for (channel, sample) in in_buf.iter_mut().zip(&mapped) {
-                    channel[f] = *sample;
-                }
-            }
-            let input =
-                SequentialSliceOfVecs::new(&in_buf, work_ch, needed).map_err(|e| conv(&e))?;
-            let mut output =
-                SequentialSliceOfVecs::new_mut(&mut out_buf, work_ch, r.output_frames_next())
-                    .map_err(|e| conv(&e))?;
-            let (_, written) = r
-                .process_into_buffer(&input, &mut output, None)
-                .map_err(|e| conv(&e))?;
-            for f in 0..written {
-                if produced >= delay && emitted < wanted {
-                    for (sample, channel) in mapped.iter_mut().zip(&out_buf) {
-                        *sample = channel[f];
-                    }
-                    map_frame(&mapped, &mut output_frame);
-                    emit(emitted, &output_frame);
-                    emitted += 1;
-                }
-                produced += 1;
-            }
-            pos += available;
-        }
-        // A complete read checks the same source errors even when the FFT's
-        // rounded output length does not need its final input frame.
-        for _ in pos..source.frames {
-            read_frame(&mut source_frame)?;
-        }
+        resample_frames(
+            source.rate,
+            to_rate,
+            source.frames,
+            wanted,
+            &mut frames,
+            &mut read_frame,
+            &mut emit,
+        )?;
     }
     // Also validate any incomplete trailing frame, as read_wav does.
     for sample in samples {
         sample.map_err(|e| read_error(&e))?;
     }
     Ok(())
+}
+
+/// Crossfade bounds shared by both source passes. The second fade wins
+/// when a short punch region makes the two windows overlap.
+struct FadeWindow {
+    start: usize,
+    end: usize,
+    frames: usize,
+    half: usize,
+}
+
+impl FadeWindow {
+    fn new(
+        region: Region,
+        out_sr: u32,
+        a_frames: usize,
+        m_frames: usize,
+    ) -> Result<Self, PunchError> {
+        let start = (region.start_sec * f64::from(out_sr)).round();
+        let end = (region.end_sec * f64::from(out_sr)).round();
+        if !end.is_finite() || end >= usize::MAX as f64 {
+            return Err(too_large());
+        }
+        let s = start as usize;
+        let e = end as usize;
+        let frames = a_frames.max(m_frames).max(e);
+        let half = ((CROSSFADE_SEC * f64::from(out_sr) / 2.0).round() as usize)
+            .clamp(1, ((e - s) / 2).max(1));
+        e.checked_add(half).ok_or_else(too_large)?;
+        Ok(Self {
+            start: s,
+            end: e,
+            frames,
+            half,
+        })
+    }
+
+    fn weights(&self, f: usize) -> Option<(f32, f32)> {
+        let Self {
+            start: s,
+            end: e,
+            frames,
+            half,
+        } = *self;
+        let mut w = None;
+        for (edge, entering) in [(s, true), (e, false)] {
+            if f >= edge.saturating_sub(half) && f < (edge + half).min(frames) {
+                let offset = f as u128 + half as u128 - edge as u128;
+                let t = (offset as f32 + 0.5) / (2 * half) as f32;
+                w = Some(if entering { (1.0 - t, t) } else { (t, 1.0 - t) });
+            }
+        }
+        w
+    }
+}
+
+/// Own the single resident output buffer and apply each source independently.
+struct MonitorMix {
+    window: FadeWindow,
+    ch: usize,
+    out: Vec<f32>,
+}
+
+impl MonitorMix {
+    fn new(window: FadeWindow, ch: usize) -> Result<Self, PunchError> {
+        let samples = window.frames.checked_mul(ch).ok_or_else(too_large)?;
+        samples
+            .checked_mul(std::mem::size_of::<f32>())
+            .ok_or_else(too_large)?;
+        let mut out = Vec::new();
+        out.try_reserve_exact(samples).map_err(|_| too_large())?;
+        out.resize(samples, 0.0f32);
+        Ok(Self { window, ch, out })
+    }
+
+    fn write_original(&mut self, f: usize, src: &[f32]) {
+        let ch = self.ch;
+        let out = &mut self.out;
+        let (s, e) = (self.window.start, self.window.end);
+        if let Some((wa, _)) = self.window.weights(f) {
+            for c in 0..ch {
+                out[f * ch + c] = src[c] * wa;
+            }
+        } else if f < s || f >= e {
+            out[f * ch..(f + 1) * ch].copy_from_slice(src);
+        }
+    }
+
+    fn add_muted(&mut self, f: usize, src: &[f32]) {
+        let ch = self.ch;
+        let out = &mut self.out;
+        let (s, e) = (self.window.start, self.window.end);
+        if let Some((_, wm)) = self.window.weights(f) {
+            for c in 0..ch {
+                out[f * ch + c] += src[c] * wm;
+            }
+        } else if f >= s && f < e {
+            out[f * ch..(f + 1) * ch].copy_from_slice(src);
+        }
+    }
+
+    fn add_silent_tail(&mut self, mixed: usize) {
+        let ch = self.ch;
+        let out = &mut self.out;
+        let frames = self.window.frames;
+        // A missing muted sample is +0.0, including in the fade arithmetic.
+        for f in mixed..frames {
+            if let Some((_, wm)) = self.window.weights(f) {
+                for c in 0..ch {
+                    out[f * ch + c] += 0.0 * wm;
+                }
+            }
+        }
+    }
 }
 
 /// Read the two renderer WAVs and build the speaker-format monitor with
@@ -220,68 +370,18 @@ pub fn build_monitor_from_wavs(
         .map(|s| s.output_frames(out_sr))
         .transpose()?
         .unwrap_or(0);
-    let start = (region.start_sec * f64::from(out_sr)).round();
-    let end = (region.end_sec * f64::from(out_sr)).round();
-    if !end.is_finite() || end >= usize::MAX as f64 {
-        return Err(too_large());
-    }
-    let s = start as usize;
-    let e = end as usize;
-    let frames = a_frames.max(m_frames).max(e);
-    let half =
-        ((CROSSFADE_SEC * f64::from(out_sr) / 2.0).round() as usize).clamp(1, ((e - s) / 2).max(1));
-    e.checked_add(half).ok_or_else(too_large)?;
-    let samples = frames.checked_mul(ch).ok_or_else(too_large)?;
-    samples
-        .checked_mul(std::mem::size_of::<f32>())
-        .ok_or_else(too_large)?;
-    let mut out = Vec::new();
-    out.try_reserve_exact(samples).map_err(|_| too_large())?;
-    out.resize(samples, 0.0f32);
-    // The second fade overwrites the first if a very short region makes
-    // them overlap, just as the two loops in build_monitor do.
-    let weights = |f: usize| {
-        let mut w = None;
-        for (edge, entering) in [(s, true), (e, false)] {
-            if f >= edge.saturating_sub(half) && f < (edge + half).min(frames) {
-                let offset = f as u128 + half as u128 - edge as u128;
-                let t = (offset as f32 + 0.5) / (2 * half) as f32;
-                w = Some(if entering { (1.0 - t, t) } else { (t, 1.0 - t) });
-            }
-        }
-        w
-    };
-    convert_source(a, out_sr, ch, |f, src| {
-        if let Some((wa, _)) = weights(f) {
-            for c in 0..ch {
-                out[f * ch + c] = src[c] * wa;
-            }
-        } else if f < s || f >= e {
-            out[f * ch..(f + 1) * ch].copy_from_slice(src);
-        }
-    })?;
+    let window = FadeWindow::new(region, out_sr, a_frames, m_frames)?;
+    let mut mix = MonitorMix::new(window, ch)?;
+    convert_source(a, out_sr, ch, |f, src| mix.write_original(f, src))?;
     let mut mixed = 0;
     if let Some(m) = m {
         convert_source(m, out_sr, ch, |f, src| {
-            if let Some((_, wm)) = weights(f) {
-                for c in 0..ch {
-                    out[f * ch + c] += src[c] * wm;
-                }
-            } else if f >= s && f < e {
-                out[f * ch..(f + 1) * ch].copy_from_slice(src);
-            }
+            mix.add_muted(f, src);
             mixed = f + 1;
         })?;
     }
-    // A missing muted sample is +0.0, including in the fade arithmetic.
-    for f in mixed..frames {
-        if let Some((_, wm)) = weights(f) {
-            for c in 0..ch {
-                out[f * ch + c] += 0.0 * wm;
-            }
-        }
-    }
-    Ok(out)
+    mix.add_silent_tail(mixed);
+    Ok(mix.out)
 }
 
 #[cfg(test)]

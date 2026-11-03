@@ -52,6 +52,88 @@ pub struct WavStreamReader {
     frames_read: u64,
 }
 
+/// Byte stride for the sample formats whose hound seeks are supported.
+fn packed_sample_bytes(spec: hound::WavSpec) -> Option<u64> {
+    match (spec.sample_format, spec.bits_per_sample) {
+        (SampleFormat::Int, 8) => Some(1),
+        (SampleFormat::Int, 16) => Some(2),
+        (SampleFormat::Int, 24) => Some(3),
+        (SampleFormat::Int, 32) | (SampleFormat::Float, 32) => Some(4),
+        _ => None,
+    }
+}
+
+/// Check the data chunk against both hound's sample count and the file extent.
+/// The reader starts immediately after the data chunk length field.
+fn checked_data_extent(
+    reader: &mut BufReader<File>,
+    samples: u32,
+    bytes_per_sample: u64,
+    file_length: u64,
+) -> Option<u64> {
+    let data_start = reader.stream_position().ok()?;
+    reader
+        .seek(SeekFrom::Start(data_start.checked_sub(4)?))
+        .ok()?;
+    let mut length = [0_u8; 4];
+    reader.read_exact(&mut length).ok()?;
+    let data_length = u64::from(u32::from_le_bytes(length));
+    if u64::from(samples).checked_mul(bytes_per_sample)? != data_length
+        || data_start.checked_add(data_length)? > file_length
+    {
+        return None;
+    }
+    Some(data_start)
+}
+
+/// Validate the container stride independently of hound's sample count.
+fn check_block_alignment(
+    reader: &mut BufReader<File>,
+    spec: hound::WavSpec,
+    bytes_per_sample: u64,
+    data_start: u64,
+) -> Option<()> {
+    reader.seek(SeekFrom::Start(12)).ok()?;
+    let expected_alignment = bytes_per_sample.checked_mul(u64::from(spec.channels))?;
+    loop {
+        let position = reader.stream_position().ok()?;
+        if position.checked_add(8)? > data_start {
+            return None;
+        }
+        let mut header = [0_u8; 8];
+        reader.read_exact(&mut header).ok()?;
+        let size = u64::from(u32::from_le_bytes(header[4..].try_into().ok()?));
+        if &header[..4] == b"fmt " {
+            return check_format_alignment(reader, size, expected_alignment);
+        }
+        let next = position
+            .checked_add(8)?
+            .checked_add(size)?
+            .checked_add(size % 2)?;
+        if next > data_start {
+            return None;
+        }
+        reader.seek(SeekFrom::Start(next)).ok()?;
+    }
+}
+
+fn check_format_alignment(
+    reader: &mut BufReader<File>,
+    size: u64,
+    expected_alignment: u64,
+) -> Option<()> {
+    if size < 16 {
+        return None;
+    }
+    let mut format = [0_u8; 16];
+    reader.read_exact(&mut format).ok()?;
+    let alignment = u64::from(u16::from_le_bytes([format[12], format[13]]));
+    if alignment != expected_alignment {
+        return None;
+    }
+    Some(())
+}
+
 impl WavStreamReader {
     /// Open `path` and parse the WAV header. Does not read any samples.
     pub fn open(path: &Path) -> Result<Self, DecodeError> {
@@ -93,57 +175,10 @@ impl WavStreamReader {
             let probe = WavReader::new(&mut reader).ok()?;
             (probe.spec(), probe.len())
         };
-        let bytes_per_sample = match (spec.sample_format, spec.bits_per_sample) {
-            (SampleFormat::Int, 8) => 1_u64,
-            (SampleFormat::Int, 16) => 2,
-            (SampleFormat::Int, 24) => 3,
-            (SampleFormat::Int, 32) | (SampleFormat::Float, 32) => 4,
-            _ => return None,
-        };
-        let data_start = reader.stream_position().ok()?;
-        reader
-            .seek(SeekFrom::Start(data_start.checked_sub(4)?))
-            .ok()?;
-        let mut length = [0_u8; 4];
-        reader.read_exact(&mut length).ok()?;
-        let data_length = u64::from(u32::from_le_bytes(length));
-        if u64::from(samples).checked_mul(bytes_per_sample)? != data_length
-            || data_start.checked_add(data_length)? > metadata.len()
-        {
-            return None;
-        }
-        // Validate the container stride independently of hound's sample count.
-        reader.seek(SeekFrom::Start(12)).ok()?;
-        let expected_alignment = bytes_per_sample.checked_mul(u64::from(spec.channels))?;
-        loop {
-            let position = reader.stream_position().ok()?;
-            if position.checked_add(8)? > data_start {
-                return None;
-            }
-            let mut header = [0_u8; 8];
-            reader.read_exact(&mut header).ok()?;
-            let size = u64::from(u32::from_le_bytes(header[4..].try_into().ok()?));
-            if &header[..4] == b"fmt " {
-                if size < 16 {
-                    return None;
-                }
-                let mut format = [0_u8; 16];
-                reader.read_exact(&mut format).ok()?;
-                let alignment = u64::from(u16::from_le_bytes([format[12], format[13]]));
-                if alignment != expected_alignment {
-                    return None;
-                }
-                break;
-            }
-            let next = position
-                .checked_add(8)?
-                .checked_add(size)?
-                .checked_add(size % 2)?;
-            if next > data_start {
-                return None;
-            }
-            reader.seek(SeekFrom::Start(next)).ok()?;
-        }
+        let bytes_per_sample = packed_sample_bytes(spec)?;
+        let data_start =
+            checked_data_extent(&mut reader, samples, bytes_per_sample, metadata.len())?;
+        check_block_alignment(&mut reader, spec, bytes_per_sample, data_start)?;
         reader.rewind().ok()?;
         let inner = WavReader::new(reader).ok()?;
         Some(Self {
@@ -177,10 +212,12 @@ impl WavStreamReader {
         Ok(())
     }
 
+    /// Sample rate in Hz from the WAV header.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
+    /// Number of interleaved samples in each frame.
     pub fn channels(&self) -> u16 {
         self.channels
     }

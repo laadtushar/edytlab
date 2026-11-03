@@ -947,6 +947,42 @@ fn emit_frames(
     }
 }
 
+/// Check one contributing source without advancing it. A failed check retains
+/// the legacy prefix path for the entire render, including earlier clips.
+fn seekable_reader(
+    plan: &TrackPlan,
+    output_identity: Option<&session::live::Identity>,
+    project_rate: u32,
+    channels: usize,
+) -> Option<WavStreamReader> {
+    if plan.effects.iter().any(|effect| !effect.bypassed) {
+        return None;
+    }
+    // `identify` opens the source, so check its kind before that open as
+    // well as inside `open_seekable`; a FIFO must go straight to the
+    // legacy reader. Like the output check, this is point-in-time.
+    if !std::fs::metadata(&plan.source_path).ok()?.is_file() {
+        return None;
+    }
+    if let Some(output) = output_identity {
+        let source = session::live::identify(&plan.source_path).ok()?;
+        if source.id() == output.id() {
+            return None;
+        }
+    }
+    let reader = WavStreamReader::open_seekable(&plan.source_path)?;
+    if reader.sample_rate() != project_rate {
+        return None;
+    }
+    let input_channels = usize::from(reader.channels());
+    if input_channels != channels && input_channels != 1 && channels != 1 {
+        // A clip that ends before the range can still trigger an
+        // unsupported mapping while the legacy path warms its prefix.
+        return None;
+    }
+    Some(reader)
+}
+
 /// Return positioned streamers only when every contributing clip can be
 /// advanced without losing effect history or changing decoder behaviour.
 /// New effect kinds are ineligible by default; only bypassed entries are
@@ -985,31 +1021,7 @@ fn seekable_streamers(
             readers.push(None);
             continue;
         }
-        if plan.effects.iter().any(|effect| !effect.bypassed) {
-            return None;
-        }
-        // `identify` opens the source, so check its kind before that open as
-        // well as inside `open_seekable`; a FIFO must go straight to the
-        // legacy reader. Like the output check, this is point-in-time.
-        if !std::fs::metadata(&plan.source_path).ok()?.is_file() {
-            return None;
-        }
-        if let Some(output) = &output_identity {
-            let source = session::live::identify(&plan.source_path).ok()?;
-            if source.id() == output.id() {
-                return None;
-            }
-        }
-        let reader = WavStreamReader::open_seekable(&plan.source_path)?;
-        if reader.sample_rate() != project_rate {
-            return None;
-        }
-        let input_channels = usize::from(reader.channels());
-        if input_channels != channels && input_channels != 1 && channels != 1 {
-            // A clip that ends before the range can still trigger an
-            // unsupported mapping while the legacy path warms its prefix.
-            return None;
-        }
+        let reader = seekable_reader(plan, output_identity.as_ref(), project_rate, channels)?;
         readers.push(Some(reader));
     }
 
@@ -1032,17 +1044,9 @@ fn seekable_streamers(
     Some(streamers)
 }
 
-fn render_streaming(
-    state: &SessionState,
-    graph: &RenderGraph,
-    out: &Path,
-    range: Option<TimeRange>,
-    cancel: &dyn Fn() -> bool,
-) -> Result<RenderOutcome, Error> {
-    // Recompute any_solo here so should_include_track can act as a secondary
-    // gate inside the mix loop (the primary gate is plan.contributes, which
-    // graph::build already resolves). Both gates must agree by construction.
-    let any_solo = state.tracks.iter().any(|t| t.soloed);
+/// Inspect source headers in graph order, retaining the original error order
+/// and reader lifetimes, to size the render without decoding samples.
+fn streaming_dimensions(graph: &RenderGraph) -> Result<(u16, u64), Error> {
     // Figure out the project-side channel count (max of contributing
     // sources) without decoding any audio. We peek WAV headers via the
     // streaming reader's metadata.
@@ -1093,10 +1097,298 @@ fn render_streaming(
     // consumed" and we want consumption from zero.
     drop(openers);
 
-    let project_rate = graph.project_sample_rate;
-    let chans = max_channels as usize;
+    Ok((max_channels, total_project_frames))
+}
 
-    let total_frames = total_project_frames as usize;
+fn open_streamers(
+    graph: &RenderGraph,
+    project_rate: u32,
+    chans: usize,
+) -> Result<Vec<Option<TrackStreamer>>, Error> {
+    let mut streamers = Vec::with_capacity(graph.tracks.len());
+    for plan in &graph.tracks {
+        if !plan.contributes || plan.length == 0 {
+            streamers.push(None);
+            continue;
+        }
+        streamers.push(Some(TrackStreamer::open(plan, project_rate, chans)?));
+    }
+    Ok(streamers)
+}
+
+/// One effect chain per track, shared across its clips and render chunks.
+struct StreamingTracks {
+    streamers: Vec<Option<TrackStreamer>>,
+    track_mixes: Vec<TrackMix>,
+    track_chunk: Vec<f32>,
+    track_acc: Vec<f32>,
+    chans: usize,
+}
+
+impl StreamingTracks {
+    fn new(
+        plans: &[TrackPlan],
+        streamers: Vec<Option<TrackStreamer>>,
+        project_rate: u32,
+        chans: usize,
+        chunk_frames: usize,
+    ) -> Self {
+        // Per-track scratch (one per call to `next_chunk`) sized for
+        // `chunk_frames * chans`. Preallocated once and reused across master
+        // chunks AND tracks, since track streamers run sequentially.
+        let track_chunk = vec![0.0f32; chunk_frames * chans];
+        // Where a track's clips are summed before its chain and pan run.
+        // Separate from `track_chunk` because both are live at once: clips
+        // land in the scratch and accumulate here.
+        let track_acc = vec![0.0f32; chunk_frames * chans];
+
+        // Plan entries are per *clip*, so several of them can name the same
+        // track. Group them into one `TrackMix` each — one effect chain per
+        // track, shared by all of that track's streamers, which is the whole
+        // of #243. First-appearance order is graph order is `state.tracks`
+        // order, so the determinism invariant is unaffected.
+        //
+        // The chains are built here, before the loop, so each keeps its
+        // state across chunks *and* across the clips of its track — the same
+        // reason bus and master chains persist across chunks. Every entry
+        // in a group carries the same track's `effects` and `pan`, so the
+        // first one speaks for the group.
+        let groups = group_by_track(plans);
+        let mut track_mixes: Vec<TrackMix> = Vec::with_capacity(groups.len());
+        for (track_index, entries) in groups {
+            // A group with no live streamer is a track that does not reach
+            // the mix — muted, un-soloed, or zero-length. Its chain is not
+            // built, which is an optimisation now and was more than that
+            // before #520: `build` used to reject an unknown or
+            // non-streamable effect kind, and that error failed the whole
+            // render. Before the clips were grouped, the chain was built
+            // inside `TrackStreamer::open`, which these plans never reached
+            // — so building one here would have newly broken a render over
+            // an effect on a track nobody can hear. Caught in review on
+            // #312.
+            if !entries.iter().any(|&pi| streamers[pi].is_some()) {
+                continue;
+            }
+            let plan = &plans[entries[0]];
+            track_mixes.push(TrackMix {
+                track_index,
+                effects: crate::effect_chain::build(&plan.effects, project_rate, chans),
+                pan: pan_gains(plan.pan),
+                entries,
+            });
+        }
+
+        Self {
+            streamers,
+            track_mixes,
+            track_chunk,
+            track_acc,
+            chans,
+        }
+    }
+
+    // Warm only track chains. Bus and master chains are created afterward,
+    // matching the legacy prefix path; they are not warmed here.
+    fn warm_prefix(
+        &mut self,
+        start_frame: usize,
+        chunk_frames: usize,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<bool, Error> {
+        let chans = self.chans;
+        let mut to_skip = start_frame;
+        while to_skip > 0 {
+            if cancel() {
+                return Ok(false);
+            }
+            let step = to_skip.min(chunk_frames);
+            for mix in self.track_mixes.iter_mut() {
+                mix.render_chunk(
+                    &mut self.streamers,
+                    step,
+                    chans,
+                    &mut self.track_chunk,
+                    &mut self.track_acc,
+                )?;
+            }
+            to_skip -= step;
+        }
+        Ok(true)
+    }
+
+    fn mix_chunk(
+        &mut self,
+        state: &SessionState,
+        any_solo: bool,
+        this_chunk: usize,
+        dst: &mut [f32],
+        buses: &mut StreamingBuses,
+    ) -> Result<(), Error> {
+        let chans = self.chans;
+        // Sum each track's contribution. Track order is graph order ==
+        // state.tracks insertion order. Per-sample summation order is fixed
+        // by track index, then by interleaved sample index. See determinism
+        // invariant.
+        for mix in self.track_mixes.iter_mut() {
+            // Secondary mute/solo gate — primary is plan.contributes resolved
+            // at graph-build time; this call ensures the predicate is live
+            // and exercised so dead-code elimination cannot remove it.
+            // A plan entry is one *clip*, so its position no longer names a
+            // track; the owning index travels on the plan.
+            let track = &state.tracks[mix.track_index];
+            if !should_include_track(track.muted, track.soloed, any_solo) {
+                continue;
+            }
+            // One call per track, not per clip: the clips are summed
+            // inside, then the track's chain and pan run on the sum.
+            if !mix.render_chunk(
+                &mut self.streamers,
+                this_chunk,
+                chans,
+                &mut self.track_chunk,
+                &mut self.track_acc,
+            )? {
+                continue;
+            }
+            let n = this_chunk * chans;
+            for (sample, track_sample) in dst[..n].iter_mut().zip(&self.track_acc[..n]) {
+                *sample += *track_sample;
+            }
+
+            // Sends are parallel: the track has already gone to master
+            // at full level, and this adds a scaled copy on top. The tap
+            // is post-fader because `self.track_acc` is the finished track —
+            // gain, automation, effects and pan all applied.
+            for &(bus_index, level) in &buses.track_sends[mix.track_index] {
+                let bus = &mut buses.chunks[bus_index];
+                for (sample, track_sample) in bus[..n].iter_mut().zip(&self.track_acc[..n]) {
+                    *sample += *track_sample * level;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Parallel sends and their persistent bus chains in declaration order.
+struct StreamingBuses {
+    chains: Vec<Vec<Box<dyn audio_dsp::Processor>>>,
+    chunks: Vec<Vec<f32>>,
+    track_sends: Vec<Vec<(usize, f32)>>,
+}
+
+impl StreamingBuses {
+    fn new(
+        state: &SessionState,
+        project_rate: u32,
+        chans: usize,
+        chunk_frames: usize,
+    ) -> Result<Self, Error> {
+        // Bus routing. Each bus gets a scratch buffer and its own effect
+        // chain, both built once so the chains keep state across chunks —
+        // same reason the master chain persists across chunks.
+        //
+        // A send naming a bus that does not exist is an error rather than a
+        // skipped send: dropping it silently would mean the mix is missing
+        // a signal path the session says is there, which is the failure
+        // `master_chain` had before #110.
+        // Inferred rather than annotated so this crate doesn't take a
+        // `uuid` dependency for one type name.
+        let bus_ids: Vec<_> = state.bus_routing.buses.iter().map(|b| b.id).collect();
+        for track in &state.tracks {
+            for send in &track.sends {
+                if !bus_ids.contains(&send.bus_id) {
+                    return Err(Error::UnknownBus(send.bus_id.to_string()));
+                }
+            }
+        }
+        let bus_chains: Vec<Vec<Box<dyn audio_dsp::Processor>>> = state
+            .bus_routing
+            .buses
+            .iter()
+            .map(|b| crate::effect_chain::build(&b.effects, project_rate, chans))
+            .collect();
+        let bus_chunks: Vec<Vec<f32>> = vec![vec![0.0; chunk_frames * chans]; bus_ids.len()];
+
+        // Per-track send levels, resolved to bus indices once rather than
+        // looked up by uuid inside the sample loop.
+        let track_sends: Vec<Vec<(usize, f32)>> = state
+            .tracks
+            .iter()
+            .map(|t| {
+                t.sends
+                    .iter()
+                    .filter_map(|s| {
+                        bus_ids
+                            .iter()
+                            .position(|id| *id == s.bus_id)
+                            .map(|i| (i, 10.0f32.powf(s.level_db / 20.0)))
+                    })
+                    .collect()
+            })
+            .collect();
+
+        Ok(Self {
+            chains: bus_chains,
+            chunks: bus_chunks,
+            track_sends,
+        })
+    }
+
+    fn clear(&mut self, this_chunk: usize, chans: usize) {
+        for bus in self.chunks.iter_mut() {
+            for v in bus[..this_chunk * chans].iter_mut() {
+                *v = 0.0;
+            }
+        }
+    }
+
+    fn mix_into_master(&mut self, this_chunk: usize, chans: usize, dst: &mut [f32]) {
+        // Bus chains, then buses into master. Declaration order
+        // throughout, per the determinism invariant.
+        for (bus_index, chain) in self.chains.iter_mut().enumerate() {
+            let bus = &mut self.chunks[bus_index][..this_chunk * chans];
+            for processor in chain.iter_mut() {
+                processor.process(bus, chans);
+            }
+            for i in 0..bus.len() {
+                dst[i] += bus[i];
+            }
+        }
+    }
+}
+
+fn write_streaming_chunk(
+    writer: &mut WavWriter<std::io::BufWriter<std::fs::File>>,
+    dst: &[f32],
+    peak: &mut f32,
+) -> Result<(), Error> {
+    // Quantize and write this chunk; track running peak.
+    for &s in dst.iter() {
+        let abs = s.abs();
+        if abs > *peak {
+            *peak = abs;
+        }
+        let q = (s * 32_768.0)
+            .round()
+            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+        writer.write_sample(q)?;
+    }
+    Ok(())
+}
+
+/// Set up either positioned sources or the legacy readers before validating
+/// the range, preserving the original opening and error order.
+fn range_streamers(
+    state: &SessionState,
+    graph: &RenderGraph,
+    chans: usize,
+    total_frames: usize,
+    out: &Path,
+    range: Option<TimeRange>,
+) -> Result<(Vec<Option<TrackStreamer>>, bool), Error> {
+    let project_rate = graph.project_sample_rate;
     // Keep the old setup and error ordering for invalid ranges: the legacy
     // path opens and skips each clip before it validates the range.
     let seek_start = range
@@ -1107,19 +1399,33 @@ fn render_streaming(
         .and_then(|start| seekable_streamers(state, graph, project_rate, chans, start, out));
     let sought = fast_streamers.is_some();
     // Track index -> Option mirrors `graph.tracks`, preserving mix order.
-    let mut streamers = if let Some(streamers) = fast_streamers {
+    let streamers = if let Some(streamers) = fast_streamers {
         streamers
     } else {
-        let mut streamers = Vec::with_capacity(graph.tracks.len());
-        for plan in &graph.tracks {
-            if !plan.contributes || plan.length == 0 {
-                streamers.push(None);
-                continue;
-            }
-            streamers.push(Some(TrackStreamer::open(plan, project_rate, chans)?));
-        }
-        streamers
+        open_streamers(graph, project_rate, chans)?
     };
+
+    Ok((streamers, sought))
+}
+
+fn render_streaming(
+    state: &SessionState,
+    graph: &RenderGraph,
+    out: &Path,
+    range: Option<TimeRange>,
+    cancel: &dyn Fn() -> bool,
+) -> Result<RenderOutcome, Error> {
+    // Recompute any_solo here so should_include_track can act as a secondary
+    // gate inside the mix loop (the primary gate is plan.contributes, which
+    // graph::build already resolves). Both gates must agree by construction.
+    let any_solo = state.tracks.iter().any(|t| t.soloed);
+    let (max_channels, total_project_frames) = streaming_dimensions(graph)?;
+
+    let project_rate = graph.project_sample_rate;
+    let chans = max_channels as usize;
+
+    let total_frames = total_project_frames as usize;
+    let (streamers, sought) = range_streamers(state, graph, chans, total_frames, out, range)?;
 
     let (start_frame, end_frame) = resolve_range(range, total_frames)?;
     let frames_to_write = end_frame - start_frame;
@@ -1138,124 +1444,13 @@ fn render_streaming(
 
     let chunk_frames = master_chunk_frames(project_rate);
     let mut master_chunk = vec![0.0f32; chunk_frames * chans];
-    // Per-track scratch (one per call to `next_chunk`) sized for
-    // `chunk_frames * chans`. Preallocated once and reused across master
-    // chunks AND tracks, since track streamers run sequentially.
-    let mut track_chunk = vec![0.0f32; chunk_frames * chans];
-    // Where a track's clips are summed before its chain and pan run.
-    // Separate from `track_chunk` because both are live at once: clips
-    // land in the scratch and accumulate here.
-    let mut track_acc = vec![0.0f32; chunk_frames * chans];
-
-    // Plan entries are per *clip*, so several of them can name the same
-    // track. Group them into one `TrackMix` each — one effect chain per
-    // track, shared by all of that track's streamers, which is the whole
-    // of #243. First-appearance order is graph order is `state.tracks`
-    // order, so the determinism invariant is unaffected.
-    //
-    // The chains are built here, before the loop, so each keeps its
-    // state across chunks *and* across the clips of its track — the same
-    // reason the bus and master chains below are built here. Every entry
-    // in a group carries the same track's `effects` and `pan`, so the
-    // first one speaks for the group.
-    let groups = group_by_track(&graph.tracks);
-    let mut track_mixes: Vec<TrackMix> = Vec::with_capacity(groups.len());
-    for (track_index, entries) in groups {
-        // A group with no live streamer is a track that does not reach
-        // the mix — muted, un-soloed, or zero-length. Its chain is not
-        // built, which is an optimisation now and was more than that
-        // before #520: `build` used to reject an unknown or
-        // non-streamable effect kind, and that error failed the whole
-        // render. Before the clips were grouped, the chain was built
-        // inside `TrackStreamer::open`, which these plans never reached
-        // — so building one here would have newly broken a render over
-        // an effect on a track nobody can hear. Caught in review on
-        // #312.
-        if !entries.iter().any(|&pi| streamers[pi].is_some()) {
-            continue;
-        }
-        let plan = &graph.tracks[entries[0]];
-        track_mixes.push(TrackMix {
-            track_index,
-            effects: crate::effect_chain::build(&plan.effects, project_rate, chans),
-            pan: pan_gains(plan.pan),
-            entries,
-        });
+    let mut tracks =
+        StreamingTracks::new(&graph.tracks, streamers, project_rate, chans, chunk_frames);
+    if start_frame > 0 && !sought && !tracks.warm_prefix(start_frame, chunk_frames, cancel)? {
+        return Ok(RenderOutcome::Cancelled);
     }
 
-    // Fast-forward all streamers past the master start frame. We do this by
-    // discarding the first `start_frame` project frames track-by-track.
-    // Since the spec keeps `range` defaulted to `None` for normal renders,
-    // this loop is a no-op for the common case.
-    //
-    // The chains run here too, on output that is then thrown away: a
-    // range render starting at 0:10 must arrive at that frame with the
-    // filter state it would have had, or the first frames written come
-    // from a delay line that has seen nothing. That was true before
-    // #243, when the chains lived inside the streamers this loop pumps.
-    if start_frame > 0 && !sought {
-        let mut to_skip = start_frame;
-        while to_skip > 0 {
-            if cancel() {
-                return Ok(RenderOutcome::Cancelled);
-            }
-            let step = to_skip.min(chunk_frames);
-            for mix in track_mixes.iter_mut() {
-                mix.render_chunk(
-                    &mut streamers,
-                    step,
-                    chans,
-                    &mut track_chunk,
-                    &mut track_acc,
-                )?;
-            }
-            to_skip -= step;
-        }
-    }
-
-    // Bus routing. Each bus gets a scratch buffer and its own effect
-    // chain, both built once so the chains keep state across chunks —
-    // same reason as the master chain below.
-    //
-    // A send naming a bus that does not exist is an error rather than a
-    // skipped send: dropping it silently would mean the mix is missing
-    // a signal path the session says is there, which is the failure
-    // `master_chain` had before #110.
-    // Inferred rather than annotated so this crate doesn't take a
-    // `uuid` dependency for one type name.
-    let bus_ids: Vec<_> = state.bus_routing.buses.iter().map(|b| b.id).collect();
-    for track in &state.tracks {
-        for send in &track.sends {
-            if !bus_ids.contains(&send.bus_id) {
-                return Err(Error::UnknownBus(send.bus_id.to_string()));
-            }
-        }
-    }
-    let mut bus_chains: Vec<Vec<Box<dyn audio_dsp::Processor>>> = state
-        .bus_routing
-        .buses
-        .iter()
-        .map(|b| crate::effect_chain::build(&b.effects, project_rate, chans))
-        .collect();
-    let mut bus_chunks: Vec<Vec<f32>> = vec![vec![0.0; chunk_frames * chans]; bus_ids.len()];
-
-    // Per-track send levels, resolved to bus indices once rather than
-    // looked up by uuid inside the sample loop.
-    let track_sends: Vec<Vec<(usize, f32)>> = state
-        .tracks
-        .iter()
-        .map(|t| {
-            t.sends
-                .iter()
-                .filter_map(|s| {
-                    bus_ids
-                        .iter()
-                        .position(|id| *id == s.bus_id)
-                        .map(|i| (i, 10.0f32.powf(s.level_db / 20.0)))
-                })
-                .collect()
-        })
-        .collect();
+    let mut buses = StreamingBuses::new(state, project_rate, chans, chunk_frames)?;
 
     // The master chain, instantiated once so its processors keep their
     // state across chunks. Built before the loop rather than inside it
@@ -1282,65 +1477,9 @@ fn render_streaming(
         for v in dst.iter_mut() {
             *v = 0.0;
         }
-        for bus in bus_chunks.iter_mut() {
-            for v in bus[..this_chunk * chans].iter_mut() {
-                *v = 0.0;
-            }
-        }
-
-        // Sum each track's contribution. Track order is graph order ==
-        // state.tracks insertion order. Per-sample summation order is fixed
-        // by track index, then by interleaved sample index. See determinism
-        // invariant.
-        for mix in track_mixes.iter_mut() {
-            // Secondary mute/solo gate — primary is plan.contributes resolved
-            // at graph-build time; this call ensures the predicate is live
-            // and exercised so dead-code elimination cannot remove it.
-            // A plan entry is one *clip*, so its position no longer names a
-            // track; the owning index travels on the plan.
-            let track = &state.tracks[mix.track_index];
-            if !should_include_track(track.muted, track.soloed, any_solo) {
-                continue;
-            }
-            // One call per track, not per clip: the clips are summed
-            // inside, then the track's chain and pan run on the sum.
-            if !mix.render_chunk(
-                &mut streamers,
-                this_chunk,
-                chans,
-                &mut track_chunk,
-                &mut track_acc,
-            )? {
-                continue;
-            }
-            let n = this_chunk * chans;
-            for i in 0..n {
-                dst[i] += track_acc[i];
-            }
-
-            // Sends are parallel: the track has already gone to master
-            // at full level, and this adds a scaled copy on top. The tap
-            // is post-fader because `track_acc` is the finished track —
-            // gain, automation, effects and pan all applied.
-            for &(bus_index, level) in &track_sends[mix.track_index] {
-                let bus = &mut bus_chunks[bus_index];
-                for i in 0..n {
-                    bus[i] += track_acc[i] * level;
-                }
-            }
-        }
-
-        // Bus chains, then buses into master. Declaration order
-        // throughout, per the determinism invariant.
-        for (bus_index, chain) in bus_chains.iter_mut().enumerate() {
-            let bus = &mut bus_chunks[bus_index][..this_chunk * chans];
-            for processor in chain.iter_mut() {
-                processor.process(bus, chans);
-            }
-            for i in 0..bus.len() {
-                dst[i] += bus[i];
-            }
-        }
+        buses.clear(this_chunk, chans);
+        tracks.mix_chunk(state, any_solo, this_chunk, dst, &mut buses)?;
+        buses.mix_into_master(this_chunk, chans, dst);
 
         // Master chain, in declaration order — see the determinism
         // invariant. Runs after the sum and before the peak, so the
@@ -1349,17 +1488,7 @@ fn render_streaming(
             processor.process(dst, chans);
         }
 
-        // Quantize and write this chunk; track running peak.
-        for &s in dst.iter() {
-            let abs = s.abs();
-            if abs > peak {
-                peak = abs;
-            }
-            let q = (s * 32_768.0)
-                .round()
-                .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-            writer.write_sample(q)?;
-        }
+        write_streaming_chunk(&mut writer, dst, &mut peak)?;
 
         frames_remaining -= this_chunk;
     }
