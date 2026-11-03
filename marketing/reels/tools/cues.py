@@ -50,7 +50,11 @@ SPEECH_FILE = f"{ROOT}/work/speech.json"
 
 def load_speech():
     """spoken text -> seconds from the clip start to the end of the last word (written by narrate.py)."""
-    return json.load(open(SPEECH_FILE)) if os.path.exists(SPEECH_FILE) else {}
+    path = checked_reel_path(SPEECH_FILE)
+    if not os.path.exists(path):
+        return {}
+    with open(path) as source:
+        return json.load(source)
 
 
 def clamp(x, lo, hi):

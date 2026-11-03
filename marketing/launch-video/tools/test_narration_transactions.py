@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import multiprocessing
+import subprocess
 from pathlib import Path
 import tempfile
 import time
@@ -29,11 +30,11 @@ def generate_worker(folder, start):
         time.sleep(0.1)
         return 200, RESPONSE
 
-    with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')):
-        with mock.patch.object(narrate, 'curl', side_effect=service):
-            with contextlib.redirect_stdout(io.StringIO()):
-                start.wait(5)
-                narrate.gen(str(folder / 'lines.json'), str(folder / 'takes'), 1)
+    with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')), \
+            mock.patch.object(narrate, 'curl', side_effect=service), \
+            contextlib.redirect_stdout(io.StringIO()):
+        start.wait(5)
+        narrate.gen(str(folder / 'lines.json'), str(folder / 'takes'), 1)
 
 
 def hold_lock_worker(folder, acquired):
@@ -61,9 +62,9 @@ class NarrationTransactions(unittest.TestCase):
 
     def generate(self):
         """Run with a service mock supplied by each individual test."""
-        with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')):
-            with contextlib.redirect_stdout(io.StringIO()):
-                narrate.gen(str(self.lines), str(self.takes), 1)
+        with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')), \
+                contextlib.redirect_stdout(io.StringIO()):
+            narrate.gen(str(self.lines), str(self.takes), 1)
 
     def test_concurrent_generators_make_one_paid_request(self):
         """Two independent generators must publish one matching take and ledger entry."""
@@ -117,13 +118,71 @@ class NarrationTransactions(unittest.TestCase):
     def test_explicit_error_retry_compatibility_does_not_assume_free_billing(self):
         """Keep the original context fallback and later explicit-error retries."""
         self.lines.write_text(json.dumps([dict(id='line', text='hi', prev='before')]))
-        for code in (0, 400, 500):
+        for code in (400, 500):
             with self.subTest(code=code):
                 with mock.patch.object(narrate, 'curl', return_value=(code, 'error')) as service:
                     self.generate()
                     self.generate()
                     self.assertEqual(service.call_count, 4)
-                self.assertFalse(list(self.takes.glob('*.request')))
+                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+                self.assertFalse(store.state_file(paths, 'request').exists())
+
+    def test_transport_loss_preserves_marker_without_context_or_later_retry(self):
+        """A lost first response cannot trigger a second potentially paid request."""
+        for context in ({}, {'prev': 'before', 'next': 'after'}):
+            with self.subTest(context=context):
+                self.lines.write_text(json.dumps([dict(id='line', text='hi', **context)]))
+                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+                request = store.state_file(paths, 'request')
+                with mock.patch.object(narrate, 'curl', return_value=(0, '')) as service:
+                    with self.assertRaisesRegex(SystemExit, 'No HTTP response was received') as error:
+                        self.generate()
+                    self.assertIn(str(request), str(error.exception))
+                    marker = request.read_bytes()
+                    with self.assertRaisesRegex(SystemExit, 'Uncertain paid narration request'):
+                        self.generate()
+                    self.assertEqual(service.call_count, 1)
+                    self.assertEqual(request.read_bytes(), marker)
+                self.assertEqual(json.loads(marker)['text'], 'hi')
+                self.assertFalse(any(path.exists() for path in paths))
+                self.assertFalse(store.state_file(paths, 'response').exists())
+                # The synthetic provider reconciles this subcase before the next one.
+                request.unlink()
+
+    def test_curl_timeout_without_http_response_keeps_reconciliation_marker(self):
+        """Exercise curl's HTTP000 parser after a timeout, without calling a provider."""
+        self.lines.write_text(json.dumps([dict(id='line', text='hi', prev='before')]))
+        paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+        request = store.state_file(paths, 'request')
+        timeout = subprocess.CompletedProcess([], 28, stdout="\n000", stderr="request timed out")
+        with mock.patch.dict(narrate.os.environ, {'ELEVENLABS_API_KEY': 'synthetic-fixture-key'}), \
+                mock.patch.object(narrate.subprocess, 'run', return_value=timeout) as process:
+            with self.assertRaisesRegex(SystemExit, 'No HTTP response was received'):
+                self.generate()
+            marker = request.read_bytes()
+            with self.assertRaisesRegex(SystemExit, 'Uncertain paid narration request'):
+                self.generate()
+            self.assertEqual(process.call_count, 1)
+            self.assertEqual(request.read_bytes(), marker)
+        self.assertFalse(any(path.exists() for path in paths))
+
+    def test_transport_loss_during_context_fallback_stops_later_retries(self):
+        """An explicit error permits fallback, but a lost fallback response does not."""
+        self.lines.write_text(json.dumps([dict(id='line', text='hi', prev='before')]))
+        for code in (400, 500):
+            with self.subTest(code=code):
+                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+                request = store.state_file(paths, 'request')
+                with mock.patch.object(narrate, 'curl', side_effect=[(code, 'error'), (0, '')]) as service:
+                    with self.assertRaisesRegex(SystemExit, 'No HTTP response was received'):
+                        self.generate()
+                    marker = request.read_bytes()
+                    with self.assertRaisesRegex(SystemExit, 'Uncertain paid narration request'):
+                        self.generate()
+                    self.assertEqual(service.call_count, 2)
+                    self.assertEqual(request.read_bytes(), marker)
+                self.assertFalse(any(path.exists() for path in paths))
+                request.unlink()
 
     def test_interrupted_take_publication_recovers_without_recharging(self):
         """A prepared response replays every output after an interrupted replacement."""
@@ -137,9 +196,9 @@ class NarrationTransactions(unittest.TestCase):
             return replace(source, destination)
 
         with mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)) as service:
-            with mock.patch.object(store.os, 'replace', side_effect=stop_at_alignment):
-                with self.assertRaises(OSError):
-                    self.generate()
+            with mock.patch.object(store.os, 'replace', side_effect=stop_at_alignment), \
+                    self.assertRaises(OSError):
+                self.generate()
             self.generate()
             self.assertEqual(service.call_count, 1)
         self.assertEqual((self.takes / 'line_t1.mp3').read_bytes(), b'ABC')
@@ -150,9 +209,9 @@ class NarrationTransactions(unittest.TestCase):
     def test_saved_response_recovers_before_any_publication(self):
         """A receipt survives failure before staging starts."""
         with mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)) as service:
-            with mock.patch.object(narrate, '_save_take', side_effect=OSError('disk unavailable')):
-                with self.assertRaises(OSError):
-                    self.generate()
+            with mock.patch.object(narrate, '_save_take', side_effect=OSError('disk unavailable')), \
+                    self.assertRaises(OSError):
+                self.generate()
             self.generate()
             self.assertEqual(service.call_count, 1)
         self.assertEqual((self.takes / 'line_t1.mp3').read_bytes(), b'ABC')
@@ -173,9 +232,9 @@ class NarrationTransactions(unittest.TestCase):
         paths = [self.folder / 'narr.json', self.folder / 'narr.srt']
         for path in paths:
             path.write_bytes(b'old')
-        with mock.patch.object(store, 'write_state', side_effect=OSError('interrupted staging')):
-            with self.assertRaises(OSError):
-                store.publish(paths, [b'new json', b'new srt'])
+        with mock.patch.object(store, 'write_state', side_effect=OSError('interrupted staging')), \
+                self.assertRaises(OSError):
+            store.publish(paths, [b'new json', b'new srt'])
         self.assertFalse(store.recover(paths))
         self.assertEqual([path.read_bytes() for path in paths], [b'old', b'old'])
 
@@ -192,20 +251,20 @@ class NarrationTransactions(unittest.TestCase):
                 raise OSError('simulated interruption')
             return replace(source, destination)
 
-        with mock.patch.object(store.os, 'replace', side_effect=stop_at_subtitles):
-            with self.assertRaises(OSError):
-                store.publish(paths, [b'new json', b'new srt'])
-        with mock.patch.object(narrate, 'best_take', side_effect=RuntimeError('bad media')):
-            with self.assertRaises(RuntimeError):
-                narrate.pick(str(self.lines), str(self.takes), str(paths[0]))
+        with mock.patch.object(store.os, 'replace', side_effect=stop_at_subtitles), \
+                self.assertRaises(OSError):
+            store.publish(paths, [b'new json', b'new srt'])
+        with mock.patch.object(narrate, 'best_take', side_effect=RuntimeError('bad media')), \
+                self.assertRaises(RuntimeError):
+            narrate.pick(str(self.lines), str(self.takes), str(paths[0]))
         self.assertEqual([path.read_bytes() for path in paths], [b'new json', b'new srt'])
 
     def test_interrupted_cleanup_keeps_published_outputs_and_discards_staging(self):
         """Cleanup may be retried after readiness has been removed."""
         paths = [self.folder / 'narr.json', self.folder / 'narr.srt']
-        with mock.patch.object(store.shutil, 'rmtree', side_effect=OSError('interrupted cleanup')):
-            with self.assertRaises(OSError):
-                store.publish(paths, [b'json', b'srt'])
+        with mock.patch.object(store.shutil, 'rmtree', side_effect=OSError('interrupted cleanup')), \
+                self.assertRaises(OSError):
+            store.publish(paths, [b'json', b'srt'])
         self.assertFalse(store.recover(paths))
         self.assertEqual([path.read_bytes() for path in paths], [b'json', b'srt'])
 
@@ -220,9 +279,9 @@ class NarrationTransactions(unittest.TestCase):
             dict(id='missing', text='missing', t=3, win=1)]))
         output = self.folder / 'narr.json'
         stdout = io.StringIO()
-        with mock.patch.object(narrate, 'dur', return_value=0.3):
-            with contextlib.redirect_stdout(stdout):
-                narrate.pick(str(self.lines), str(self.takes), str(output))
+        with mock.patch.object(narrate, 'dur', return_value=0.3), \
+                contextlib.redirect_stdout(stdout):
+            narrate.pick(str(self.lines), str(self.takes), str(output))
         chosen = json.loads(output.read_text())
         self.assertEqual([line['text'] for line in chosen], ['first', 'second'])
         # The original JSON preserves the supplied directory spelling and

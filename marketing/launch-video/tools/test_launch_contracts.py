@@ -64,21 +64,21 @@ class LaunchCommandContracts(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('launch_contract_test', TOOLS / 'launch.py')
         launch = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(launch)
-        with tempfile.TemporaryDirectory(dir=PROJECT) as inside:
-            with tempfile.TemporaryDirectory() as outside:
-                local, external = Path(inside), Path(outside)
-                (local / 'work').symlink_to(external, target_is_directory=True)
-                builder = mock.Mock()
-                with mock.patch.object(launch, 'HERE', str(local)):
-                    with mock.patch.dict(launch.BUILDERS, {'li': builder}):
-                        with mock.patch.object(sys, 'argv', ['launch.py', 'li', 'still', '1']):
-                            with self.assertRaises(SystemExit) as refusal:
-                                launch.main()
-                self.assertIn('Refused path', str(refusal.exception))
-                self.assertIn(str(PROJECT), str(refusal.exception))
-                self.assertIn(str(local / 'work' / 'qc_li.png'), str(refusal.exception))
-                builder.assert_not_called()
-                self.assertEqual(list(external.iterdir()), [])
+        with tempfile.TemporaryDirectory(dir=PROJECT) as inside, \
+                tempfile.TemporaryDirectory() as outside:
+            local, external = Path(inside), Path(outside)
+            (local / 'work').symlink_to(external, target_is_directory=True)
+            builder = mock.Mock()
+            with mock.patch.object(launch, 'HERE', str(local)), \
+                    mock.patch.dict(launch.BUILDERS, {'li': builder}), \
+                    mock.patch.object(sys, 'argv', ['launch.py', 'li', 'still', '1']), \
+                    self.assertRaises(SystemExit) as refusal:
+                launch.main()
+            self.assertIn('Refused path', str(refusal.exception))
+            self.assertIn(str(PROJECT), str(refusal.exception))
+            self.assertIn(str(local / 'work' / 'qc_li.png'), str(refusal.exception))
+            builder.assert_not_called()
+            self.assertEqual(list(external.iterdir()), [])
 
     def test_isolated_help_succeeds_without_credentials_or_outputs(self):
         """All four tools explain their boundary from an external working directory."""

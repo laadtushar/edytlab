@@ -19,7 +19,7 @@ import json
 import os
 import subprocess
 import sys
-if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
     print(__doc__)
     print("EDYTLAB_REEL_ROOT and local input/output paths must resolve inside marketing/reels. "
           "Copy external files (including /tmp inputs) into the project first.")

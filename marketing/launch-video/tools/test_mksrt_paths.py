@@ -182,9 +182,9 @@ class NarrationPaths(unittest.TestCase):
                 raise failure
             return subprocess.CompletedProcess(['ffprobe'], 1, '', 'Invalid media')
 
-        with mock.patch.object(narrate.subprocess, 'run', side_effect=failed_probe):
-            with self.assertRaises(subprocess.CalledProcessError) as error:
-                narrate.dur(take)
+        with mock.patch.object(narrate.subprocess, 'run', side_effect=failed_probe), \
+                self.assertRaises(subprocess.CalledProcessError) as error:
+            narrate.dur(take)
         self.assertIs(error.exception, failure)
         self.assertEqual(error.exception.stderr, 'Invalid media')
 
@@ -250,14 +250,14 @@ class LaunchPaths(unittest.TestCase):
         for args in ([], ['--from'], ['--from', '1'], ['--to', '2'],
                      ['--from', '1', '--to', '2'],
                      ['--from', '1', '--from', '2'], ['--from', '1', '--to']):
-            with self.subTest(args=args):
-                with mock.patch.object(sys, 'argv', [str(LAUNCH), 'li', 'render', *args]):
-                    with mock.patch.object(launch, 'checked_output') as check_output:
-                        with mock.patch.dict(launch.BUILDERS, {'li': mock.Mock()}) as builders:
-                            with self.assertRaisesRegex(SystemExit, 'explicit output path'):
-                                launch.main()
-                            check_output.assert_not_called()
-                            builders['li'].assert_not_called()
+            with self.subTest(args=args), \
+                    mock.patch.object(sys, 'argv', [str(LAUNCH), 'li', 'render', *args]), \
+                    mock.patch.object(launch, 'checked_output') as check_output, \
+                    mock.patch.dict(launch.BUILDERS, {'li': mock.Mock()}) as builders:
+                with self.assertRaisesRegex(SystemExit, 'explicit output path'):
+                    launch.main()
+                check_output.assert_not_called()
+                builders['li'].assert_not_called()
 
     def test_valid_render_options_keep_the_destination_and_time_range(self):
         """A valid render still passes the checked target and original range."""
@@ -271,10 +271,10 @@ class LaunchPaths(unittest.TestCase):
             with self.subTest(options=options):
                 plan.reset_mock()
                 with mock.patch.object(sys, 'argv',
-                                       [str(LAUNCH), 'li', 'render', *options, str(output)]):
-                    with mock.patch.dict(launch.BUILDERS, {'li': lambda: plan}):
-                        with contextlib.redirect_stdout(io.StringIO()) as stdout:
-                            launch.main()
+                                       [str(LAUNCH), 'li', 'render', *options, str(output)]), \
+                        mock.patch.dict(launch.BUILDERS, {'li': lambda: plan}), \
+                        contextlib.redirect_stdout(io.StringIO()) as stdout:
+                    launch.main()
                 plan.piece.render.assert_called_once_with(str(output.resolve()), start, end)
                 self.assertEqual(stdout.getvalue(), str(output) + '\n')
 

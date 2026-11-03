@@ -4,7 +4,7 @@ import json
 import os
 import re
 import sys
-if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
     print(__doc__)
     raise SystemExit(0)
 

@@ -19,7 +19,7 @@ import os
 import subprocess
 import sys
 import time
-if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
     print(__doc__)
     print("EDYTLAB_REEL_ROOT and local input/output paths must resolve inside marketing/reels. "
           "Copy external files (including /tmp inputs) into the project first.")
@@ -160,18 +160,21 @@ def generate_line(text, lang=None, previous_ids=None, next_text=None, settings=N
     m = cached(text, lang)
     if m:
         return m
+    h = line_hash(text, lang, settings)
+    mp3 = f"{TTS}/{h}.mp3"
+    metadata = f"{TTS}/{h}.json"
+    for path in (mp3, metadata, LEDGER):
+        checked_reel_path(path)
     used = ledger_total()
     if used + len(text) > BUDGET:
         raise RuntimeError(f"budget: {used} used + {len(text)} would pass {BUDGET}")
     audio, al, nal, rid = tts_call(text, lang, settings, previous_ids, next_text)
     ledger_add(len(text), "tts " + text[:30])
-    h = line_hash(text, lang, settings)
-    mp3 = f"{TTS}/{h}.mp3"
     open(checked_reel_path(mp3), "wb").write(audio)
     meta = dict(hash=h, text=text, lang=lang, request_id=rid, made=time.time(), mp3=mp3, alignment=al, normalized_alignment=nal,
                 duration=ffprobe_duration(mp3), chars=len(text), used_previous_ids=bool(previous_ids), used_next_text=bool(next_text),
                 settings=settings or SETTINGS)
-    json.dump(meta, open(checked_reel_path(f"{TTS}/{h}.json"), "w"))
+    json.dump(meta, open(checked_reel_path(metadata), "w"))
     return meta
 
 
@@ -328,6 +331,8 @@ def gen_sfx():
         if os.path.exists(p):
             continue
         est = int(spec["duration_seconds"] * 40) + 5
+        for path in (LEDGER, USAGE_LOG):
+            checked_reel_path(path)
         used = ledger_total()
         if used + est > BUDGET:
             raise RuntimeError("budget")
@@ -349,7 +354,7 @@ def main():
         checkpoint("status")
         log(f"local ledger: {ledger_total()} chars sent / budget {BUDGET}")
     elif cmd == "test":
-        text = spoken_text(C.build_reel("highlights")["cues"][0]["narration"])
+        text = spoken_text(C.build_reel("highlights", narrated=True)["cues"][0]["narration"])
         nxt = spoken_text(LINES["BT05"])
         before = checkpoint("before test")
         m = generate_line(text, None, None, nxt)
@@ -358,13 +363,17 @@ def main():
         log(f"alignment: {len(al['characters'])} chars for {len(text)} sent; first/last char times {al['character_start_times_seconds'][0]:.2f}/{al['character_end_times_seconds'][-1]:.2f}; normalized_alignment present={m['normalized_alignment'] is not None}")
         log("alignment chars: " + "".join(al["characters"]))
     elif cmd == "test-speed":
-        text = spoken_text(C.build_reel("highlights")["cues"][0]["narration"])
+        p = checked_reel_path(f"{TTS}/speedtest.mp3")
+        for path in (TTS, LEDGER, OUT, USAGE_LOG):
+            checked_reel_path(path)
+        os.makedirs(checked_reel_path(TTS), exist_ok=True)
+        text = spoken_text(C.build_reel("highlights", narrated=True)["cues"][0]["narration"])
         before = subscription()[0]
         s = dict(SETTINGS, speed=1.15)
         audio, al, nal, rid = tts_call(text, None, s)
         ledger_add(len(text), "tts speed test")
-        p = checked_reel_path(f"{TTS}/speedtest.mp3")
-        open(p, "wb").write(audio)
+        with open(checked_reel_path(p), "wb") as output:
+            output.write(audio)
         checkpoint(f"test 2: speed=1.15, audio={ffprobe_duration(p):.2f}s", before)
     elif cmd == "gen":
         prev = []

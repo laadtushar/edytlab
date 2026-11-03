@@ -52,7 +52,7 @@ export interface CueFile {
 /** Refuse a silent cut when its source stretch contains audible app audio. */
 function requireSilence(file: string, cutId: string, part: Shot, segment: Seg, rate: number): void {
   if (peak(file, segment.a, segment.b) > 0.01) {
-    throw new Error(`${cutId}/${part.id}: the clip's sound is audible in ${segment.a}..${segment.b} s, but this stretch does not play it (rate ${rate}, audio ${!!part.audio})`);
+    throw new Error(`${cutId}/${part.id}: the clip's sound is audible in ${segment.a}..${segment.b} s, but this stretch does not play it (rate ${rate}, audio ${Boolean(part.audio)})`);
   }
 }
 

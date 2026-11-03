@@ -410,6 +410,7 @@ def caption_timeline(tl, work, mode, words):
 
 def write_concat(path, items):
     """Write a concat manifest with validated, safely quoted frame paths."""
+    items = [(os.fspath(png), frames) for png, frames in items]
     for png, _ in items:
         checked_reel_path(png)
         if "\n" in png or "\r" in png:

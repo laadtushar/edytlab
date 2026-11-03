@@ -1,5 +1,7 @@
 """Regression checks for untrusted cached paths and markup token boundaries."""
+import contextlib
 import importlib.util
+import io
 import itertools
 import json
 import subprocess
@@ -14,12 +16,12 @@ from unittest import mock
 
 TOOLS = Path(__file__).resolve().parent
 PROJECT = TOOLS.parent
-with mock.patch.dict(os.environ, {"EDYTLAB_REEL_ROOT": str(PROJECT)}):
-    with mock.patch.object(sys, "path", [str(TOOLS), *sys.path]):
-        import spec
-        import narrate
-        import render
-        import build
+with mock.patch.dict(os.environ, {"EDYTLAB_REEL_ROOT": str(PROJECT)}), \
+        mock.patch.object(sys, "path", [str(TOOLS), *sys.path]):
+    import spec
+    import narrate
+    import render
+    import build
 
 
 class ReelPathsTests(unittest.TestCase):
@@ -53,6 +55,25 @@ class ReelPathsTests(unittest.TestCase):
             link = self.root / "link"
             link.symlink_to(external, target_is_directory=True)
             self.assert_refused(link / "new.mp3")
+
+    def test_speech_cache_reads_local_data_and_refuses_symlink_escape(self):
+        """The timeline's derived speech cache follows the same project boundary."""
+        speech = self.root / "speech.json"
+        speech.write_text('{"spoken hook": 1.25}')
+        with mock.patch.object(narrate.C, "SPEECH_FILE", str(speech)):
+            self.assertEqual(narrate.C.load_speech(), {"spoken hook": 1.25})
+            speech.unlink()
+            self.assertEqual(narrate.C.load_speech(), {})
+            with tempfile.TemporaryDirectory() as external:
+                target = Path(external) / "speech.json"
+                target.write_text('{"outside": 3.0}')
+                speech.symlink_to(target)
+                with self.assertRaises(SystemExit) as error:
+                    narrate.C.load_speech()
+                self.assertIn("Refused path", str(error.exception))
+                self.assertIn(str(speech), str(error.exception))
+                self.assertIn(str(PROJECT), str(error.exception))
+                self.assertEqual(target.read_bytes(), b'{"outside": 3.0}')
 
     def test_prepare_rejects_cached_source_before_subprocess(self):
         """Prepare rejects cached source before subprocess."""
@@ -102,9 +123,166 @@ class ReelPathsTests(unittest.TestCase):
             self.assertTrue((audio / "R1.mp3").is_symlink())
 
 
+class PaidGenerationPathsTests(unittest.TestCase):
+    """Refuse local generation escapes before provider calls or spend updates."""
+
+    setUp = ReelPathsTests.setUp
+
+    def check_preflight(self, command, target_name):
+        """Exercise one escaped output with a provider that must never run."""
+        folder = self.root / (command + "-" + target_name)
+        folder.mkdir()
+        work, out = folder / "work", folder / "out"
+        tts = work / "tts"
+        text = "Synthetic narration"
+        digest = narrate.line_hash(text)
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external) / "untouched"
+            outside.write_bytes(b"original bytes")
+            if target_name == "out":
+                out.symlink_to(external, target_is_directory=True)
+                refused = out / "sfx"
+            elif target_name == "work":
+                work.symlink_to(external, target_is_directory=True)
+                refused = tts
+            else:
+                tts.mkdir(parents=True)
+                targets = {
+                    "mp3": tts / ("speedtest.mp3" if command == "test-speed" else digest + ".mp3"),
+                    "metadata": tts / (digest + ".json"),
+                    "ledger": work / "ledger.json",
+                    "usage": out / "usage.log",
+                }
+                refused = targets[target_name]
+                refused.parent.mkdir(parents=True, exist_ok=True)
+                refused.symlink_to(outside)
+            with mock.patch.multiple(narrate, TTS=str(tts), OUT=str(out),
+                                     LEDGER=str(work / "ledger.json"),
+                                     USAGE_LOG=str(out / "usage.log")), \
+                    mock.patch.object(narrate, "cached", return_value=None), \
+                    mock.patch.object(narrate, "tts_call") as paid, \
+                    mock.patch.object(narrate, "subscription") as subscription, \
+                    mock.patch.object(narrate, "ledger_add") as ledger, \
+                    mock.patch.object(narrate.requests, "post") as post:
+                with self.assertRaises(SystemExit) as error:
+                    if command == "generate":
+                        narrate.generate_line(text)
+                    elif command == "sfx":
+                        narrate.gen_sfx()
+                    else:
+                        with mock.patch.object(sys, "argv", ["narrate.py", command]):
+                            narrate.main()
+                self.assertIn("Refused path", str(error.exception))
+                self.assertIn(str(PROJECT), str(error.exception))
+                self.assertIn(str(refused), str(error.exception))
+                paid.assert_not_called()
+                subscription.assert_not_called()
+                ledger.assert_not_called()
+                post.assert_not_called()
+            self.assertEqual(outside.read_bytes(), b"original bytes")
+            self.assertEqual(sorted(path.name for path in Path(external).iterdir()), ["untouched"])
+
+    def test_generate_preflights_audio_metadata_and_ledger(self):
+        """Generate validates all local targets, including a symlinked work directory."""
+        for target in ("mp3", "metadata", "ledger", "work"):
+            with self.subTest(target=target):
+                self.check_preflight("generate", target)
+
+    def test_speed_preflights_audio_ledger_and_usage(self):
+        """The speed experiment validates bookkeeping before its first provider call."""
+        for target in ("mp3", "ledger", "usage", "work"):
+            with self.subTest(target=target):
+                self.check_preflight("test-speed", target)
+
+    def test_sfx_preflights_ledger_and_usage(self):
+        """Sound effects validate local bookkeeping before the paid request."""
+        for target in ("ledger", "usage", "out"):
+            with self.subTest(target=target):
+                self.check_preflight("sfx", target)
+
+
+class NarrationCliTests(unittest.TestCase):
+    """Select actual narrated cues for the provider-test commands."""
+
+    def setUp(self):
+        """Use the real timeline builder with an empty project-local speech cache."""
+        ReelPathsTests.setUp(self)
+        speech = self.root / "speech.json"
+        speech.write_text("{}")
+        speech_patch = mock.patch.object(narrate.C, "SPEECH_FILE", str(speech))
+        speech_patch.start()
+        self.addCleanup(speech_patch.stop)
+        paths_patch = mock.patch.multiple(
+            narrate, ROOT=str(self.root), TTS=str(self.root / "work/tts"),
+            OUT=str(self.root / "out"), LEDGER=str(self.root / "work/ledger.json"),
+            USAGE_LOG=str(self.root / "out/usage.log"),
+        )
+        paths_patch.start()
+        self.addCleanup(paths_patch.stop)
+        self.hook = narrate.C.build_reel("highlights", narrated=True)["cues"][0]
+        self.assertEqual(self.hook["kind"], "hook")
+        self.text = narrate.spoken_text(self.hook["narration"])
+        self.assertIn("Describe the blend. Hear the mix.", self.text)
+
+    def test_default_test_selects_spoken_narrated_hook(self):
+        """The default voice test sends the actual hook and next-line context."""
+        alignment = {
+            "characters": list(self.text),
+            "character_start_times_seconds": [0.0] * len(self.text),
+            "character_end_times_seconds": [1.25] * len(self.text),
+        }
+        metadata = {"duration": 1.25, "request_id": "synthetic-request",
+                    "alignment": alignment, "normalized_alignment": None}
+        with mock.patch.object(sys, "argv", ["narrate.py", "test"]), \
+                mock.patch.object(narrate, "generate_line", return_value=metadata) as generate, \
+                mock.patch.object(narrate, "checkpoint", return_value=100) as checkpoint, \
+                mock.patch.object(narrate, "log"), \
+                mock.patch.object(narrate.requests, "post") as post:
+            narrate.main()
+            generate.assert_called_once_with(
+                self.text, None, None, narrate.spoken_text(narrate.LINES["BT05"])
+            )
+            self.assertEqual(checkpoint.call_count, 2)
+            post.assert_not_called()
+
+    def test_speed_test_selects_spoken_hook_and_speed_settings(self):
+        """The speed test requests the real hook at 1.15 and writes returned bytes."""
+        with mock.patch.object(sys, "argv", ["narrate.py", "test-speed"]), \
+                mock.patch.object(narrate, "subscription",
+                                  return_value=(100, 1000)) as subscription, \
+                mock.patch.object(narrate, "tts_call", return_value=(
+                    b"synthetic speed audio", None, None, "synthetic-request")) as paid, \
+                mock.patch.object(narrate, "ledger_add") as ledger, \
+                mock.patch.object(narrate, "ffprobe_duration", return_value=1.25), \
+                mock.patch.object(narrate, "checkpoint") as checkpoint, \
+                mock.patch.object(narrate.requests, "post") as post:
+            narrate.main()
+            paid.assert_called_once_with(self.text, None, dict(narrate.SETTINGS, speed=1.15))
+            ledger.assert_called_once_with(len(self.text), "tts speed test")
+            subscription.assert_called_once_with()
+            checkpoint.assert_called_once_with("test 2: speed=1.15, audio=1.25s", 100)
+            post.assert_not_called()
+        self.assertEqual((self.root / "work/tts/speedtest.mp3").read_bytes(),
+                         b"synthetic speed audio")
+
+
 class RendererPathsTests(unittest.TestCase):
     """Reject renderer paths before filesystem or media operations."""
     setUp = ReelPathsTests.setUp
+
+    def test_concat_pathlike_entries_preserve_manifest_bytes(self):
+        """Path and string frame names produce the same original concat text."""
+        source = self.root / "café frame.png"
+        source.write_bytes(b"synthetic frame")
+        output = self.root / "frames.ffconcat"
+        expected = (
+            f"ffconcat version 1.0\nfile '{source}'\nduration 0.500000\n"
+            f"file '{source}'\nduration 1.000000\nfile '{source}'\n"
+        ).encode()
+        for frame in (source, str(source)):
+            with self.subTest(frame=frame):
+                render.write_concat(output, [(frame, 15), (frame, 30)])
+                self.assertEqual(output.read_bytes(), expected)
 
     def test_renderer_destinations_refused_before_work(self):
         """Renderer destinations refused before work."""
@@ -252,6 +430,33 @@ class BuildAndDocsPathsTests(unittest.TestCase):
         timing = {"A": {"words": [{"start": 0.1, "end": 0.5, "text": "Olá"}]}}
         self.assertEqual(build.write_srt(tl, timing, str(srt)), 1)
         self.assertEqual(srt.read_bytes(), "1\n00:00:00,350 --> 00:00:01,000\nOlá\n\n".encode())
+
+    def test_imports_ignore_consumer_help(self):
+        """Importing a helper must leave the caller's help flag to its own parser."""
+        output = io.StringIO()
+        with mock.patch.object(sys, "argv", ["consumer.py", "--help"]), \
+                contextlib.redirect_stdout(output):
+            docs = self.load_docs()
+            self.assertTrue(callable(docs.main))
+            for name in ("narrate", "build", "render"):
+                module_spec = importlib.util.spec_from_file_location(
+                    "reel_help_import_" + name, TOOLS / (name + ".py")
+                )
+                module = importlib.util.module_from_spec(module_spec)
+                module_spec.loader.exec_module(module)
+        self.assertEqual(output.getvalue(), "")
+
+    def test_unittest_help_reaches_its_own_parser(self):
+        """The regression suite's CLI help cannot be intercepted by imported tools."""
+        result = subprocess.run(
+            [sys.executable, str(TOOLS / "test_reel_paths.py"), "--help"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("usage: test_reel_paths.py", result.stdout)
+        self.assertIn("--failfast", result.stdout)
+        self.assertIn("test modules, classes", result.stdout)
+        self.assertNotIn("ElevenLabs narration", result.stdout)
 
     def test_docs_refuse_symlinked_inputs_and_output_paths(self):
         """Documentation checks timing, usage, ledger and each transcript destination."""

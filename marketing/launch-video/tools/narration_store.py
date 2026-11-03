@@ -10,7 +10,6 @@ import hashlib
 import errno
 import io
 import os
-from pathlib import Path
 import shutil
 import time
 

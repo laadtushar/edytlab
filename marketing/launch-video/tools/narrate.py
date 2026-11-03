@@ -157,6 +157,19 @@ def gen(lines_path, outdir, n_takes):
         _generate_lines(lines, outdir, n_takes)
 
 
+def _request_take(body, request):
+    """Keep the request marker when no HTTP response was received."""
+    code, text = curl(
+        "POST",
+        f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body,
+    )
+    if code == 0:
+        raise SystemExit(f"Uncertain paid narration request: {request}. No HTTP response "
+                         "was received; reconcile its billing and response with the provider "
+                         "before removing this marker to retry.")
+    return code, text
+
+
 def _generate_lines(lines, outdir, n_takes):
     """Generate under the directory lock, recovering each take before skipping."""
     used0, limit, tier = status()
@@ -181,17 +194,11 @@ def _generate_lines(lines, outdir, n_takes):
                 body["previous_text"] = ln["prev"]
             if ln.get("next"):
                 body["next_text"] = ln["next"]
-            code, txt = curl(
-                "POST",
-                f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body,
-            )
+            code, txt = _request_take(body, request)
             if code != 200 and ("previous_text" in body or "next_text" in body):
                 body.pop("previous_text", None)
                 body.pop("next_text", None)
-                code, txt = curl(
-                    "POST",
-                    f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body,
-                )
+                code, txt = _request_take(body, request)
             if code != 200:
                 # Preserve the original explicit-error retry behavior. An HTTP
                 # code does not establish whether the provider billed a request.

@@ -6,7 +6,7 @@ import {openBrowser, renderMedia, selectComposition} from '@remotion/renderer';
 import {BROWSER, BUNDLE, WORK, bundle} from './common.ts';
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('usage: node scripts/render.ts <composition...> [--no-bundle]\nPaths must resolve inside marketing/promo-v0.7.0. Copy external /tmp inputs into the project first.');
+  console.log('usage: node scripts/render.ts <composition...> [--no-bundle]\nPaths must resolve inside marketing/promo-v0.7.0. EDYTLAB_PROMO_WORK must also resolve inside this project.');
   process.exit(0);
 }
 const ids = process.argv.slice(2).filter((a) => !a.startsWith('--'));
