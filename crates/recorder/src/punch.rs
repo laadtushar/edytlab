@@ -60,15 +60,21 @@ use crate::latency::input_frame_for;
 use crate::store::{LatencyStore, StoreError, Stored};
 use crate::RecorderError;
 
+mod monitor;
+pub use monitor::build_monitor_from_wavs;
+
 /// The part of the monitor that is the punch: the region to replace, in
 /// seconds from the monitor's first frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Region {
+    /// Punch start in seconds from the monitor's first frame.
     pub start_sec: f64,
+    /// Punch end in seconds from the monitor's first frame.
     pub end_sec: f64,
 }
 
 impl Region {
+    /// Length of the punch region in seconds.
     pub fn len_sec(&self) -> f64 {
         self.end_sec - self.start_sec
     }
@@ -89,42 +95,54 @@ impl Region {
 /// Why a punch-in did not produce a take. The text is for the person.
 #[derive(Debug, Error)]
 pub enum PunchError {
+    /// No measured or manually entered latency is available for the devices.
     #[error(
         "No recording latency is kept for these speakers and this microphone, so a take would \
          land late by the delay between them. Open Settings, then Audio, and either press \
          Measure or type the delay in milliseconds, then punch in again."
     )]
     NotCalibrated,
+    /// The latency store could not be read.
     #[error("{0}")]
     Store(#[from] StoreError),
+    /// The recording device operation failed.
     #[error("{0}")]
     Device(#[from] RecorderError),
+    /// The punch region is not a finite, positive time interval.
     #[error("that region cannot be punched in")]
     BadRegion,
+    /// The audio device dropped samples during capture.
     #[error(
         "the audio device dropped out during the take, so it was not used. Close other apps \
          that use audio and try again"
     )]
     Dropout,
+    /// The output stream never reported starting playback.
     #[error(
         "the speakers never started playing, so the performer heard nothing and the take \
          cannot be placed. Check that the output is not muted, switched off or in use by \
          another app, and try again"
     )]
     OutputNeverStarted,
+    /// The capture supplied no microphone timing information.
     #[error("the microphone gave no timing information, so the take cannot be placed")]
     NoClock,
+    /// The capture ended before covering the punch region.
     #[error(
         "the recording ended before the whole region had been heard, so the take was not used. \
          Try again, and if it keeps happening check the microphone"
     )]
     CaptureTooShort,
+    /// No captured samples overlap the punch region.
     #[error("the microphone recorded nothing for this region")]
     NothingHeard,
+    /// The caller cancelled before a take could be applied.
     #[error("cancelled")]
     Cancelled,
+    /// The take could not be converted to the required audio format.
     #[error("could not convert the take: {0}")]
     Convert(String),
+    /// The take could not be written to disk.
     #[error("could not write the take: {0}")]
     Write(String),
 }
@@ -333,8 +351,11 @@ pub fn convert_take(
 /// A rendered mix: interleaved samples in the format the renderer wrote.
 #[derive(Debug, Clone)]
 pub struct Rendered {
+    /// Interleaved source samples.
     pub samples: Vec<f32>,
+    /// Sample frames per second.
     pub sample_rate: u32,
+    /// Number of interleaved channels.
     pub channels: u16,
 }
 
@@ -418,7 +439,9 @@ pub const CROSSFADE_SEC: f64 = 0.005;
 pub struct Take {
     /// Interleaved, `channels` channels, exactly the region long.
     pub samples: Vec<f32>,
+    /// Sample frames per second of the recorded take.
     pub sample_rate: u32,
+    /// Number of interleaved microphone channels.
     pub channels: u16,
     /// The delay it was placed with.
     pub latency_ms: f64,
@@ -478,6 +501,7 @@ pub enum Phase {
 }
 
 impl Phase {
+    /// Stable phase name sent to the recording progress UI.
     pub fn as_str(self) -> &'static str {
         match self {
             Phase::Preroll => "preroll",
@@ -487,8 +511,10 @@ impl Phase {
     }
 }
 
+/// Current recording phase and the seconds remaining in it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Progress {
+    /// Phase currently heard on the monitor.
     pub phase: Phase,
     /// Seconds to the end of this phase.
     pub remaining_sec: f64,

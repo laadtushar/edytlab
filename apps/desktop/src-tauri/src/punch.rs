@@ -47,7 +47,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
 use recorder::duplex::DevicePair;
-use recorder::punch::{self, PunchError, Region, Rendered};
+#[cfg(test)]
+use recorder::punch::Rendered;
+use recorder::punch::{self, PunchError, Region};
 use recorder::store::{LatencyStore, Source};
 use recorder::RecorderError;
 use serde_json::{json, Value};
@@ -61,7 +63,9 @@ pub const KIND: &str = "punch_record";
 /// offered in it.
 pub const APPLYING: &str = "applying";
 
+/// Default seconds of original audio heard before the punch region.
 pub const DEFAULT_PREROLL_SEC: f64 = 2.0;
+/// Default seconds of original audio heard after the punch region.
 pub const DEFAULT_POSTROLL_SEC: f64 = 1.0;
 /// Longest lead-in or tail. A performer needs a bar or two, not a minute.
 pub const MAX_ROLL_SEC: f64 = 30.0;
@@ -73,10 +77,15 @@ pub const MAX_REGION_SEC: f64 = 300.0;
 /// A validated request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
+    /// Zero-based index of the track receiving the take.
     pub track: usize,
+    /// Punch start on the project timeline, in seconds.
     pub start_sec: f64,
+    /// Punch end on the project timeline, in seconds.
     pub end_sec: f64,
+    /// Seconds of original audio to play before the punch.
     pub preroll_sec: f64,
+    /// Seconds of original audio to play after the punch.
     pub postroll_sec: f64,
 }
 
@@ -228,7 +237,7 @@ fn render_pair(
     dir: &std::path::Path,
     range: audio_engine::TimeRange,
     cancel: &dyn Fn() -> bool,
-) -> Result<Option<(Rendered, Rendered)>, String> {
+) -> Result<Option<(PathBuf, Option<PathBuf>)>, String> {
     let as_is_path = dir.join("as-is.wav");
     let muted_path = dir.join("muted.wav");
     // A clone with the track out of the mix: muted, and not soloed, because
@@ -268,23 +277,17 @@ fn render_pair(
     if cancel() {
         return Ok(None);
     }
-    let read = |p: &PathBuf| punch::read_wav(p).map_err(|e| e.to_string());
-    let as_is = read(&as_is_path)?;
     let muted = match muted_render {
-        Ok(_) => read(&muted_path)?,
+        Ok(_) => Some(muted_path),
         // The renderer sizes a render from the tracks that contribute, and
         // refuses a range that starts after they end. With the target out
         // of the mix there may be nothing left that reaches the region (a
         // session of one track; a vocal that outlasts the bed), and then
         // what is heard inside it is silence, which the monitor pads.
-        Err(audio_engine::Error::InvalidRange) => Rendered {
-            samples: Vec::new(),
-            sample_rate: as_is.sample_rate,
-            channels: as_is.channels,
-        },
+        Err(audio_engine::Error::InvalidRange) => None,
         Err(e) => return Err(could_not(e)),
     };
-    Ok(Some((as_is, muted)))
+    Ok(Some((as_is_path, muted)))
 }
 
 /// What `run` ends with besides an error.
@@ -345,29 +348,31 @@ pub fn run(
         end_sec: end_sec - begins,
     };
 
-    let dir = tempfile::Builder::new()
-        .prefix("edytlab-punch-")
-        .tempdir()
-        .map_err(|e| format!("could not make a folder for the renders: {e}"))?;
-    let rendered = render_pair(
-        state,
-        &snap,
-        req,
-        dir.path(),
-        audio_engine::TimeRange {
-            start_frame,
-            end_frame,
-        },
-        cancel,
-    )?;
-    let (as_is, muted) = match rendered {
-        Some(rendered) => rendered,
-        None => return Ok(cancelled()),
+    // Temporary renders are removed before the next cancellation check and
+    // before audio capture starts, including on every early return.
+    let monitor = {
+        let dir = tempfile::Builder::new()
+            .prefix("edytlab-punch-")
+            .tempdir()
+            .map_err(|e| format!("could not make a folder for the renders: {e}"))?;
+        let rendered = render_pair(
+            state,
+            &snap,
+            req,
+            dir.path(),
+            audio_engine::TimeRange {
+                start_frame,
+                end_frame,
+            },
+            cancel,
+        )?;
+        let (as_is, muted) = match rendered {
+            Some(rendered) => rendered,
+            None => return Ok(cancelled()),
+        };
+        punch::build_monitor_from_wavs(&as_is, muted.as_deref(), region, pair.out_sr, pair.out_ch)
+            .map_err(|e| e.to_string())?
     };
-    let monitor = punch::build_monitor(&as_is, &muted, region, pair.out_sr, pair.out_ch)
-        .map_err(|e| e.to_string())?;
-    drop((as_is, muted));
-    drop(dir);
     if cancel() {
         return Ok(cancelled());
     }
@@ -761,7 +766,7 @@ mod tests {
 
         let out = run_with(&p, &fake, &store, &req()).expect("a punch");
 
-        assert_eq!(out["cancelled"], false);
+        assert_eq!(out["cancelled"].as_bool(), Some(false));
         assert_eq!(out["latency_ms"], TRUE_LATENCY_MS);
         assert_eq!(out["latency_source"], "measured");
         let head = out["head"].as_str().unwrap();
@@ -1150,7 +1155,7 @@ mod tests {
         }));
         let head_before = p.head();
         let out = run_with(&p, &fake, &store, &req()).expect("same project stays valid");
-        assert_eq!(out["cancelled"], false);
+        assert_eq!(out["cancelled"].as_bool(), Some(false));
         assert_ne!(p.head(), head_before);
     }
 
@@ -1362,7 +1367,7 @@ mod tests {
 
         let out = run_with(&p, &fake, &store, &req()).expect("a punch into a single track");
 
-        assert_eq!(out["cancelled"], false);
+        assert_eq!(out["cancelled"].as_bool(), Some(false));
         assert_eq!(p.nodes(), nodes + 1);
         let (pre, inside, post) = monitor_levels(&fake);
         assert!(
@@ -1392,7 +1397,7 @@ mod tests {
 
         let out = run_with(&p, &fake, &store, &r).expect("a punch past the bed");
 
-        assert_eq!(out["cancelled"], false);
+        assert_eq!(out["cancelled"].as_bool(), Some(false));
         assert_eq!(p.nodes(), nodes + 1);
         let (_, inside, _) = monitor_levels(&fake);
         assert!(inside < 1e-3, "the bed is over: {inside}");
@@ -1610,7 +1615,7 @@ mod tests {
         assert!((now.samples[(s - 1) * 2] - p.original[(s - 1) * 2]).abs() < 1e-4);
         assert!((now.samples[e * 2] - p.original[e * 2]).abs() < 1e-4);
         // The edges agree to the frame: shifted by one it would not match.
-        let off: Vec<f32> = p.accompaniment[s + 1..e + 1]
+        let off: Vec<f32> = p.accompaniment[s + 1..=e]
             .iter()
             .flat_map(|v| [*v, *v])
             .collect();
