@@ -1,9 +1,11 @@
 """Containment checks for the promo narration fit tool."""
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import script
@@ -63,18 +65,35 @@ class FitPaths(unittest.TestCase):
         takes = self.cwd / 'lines' / 'voice'
         takes.mkdir(parents=True)
         (takes / f"{script.L[0]['id']}.mp3").write_bytes(b'fixture')
-        commands = self.cwd / 'commands'
-        commands.mkdir()
-        for name, code in (('ffmpeg', 0), ('ffprobe', 1)):
-            command = commands / name
-            command.write_text(f'#!/bin/sh\nexit {code}\n')
-            command.chmod(0o700)
-        environment = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'])
-        result = subprocess.run([sys.executable, str(SCRIPT), 'voice'], cwd=self.cwd,
-                                env=environment, capture_output=True, text=True, check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('CalledProcessError', result.stderr)
-        self.assertNotIn('ValueError', result.stderr)
+        failure = "synthetic ffprobe failure"
+
+        def run_media(command, **kwargs):
+            """Model native subprocess check semantics without platform executables."""
+            if command[0] == 'ffmpeg':
+                return subprocess.CompletedProcess(command, 0)
+            self.assertEqual(command[0], 'ffprobe')
+            if kwargs.get('check'):
+                raise subprocess.CalledProcessError(1, command, output='', stderr=failure)
+            return subprocess.CompletedProcess(command, 1, stdout='', stderr=failure)
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(self.cwd)
+            with mock.patch.object(sys, 'argv', [str(SCRIPT), 'voice']), \
+                    mock.patch.object(subprocess, 'run', side_effect=run_media) as run, \
+                    self.assertRaises(subprocess.CalledProcessError) as error:
+                runpy.run_path(str(SCRIPT), run_name='__main__')
+        finally:
+            os.chdir(original_cwd)
+        self.assertEqual(error.exception.returncode, 1)
+        self.assertEqual(error.exception.stderr, failure)
+        self.assertEqual(error.exception.cmd[0], 'ffprobe')
+        self.assertEqual(len(run.call_args_list), 2)
+        self.assertEqual(run.call_args_list[0].args[0][0], 'ffmpeg')
+        probe = run.call_args_list[1]
+        self.assertEqual(probe.args[0][-1],
+                         str((self.cwd / 'trim/voice' / f"{script.L[0]['id']}.wav").resolve()))
+        self.assertEqual(probe.kwargs, {'capture_output': True, 'text': True, 'check': True})
 
 
 if __name__ == '__main__':

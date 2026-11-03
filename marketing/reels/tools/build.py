@@ -55,7 +55,7 @@ def get_tl(key, narrated=False):
 
 def mean_volume(path):
     """Read the mean loudness reported by the existing volume-detect filter."""
-    checked_reel_path(path)
+    path = checked_reel_path(path)
     p = subprocess.run(["ffmpeg",
                         "-nostdin",
                         "-hide_banner",

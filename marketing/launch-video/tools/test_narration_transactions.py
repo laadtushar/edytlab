@@ -1,8 +1,10 @@
 """Exercise process exclusion, interrupted publication and paid-request recovery."""
 import contextlib
+import errno
 import io
 import json
 import multiprocessing
+import os
 import subprocess
 from pathlib import Path
 import tempfile
@@ -18,22 +20,67 @@ RESPONSE = json.dumps({'audio_base64': 'QUJD', 'alignment': {
     'character_end_times_seconds': [0.1, 0.2]}})
 
 
-def generate_worker(folder, start):
-    """Model independent clients contending for one paid take."""
+@contextlib.contextmanager
+def observe_contention(gates):
+    """Record real OS lock contention while preserving blocking acquisition."""
+    if gates is None:
+        yield
+        return
+    if os.name == 'nt':
+        import msvcrt
+        lock = msvcrt.locking
+
+        def observed(stream, operation, count):
+            """Observe the production nonblocking Windows lock attempt."""
+            try:
+                return lock(stream, operation, count)
+            except OSError as error:
+                if operation == msvcrt.LK_NBLCK and error.errno in (errno.EACCES, errno.EDEADLK):
+                    gates['contended'].set()
+                raise
+
+        probe = mock.patch.object(msvcrt, 'locking', side_effect=observed)
+    else:
+        import fcntl
+        lock = fcntl.flock
+
+        def observed(stream, operation):
+            """Probe POSIX exclusion before completing the original blocking call."""
+            if operation != fcntl.LOCK_EX:
+                return lock(stream, operation)
+            try:
+                return lock(stream, operation | fcntl.LOCK_NB)
+            except BlockingIOError:
+                gates['contended'].set()
+                return lock(stream, operation)
+
+        probe = mock.patch.object(fcntl, 'flock', side_effect=observed)
+    with probe:
+        yield
+
+
+def generate_worker(folder, start, gates=None):
+    """Generate only after the parent releases ready, contending clients."""
     folder = Path(folder)
     store.ROOT = folder
 
     def service(*_args):
-        """Count accepted synthetic paid requests at the shared provider fixture."""
+        """Hold the first synthetic request until the second client contends."""
         with (folder / 'charges').open('a') as log:
             log.write('request\n')
-        time.sleep(0.1)
+        if gates is not None:
+            gates['service_started'].set()
+            if not gates['release_service'].wait(15):
+                raise RuntimeError('parent did not release the held narration response')
         return 200, RESPONSE
 
     with mock.patch.object(narrate, 'status', return_value=(0, 100, 'test')), \
             mock.patch.object(narrate, 'curl', side_effect=service), \
-            contextlib.redirect_stdout(io.StringIO()):
-        start.wait(5)
+            observe_contention(gates), contextlib.redirect_stdout(io.StringIO()):
+        if gates is not None:
+            gates['ready'].set()
+        if not start.wait(15):
+            raise RuntimeError('parent did not release the narration start gate')
         narrate.gen(str(folder / 'lines.json'), str(folder / 'takes'), 1)
 
 
@@ -70,17 +117,31 @@ class NarrationTransactions(unittest.TestCase):
         """Two independent generators must publish one matching take and ledger entry."""
         context = multiprocessing.get_context('spawn')
         start = context.Event()
-        processes = [context.Process(target=generate_worker, args=(str(self.folder), start))
-                     for _ in range(2)]
+        service_started = context.Event()
+        release_service = context.Event()
+        contended = context.Event()
+        gates = [dict(ready=context.Event(), contended=contended,
+                      service_started=service_started, release_service=release_service)
+                 for _ in range(2)]
+        processes = [context.Process(target=generate_worker,
+                                     args=(str(self.folder), start, gate)) for gate in gates]
         for process in processes:
             process.start()
         try:
+            for gate in gates:
+                self.assertTrue(gate['ready'].wait(15), 'generator did not reach the start gate')
             start.set()
+            self.assertTrue(service_started.wait(15), 'no generator reached the service')
+            self.assertTrue(contended.wait(15), 'second generator did not contend for the lock')
+            self.assertTrue(all(process.is_alive() for process in processes))
+            self.assertEqual((self.folder / 'charges').read_text(), 'request\n')
+            release_service.set()
             for process in processes:
-                process.join(10)
+                process.join(15)
                 self.assertFalse(process.is_alive(), 'generator did not finish')
                 self.assertEqual(process.exitcode, 0)
         finally:
+            release_service.set()
             for process in processes:
                 if process.is_alive():
                     process.terminate()
@@ -135,7 +196,8 @@ class NarrationTransactions(unittest.TestCase):
                 paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
                 request = store.state_file(paths, 'request')
                 with mock.patch.object(narrate, 'curl', return_value=(0, '')) as service:
-                    with self.assertRaisesRegex(SystemExit, 'No HTTP response was received') as error:
+                    message = 'No HTTP response was received'
+                    with self.assertRaisesRegex(SystemExit, message) as error:
                         self.generate()
                     self.assertIn(str(request), str(error.exception))
                     marker = request.read_bytes()
@@ -173,7 +235,8 @@ class NarrationTransactions(unittest.TestCase):
             with self.subTest(code=code):
                 paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
                 request = store.state_file(paths, 'request')
-                with mock.patch.object(narrate, 'curl', side_effect=[(code, 'error'), (0, '')]) as service:
+                replies = [(code, 'error'), (0, '')]
+                with mock.patch.object(narrate, 'curl', side_effect=replies) as service:
                     with self.assertRaisesRegex(SystemExit, 'No HTTP response was received'):
                         self.generate()
                     marker = request.read_bytes()
@@ -209,7 +272,8 @@ class NarrationTransactions(unittest.TestCase):
     def test_saved_response_recovers_before_any_publication(self):
         """A receipt survives failure before staging starts."""
         with mock.patch.object(narrate, 'curl', return_value=(200, RESPONSE)) as service:
-            with mock.patch.object(narrate, '_save_take', side_effect=OSError('disk unavailable')), \
+            failure = OSError('disk unavailable')
+            with mock.patch.object(narrate, '_save_take', side_effect=failure), \
                     self.assertRaises(OSError):
                 self.generate()
             self.generate()
@@ -262,7 +326,8 @@ class NarrationTransactions(unittest.TestCase):
     def test_interrupted_cleanup_keeps_published_outputs_and_discards_staging(self):
         """Cleanup may be retried after readiness has been removed."""
         paths = [self.folder / 'narr.json', self.folder / 'narr.srt']
-        with mock.patch.object(store.shutil, 'rmtree', side_effect=OSError('interrupted cleanup')), \
+        failure = OSError('interrupted cleanup')
+        with mock.patch.object(store.shutil, 'rmtree', side_effect=failure), \
                 self.assertRaises(OSError):
             store.publish(paths, [b'json', b'srt'])
         self.assertFalse(store.recover(paths))
