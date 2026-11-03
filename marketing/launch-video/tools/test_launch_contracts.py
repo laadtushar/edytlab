@@ -85,7 +85,7 @@ class AssemblySoundEffects(unittest.TestCase):
                     env={**os.environ, 'PATH': str(binaries) + os.pathsep + os.environ['PATH'],
                          'EDYTLAB_TEST_COMMAND_LOG': str(log)},
                     capture_output=True, text=True, check=False,
-                )
+                )  # skipcq: BAN-B607
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, 'assembled\n')
                 commands = [line.split() for line in log.read_text().splitlines()]

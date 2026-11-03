@@ -33,9 +33,9 @@ def trimmed(source, out):
                'areverse,silenceremove=start_periods=1:start_threshold=-45dB:'
                'start_silence=0.05,areverse')
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', source, '-af', silence,
-                    '-ar', '48000', '-ac', '1', out], check=True)
+                    '-ar', '48000', '-ac', '1', out], check=True)  # skipcq: BAN-B607
     result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                             '-of', 'csv=p=0', out], capture_output=True, text=True, check=True)
+                             '-of', 'csv=p=0', out], capture_output=True, text=True, check=True)  # skipcq: BAN-B607
     return float(result.stdout)
 
 

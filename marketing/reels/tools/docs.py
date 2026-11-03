@@ -27,6 +27,7 @@ KEYS = [("highlights", "Highlights reel (reel-highlights)"),
 
 
 def timing(file):
+    """Read a reel's narration timing, or an empty mapping when it has none."""
     p = checked_reel_path(f"{OUT}/{file}-narration-timing.json")
     if not os.path.exists(p):
         return {}
@@ -62,6 +63,7 @@ def table(tl):
 
 
 def write_txt():
+    """Write each narrated cue's spoken text and return how many were written."""
     os.makedirs(checked_reel_path(f"{OUT}/transcripts/es"), exist_ok=True)
     n = 0
     all_tl = [(k, get_tl(k)) for k, _ in KEYS] + [(code, C.build_demo(code)) for code in DEMOS]
@@ -77,6 +79,7 @@ def write_txt():
 
 
 def usage_text():
+    """Summarise the narration ledger's usage."""
     with open(checked_reel_path(f"{ROOT}/work/ledger.json")) as source:
         d = json.load(source)
     tts = sum(n for t, w, n in d["entries"] if w.startswith("tts") and "speed" not in w)

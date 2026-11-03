@@ -44,7 +44,7 @@ def read_wav_f32(p):
     """Decode a project-local input to mono float samples."""
     p = str(prof.checked_path(p))
     raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', p, '-ac', '1', '-ar',
-                         str(SR), '-f', 'f32le', '-'], capture_output=True, check=False).stdout
+                         str(SR), '-f', 'f32le', '-'], capture_output=True, check=False).stdout  # skipcq: BAN-B607
     return np.frombuffer(raw, dtype=np.float32).copy()
 
 
@@ -140,7 +140,7 @@ def build(cut, voice, outdir, tempos, tag):
              '-ac', str(arr.shape[1] if arr.ndim > 1 else 1),
              '-i', '-', '-c:a', 'pcm_s24le', path],
             input=np.ascontiguousarray(arr.astype(np.float32)).tobytes(),
-            check=True)
+            check=True)  # skipcq: BAN-B607
     write_f32(mixed, pre)
     I_orig, TP_orig = measure(src)
     # narration alone, for the deliverable (stereo, same length as the video)

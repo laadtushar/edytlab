@@ -21,7 +21,7 @@ def probe(p):
     j = json.loads(
         subprocess.run(
             ['ffprobe', '-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', p],
-            capture_output=True, text=True, check=False).stdout)
+            capture_output=True, text=True, check=False).stdout)  # skipcq: BAN-B607
     v = [s for s in j['streams'] if s['codec_type'] == 'video'][0]
     a = [s for s in j['streams'] if s['codec_type'] == 'audio'][0]
     return dict(

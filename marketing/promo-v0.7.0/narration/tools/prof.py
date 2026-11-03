@@ -26,7 +26,7 @@ def load(path, sr=48000):
     raw = subprocess.run(
         ['ffmpeg', '-v', 'error', '-i', path, '-vn', '-ac', '2', '-ar', str(sr),
          '-f', 'f32le', '-'],
-        capture_output=True, check=False).stdout
+        capture_output=True, check=False).stdout  # skipcq: BAN-B607
     return np.frombuffer(raw, dtype=np.float32).reshape(-1, 2)
 
 

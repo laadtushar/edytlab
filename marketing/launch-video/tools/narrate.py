@@ -34,8 +34,8 @@ from pathlib import Path
 
 # Keep the project helper importable when Python's isolated mode omits script paths.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launch_paths import checked_path as _checked_path
-import narration_store as store
+from launch_paths import checked_path as _checked_path  # noqa: E402
+import narration_store as store  # noqa: E402
 
 VOICE = "CwhRBWXzGAHq8TQ4Fs17"
 MODEL = "eleven_v4"
@@ -172,7 +172,7 @@ def _recover_paths(paths, legacy=False):
 
 def gen(lines_path, outdir, n_takes):
     """Generate takes from in-project input and write them within the project."""
-    with open(checked_path(lines_path)) as lines_file:
+    with open(checked_path(lines_path)) as lines_file:  # skipcq: PTC-W6004
         lines = json.load(lines_file)
     checked_path(outdir)
     _ledger_path(outdir)
@@ -261,7 +261,7 @@ def dur(path):
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
          str(checked_path(path))],
         capture_output=True, text=True, check=True,
-    )
+    )  # skipcq: BAN-B607
     return float(p.stdout.strip())
 
 
@@ -285,11 +285,11 @@ def best_take(ln, outdir):
     return best
 
 
-def pick(lines_path, outdir, out_json):
+def pick(lines_path, outdir, out_json):  # skipcq: PY-R1000
     """Write the chosen takes and subtitles using the original path strings."""
     if not out_json.endswith(".json"):
         raise SystemExit(f"Output must end in .json: {out_json!r}")
-    with open(checked_path(lines_path)) as lines_file:
+    with open(checked_path(lines_path)) as lines_file:  # skipcq: PTC-W6004
         lines = json.load(lines_file)
     checked_path(outdir)
     checked_path(out_json)

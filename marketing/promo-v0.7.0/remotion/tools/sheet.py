@@ -26,7 +26,7 @@ n = int(sys.argv[3]) if len(sys.argv) > 3 else 20
 p = subprocess.run(
     ["ffprobe", "-v", "error", "-show_entries", "stream=width,height,duration", "-select_streams",
      "v:0", "-of", "csv=p=0", video],
-    capture_output=True, text=True, check=True)
+    capture_output=True, text=True, check=True)  # skipcq: BAN-B607
 width_text, height_text, duration_text = p.stdout.strip().split(",")[:3]
 W, H, dur = int(width_text), int(height_text), float(duration_text)
 if W < H:
@@ -45,7 +45,7 @@ for i, t in enumerate(ts):
     r = subprocess.run(
         ["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}", "-i", video, "-frames:v", "1",
          "-f", "image2pipe", "-vcodec", "png", "-"],
-        capture_output=True, check=True)
+        capture_output=True, check=True)  # skipcq: BAN-B607
     with Image.open(io.BytesIO(r.stdout)) as frame:
         im = frame.convert("RGB").resize((tw, th), Image.LANCZOS)
     x, y = (i % cols) * tw, (i // cols) * th

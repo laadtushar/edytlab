@@ -173,7 +173,7 @@ def _owner_paths(index, owner):
     return paths
 
 
-def _ledger_owner(index, ledger, record=None):
+def _ledger_owner(index, ledger, record=None):  # skipcq: PY-R1000
     """Validate the recorded destinations before attempting recovery."""
     if record is None:
         record = json.loads(index.read_text())
@@ -242,7 +242,7 @@ def _bootstrap_ledger(index, ledger, known, reconcile, outputs):
 
 
 @contextlib.contextmanager
-def ledger_locked(ledger, known, reconcile, outputs=()):
+def ledger_locked(ledger, known, reconcile, outputs=()):  # skipcq: PY-R1000
     """Recover a ledger's previous owner before admitting another writer.
 
     Directory locks are acquired first, then this canonical-ledger lock. The

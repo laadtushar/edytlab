@@ -127,7 +127,7 @@ def measure(path):
 def _mix_inputs(a):
     """Read manifests and preflight ordinary media before creating mix outputs."""
     checked_path(a[1])
-    with open(a[1]) as cues_file:
+    with open(a[1]) as cues_file:  # skipcq: PTC-W6004
         cues = json.load(cues_file)
     video, out = a[2], a[3]
     _checked_media_path(video)

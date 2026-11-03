@@ -193,6 +193,7 @@ def run_add(video, cues_path, audio_dir, out):
 
 
 def build_plain(key):
+    """Build one plain reel's cues and audio inside the reels project."""
     os.makedirs(checked_reel_path(OUT), exist_ok=True)
     tl = get_tl(key)
     res = dict(key=key, file=tl["file"], duration=tl["duration"])

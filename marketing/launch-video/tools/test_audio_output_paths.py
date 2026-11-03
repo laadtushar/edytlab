@@ -152,7 +152,7 @@ class AudioOutputPaths(unittest.TestCase):
                     destination.resolve().unlink()
                     destination.unlink()
 
-    def test_cli_refuses_external_and_aliased_inputs_before_media_or_output(self):
+    def test_cli_refuses_external_and_aliased_inputs_before_media_or_output(self):  # skipcq: PY-R1000
         """Ordinary manifests and media references obey the same project root."""
         directory = self.root / 'work' / 'sfx'
         directory.mkdir()
@@ -297,15 +297,15 @@ class AudioOutputPaths(unittest.TestCase):
                                 ('file:' + literal, literal), ('file:-', '-'),
                                 ('./actual:name.wav', './actual:name.wav')):
                 with self.subTest(raw=raw):
-                    self.assertEqual(self.audio._checked_media_path(raw), raw)
+                    self.assertEqual(self.audio._checked_media_path(raw), raw)  # skipcq: PYL-W0212
                     check.assert_called_with(target)
             with mock.patch.object(self.audio.os, 'name', 'nt'), \
                     mock.patch.object(self.audio.os.path, 'splitdrive', return_value=('C:', '\\x')):
-                self.assertEqual(self.audio._checked_media_path('C:\\x'), 'C:\\x')
+                self.assertEqual(self.audio._checked_media_path('C:\\x'), 'C:\\x')  # skipcq: PYL-W0212
                 check.assert_called_with('C:\\x')
         if os.name != 'nt':
             with self.assertRaises(SystemExit):
-                self.audio._checked_media_path('C:\\x')
+                self.audio._checked_media_path('C:\\x')  # skipcq: PYL-W0212
 
     def test_cli_refuses_protocols_streams_and_external_file_urls_before_media(self):
         """Every ordinary FFmpeg operand preflights before decoder or writer calls."""
@@ -352,7 +352,7 @@ class AudioOutputPaths(unittest.TestCase):
                 alias.symlink_to(target)
                 raw = 'file:' + str(alias)
                 with self.assertRaises(SystemExit) as error:
-                    self.audio._checked_media_path(raw)
+                    self.audio._checked_media_path(raw)  # skipcq: PYL-W0212
                 self.assertIn(raw, str(error.exception))
                 self.assertIn(str(self.root), str(error.exception))
 

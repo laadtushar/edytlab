@@ -185,7 +185,7 @@ class NarrationTransactions(unittest.TestCase):
                     self.generate()
                     self.generate()
                     self.assertEqual(service.call_count, 4)
-                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)  # skipcq: PYL-W0212
                 self.assertFalse(store.state_file(paths, 'request').exists())
 
     def test_transport_loss_preserves_marker_without_context_or_later_retry(self):
@@ -193,7 +193,7 @@ class NarrationTransactions(unittest.TestCase):
         for context in ({}, {'prev': 'before', 'next': 'after'}):
             with self.subTest(context=context):
                 self.lines.write_text(json.dumps([dict(id='line', text='hi', **context)]))
-                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)  # skipcq: PYL-W0212
                 request = store.state_file(paths, 'request')
                 with mock.patch.object(narrate, 'curl', return_value=(0, '')) as service:
                     message = 'No HTTP response was received'
@@ -214,7 +214,7 @@ class NarrationTransactions(unittest.TestCase):
     def test_curl_timeout_without_http_response_keeps_reconciliation_marker(self):
         """Exercise curl's HTTP000 parser after a timeout, without calling a provider."""
         self.lines.write_text(json.dumps([dict(id='line', text='hi', prev='before')]))
-        paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+        paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)  # skipcq: PYL-W0212
         request = store.state_file(paths, 'request')
         timeout = subprocess.CompletedProcess([], 28, stdout="\n000", stderr="request timed out")
         with mock.patch.dict(narrate.os.environ, {'ELEVENLABS_API_KEY': 'synthetic-fixture-key'}), \
@@ -233,7 +233,7 @@ class NarrationTransactions(unittest.TestCase):
         self.lines.write_text(json.dumps([dict(id='line', text='hi', prev='before')]))
         for code in (400, 500):
             with self.subTest(code=code):
-                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)
+                paths = narrate._take_paths(f"{self.takes}/line_t1", self.takes)  # skipcq: PYL-W0212
                 request = store.state_file(paths, 'request')
                 replies = [(code, 'error'), (0, '')]
                 with mock.patch.object(narrate, 'curl', side_effect=replies) as service:
@@ -379,13 +379,13 @@ class NarrationTransactions(unittest.TestCase):
 
     def test_changed_owner_destination_keeps_unknown_request_and_prevents_recharge(self):
         """An in-root leaf retarget cannot change the saved request's identity."""
-        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)  # skipcq: PYL-W0212
         request = store.state_file(paths, 'request')
         with mock.patch.object(narrate, 'curl', return_value=(0, '')) as service:
             with self.assertRaisesRegex(SystemExit, 'No HTTP response'):
                 self.generate()
             marker = request.read_bytes()
-            index = store._ledger_index(paths[-1])
+            index = store._ledger_index(paths[-1])  # skipcq: PYL-W0212
             owner = index.read_bytes()
             redirected = self.folder / 'redirected.mp3'
             try:
@@ -406,9 +406,9 @@ class NarrationTransactions(unittest.TestCase):
     def test_other_index_is_validated_from_one_atomic_snapshot(self):
         """Retiring another ledger between reads must not turn paths into None."""
         self.takes.mkdir()
-        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
-        index = store._ledger_index(paths[-1])
-        store._write_owner(index, paths, paths[-1])
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)  # skipcq: PYL-W0212
+        index = store._ledger_index(paths[-1])  # skipcq: PYL-W0212
+        store._write_owner(index, paths, paths[-1])  # skipcq: PYL-W0212
         response = store.state_file(paths, 'response')
         response.write_text('{}')
         read, reads = Path.read_text, []
@@ -419,11 +419,11 @@ class NarrationTransactions(unittest.TestCase):
             if path == index:
                 reads.append(path)
                 response.unlink(missing_ok=True)
-                store._write_owner(index, None, paths[-1])
+                store._write_owner(index, None, paths[-1])  # skipcq: PYL-W0212
             return text
 
         with mock.patch.object(Path, 'read_text', new=retire_after_read):
-            self.assertTrue(store._indexed_state(response, index.parent))
+            self.assertTrue(store._indexed_state(response, index.parent))  # skipcq: PYL-W0212
         self.assertEqual(len(reads), 1)
         self.assertFalse(response.exists())
 
@@ -563,7 +563,7 @@ class NarrationTransactions(unittest.TestCase):
     def test_owning_command_migrates_known_legacy_journal(self):
         """Exact known legacy paths may recover when no later ledger conflicts."""
         self.takes.mkdir()
-        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)  # skipcq: PYL-W0212
         receipt = dict(id='line', take=1, text='hi', timestamp='2026-01-01 00:00:00',
                        response=json.loads(RESPONSE))
         store.write_state(store.state_file(paths, 'response'),
@@ -578,7 +578,7 @@ class NarrationTransactions(unittest.TestCase):
 
         with mock.patch.object(store.os, 'replace', side_effect=stop_at_alignment), \
                 self.assertRaises(OSError):
-            narrate._save_take(paths, receipt)
+            narrate._save_take(paths, receipt)  # skipcq: PYL-W0212
         with mock.patch.object(narrate, 'curl') as service:
             self.generate()
             service.assert_not_called()
@@ -590,7 +590,7 @@ class NarrationTransactions(unittest.TestCase):
         """Run the old unindexed publication protocol until a chosen replacement."""
         takes = folder / 'takes'
         takes.mkdir()
-        paths = narrate._take_paths(str(takes / 'line_t1'), takes)
+        paths = narrate._take_paths(str(takes / 'line_t1'), takes)  # skipcq: PYL-W0212
         receipt = dict(id='line', take=1, text='hi', timestamp='2026-01-01 00:00:00',
                        response=json.loads(RESPONSE))
         for suffix in ('request', 'response'):
@@ -606,7 +606,7 @@ class NarrationTransactions(unittest.TestCase):
 
         with mock.patch.object(store.os, 'replace', side_effect=interrupt), \
                 self.assertRaises(OSError):
-            narrate._save_take(paths, receipt)
+            narrate._save_take(paths, receipt)  # skipcq: PYL-W0212
         return paths, receipt
 
     def test_equal_legacy_ledger_refuses_even_when_media_already_match(self):
@@ -623,11 +623,11 @@ class NarrationTransactions(unittest.TestCase):
                         other_response = dict(receipt['response'], audio_base64='REVG')
                         other_receipt = dict(receipt, response=other_response)
                         # Both old writers address the same canonical aliased ledger.
-                        narrate._save_take([other / 'line_t1.mp3', other / 'line_t1.json',
+                        narrate._save_take([other / 'line_t1.mp3', other / 'line_t1.json',  # skipcq: PYL-W0212
                                             paths[2]], other_receipt)
                         journal = store.state_file(paths, 'pending')
                         self.assertEqual((journal / '2').read_bytes(), paths[2].read_bytes())
-                        index = store._ledger_index(paths[2])
+                        index = store._ledger_index(paths[2])  # skipcq: PYL-W0212
                         self.assertFalse(index.exists())
                         markers = [store.state_file(paths, suffix)
                                    for suffix in ('request', 'response')]
@@ -667,7 +667,7 @@ class NarrationTransactions(unittest.TestCase):
     def test_legacy_staging_symlinks_are_refused_before_external_reads(self):
         """Migration applies the same confinement as normal journal recovery."""
         self.takes.mkdir()
-        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)  # skipcq: PYL-W0212
         journal = store.state_file(paths, 'pending')
         journal.mkdir()
         with tempfile.TemporaryDirectory() as external:
@@ -693,13 +693,13 @@ class NarrationTransactions(unittest.TestCase):
 
                     with mock.patch.object(Path, 'read_bytes', new=guarded_read), \
                             self.assertRaisesRegex(SystemExit, 'Refused path'):
-                        narrate._recover_paths(paths, legacy=True)
+                        narrate._recover_paths(paths, legacy=True)  # skipcq: PYL-W0212
             self.assertEqual(outside.read_bytes(), b'external sentinel')
 
     def test_legacy_stale_snapshot_cannot_erase_newer_ledger(self):
         """An already conflicting old journal needs explicit reconciliation."""
         self.takes.mkdir()
-        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)
+        paths = narrate._take_paths(f'{self.takes}/line_t1', self.takes)  # skipcq: PYL-W0212
         receipt = dict(id='line', take=1, text='hi', timestamp='2026-01-01 00:00:00',
                        response=json.loads(RESPONSE))
         store.write_state(store.state_file(paths, 'response'),
@@ -714,7 +714,7 @@ class NarrationTransactions(unittest.TestCase):
 
         with mock.patch.object(store.os, 'replace', side_effect=stop_at_alignment), \
                 self.assertRaises(OSError):
-            narrate._save_take(paths, receipt)
+            narrate._save_take(paths, receipt)  # skipcq: PYL-W0212
         paths[2].write_bytes(b'newer independent B entry\n')
         with mock.patch.object(narrate, 'curl') as service:
             with self.assertRaisesRegex(SystemExit, 'Conflicting legacy narration ledger'):

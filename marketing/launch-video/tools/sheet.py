@@ -26,7 +26,7 @@ p = subprocess.run(
     ["ffprobe", "-v", "error", "-show_entries", "stream=width,height,duration",
      "-select_streams", "v:0", "-of", "csv=p=0", v],
     capture_output=True, text=True, check=False,
-)
+)  # skipcq: BAN-B607
 width_text, height_text, duration_text = p.stdout.strip().split(",")[:3]
 W, H, dur = int(width_text), int(height_text), float(duration_text)
 if not ts:
@@ -44,7 +44,7 @@ for i, t in enumerate(ts):
         ["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}",
          "-i", v, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
         capture_output=True, check=False,
-    )
+    )  # skipcq: BAN-B607
     im = Image.open(io.BytesIO(r.stdout)).convert("RGB").resize((tw, th), Image.LANCZOS)
     x, y = (i % cols) * tw, (i // cols) * th
     sheet.paste(im, (x, y))
