@@ -582,8 +582,8 @@ class ShellPathsTests(unittest.TestCase):
             stub.chmod(0o755)
         return scratch_log
 
-    def test_shell_scratch_hints_select_project_local_paths(self):
-        """External hints fall back; local hints retain canonical scratch selection."""
+    def make_shell_fixture(self):
+        """Return a copied mixer script, local argv, and the scratch command log."""
         script = self.root / "add-narration.sh"
         script.write_text((PROJECT / "add-narration.sh").read_text())
         video, cues = self.root / "video.mp4", self.root / "cues.json"
@@ -591,6 +591,11 @@ class ShellPathsTests(unittest.TestCase):
         cues.write_text('{"cues": []}')
         args = [video, cues, self.root, self.root / "output.mp4"]
         scratch_log = self.stop_at_scratch_creation()
+        return script, args, scratch_log
+
+    def test_shell_scratch_hints_select_project_local_paths(self):
+        """External hints fall back; local hints retain canonical scratch selection."""
+        script, args, scratch_log = self.make_shell_fixture()
         preferred = self.root / "preferred scratch"
         local_link = self.root / "local-link"
         local_link.symlink_to(preferred, target_is_directory=True)
@@ -622,13 +627,7 @@ class ShellPathsTests(unittest.TestCase):
 
     def test_shell_fallback_scratch_symlink_escape_refused(self):
         """The scratch directory actually selected still refuses a symlink outside the project."""
-        script = self.root / "add-narration.sh"
-        script.write_text((PROJECT / "add-narration.sh").read_text())
-        video, cues = self.root / "video.mp4", self.root / "cues.json"
-        video.write_bytes(b"synthetic")
-        cues.write_text('{"cues": []}')
-        args = [video, cues, self.root, self.root / "output.mp4"]
-        scratch_log = self.stop_at_scratch_creation()
+        script, args, scratch_log = self.make_shell_fixture()
         with tempfile.TemporaryDirectory() as external:
             work = self.root / "work"
             work.symlink_to(external, target_is_directory=True)

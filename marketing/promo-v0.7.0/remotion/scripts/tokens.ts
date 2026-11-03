@@ -9,12 +9,14 @@
 import {readFileSync, writeFileSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {projectPath} from './paths.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
 const CSS = readFileSync(resolve(REPO, 'website/app/globals.css'), 'utf8');
 const LOGO = readFileSync(resolve(REPO, 'website/public/logo.svg'), 'utf8');
-const OUT = resolve(HERE, '../src/tokens.generated.ts');
+const OUT_DISPLAY = resolve(HERE, '../src/tokens.generated.ts');
+const OUT = projectPath(OUT_DISPLAY);
 
 type RGB = [number, number, number];
 
@@ -135,5 +137,5 @@ if (process.argv.includes('--check')) {
   console.log('tokens ok', contrasts);
 } else {
   writeFileSync(OUT, body);
-  console.log('wrote', OUT, contrasts);
+  console.log('wrote', OUT_DISPLAY, contrasts);
 }

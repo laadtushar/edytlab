@@ -25,6 +25,7 @@ inputs into that folder first; the documented demo recordings are configured
 separately through website/public/demos/ or EDYTLAB_DEMO_DIR.
 """
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -412,16 +413,22 @@ def cues_json(P):
 
 def render_output_argument(args):
     """Validate render option values before selecting the final output argument."""
+    # main() uses the first occurrence of each option, including repeated ones.
+    for option in ("--from", "--to"):
+        if option not in args:
+            continue
+        try:
+            value = float(args[args.index(option) + 1])
+        except (IndexError, ValueError):
+            raise SystemExit(
+                f"render requires a numeric value after {option} "
+                "and an explicit output path after its options"
+            ) from None
+        if not math.isfinite(value) or not math.isfinite(value * FPS):
+            raise SystemExit(f"render requires a finite frame value after {option}")
     index = 0
     while index < len(args):
         if args[index] in ("--from", "--to"):
-            try:
-                float(args[index + 1])
-            except (IndexError, ValueError):
-                raise SystemExit(
-                    f"render requires a numeric value after {args[index]} "
-                    "and an explicit output path after its options"
-                ) from None
             index += 2
         elif index == len(args) - 1:
             return args[index]

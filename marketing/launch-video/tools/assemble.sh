@@ -9,6 +9,16 @@ case "$1" in -h|--help) sed -n '2,7p' "$0"; exit 0;; esac
 set -e
 cd "$(dirname "$0")"
 OUT=../out; WORK=../work
+python3 -I - "$PWD" "$OUT" "$WORK/sfx" <<'PYPATH'
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(sys.argv[1]).resolve()))
+from launch_paths import checked_path
+
+for path in sys.argv[2:]:
+    checked_path(path)
+PYPATH
 mkdir -p "$OUT" "$WORK/sfx"
 if [[ ! -f $WORK/sfx/whoosh.wav || ! -f $WORK/sfx/tick.wav || ! -f $WORK/sfx/chime.wav ]]; then python3 -I sfx.py "$WORK/sfx"; fi
 declare -A NAME=( [li]=linkedin [rd]=reddit [ig]=instagram )

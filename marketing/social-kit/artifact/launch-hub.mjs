@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkOutputPath } from "./paths.mjs";
 
 if (process.argv.includes("--help")) {
   console.log("Usage: node marketing/social-kit/artifact/launch-hub.mjs\nBuild the launch hub into artifact/out/launch-hub/, copying existing assets without publishing.");
@@ -680,9 +681,6 @@ ${table([["#", "Date", "ET", "UK", "Post", "Attach", "Thumbnail"], ...li])}
 
 // ---------------------------------------------------------------- assemble
 function build() {
-  fs.rmSync(OUT, { recursive: true, force: true });
-  fs.mkdirSync(OUT, { recursive: true });
-
   // files to publish
   for (const f of ["post-1-launch.png", "post-2-before-after.png", "post-3-model-never-touches-a-sample.png", "post-4-privacy.png", "post-5-help-wanted.png", "post-3-carousel.pdf"]) {
     addFile(`linkedin/${f}`, path.join(MK, "social-kit/linkedin/out", f));
@@ -746,6 +744,15 @@ ${js}</script>
   for (const j of JUMPS) if (!ids.has(j) && !html.includes(`id="${j}"`)) throw new Error("checklist jump target missing: " + j);
   for (const bad of ["whats-new-v070", "reel-v070"]) if (html.includes(bad)) throw new Error("stale reference " + bad);
 
+  // Validate every destination before clearing or writing any part of the output.
+  checkOutputPath(OUT);
+  const destinations = ["index.html", "files.json", "existing-files.txt",
+    "checklist-ids.txt", ...Object.keys(files)];
+  for (const name of destinations) {
+    checkOutputPath(path.join(OUT, name));
+  }
+  fs.rmSync(OUT, { recursive: true, force: true });
+  fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, "index.html"), html);
   for (const [pubPath, src] of Object.entries(files)) {
     const dst = path.join(OUT, pubPath);
