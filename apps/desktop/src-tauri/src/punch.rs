@@ -47,7 +47,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
 use recorder::duplex::DevicePair;
-use recorder::punch::{self, PunchError, Region, Rendered};
+#[cfg(test)]
+use recorder::punch::Rendered;
+use recorder::punch::{self, PunchError, Region};
 use recorder::store::{LatencyStore, Source};
 use recorder::RecorderError;
 use serde_json::{json, Value};
@@ -228,7 +230,7 @@ fn render_pair(
     dir: &std::path::Path,
     range: audio_engine::TimeRange,
     cancel: &dyn Fn() -> bool,
-) -> Result<Option<(Rendered, Rendered)>, String> {
+) -> Result<Option<(PathBuf, Option<PathBuf>)>, String> {
     let as_is_path = dir.join("as-is.wav");
     let muted_path = dir.join("muted.wav");
     // A clone with the track out of the mix: muted, and not soloed, because
@@ -268,23 +270,17 @@ fn render_pair(
     if cancel() {
         return Ok(None);
     }
-    let read = |p: &PathBuf| punch::read_wav(p).map_err(|e| e.to_string());
-    let as_is = read(&as_is_path)?;
     let muted = match muted_render {
-        Ok(_) => read(&muted_path)?,
+        Ok(_) => Some(muted_path),
         // The renderer sizes a render from the tracks that contribute, and
         // refuses a range that starts after they end. With the target out
         // of the mix there may be nothing left that reaches the region (a
         // session of one track; a vocal that outlasts the bed), and then
         // what is heard inside it is silence, which the monitor pads.
-        Err(audio_engine::Error::InvalidRange) => Rendered {
-            samples: Vec::new(),
-            sample_rate: as_is.sample_rate,
-            channels: as_is.channels,
-        },
+        Err(audio_engine::Error::InvalidRange) => None,
         Err(e) => return Err(could_not(e)),
     };
-    Ok(Some((as_is, muted)))
+    Ok(Some((as_is_path, muted)))
 }
 
 /// What `run` ends with besides an error.
@@ -364,9 +360,9 @@ pub fn run(
         Some(rendered) => rendered,
         None => return Ok(cancelled()),
     };
-    let monitor = punch::build_monitor(&as_is, &muted, region, pair.out_sr, pair.out_ch)
-        .map_err(|e| e.to_string())?;
-    drop((as_is, muted));
+    let monitor =
+        punch::build_monitor_from_wavs(&as_is, muted.as_deref(), region, pair.out_sr, pair.out_ch)
+            .map_err(|e| e.to_string())?;
     drop(dir);
     if cancel() {
         return Ok(cancelled());

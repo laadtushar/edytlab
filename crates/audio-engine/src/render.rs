@@ -534,16 +534,23 @@ struct TrackResampler {
 
 impl TrackStreamer {
     fn open(plan: &TrackPlan, project_rate: u32, out_channels: usize) -> Result<Self, Error> {
-        let mut reader = WavStreamReader::open(&plan.source_path)?;
+        let reader = WavStreamReader::open(&plan.source_path)?;
+        Self::from_reader(plan, project_rate, out_channels, reader, None)
+    }
+
+    /// `start_frame` is only used for validated seekable, project-rate WAVs.
+    fn from_reader(
+        plan: &TrackPlan,
+        project_rate: u32,
+        out_channels: usize,
+        mut reader: WavStreamReader,
+        start_frame: Option<u64>,
+    ) -> Result<Self, Error> {
         let in_rate = reader.sample_rate();
         let in_channels = reader.channels() as usize;
         if in_channels == 0 {
             return Err(Error::Decode(audio_decoder::DecodeError::Corrupt));
         }
-
-        // Skip past `source_offset` so the first `read_frames` call returns
-        // the start of the clip window.
-        reader.skip_frames(plan.source_offset)?;
 
         // Clip length in source frames, clamped against actual source
         // length (mirrors M21's `clip_end.min(total_frames)`).
@@ -553,12 +560,25 @@ impl TrackStreamer {
             .source_offset
             .saturating_add(plan.length)
             .min(total_frames);
-        let src_frames_remaining = clip_end.saturating_sub(clip_start);
+        let source_frames = clip_end.saturating_sub(clip_start);
 
         // Project-rate frame count for this track. u128 to avoid overflow;
         // matches M21's `expected_out_frames` formula bit-for-bit.
-        let project_frames_total = to_project_frames(src_frames_remaining, in_rate, project_rate);
-        let lead_frames_remaining = to_project_frames(plan.start_in_track, in_rate, project_rate);
+        let project_frames_total = to_project_frames(source_frames, in_rate, project_rate);
+        let lead_frames = to_project_frames(plan.start_in_track, in_rate, project_rate);
+        let (project_frames_emitted, lead_frames_remaining) = match start_frame {
+            Some(start) => {
+                debug_assert_eq!(in_rate, project_rate);
+                let consumed = start.saturating_sub(lead_frames).min(source_frames);
+                reader.seek_frame(clip_start + consumed)?;
+                (consumed, lead_frames.saturating_sub(start))
+            }
+            None => {
+                reader.skip_frames(plan.source_offset)?;
+                (0, lead_frames)
+            }
+        };
+        let src_frames_remaining = source_frames - project_frames_emitted;
 
         let resampler = if in_rate == project_rate {
             None
@@ -618,8 +638,8 @@ impl TrackStreamer {
             reader,
             in_channels,
             src_frames_remaining,
-            eof: project_frames_total == 0,
-            project_frames_emitted: 0,
+            eof: project_frames_emitted >= project_frames_total,
+            project_frames_emitted,
             project_frames_total,
             gain_db: plan.gain_db,
             out_channels,
@@ -927,6 +947,91 @@ fn emit_frames(
     }
 }
 
+/// Return positioned streamers only when every contributing clip can be
+/// advanced without losing effect history or changing decoder behaviour.
+/// New effect kinds are ineligible by default; only bypassed entries are
+/// known to need no history. Off-rate sources retain the FFT warm-up path.
+fn seekable_streamers(
+    state: &SessionState,
+    graph: &RenderGraph,
+    project_rate: u32,
+    channels: usize,
+    start_frame: usize,
+    out: &Path,
+) -> Option<Vec<Option<TrackStreamer>>> {
+    if state.master_chain.iter().any(|effect| !effect.bypassed)
+        || state
+            .bus_routing
+            .buses
+            .iter()
+            .any(|bus| bus.effects.iter().any(|effect| !effect.bypassed))
+    {
+        return None;
+    }
+    // A public engine caller can render onto a source even though its usual
+    // callers refuse that destination. Keep the old path for aliases and
+    // for any existing destination whose identity cannot be established.
+    // This is a point-in-time check, not protection against replacement by
+    // another process between checking the paths and opening the writer.
+    let output_identity = match std::fs::metadata(out) {
+        Ok(metadata) if metadata.is_file() => Some(session::live::identify(out).ok()?),
+        Ok(_) => return None,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return None,
+    };
+    let mut readers = Vec::with_capacity(graph.tracks.len());
+    for plan in &graph.tracks {
+        if !plan.contributes || plan.length == 0 {
+            readers.push(None);
+            continue;
+        }
+        if plan.effects.iter().any(|effect| !effect.bypassed) {
+            return None;
+        }
+        // `identify` opens the source, so check its kind before that open as
+        // well as inside `open_seekable`; a FIFO must go straight to the
+        // legacy reader. Like the output check, this is point-in-time.
+        if !std::fs::metadata(&plan.source_path).ok()?.is_file() {
+            return None;
+        }
+        if let Some(output) = &output_identity {
+            let source = session::live::identify(&plan.source_path).ok()?;
+            if source.id() == output.id() {
+                return None;
+            }
+        }
+        let reader = WavStreamReader::open_seekable(&plan.source_path)?;
+        if reader.sample_rate() != project_rate {
+            return None;
+        }
+        let input_channels = usize::from(reader.channels());
+        if input_channels != channels && input_channels != 1 && channels != 1 {
+            // A clip that ends before the range can still trigger an
+            // unsupported mapping while the legacy path warms its prefix.
+            return None;
+        }
+        readers.push(Some(reader));
+    }
+
+    let mut streamers = Vec::with_capacity(graph.tracks.len());
+    for (plan, reader) in graph.tracks.iter().zip(readers) {
+        let Some(reader) = reader else {
+            streamers.push(None);
+            continue;
+        };
+        let streamer = TrackStreamer::from_reader(
+            plan,
+            project_rate,
+            channels,
+            reader,
+            Some(start_frame as u64),
+        )
+        .ok()?;
+        streamers.push(Some(streamer));
+    }
+    Some(streamers)
+}
+
 fn render_streaming(
     state: &SessionState,
     graph: &RenderGraph,
@@ -991,19 +1096,31 @@ fn render_streaming(
     let project_rate = graph.project_sample_rate;
     let chans = max_channels as usize;
 
-    // Build a streamer for every contributing track. Track index -> Option
-    // mirrors `graph.tracks` so the master loop can iterate in graph order
-    // (== `state.tracks` insertion order; see determinism invariant).
-    let mut streamers: Vec<Option<TrackStreamer>> = Vec::with_capacity(graph.tracks.len());
-    for plan in &graph.tracks {
-        if !plan.contributes || plan.length == 0 {
-            streamers.push(None);
-            continue;
-        }
-        streamers.push(Some(TrackStreamer::open(plan, project_rate, chans)?));
-    }
-
     let total_frames = total_project_frames as usize;
+    // Keep the old setup and error ordering for invalid ranges: the legacy
+    // path opens and skips each clip before it validates the range.
+    let seek_start = range
+        .and_then(|_| resolve_range(range, total_frames).ok())
+        .map(|(start, _)| start)
+        .filter(|&start| start > 0);
+    let fast_streamers = seek_start
+        .and_then(|start| seekable_streamers(state, graph, project_rate, chans, start, out));
+    let sought = fast_streamers.is_some();
+    // Track index -> Option mirrors `graph.tracks`, preserving mix order.
+    let mut streamers = if let Some(streamers) = fast_streamers {
+        streamers
+    } else {
+        let mut streamers = Vec::with_capacity(graph.tracks.len());
+        for plan in &graph.tracks {
+            if !plan.contributes || plan.length == 0 {
+                streamers.push(None);
+                continue;
+            }
+            streamers.push(Some(TrackStreamer::open(plan, project_rate, chans)?));
+        }
+        streamers
+    };
+
     let (start_frame, end_frame) = resolve_range(range, total_frames)?;
     let frames_to_write = end_frame - start_frame;
 
@@ -1076,7 +1193,7 @@ fn render_streaming(
     // filter state it would have had, or the first frames written come
     // from a delay line that has seen nothing. That was true before
     // #243, when the chains lived inside the streamers this loop pumps.
-    if start_frame > 0 {
+    if start_frame > 0 && !sought {
         let mut to_skip = start_frame;
         while to_skip > 0 {
             if cancel() {

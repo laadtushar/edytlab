@@ -60,6 +60,9 @@ use crate::latency::input_frame_for;
 use crate::store::{LatencyStore, StoreError, Stored};
 use crate::RecorderError;
 
+mod monitor;
+pub use monitor::build_monitor_from_wavs;
+
 /// The part of the monitor that is the punch: the region to replace, in
 /// seconds from the monitor's first frame.
 #[derive(Debug, Clone, Copy, PartialEq)]

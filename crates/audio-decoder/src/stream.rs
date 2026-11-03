@@ -27,7 +27,7 @@
 //! streaming through the symphonia pipeline yet.
 
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use hound::{SampleFormat, WavReader};
@@ -47,6 +47,7 @@ pub struct WavStreamReader {
     bits_per_sample: u16,
     sample_format: SampleFormat,
     total_frames: u64,
+    seekable: bool,
     /// Frames already returned by [`read_frames`]; bounds [`frames_remaining`].
     frames_read: u64,
 }
@@ -63,9 +64,85 @@ impl WavStreamReader {
             bits_per_sample: spec.bits_per_sample,
             sample_format: spec.sample_format,
             total_frames,
+            seekable: false,
             frames_read: 0,
             inner,
         })
+    }
+
+    /// Open a regular, complete, packed PCM WAV for direct frame seeks.
+    ///
+    /// Hound's seek uses `bits_per_sample / 8`, not the WAV container's
+    /// block alignment. In particular it cannot seek 24 valid bits stored
+    /// in four bytes. Probe the same file handle and fall back to `open`
+    /// for any layout or file whose seek safety cannot be established.
+    pub fn open_seekable(path: &Path) -> Option<Self> {
+        // Do not consume a FIFO producer just to check eligibility. This
+        // path check is point-in-time: a concurrent replacement between it
+        // and File::open can still change the kind of file being opened.
+        if !std::fs::metadata(path).ok()?.is_file() {
+            return None;
+        }
+        let file = File::open(path).ok()?;
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file() {
+            return None;
+        }
+        let mut reader = BufReader::new(file);
+        let (spec, samples) = {
+            let probe = WavReader::new(&mut reader).ok()?;
+            (probe.spec(), probe.len())
+        };
+        let bytes_per_sample = match (spec.sample_format, spec.bits_per_sample) {
+            (SampleFormat::Int, 8) => 1_u64,
+            (SampleFormat::Int, 16) => 2,
+            (SampleFormat::Int, 24) => 3,
+            (SampleFormat::Int, 32) | (SampleFormat::Float, 32) => 4,
+            _ => return None,
+        };
+        let data_start = reader.stream_position().ok()?;
+        reader
+            .seek(SeekFrom::Start(data_start.checked_sub(4)?))
+            .ok()?;
+        let mut length = [0_u8; 4];
+        reader.read_exact(&mut length).ok()?;
+        let data_length = u64::from(u32::from_le_bytes(length));
+        if u64::from(samples).checked_mul(bytes_per_sample)? != data_length
+            || data_start.checked_add(data_length)? > metadata.len()
+        {
+            return None;
+        }
+        reader.seek(SeekFrom::Start(0)).ok()?;
+        let inner = WavReader::new(reader).ok()?;
+        Some(Self {
+            sample_rate: spec.sample_rate,
+            channels: spec.channels,
+            bits_per_sample: spec.bits_per_sample,
+            sample_format: spec.sample_format,
+            total_frames: inner.duration() as u64,
+            seekable: true,
+            frames_read: 0,
+            inner,
+        })
+    }
+
+    /// Seek an `open_seekable` reader to a frame at or before its end.
+    ///
+    /// Readers made by [`Self::open`] reject this operation; only
+    /// [`Self::open_seekable`] validates hound's byte stride.
+    pub fn seek_frame(&mut self, frame: u64) -> Result<(), DecodeError> {
+        if !self.seekable
+            || frame > self.total_frames
+            || frame
+                .checked_mul(u64::from(self.channels))
+                .is_none_or(|n| n > u64::from(u32::MAX))
+        {
+            return Err(DecodeError::Corrupt);
+        }
+        let frame = u32::try_from(frame).map_err(|_| DecodeError::Corrupt)?;
+        self.inner.seek(frame)?;
+        self.frames_read = u64::from(frame);
+        Ok(())
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -89,11 +166,9 @@ impl WavStreamReader {
 
     /// Skip up to `frames` frames forward without returning them.
     ///
-    /// Used by the render graph to seek past the source-offset prefix of a
-    /// clip: the streaming WAV reader has no random access (we don't want
-    /// to depend on `WavReader::seek`'s 32-bit `time` argument for long
-    /// files), so we drain bytes through the existing iterator. This stays
-    /// O(1) memory regardless of how far we skip.
+    /// Drains the existing iterator, including malformed and unusual WAV
+    /// layouts for which direct seeking could change decoding behaviour.
+    /// This stays O(1) memory regardless of how far we skip.
     pub fn skip_frames(&mut self, frames: u64) -> Result<(), DecodeError> {
         let available = self.frames_remaining();
         let to_skip = frames.min(available);
