@@ -311,86 +311,27 @@ impl WavStreamReader {
         if want_frames == 0 {
             return Ok(0);
         }
-        let mut written_samples = 0usize;
         let want_samples = want_frames * chans;
-
-        match self.sample_format {
+        let dst = &mut dst[..want_samples];
+        let written_samples = match self.sample_format {
             SampleFormat::Int => match self.bits_per_sample {
+                // Hound widens 8-bit PCM to i16; re-narrow to match symphonia.
                 8 => {
-                    let mut iter = self.inner.samples::<i16>();
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                // hound returns 8-bit PCM widened to i16 (it
-                                // upcasts `(byte - 128)` to i16). To match
-                                // symphonia's 8-bit -> f32 (`s as f32 /
-                                // 128.0`) we re-narrow.
-                                let s8 = (s.clamp(-128, 127)) as i8;
-                                dst[written_samples] = s8 as f32 / 128.0;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
+                    self.read_samples::<i16>(dst, |s| (s.clamp(-128, 127) as i8) as f32 / 128.0)?
                 }
-                16 => {
-                    let mut iter = self.inner.samples::<i16>();
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                dst[written_samples] = s as f32 / 32_768.0;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
-                }
+                16 => self.read_samples::<i16>(dst, |s| s as f32 / 32_768.0)?,
                 24 => {
-                    let mut iter = self.inner.samples::<i32>();
-                    let denom = (1i32 << 23) as f32; // 2^23 = 8_388_608
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                dst[written_samples] = s as f32 / denom;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
+                    let denom = (1i32 << 23) as f32;
+                    self.read_samples::<i32>(dst, |s| s as f32 / denom)?
                 }
                 32 => {
-                    let mut iter = self.inner.samples::<i32>();
-                    let denom = (1i64 << 31) as f32; // 2^31 = 2_147_483_648
-                    while written_samples < want_samples {
-                        match iter.next() {
-                            Some(Ok(s)) => {
-                                dst[written_samples] = s as f32 / denom;
-                                written_samples += 1;
-                            }
-                            Some(Err(e)) => return Err(map_hound_err(e)),
-                            None => break,
-                        }
-                    }
+                    let denom = (1i64 << 31) as f32;
+                    self.read_samples::<i32>(dst, |s| s as f32 / denom)?
                 }
                 other => return Err(unsupported_bits(other)),
             },
-            SampleFormat::Float => {
-                let mut iter = self.inner.samples::<f32>();
-                while written_samples < want_samples {
-                    match iter.next() {
-                        Some(Ok(s)) => {
-                            dst[written_samples] = s;
-                            written_samples += 1;
-                        }
-                        Some(Err(e)) => return Err(map_hound_err(e)),
-                        None => break,
-                    }
-                }
-            }
-        }
+            SampleFormat::Float => self.read_samples::<f32>(dst, |s| s)?,
+        };
 
         // Partial trailing frame would mean the source was truncated mid-
         // frame; surface that as Corrupt so callers don't accidentally
@@ -401,6 +342,28 @@ impl WavStreamReader {
         let frames = written_samples / chans;
         self.frames_read += frames as u64;
         Ok(frames)
+    }
+
+    /// Read sample values in order, retaining the caller's exact conversion
+    /// arithmetic and the first decoder error or EOF position.
+    fn read_samples<S: hound::Sample>(
+        &mut self,
+        dst: &mut [f32],
+        convert: impl Fn(S) -> f32,
+    ) -> Result<usize, DecodeError> {
+        let mut written = 0;
+        let mut samples = self.inner.samples::<S>();
+        while written < dst.len() {
+            match samples.next() {
+                Some(Ok(sample)) => {
+                    dst[written] = convert(sample);
+                    written += 1;
+                }
+                Some(Err(error)) => return Err(map_hound_err(error)),
+                None => break,
+            }
+        }
+        Ok(written)
     }
 }
 

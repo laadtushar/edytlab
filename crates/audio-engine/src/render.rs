@@ -162,6 +162,7 @@ fn is_unity_passthrough(
             .all(|t| t.effects.iter().all(|e| e.bypassed))
 }
 
+/// Render the requested range, or the full session, without cancellation.
 pub fn render(
     state: &SessionState,
     out: &Path,
@@ -611,8 +612,7 @@ impl TrackStreamer {
         // master chunk if no resampling is needed).
         let chunk_in_frames = resampler
             .as_ref()
-            .map(|r| r.chunk_in)
-            .unwrap_or(master_chunk_frames(project_rate));
+            .map_or_else(|| master_chunk_frames(project_rate), |r| r.chunk_in);
         let source_chunk_interleaved = vec![0.0f32; chunk_in_frames * in_channels];
 
         // Envelope points are read in project frames from the clip's
@@ -1682,7 +1682,7 @@ mod track_grouping_tests {
             length: 100,
             contributes: true,
             volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
+            volume_envelope_frames: session::EnvelopeFrames::default(),
             effects: Vec::new(),
         }
     }

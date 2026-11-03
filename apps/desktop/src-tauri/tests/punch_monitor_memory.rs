@@ -305,9 +305,12 @@ fn preparing_a_long_punch_does_not_keep_multiple_full_length_audio_buffers() {
     let expected_samples = SECONDS * 44_100 * 2;
     assert_eq!(audio.monitor_samples.get(), expected_samples);
     let monitor_bytes = expected_samples * std::mem::size_of::<f32>();
-    // One monitor plus bounded scratch. Even one extra full source render
-    // (15,360,000 bytes here) must exceed this allowance.
-    let limit = monitor_bytes + 8 * 1024 * 1024;
+    // One monitor plus bounded scratch. The muted render is mono, so even
+    // its smaller full decoded buffer must exceed the scratch allowance.
+    let smallest_source_bytes = SECONDS * SOURCE_RATE * std::mem::size_of::<f32>();
+    let scratch_allowance = 4 * 1024 * 1024;
+    assert!(scratch_allowance < smallest_source_bytes);
+    let limit = monitor_bytes + scratch_allowance;
     eprintln!(
         "punch preparation: peak={peak} bytes, monitor={monitor_bytes} bytes, limit={limit} bytes"
     );
