@@ -525,17 +525,18 @@ class ShellPathsTests(unittest.TestCase):
             stub.write_text('#!/bin/sh\necho "$0" >> "$REEL_TEST_TOOL_LOG"\nexit 99\n')
             stub.chmod(0o755)
 
-    def invoke(self, args, **extra_env):
+    def invoke(self, args, script=None, **extra_env):
         """Run the narration shell with an isolated scratch directory."""
+        environment = {**os.environ, "TMPDIR": str(self.root / "scratch"),
+                       "PATH": str(self.bin), "REEL_TEST_TOOL_LOG": str(self.tool_log), **extra_env}
         return subprocess.run(
-            [self.bash, str(PROJECT / "add-narration.sh"), *map(str, args)],
-            env={**os.environ, "TMPDIR": str(self.root / "scratch"),
-                 "PATH": str(self.bin), "REEL_TEST_TOOL_LOG": str(self.tool_log), **extra_env},
+            [self.bash, str(script or PROJECT / "add-narration.sh"), *map(str, args)],
+            env={key: value for key, value in environment.items() if value is not None},
             capture_output=True, text=True, check=False,
         )
 
-    def test_shell_argv_and_scratch_escapes_refused(self):
-        """Shell argv and scratch escapes refused."""
+    def test_shell_argv_escapes_refused(self):
+        """Actual cue/audio/output argv still refuse every outside destination."""
         video, cues = self.root / "video.mp4", self.root / "cues.json"
         video.write_bytes(b"synthetic")
         cues.write_text('{"cues": []}')
@@ -550,12 +551,83 @@ class ShellPathsTests(unittest.TestCase):
                 self.assertIn(str(PROJECT), result.stderr)
                 self.assertIn(str(escaped[index]), result.stderr)
                 self.assertFalse(self.tool_log.exists(), "media/awk stub was executed")
-            result = self.invoke(args, TMPDIR=external)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Refused path", result.stderr)
-            self.assertIn(external, result.stderr)
-            self.assertIn(str(PROJECT), result.stderr)
-            self.assertFalse(self.tool_log.exists(), "media/awk stub was executed")
+
+    def stop_at_scratch_creation(self):
+        """Log the actual mkdir/mktemp arguments and stop before any media tool runs."""
+        scratch_log = self.root / "scratch-commands.jsonl"
+        stub_source = (
+            f"#!{sys.executable}\n"
+            "import json, pathlib, sys\n"
+            f"with open({str(scratch_log)!r}, 'a') as output:\n"
+            "    output.write(json.dumps(sys.argv) + '\\n')\n"
+            "if pathlib.Path(sys.argv[0]).name == 'mktemp': sys.exit(73)\n"
+        )
+        for command in ("mkdir", "mktemp"):
+            stub = self.bin / command
+            stub.write_text(stub_source)
+            stub.chmod(0o755)
+        return scratch_log
+
+    def test_shell_scratch_hints_select_project_local_paths(self):
+        """External hints fall back; local hints retain canonical scratch selection."""
+        script = self.root / "add-narration.sh"
+        script.write_text((PROJECT / "add-narration.sh").read_text())
+        video, cues = self.root / "video.mp4", self.root / "cues.json"
+        video.write_bytes(b"synthetic")
+        cues.write_text('{"cues": []}')
+        args = [video, cues, self.root, self.root / "output.mp4"]
+        scratch_log = self.stop_at_scratch_creation()
+        preferred = self.root / "preferred scratch"
+        local_link = self.root / "local-link"
+        local_link.symlink_to(preferred, target_is_directory=True)
+        with tempfile.TemporaryDirectory() as external:
+            outside = Path(external)
+            outside_link = self.root / "outside-link"
+            outside_link.symlink_to(outside, target_is_directory=True)
+            absent_hint = outside / "var/folders/mac-scratch"
+            default = self.root / "work"
+            cases = (
+                (None, default), ("", default), (str(absent_hint), default),
+                (str(preferred), preferred), (str(local_link), preferred),
+                (str(outside_link), default), (str(preferred) + "\nignored", default),
+            )
+            for hint, expected in cases:
+                with self.subTest(hint=hint):
+                    scratch_log.unlink(missing_ok=True)
+                    result = self.invoke(args, script=script, TMPDIR=hint)
+                    self.assertEqual(result.returncode, 73, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    commands = [json.loads(line) for line in scratch_log.read_text().splitlines()]
+                    self.assertEqual(commands[0][1:], ["-p", str(expected.resolve())])
+                    self.assertEqual(commands[1][1:], [
+                        "-d", str(expected.resolve() / "add-narration.XXXXXX"),
+                    ])
+                    self.assertFalse(self.tool_log.exists(), "media/awk stub was executed")
+                    self.assertEqual(list(outside.iterdir()), [])
+                    self.assertFalse(absent_hint.exists())
+
+    def test_shell_fallback_scratch_symlink_escape_refused(self):
+        """The scratch directory actually selected still refuses a symlink outside the project."""
+        script = self.root / "add-narration.sh"
+        script.write_text((PROJECT / "add-narration.sh").read_text())
+        video, cues = self.root / "video.mp4", self.root / "cues.json"
+        video.write_bytes(b"synthetic")
+        cues.write_text('{"cues": []}')
+        args = [video, cues, self.root, self.root / "output.mp4"]
+        scratch_log = self.stop_at_scratch_creation()
+        with tempfile.TemporaryDirectory() as external:
+            work = self.root / "work"
+            work.symlink_to(external, target_is_directory=True)
+            for hint in (None, str(Path(external) / "mac-scratch"), "bad\nhint"):
+                with self.subTest(hint=hint):
+                    result = self.invoke(args, script=script, TMPDIR=hint)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Refused path", result.stderr)
+                    self.assertIn(str(work), result.stderr)
+                    self.assertIn(str(self.root), result.stderr)
+                    self.assertFalse(scratch_log.exists(), "scratch commands were executed")
+                    self.assertFalse(self.tool_log.exists(), "media/awk stub was executed")
+                    self.assertEqual(list(Path(external).iterdir()), [])
 
     def test_shell_cue_and_sfx_escapes_before_audio_processing(self):
         # Invoke the shell's cue-reader block with synthetic duration, so this

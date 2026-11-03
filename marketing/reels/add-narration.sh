@@ -27,8 +27,9 @@ set -euo pipefail
 
 if [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
   echo "usage: $0 <video.mp4> <cues.json> <audio-dir> <out.mp4>"
-  echo "Cue/audio inputs, outputs and TMPDIR must resolve inside marketing/reels, including symlinks."
-  echo "Copy external inputs (including /tmp files) into the project first. TMPDIR defaults to work/."
+  echo "Cue/audio inputs, outputs and scratch must resolve inside marketing/reels, including symlinks."
+  echo "Copy external inputs (including /tmp files) into the project first."
+  echo "An in-project TMPDIR selects scratch; an external or unset TMPDIR falls back to work/."
   exit 0
 fi
 if [[ "$#" -ne 4 ]]; then
@@ -45,11 +46,15 @@ print(Path(sys.argv[1]).resolve().parent)
 PYROOT
 )
 checked_path() {
-  python3 - "$PROJECT_ROOT" "$1" <<'PYPATH'
+  python3 - "$PROJECT_ROOT" "$1" "${2:-}" <<'PYPATH'
 from pathlib import Path
 import sys
-root, path = Path(sys.argv[1]), sys.argv[2]
+root, path, fallback = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 resolved = Path(path).resolve()
+if fallback and ("\n" in path or "\r" in path or
+                 (resolved != root and root not in resolved.parents)):
+    path = fallback
+    resolved = Path(path).resolve()
 if "\n" in path or "\r" in path:
     sys.exit(f"Refused path {path!r}: line breaks are not supported inside {root}")
 if resolved != root and root not in resolved.parents:
@@ -62,7 +67,9 @@ PYPATH
 CUES=$(checked_path "$CUES")
 ADIR=$(checked_path "$ADIR")
 OUT=$(checked_path "$OUT")
-TMPBASE=$(checked_path "${TMPDIR:-$PROJECT_ROOT/work}")
+# TMPDIR is ambient on macOS; use the hint only when it stays inside this project.
+# The selected fallback is validated too, including any work/ symlink.
+TMPBASE=$(checked_path "${TMPDIR:-$PROJECT_ROOT/work}" "$PROJECT_ROOT/work")
 [[ -f "$VIDEO" ]] || { echo "no such video: $VIDEO" >&2; exit 1; }
 [[ -f "$CUES" ]] || { echo "no such cues file: $CUES" >&2; exit 1; }
 [[ -d "$ADIR" ]] || { echo "no such audio dir: $ADIR" >&2; exit 1; }

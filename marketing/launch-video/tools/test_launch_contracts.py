@@ -1,5 +1,7 @@
 """Shell assembly, default still paths and help must respect the launch contracts."""
+import contextlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import shutil
@@ -58,6 +60,56 @@ class AssemblySoundEffects(unittest.TestCase):
 
 class LaunchCommandContracts(unittest.TestCase):
     """Launch commands must validate default paths and provide side-effect-free help."""
+
+    def test_malformed_render_ranges_fail_before_path_checks_or_plan_construction(self):
+        """Missing, option-like and nonnumeric times cannot start a media build."""
+        spec = importlib.util.spec_from_file_location('launch_range_test', TOOLS / 'launch.py')
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        output = str(PROJECT / 'work' / 'range.mp4')
+        for options in (['--from', '--to', '2'], ['--to', '--from', '1'],
+                        ['--from', 'not-a-time'], ['--to', 'not-a-time'],
+                        ['--from', ''], ['--to', '-h'], ['--from'], ['--to']):
+            with self.subTest(options=options), \
+                    mock.patch.object(sys, 'argv', ['launch.py', 'li', 'render',
+                                                    *options, output]), \
+                    mock.patch.object(launch, 'checked_output') as check_output, \
+                    mock.patch.dict(launch.BUILDERS, {'li': mock.Mock()}) as builders:
+                with self.assertRaisesRegex(SystemExit, 'requires a numeric value after'):
+                    launch.main()
+                check_output.assert_not_called()
+                builders['li'].assert_not_called()
+        for options in (['--from'], ['--to'], ['--from', '1', output, '--to']):
+            with self.subTest(options=options), \
+                    mock.patch.object(sys, 'argv', ['launch.py', 'li', 'render', *options]), \
+                    mock.patch.object(launch, 'checked_output') as check_output, \
+                    mock.patch.dict(launch.BUILDERS, {'li': mock.Mock()}) as builders:
+                with self.assertRaisesRegex(SystemExit, 'requires a numeric value after'):
+                    launch.main()
+                check_output.assert_not_called()
+                builders['li'].assert_not_called()
+
+    def test_numeric_render_ranges_keep_original_values_and_destination(self):
+        """Accepted float syntax and repeated options retain the original render call."""
+        spec = importlib.util.spec_from_file_location('launch_range_valid', TOOLS / 'launch.py')
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        with tempfile.TemporaryDirectory(dir=PROJECT) as folder:
+            output = Path(folder) / 'range.mp4'
+            for options, start, end in (([], 0.0, None), (['--to', '2'], 0.0, 2.0),
+                                        (['--from', '-1.25', '--to', '2e1'], -1.25, 20.0),
+                                        (['--to', '3', '--from', ' 0.5 '], 0.5, 3.0),
+                                        (['--from', '1', '--from', '2'], 1.0, None)):
+                plan = mock.Mock()
+                with self.subTest(options=options), \
+                        mock.patch.object(sys, 'argv', ['launch.py', 'li', 'render',
+                                                        *options, str(output)]), \
+                        mock.patch.dict(launch.BUILDERS, {'li': lambda: plan}), \
+                        contextlib.redirect_stdout(io.StringIO()) as stdout:
+                    launch.main()
+                plan.piece.render.assert_called_once_with(str(output.resolve()), start, end)
+                self.assertEqual(stdout.getvalue(), str(output) + '\n')
+                self.assertFalse(output.exists())
 
     def test_default_still_symlink_is_refused_before_building_the_plan(self):
         """The internal work path cannot redirect a still outside the project."""

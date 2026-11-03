@@ -411,10 +411,17 @@ def cues_json(P):
 
 
 def render_output_argument(args):
-    """Require a final output argument that is not a render option or its value."""
+    """Validate render option values before selecting the final output argument."""
     index = 0
     while index < len(args):
         if args[index] in ("--from", "--to"):
+            try:
+                float(args[index + 1])
+            except (IndexError, ValueError):
+                raise SystemExit(
+                    f"render requires a numeric value after {args[index]} "
+                    "and an explicit output path after its options"
+                ) from None
             index += 2
         elif index == len(args) - 1:
             return args[index]

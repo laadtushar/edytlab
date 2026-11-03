@@ -26,7 +26,41 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
     raise SystemExit(0)
 
 import requests
-from spec import *
+# Keep the existing spec re-exports explicit for callers of this module.
+from spec import (
+    BREATHING_ROOM,
+    DEMOS,
+    DEMO_DIR as DEMO_DIR,
+    END_LINE as END_LINE,
+    END_SECONDS as END_SECONDS,
+    ES_LINES,
+    ES_TEXT as ES_TEXT,
+    HOOK_SECONDS as HOOK_SECONDS,
+    LINES,
+    LISTEN_LEAD as LISTEN_LEAD,
+    Path as Path,
+    REELS as REELS,
+    REELS_DIR as REELS_DIR,
+    REEL_ORDER,
+    REPO_ROOT as REPO_ROOT,
+    ROOT as ROOT,
+    SITE_URL as SITE_URL,
+    STEP_SECONDS as STEP_SECONDS,
+    TAG_RE as TAG_RE,
+    TOKEN_RE as TOKEN_RE,
+    WORDS_PER_SECOND as WORDS_PER_SECOND,
+    caption_by_id as caption_by_id,
+    caption_table as caption_table,
+    checked_reel_path,
+    display_text,
+    markup_tokens as markup_tokens,
+    math as math,
+    max_words as max_words,
+    parse_markup,
+    re as re,
+    spoken_text,
+    spoken_word_count,
+)
 import cues as C
 
 API = "https://api.elevenlabs.io"
