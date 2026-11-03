@@ -11,15 +11,35 @@ Every shot is a stretch of one of the three real demo recordings in website/publ
 and where the app's sound is audible are in marketing/reels/tools/spec.py, which this file reads, and `Plan.clip` asserts that
 every shot lies inside the caption it is cut from, that a shot with no sound never overlaps the app's sound, and that a Listen
 shot starts at most 0.3 s before the sound and ends inside it. Nothing on screen is invented UI; the one diagram is labelled.
+
+Command output paths must resolve inside marketing/launch-video. Copy external
+inputs into that folder first; the documented demo recordings are configured
+separately through website/public/demos/ or EDYTLAB_DEMO_DIR.
 """
 import json
 import os
 import sys
+from pathlib import Path
+
+if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+    print(__doc__)
+    raise SystemExit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import *  # noqa
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = Path(HERE).resolve()
+
+
+def checked_output(path):
+    """Resolve a command output and reject escapes from the project root."""
+    resolved = Path(path).resolve()
+    if resolved != ROOT and ROOT not in resolved.parents:
+        raise SystemExit(f"Refused path {str(path)!r}: must resolve inside {ROOT}")
+    return resolved
+
+
 # The reels' spec.py holds the caption windows and the audible windows measured on the re-filmed demos. It wants a scratch
 # root for the narration work it does not do here; nothing of it is used.
 os.environ.setdefault("EDYTLAB_REEL_ROOT", os.path.join(HERE, "work"))
@@ -328,22 +348,29 @@ def cues_json(P):
 
 if __name__ == "__main__":
     plat, cmd = sys.argv[1], sys.argv[2]
+    if cmd == "still":
+        out = f"{HERE}/work/qc_{plat}.png"
+        checked = checked_output(out)
+    elif cmd == "cues":
+        checked = checked_output(sys.argv[3])
+    elif cmd == "render":
+        checked = checked_output(sys.argv[-1])
     P = BUILDERS[plat]()
     if cmd == "still":
         times = [float(x) for x in sys.argv[3:]]
-        os.makedirs(f"{HERE}/work", exist_ok=True)   # work/ is a scratch directory, not committed
-        out = f"{HERE}/work/qc_{plat}.png"
+        os.makedirs(checked.parent, exist_ok=True)   # work/ is scratch, not committed
         if len(times) == 1:
-            P.piece.still(times[0]).save(out)
+            P.piece.still(times[0]).save(checked)
         else:
-            contact(P, times, out, cols=4 if plat != "rd" else 3, w=480 if plat != "rd" else 640)
+            contact(P, times, checked, cols=4 if plat != "rd" else 3, w=480 if plat != "rd" else 640)
         print(out)
     elif cmd == "cues":
-        json.dump(cues_json(P), open(sys.argv[3], "w"), indent=1)
+        with open(checked, "w") as cues_file:
+            json.dump(cues_json(P), cues_file, indent=1)
         print(sys.argv[3], "total", P.total)
     elif cmd == "render":
         a = sys.argv[3:]
         t_from = float(a[a.index("--from") + 1]) if "--from" in a else 0.0
         t_to = float(a[a.index("--to") + 1]) if "--to" in a else None
-        P.piece.render(a[-1], t_from, t_to)
+        P.piece.render(str(checked), t_from, t_to)
         print(a[-1])

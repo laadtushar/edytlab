@@ -4,13 +4,15 @@
 Inputs and outputs must stay inside marketing/launch-video, including through
 symlinks. Copy external inputs (such as /tmp files) into that folder first.
 """
-import json, sys
+import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def checked_path(path):
+    """Resolve a path and reject escapes from the launch-video project."""
     resolved = Path(path).resolve()
     if resolved != ROOT and ROOT not in resolved.parents:
         raise SystemExit(f"Refused path {path!r}: must resolve inside {ROOT}")
@@ -18,18 +20,22 @@ def checked_path(path):
 
 
 def ts(x):
-    h, r = divmod(x, 3600); m, s = divmod(r, 60)
+    """Format seconds as an SRT timestamp."""
+    h, r = divmod(x, 3600)
+    m, s = divmod(r, 60)
     return f"{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s - int(s)) * 1000)):03d}"
 
 
 def main():
+    """Convert the caption cues to SRT in the project directory."""
     if len(sys.argv) == 2 and sys.argv[1] in ('-h', '--help'):
         print(__doc__)
         return
     if len(sys.argv) != 3:
         raise SystemExit(__doc__)
     source, destination = map(checked_path, sys.argv[1:])
-    cues = json.load(open(source))["captions"]
+    with open(source) as cues_file:
+        cues = json.load(cues_file)["captions"]
     cues.sort()
     cues = [list(c) for c in cues]
     for i in range(len(cues) - 1):

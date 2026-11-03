@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def checked_path(path):
+    """Resolve an input or output path and reject escapes from the project."""
     resolved = Path(path).resolve()
     if resolved != ROOT and ROOT not in resolved.parents:
         raise SystemExit(f"Refused path {str(path)!r}: must resolve inside {ROOT}")
@@ -34,6 +35,7 @@ def checked_path(path):
 
 
 def curl(method, path, body=None, out=None):
+    """Call the narration service with the API key supplied on stdin."""
     key = os.environ["ELEVENLABS_API_KEY"]
     cfg = f'header = "xi-api-key: {key}"\nheader = "Content-Type: application/json"\n'
     cmd = ["curl", "-sS", "-m", "120", "-K", "-", "-X", method, API + path, "-w", "\n%{http_code}"]
@@ -69,7 +71,9 @@ def words_from_alignment(al, text):
 
 
 def gen(lines_path, outdir, n_takes):
-    lines = json.load(open(checked_path(lines_path)))
+    """Generate takes from in-project input and write them within the project."""
+    with open(checked_path(lines_path)) as lines_file:
+        lines = json.load(lines_file)
     checked_path(outdir)
     checked_path(f"{outdir}/usage.log")
     # Validate IDs before making directories or sending requests.
@@ -100,8 +104,10 @@ def gen(lines_path, outdir, n_takes):
                 print(f"{ln['id']} take {k}: HTTP {code}: {txt[:200]}")
                 continue
             d = json.loads(txt)
-            open(checked_path(base + ".mp3"), "wb").write(base64.b64decode(d["audio_base64"]))
-            json.dump(dict(text=ln["text"], words=words_from_alignment(d["alignment"], ln["text"])), open(checked_path(base + ".json"), "w"))
+            with open(checked_path(base + ".mp3"), "wb") as audio_file:
+                audio_file.write(base64.b64decode(d["audio_base64"]))
+            with open(checked_path(base + ".json"), "w") as alignment_file:
+                json.dump(dict(text=ln["text"], words=words_from_alignment(d["alignment"], ln["text"])), alignment_file)
             total += len(ln["text"])
             with open(checked_path(f"{outdir}/usage.log"), "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {ln['id']} take {k}  {len(ln['text'])} chars\n")
@@ -111,11 +117,13 @@ def gen(lines_path, outdir, n_takes):
 
 
 def dur(path):
-    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(checked_path(path))], capture_output=True, text=True)
+    """Return the duration reported by ffprobe for an in-project take."""
+    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(checked_path(path))], capture_output=True, text=True, check=False)
     return float(p.stdout.strip())
 
 
 def best_take(ln, outdir):
+    """Choose the fitting take with the fewest pauses, then shortest speech."""
     best = None
     for k in range(1, 6):
         base = f"{outdir}/{ln['id']}_t{k}"
@@ -134,6 +142,7 @@ def best_take(ln, outdir):
 
 
 def pick(lines_path, outdir, out_json):
+    """Write the chosen takes and subtitles using the original path strings."""
     if not out_json.endswith(".json"):
         raise SystemExit(f"Output must end in .json: {out_json!r}")
     with open(checked_path(lines_path)) as lines_file:
@@ -147,7 +156,7 @@ def pick(lines_path, outdir, out_json):
         if not best:
             report.append(f"{ln['id']}: NO TAKE")
             continue
-        _, base, d, se, mg, fit = best
+        _, base, _duration, se, mg, fit = best
         chosen.append(dict(id=ln["id"], t=ln["t"], file=base + ".mp3", gain_db=ln.get("gain_db", 0), tempo=ln.get("tempo", 1.0), speech_end=se, win=ln["win"], text=ln["text"]))
         report.append(f"{ln['id']}: {os.path.basename(base)} speech {se:.2f}s of {ln['win']:.1f}s window, longest pause {mg:.2f}s {'OK' if fit else 'TOO LONG'}")
         srt.append((ln["t"], ln["t"] + se + 0.15, ln["text"]))

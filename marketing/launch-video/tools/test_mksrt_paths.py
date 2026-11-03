@@ -13,6 +13,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = Path(__file__).with_name('mksrt.py')
 NARRATE = Path(__file__).with_name('narrate.py')
+SHEET = Path(__file__).with_name('sheet.py')
+LAUNCH = Path(__file__).with_name('launch.py')
 
 
 class MksrtPaths(unittest.TestCase):
@@ -128,6 +130,56 @@ class NarrationPaths(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(str(ROOT), result.stderr)
                 self.assertIn(refused, result.stderr)
+
+
+class SheetPaths(unittest.TestCase):
+    """Contact sheets reject paths escaping the launch-video project."""
+
+    setUp = MksrtPaths.setUp
+
+    def test_external_and_symlink_paths_are_rejected_before_running_tools(self):
+        link = self.folder / 'outside'
+        link.symlink_to(self.external_folder, target_is_directory=True)
+        video = self.folder / 'video.mp4'
+        output = self.folder / 'sheet.png'
+        for source, destination, refused in [
+            (self.external_folder / 'video.mp4', output, self.external_folder / 'video.mp4'),
+            (video, self.external_folder / 'sheet.png', self.external_folder / 'sheet.png'),
+            (video, link / 'sheet.png', link / 'sheet.png'),
+            (link / 'video.mp4', output, link / 'video.mp4'),
+            (video, self.folder / '..' / '..' / '..' / 'sheet.png',
+             self.folder / '..' / '..' / '..' / 'sheet.png'),
+        ]:
+            with self.subTest(refused=refused):
+                result = subprocess.run(
+                    [sys.executable, '-I', str(SHEET), str(source), str(destination), '2', '100'],
+                    capture_output=True, text=True, cwd=ROOT, check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(str(ROOT), result.stderr)
+                self.assertIn(str(refused), result.stderr)
+        self.assertFalse(output.exists())
+
+
+class LaunchPaths(unittest.TestCase):
+    """The launch builder rejects external output paths before rendering."""
+
+    setUp = MksrtPaths.setUp
+
+    def test_cues_and_render_refuse_external_or_symlinked_outputs(self):
+        link = self.folder / 'outside'
+        link.symlink_to(self.external_folder, target_is_directory=True)
+        for command in ('cues', 'render'):
+            for output in (self.external_folder / 'output', link / 'output'):
+                with self.subTest(command=command, output=output):
+                    result = subprocess.run(
+                        [sys.executable, '-I', str(LAUNCH), 'li', command, str(output)],
+                        capture_output=True, text=True, cwd=ROOT, check=False,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(str(ROOT), result.stderr)
+                    self.assertIn(str(output), result.stderr)
+        self.assertEqual(list(self.external_folder.iterdir()), [])
 
 
 if __name__ == '__main__':
