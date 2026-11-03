@@ -162,8 +162,8 @@ fn convert_source(
             for f in 0..available {
                 read_frame(&mut source_frame)?;
                 map_frame(&source_frame, &mut mapped);
-                for c in 0..work_ch {
-                    in_buf[c][f] = mapped[c];
+                for (channel, sample) in in_buf.iter_mut().zip(&mapped) {
+                    channel[f] = *sample;
                 }
             }
             let input =
@@ -176,8 +176,8 @@ fn convert_source(
                 .map_err(|e| conv(&e))?;
             for f in 0..written {
                 if produced >= delay && emitted < wanted {
-                    for c in 0..work_ch {
-                        mapped[c] = out_buf[c][f];
+                    for (sample, channel) in mapped.iter_mut().zip(&out_buf) {
+                        *sample = channel[f];
                     }
                     map_frame(&mapped, &mut output_frame);
                     emit(emitted, &output_frame);
