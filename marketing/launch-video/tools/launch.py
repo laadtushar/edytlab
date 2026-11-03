@@ -34,7 +34,7 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
     raise SystemExit(0)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launch_paths import ROOT, checked_path as _checked_path
+from launch_paths import ROOT as ROOT, checked_path as _checked_path
 
 from engine import (  # noqa: E402
     BarsBG, Callout, EndCard, FPS, Flow, FootageClip, Image, ImageDraw,
@@ -59,9 +59,11 @@ CODE = {BT: "BT", EI: "EI", MM: "MM"}
 MINUS = "\u2212"
 NOTE = "Real screen recording  \u00b7  waits sped up"
 
-# Regions of the recorded app window, in source pixels (1280x776). Measured on native frames with a 50 px grid. The recording
-# burns its own step caption into a card across the bottom (y 684 to 754), which this cut replaces with its own titles, so no
-# crop reaches below y 684, except the composer's (TYPE), which a short caption's card never touches.
+# Regions of the recorded app window, in source pixels (1280x776), measured
+# on native frames with a 50 px grid. The recording burns its step caption
+# into a card across the bottom (y 684 to 754), replaced by this cut's titles.
+# No crop reaches below y 684 except the composer's (TYPE), which a short
+# caption's card never touches.
 REG = {
     "WIDE": (0, 0, 1280, 684),
     "TYPE": (905, 440, 375, 266),        # chat composer + the last bubble
@@ -74,7 +76,8 @@ REG = {
     "PLAYHEAD": (300, 92, 440, 340),
 }
 LAYOUT_OF = {"li": "sq", "rd": "wide", "ig": "tall"}
-LISTEN_LEAD_MAX = 0.3     # a Listen shot starts at most this long before the app's sound (as in the reels)
+# A Listen shot starts at most this long before the app's sound, as in the reels.
+LISTEN_LEAD_MAX = 0.3
 
 
 def caption_window(code, ids):
@@ -84,7 +87,10 @@ def caption_window(code, ids):
 
 
 def check_shot(demo, src0, dur, caps, listen=False):
-    """The shot lies inside its caption(s); a shot without sound keeps clear of the app's sound; a Listen shot starts on it."""
+    (
+        """The shot lies inside its caption(s); a shot without sound keeps clear """
+        """of the app's sound; a Listen shot starts on it."""
+    )
     code = CODE[demo]
     lo, hi = caption_window(code, caps)
     end = src0 + dur
@@ -127,9 +133,11 @@ class Plan:
         self.scenes = []       # (name, t0, t1) for narration timing
 
     def add(self, it):
+        """Append a visual item to the piece and return that item."""
         return self.piece.add(it)
 
     def set_total(self, total):
+        """Round the cut's duration to whole frames and update the piece."""
         total = round(total * FPS) / FPS        # a whole number of frames
         self.total = total
         self.piece.duration = total
@@ -139,12 +147,14 @@ class Plan:
         self.title(markup, t0, t1, cue=cue, size=self.L.step_size, fixed=True, max_lines=2, **kw)
 
     def title(self, markup, t0, t1, cue=None, **kw):
+        """Add a title and its caption unless an empty cue suppresses it."""
         self.add(Title(self.ctx, markup, t0, t1, **kw))
         plain = markup.replace("*", "").replace("|", " ").replace("  ", " ")
         if cue != "":
             self.cues.append((t0 + 0.2, t1 - 0.1, cue or plain))
 
     def clip(self, demo, src0, dur, t0, shots, caps=None, listen=False, **kw):
+        """Validate a demo shot, add its footage, and retain it for audio cues."""
         check_shot(demo, src0, dur, caps, listen)
         c = FootageClip(self.ctx, demo, src0, dur, t0, shots, REG, **kw)
         self.add(c)
@@ -152,6 +162,7 @@ class Plan:
         return c
 
     def call(self, clip, region, label, t_in, t_out, **kw):
+        """Add a timed callout and place its tick sound on the cut's clock."""
         c = Callout(self.ctx, clip, region, label, t_in, t_out, **kw)
         self.add(c)
         self.sfx.append((clip.t0 + t_in + 0.5, "tick", -10))
@@ -163,7 +174,10 @@ END_SECONDS = {"li": 5.2, "rd": 5.5, "ig": 5.5}    # how long the end card holds
 
 
 def demo_blend(P, t, style):
-    """The beatmatch-and-blend demo, step by step. Returns (t_end, last_clip, nxt). Cuts overlap by 0.3 s (crossfade)."""
+    (
+        """The beatmatch-and-blend demo, step by step. Returns (t_end, last_clip, nxt). """
+        """Cuts overlap by 0.3 s (crossfade)."""
+    )
     ig = style == "ig"
     chat_low = "CHAT_LOW"
     prev = None

@@ -2,7 +2,6 @@
 The intro (ElevenLabs settings, licence terms) is a template in INTRO below."""
 import json
 import os
-import re
 import sys
 if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
     print(__doc__)

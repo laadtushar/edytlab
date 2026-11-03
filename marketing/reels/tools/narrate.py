@@ -78,21 +78,25 @@ LEDGER = f"{ROOT}/work/ledger.json"
 
 def ledger_total():
     """Read the locally tracked spend, or zero before the first call."""
-    return json.load(open(checked_reel_path(LEDGER)))[
-        "spent"] if os.path.exists(checked_reel_path(LEDGER)) else 0
+    path = checked_reel_path(LEDGER)
+    if not os.path.exists(path):
+        return 0
+    with open(path) as ledger:
+        return json.load(ledger)["spent"]
 
 
 def ledger_add(n, what):
     """Record narration spend in the validated local ledger."""
-    d = json.load(
-        open(
-            checked_reel_path(LEDGER))) if os.path.exists(
-        checked_reel_path(LEDGER)) else dict(
-                spent=0,
-        entries=[])
-    d["spent"] += n
-    d["entries"].append([time.strftime("%H:%M:%S"), what, n])
-    json.dump(d, open(checked_reel_path(LEDGER), "w"))
+    path = checked_reel_path(LEDGER)
+    if os.path.exists(path):
+        with open(path) as ledger:
+            data = json.load(ledger)
+    else:
+        data = dict(spent=0, entries=[])
+    data["spent"] += n
+    data["entries"].append([time.strftime("%H:%M:%S"), what, n])
+    with open(path, "w") as ledger:
+        json.dump(data, ledger)
 
 
 def spent():
@@ -151,7 +155,10 @@ def cached(text, lang=None):
     """Load cached narration metadata from the project."""
     h = line_hash(text, lang)
     p = checked_reel_path(f"{TTS}/{h}.json")
-    return json.load(open(p)) if os.path.exists(p) else None
+    if not os.path.exists(p):
+        return None
+    with open(p) as metadata:
+        return json.load(metadata)
 
 
 def generate_line(text, lang=None, previous_ids=None, next_text=None, settings=None):
@@ -170,11 +177,13 @@ def generate_line(text, lang=None, previous_ids=None, next_text=None, settings=N
         raise RuntimeError(f"budget: {used} used + {len(text)} would pass {BUDGET}")
     audio, al, nal, rid = tts_call(text, lang, settings, previous_ids, next_text)
     ledger_add(len(text), "tts " + text[:30])
-    open(checked_reel_path(mp3), "wb").write(audio)
+    with open(checked_reel_path(mp3), "wb") as output:
+        output.write(audio)
     meta = dict(hash=h, text=text, lang=lang, request_id=rid, made=time.time(), mp3=mp3, alignment=al, normalized_alignment=nal,
                 duration=ffprobe_duration(mp3), chars=len(text), used_previous_ids=bool(previous_ids), used_next_text=bool(next_text),
                 settings=settings or SETTINGS)
-    json.dump(meta, open(checked_reel_path(metadata), "w"))
+    with open(checked_reel_path(metadata), "w") as output:
+        json.dump(meta, output)
     return meta
 
 
@@ -211,10 +220,12 @@ def write_speech():
     d = {}
     for f in os.listdir(checked_reel_path(TTS)):
         if f.endswith(".json") and f != "speech.json":
-            m = json.load(open(checked_reel_path(f"{TTS}/{f}")))
+            with open(checked_reel_path(f"{TTS}/{f}")) as metadata:
+                m = json.load(metadata)
             if m.get("alignment"):
                 d[m["text"]] = round(m["alignment"]["character_end_times_seconds"][-1], 3)
-    json.dump(d, open(checked_reel_path(f"{ROOT}/work/speech.json"), "w"), indent=0)
+    with open(checked_reel_path(f"{ROOT}/work/speech.json"), "w") as speech:
+        json.dump(d, speech, indent=0)
     return d
 
 
@@ -311,7 +322,8 @@ def prepare(tl):
         timing[c["id"]] = dict(words=words, speech_end=round(end, 3), tempo=round(tempo, 4), clip=os.path.basename(dst),
                                window=round(window, 3), status=status, request_id=m.get("request_id", ""))
         report.append((c["id"], status, round(end, 2), round(window, 2), round(tempo, 3)))
-    json.dump(timing, open(timing_path, "w"), indent=1)
+    with open(timing_path, "w") as output:
+        json.dump(timing, output, indent=1)
     return timing, report
 
 
@@ -340,7 +352,8 @@ def gen_sfx():
                           json=dict(text=spec["text"], duration_seconds=spec["duration_seconds"], prompt_influence=0.5), timeout=180)
         if r.status_code != 200:
             raise RuntimeError(f"SFX {r.status_code}: {r.text[:400]}")
-        open(p, "wb").write(r.content)
+        with open(p, "wb") as output:
+            output.write(r.content)
         ledger_add(est, "sfx " + name)
         log(f"sfx {name} ({spec['duration_seconds']}s requested) audio={ffprobe_duration(p):.2f}s  ledger={ledger_total()}/{BUDGET} (estimate 40 credits/s)")
 
