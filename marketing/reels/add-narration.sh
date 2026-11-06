@@ -27,6 +27,7 @@ set -euo pipefail
 
 if [[ "$#" -eq 1 && ( "$1" = "--help" || "$1" = "-h" ) ]]; then
   echo "usage: $0 <video.mp4> <cues.json> <audio-dir> <out.mp4>"
+  echo "Video inputs must be inside marketing/reels or one of the three repository demo MP4s."
   echo "Cue/audio inputs, outputs and scratch must resolve inside marketing/reels, including symlinks."
   echo "Copy external inputs (including /tmp files) into the project first."
   echo "An in-project TMPDIR selects scratch; an external or unset TMPDIR falls back to work/."
@@ -51,19 +52,37 @@ from pathlib import Path
 import sys
 root, path, fallback = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 resolved = Path(path).resolve()
-if fallback and ("\n" in path or "\r" in path or
+if fallback and ("\n" in path or "\r" in path or "\n" in str(resolved) or "\r" in str(resolved) or
                  (resolved != root and root not in resolved.parents)):
     path = fallback
     resolved = Path(path).resolve()
-if "\n" in path or "\r" in path:
+if "\n" in path or "\r" in path or "\n" in str(resolved) or "\r" in str(resolved):
     sys.exit(f"Refused path {path!r}: line breaks are not supported inside {root}")
 if resolved != root and root not in resolved.parents:
     sys.exit(f"Refused path {path!r}: must resolve inside {root}. Copy external /tmp files into the project first.")
 print(resolved)
 PYPATH
 }
-# Full-demo builds read website/public/demos; preserve the original VIDEO
-# source acceptance until the documented demo-boundary decision is settled.
+# Check the concrete video argument before any media tool opens it, retaining
+# its spelling for FFmpeg. Only the repository's three full demos are allowed
+# outside the project; aliases are allowed when their target is within bounds.
+# Mirrors tools/demo_paths.py while keeping this script usable as a standalone copy.
+python3 - "$PROJECT_ROOT" "$VIDEO" <<'PYVIDEO'
+import sys
+from pathlib import Path
+
+root, video = Path(sys.argv[1]), sys.argv[2]
+demo_dir = root.parent.parent / "website" / "public" / "demos"
+demos = {demo_dir / name for name in (
+    "dj-beatmatched-transition.mp4", "dj-extended-club-intro.mp4", "dj-mini-mix.mp4",
+)}
+resolved = Path(video).resolve()
+inside = lambda path: path == root or root in path.parents
+if (not video or video.startswith("-") or ":" in video.split("/", 1)[0]
+        or any(c in video or c in str(resolved) for c in "\r\n")
+        or not (inside(resolved) or resolved in demos)):
+    sys.exit(f"Refused path {video!r}: video must be a local project file or an approved repository demo MP4")
+PYVIDEO
 CUES=$(checked_path "$CUES")
 ADIR=$(checked_path "$ADIR")
 OUT=$(checked_path "$OUT")
@@ -102,7 +121,7 @@ root, adir_display = Path(sys.argv[6]), sys.argv[7]
 
 def checked_path(path):
     resolved = Path(path).resolve()
-    if "\n" in path or "\r" in path:
+    if "\n" in path or "\r" in path or "\n" in str(resolved) or "\r" in str(resolved):
         sys.exit(f"Refused path {path!r}: line breaks are not supported inside {root}")
     if resolved != root and root not in resolved.parents:
         sys.exit(f"Refused path {path!r}: must resolve inside {root}. Copy external /tmp files into the project first.")

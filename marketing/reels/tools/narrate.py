@@ -326,7 +326,10 @@ def prepare(tl):
             report.append((c["id"], "MISSING"))
             continue
         source = checked_reel_path(m["mp3"])
-        outputs = {ext: checked_reel_path(f"{adir}/{c['id']}.{ext}") for ext in ("mp3", "wav")}
+        outputs = {ext: f"{adir}/{c['id']}.{ext}" for ext in ("mp3", "wav")}
+        # Check both resolved targets before removing either lexical output path.
+        for path in outputs.values():
+            checked_reel_path(path)
         words = word_times(c["narration"], m)
         end = speech_end(words)
         window = c.get("voice_end", c["end"]) - c["start"]

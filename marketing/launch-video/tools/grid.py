@@ -1,22 +1,33 @@
 #!/usr/bin/env python3
 """grid.py out.png demo:t demo:t ...  -> 2x2 sheets of native frames with a 50 px coordinate grid (source pixels)."""
 import io, os, subprocess, sys
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-# <repo>/website/public/demos (this file is <repo>/marketing/launch-video/tools/grid.py); EDYTLAB_DEMO_DIR overrides it.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import checked_demo_path, checked_path, checked_system_font  # noqa: E402
+# The three repository recordings or files inside the launch project may be used.
 D = os.environ.get("EDYTLAB_DEMO_DIR") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "website", "public", "demos")
+DEMOS = {"BT":"dj-beatmatched-transition","EI":"dj-extended-club-intro","MM":"dj-mini-mix"}
 def frame(demo, t):
-    p = subprocess.run(["nice","-n","10","ffmpeg","-nostdin","-v","error","-ss",f"{t:.3f}","-i",f"{D}/{demo}.mp4","-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True)
+    path = checked_demo_path(f"{D}/{demo}.mp4")
+    p = subprocess.run(["nice","-n","10","ffmpeg","-nostdin","-v","error","-ss",f"{t:.3f}","-i",path,"-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True)
     return Image.open(io.BytesIO(p.stdout)).convert("RGB")
 out = sys.argv[1]; items = sys.argv[2:]
+checked_path(out)
+for item in items:
+    key, timestamp = item.split(":")
+    float(timestamp)
+    checked_demo_path(f"{D}/{DEMOS[key]}.mp4")
+font_path = checked_system_font()
 S = 1.0
 W, H = 1280, 776
 cols = 2
 rows = (len(items)+1)//2
 sheet = Image.new("RGB",(W*cols, H*rows))
-f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 13)
+f = ImageFont.truetype(font_path, 13)
 for i,it in enumerate(items):
     demo,t = it.split(":"); t=float(t)
-    demo = {"BT":"dj-beatmatched-transition","EI":"dj-extended-club-intro","MM":"dj-mini-mix"}[demo]
+    demo = DEMOS[demo]
     im = frame(demo,t)
     d = ImageDraw.Draw(im)
     for x in range(0,W,50):

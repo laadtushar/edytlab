@@ -21,8 +21,8 @@ import subprocess
 import sys
 if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
     print(__doc__)
-    print("EDYTLAB_REEL_ROOT and local input/output paths must resolve inside marketing/reels. "
-          "Copy external files (including /tmp inputs) into the project first.")
+    print("EDYTLAB_REEL_ROOT and outputs must resolve inside marketing/reels. Inputs must also "
+          "be inside the project, except the three repository website demo recordings.")
     raise SystemExit(0)
 
 from render import *
@@ -184,6 +184,7 @@ def run_add(video, cues_path, audio_dir, out):
     """Run the narration mixer and surface its output on failure."""
     for path in (cues_path, audio_dir, out):
         checked_reel_path(path)
+    checked_demo_input(video)
     p = subprocess.run([ADD, video, cues_path, audio_dir, out],
                        capture_output=True, text=True, check=False)
     sys.stderr.write(p.stderr)
@@ -194,8 +195,12 @@ def run_add(video, cues_path, audio_dir, out):
 
 def build_plain(key):
     """Build one plain reel's cues and audio inside the reels project."""
-    os.makedirs(checked_reel_path(OUT), exist_ok=True)
+    checked_reel_path(OUT)
     tl = get_tl(key)
+    for c in tl["cues"]:
+        if c["kind"] in ("step", "listen"):
+            checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4")
+    os.makedirs(checked_reel_path(OUT), exist_ok=True)
     res = dict(key=key, file=tl["file"], duration=tl["duration"])
     write_plain_cues(tl, f"{OUT}/{tl['file']}-cues.json")
     # app audio, normalised once
@@ -217,6 +222,9 @@ def build_reel_key(key, what="plain"):
     if what in ("narrated", "both"):
         import narrate as N
         tl = get_tl(key, narrated=True)
+        for c in tl["cues"]:
+            if c["kind"] in ("step", "listen"):
+                checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4")
         timing, report = N.prepare(tl)
         bad = [r for r in report if r[1] in ("MISSING", "OVER")]
         if bad:
@@ -244,6 +252,7 @@ def build_demo(code):
     import narrate as N
     tl = C.build_demo(code)
     d = DEMOS[code]
+    checked_demo_input(f"{DEMO_DIR}/{d['slug']}.mp4")
     timing, report = N.prepare(tl)
     bad = [r for r in report if r[1] in ("MISSING", "OVER")]
     if bad:

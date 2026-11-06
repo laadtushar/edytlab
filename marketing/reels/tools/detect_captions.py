@@ -5,13 +5,14 @@ frame. This differences the strip that card sits in, frame by frame, and lists e
 than a threshold: the caption starts that spec.py's DEMOS tables hold. Run it after the demos are re-filmed, then check
 each time on an extracted frame (sheet.py) before it goes into spec.py.
 
-  python3 detect_captions.py [slug ...]        every demo by default (EDYTLAB_DEMO_DIR to read them from elsewhere)
+  python3 detect_captions.py [slug ...]        every demo by default (EDYTLAB_DEMO_DIR may select an in-project copy)
 
 The GTK file chooser that opens the tracks covers the strip twice, about 3.6 s and 6.7 s in: those two are not captions.
 The recordings are 15 fps, so every start is a multiple of 1/15 s.
 """
 import subprocess, sys, os
 from pathlib import Path
+from demo_paths import checked_demo_input
 # <repo>/website/public/demos (this file is <repo>/marketing/reels/tools/detect_captions.py); EDYTLAB_DEMO_DIR overrides it.
 DEMOS = os.environ.get("EDYTLAB_DEMO_DIR") or str(Path(__file__).resolve().parents[3] / "website" / "public" / "demos")
 SLUGS = ["dj-beatmatched-transition", "dj-extended-club-intro", "dj-mini-mix"]
@@ -22,7 +23,7 @@ THRESHOLD = 8000                  # summed absolute difference of two frames' st
 
 
 def changes(slug):
-    p = subprocess.run(["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-i", f"{DEMOS}/{slug}.mp4", "-vf",
+    p = subprocess.run(["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-i", checked_demo_input(f"{DEMOS}/{slug}.mp4"), "-vf",
                         f"{STRIP},scale={W}:{H}:flags=area,format=gray,fps={FPS}", "-f", "rawvideo", "-"], capture_output=True)
     data, fs = p.stdout, W * H
     n = len(data) // fs
@@ -39,7 +40,10 @@ def changes(slug):
 
 
 if __name__ == "__main__":
-    for slug in sys.argv[1:] or SLUGS:
+    slugs = sys.argv[1:] or SLUGS
+    for slug in slugs:
+        checked_demo_input(f"{DEMOS}/{slug}.mp4")
+    for slug in slugs:
         length, found = changes(slug)
         print(f"{slug}: {length:.3f} s, {len(found)} changes")
         for frame, d in found:

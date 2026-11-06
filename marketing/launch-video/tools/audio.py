@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Assemble a cut's audio from its cue file and mux it onto the silent video.
-CLI data inputs and outputs stay in marketing/launch-video; copy external data there first.
+CLI data inputs and outputs stay in marketing/launch-video, except the three
+read-only recordings in website/public/demos; copy other external data there first.
   audio.py mix  cues.json video.mp4 out.mp4 [--narration narr.json] [--sfx-dir DIR] [--no-sfx]
 
 Sources, all placed on the cut's own clock:
@@ -28,7 +29,7 @@ import launch_paths  # noqa: E402
 from launch_paths import checked_path  # noqa: E402
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# <repo>/website/public/demos; EDYTLAB_DEMO_DIR overrides the shared demo source.
+# The three repository recordings or files inside the launch project may be used.
 DEMO_DIR = os.environ.get("EDYTLAB_DEMO_DIR") or os.path.join(os.path.dirname(os.path.dirname(HERE)), "website", "public", "demos")
 SR, FRAME = 48000, 4          # 16-bit stereo
 FMT = "aformat=sample_rates=48000:channel_layouts=stereo"
@@ -91,12 +92,15 @@ def _sfx_file(directory, name):
 def mix_pcm(cues, narration, sfx_dir, use_sfx, music_db, sfx_db_shift):
     """Mix app audio, synthetic sounds and narration on the cut's sample clock."""
     _checked_media_path(sfx_dir)
+    for c in cues['clips']:
+        launch_paths.checked_demo_path(f"{DEMO_DIR}/{c['demo']}.mp4")
     total = cues["total"]
     buf = bytearray(int(round(total * SR)) * FRAME)
     for c in cues["clips"]:
         fo = min(0.3, c.get("fade_out", 0.3))
         filt = f"{FMT},afade=t=in:d=0.03,afade=t=out:st={max(0.0, c['dur'] - fo):.3f}:d={fo:.3f},volume={music_db}dB"
-        place(buf, decode(["-ss", f"{c['src0']:.3f}", "-t", f"{c['dur']:.3f}", "-i", f"{DEMO_DIR}/{c['demo']}.mp4"], filt), c["t0"])
+        source = launch_paths.checked_demo_path(f"{DEMO_DIR}/{c['demo']}.mp4")
+        place(buf, decode(["-ss", f"{c['src0']:.3f}", "-t", f"{c['dur']:.3f}", "-i", source], filt), c["t0"])
     if use_sfx:
         cache = {}
         for t, name, db in cues["sfx"]:
@@ -141,6 +145,8 @@ def _mix_inputs(a):
     sfx_dir = a[a.index("--sfx-dir") + 1] if "--sfx-dir" in a else f"{HERE}/work/sfx"
     use_sfx = "--no-sfx" not in a
     _checked_media_path(sfx_dir)
+    for c in cues['clips']:
+        launch_paths.checked_demo_path(f"{DEMO_DIR}/{c['demo']}.mp4")
     if use_sfx:
         for _, name, _ in cues["sfx"]:
             _sfx_file(sfx_dir, name)

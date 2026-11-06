@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {
   copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
-  readdirSync, rmSync, symlinkSync, writeFileSync,
+  readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
@@ -61,7 +61,7 @@ export const CONTRASTS = {
 
 /** Copy the actual CLI and path policy into a synthetic repository with brand inputs. */
 function fixture(t: TestContext) {
-  const root = mkdtempSync(join(tmpdir(), 'promo-tokens-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'promo-tokens-')));
   t.after(() => rmSync(root, {recursive: true, force: true}));
   const promo = join(root, 'marketing/promo-v0.7.0');
   const remotion = join(promo, 'remotion');

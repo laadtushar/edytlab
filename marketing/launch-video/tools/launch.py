@@ -21,8 +21,8 @@ shot starts at most 0.3 s before the sound and ends inside it. Nothing on screen
 invented UI; the one diagram is labelled.
 
 Command output paths must resolve inside marketing/launch-video. Copy external
-inputs into that folder first; the documented demo recordings are configured
-separately through website/public/demos/ or EDYTLAB_DEMO_DIR.
+inputs into that folder first; the three documented recordings are also allowed
+from website/public/demos/. EDYTLAB_DEMO_DIR may point inside the launch project.
 """
 import json
 import math
@@ -36,6 +36,7 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from launch_paths import checked_path as _checked_path
+from launch_paths import checked_system_font
 
 from engine import (  # noqa: E402
     BarsBG, Callout, EndCard, FPS, Flow, FootageClip, Image, ImageDraw,
@@ -391,12 +392,13 @@ BUILDERS = {k: (lambda k=k: build(k)) for k in LAYOUT_OF}
 
 
 def contact(P, times, out, cols=4, w=480):
+    P.piece.check_footage(times)
     L = P.L
     h = round(w * L.H / L.W)
     rows = (len(times) + cols - 1) // cols
     sheet = Image.new("RGB", (cols * w, rows * h), (0, 0, 0))
     d = ImageDraw.Draw(sheet)
-    f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+    f = ImageFont.truetype(checked_system_font(), 16)
     for i, t in enumerate(times):
         im = P.piece.still(t).resize((w, h), Image.LANCZOS)
         x, y = (i % cols) * w, (i // cols) * h
@@ -450,6 +452,9 @@ def main():
     P = BUILDERS[plat]()
     if cmd == "still":
         times = [float(x) for x in sys.argv[3:]]
+        P.piece.check_footage(times)
+        if len(times) != 1:
+            checked_system_font()
         os.makedirs(checked.parent, exist_ok=True)   # work/ is scratch, not committed
         if len(times) == 1:
             P.piece.still(times[0]).save(checked)

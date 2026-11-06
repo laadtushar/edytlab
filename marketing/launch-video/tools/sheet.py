@@ -17,10 +17,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 # Keep the project helper importable when Python's isolated mode omits script paths.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launch_paths import checked_path
+from launch_paths import checked_path, checked_system_font
 
 v, out, cols, tw = str(checked_path(sys.argv[1])), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 checked_out = checked_path(out)
+font_path = checked_system_font()
 ts = [float(x) for x in sys.argv[5:]]
 p = subprocess.run(
     ["ffprobe", "-v", "error", "-show_entries", "stream=width,height,duration",
@@ -37,7 +38,7 @@ rows = (len(ts) + cols - 1) // cols
 sheet = Image.new("RGB", (cols * tw, rows * th), (0, 0, 0))
 d = ImageDraw.Draw(sheet)
 f = ImageFont.truetype(
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", max(14, tw // 28)
+    font_path, max(14, tw // 28)
 )
 for i, t in enumerate(ts):
     r = subprocess.run(

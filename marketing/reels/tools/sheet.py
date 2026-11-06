@@ -3,15 +3,20 @@
 import subprocess, sys, io, os
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
+from demo_paths import checked_demo_input, checked_reel_path
 # <repo>/website/public/demos (this file is <repo>/marketing/reels/tools/sheet.py); EDYTLAB_DEMO_DIR overrides it.
 DEMOS = os.environ.get("EDYTLAB_DEMO_DIR") or str(Path(__file__).resolve().parents[3] / "website" / "public" / "demos")
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 def frame(src, t):
-    p = subprocess.run(["nice","-n","10","ffmpeg","-nostdin","-v","error","-ss",f"{t:.3f}","-i",src,"-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True)
+    p = subprocess.run(["nice","-n","10","ffmpeg","-nostdin","-v","error","-ss",f"{t:.3f}","-i",checked_demo_input(src),"-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True)
     return Image.open(io.BytesIO(p.stdout)).convert("RGB")
 def main():
     out, cols, w = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+    checked_reel_path(out)
     items = sys.argv[4:]
+    for it in items:
+        demo, _ = it.split(":")
+        checked_demo_input(f"{DEMOS}/{demo}.mp4")
     h = round(w * 776 / 1280)
     rows = (len(items) + cols - 1) // cols
     sheet = Image.new("RGB", (cols * w, rows * h), (0, 0, 0))
@@ -22,5 +27,6 @@ def main():
         x, y = (i % cols) * w, (i // cols) * h
         sheet.paste(im, (x, y))
         d.rectangle([x, y, x + 150, y + 24], fill=(0, 0, 0)); d.text((x + 4, y + 2), f"{demo[3:6]} {t:.1f}", fill=(255, 255, 0), font=f)
+    checked_reel_path(out)
     sheet.save(out)
 main()

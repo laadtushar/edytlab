@@ -28,6 +28,7 @@ import subprocess
 import sys
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from launch_paths import checked_demo_path, checked_path
 
 # The reels' brand module (<repo>/marketing/reels/tools/brand.py): the site's colours, Inter, the logo and the aurora.
 # This file is <repo>/marketing/launch-video/tools/engine.py.
@@ -37,7 +38,7 @@ import brand  # noqa: E402
 
 FPS = 30
 SRC_W, SRC_H = 1280, 776
-# The three demo recordings live in the repo: <repo>/website/public/demos. Set EDYTLAB_DEMO_DIR to read them from somewhere else.
+# The three repository recordings or files inside the launch project may be used.
 DEMO_DIR = os.environ.get("EDYTLAB_DEMO_DIR") or os.path.join(REPO_ROOT, "website", "public", "demos")
 # Inter weights (brand.font): the site's type.
 F_BOLD, F_SEMI, F_MED = "Bold", "SemiBold", "Medium"
@@ -107,7 +108,7 @@ def font(weight, size):
     """Inter at `weight` (F_BOLD, F_SEMI or F_MED) and `size` px."""
     key = (weight, int(round(size)))
     if key not in _fonts:
-        _fonts[key] = brand.font(*key)
+        _fonts[key] = brand.font(*key, project='launch-video')
     return _fonts[key]
 
 
@@ -519,6 +520,7 @@ class Progress(Item):
 # ------------------------------------------------------------- footage
 class Decoder:
     def __init__(self, path, ss, dur):
+        checked_demo_path(path)
         cmd = ["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{ss:.3f}", "-t", f"{dur + 0.5:.3f}", "-i", path,
                "-vf", f"fps={FPS}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
         self.p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=SRC_W * SRC_H * 3 * 2)
@@ -1164,8 +1166,20 @@ class Piece:
     def footage(self):
         return [i for i in self.items if isinstance(i, FootageClip)]
 
+    def check_footage(self, times):
+        """Preflight recordings that the selected frames will actually decode."""
+        remaining = self.footage()
+        for T in times:
+            for clip in remaining[:]:
+                if clip.active(T) and clip.alpha(T - clip.t0) > 0.004:
+                    checked_demo_path(clip.path)
+                    remaining.remove(clip)
+            if not remaining:
+                break
+
     def still(self, T):
         """One frame as a PIL RGB image (for contact sheets and QC)."""
+        self.check_footage([T])
         canvas = make_bg(self.L.W, self.L.H).convert("RGBA")
         for it in sorted(self.items, key=lambda i: i.z):
             if it.active(T):
@@ -1175,10 +1189,12 @@ class Piece:
         return canvas.convert("RGB")
 
     def render(self, out_path, t_from=0.0, t_to=None, crf=19, preset="medium", scale_out=None, quiet=False):
+        checked_path(out_path)
         L = self.L
         t_to = t_to if t_to is not None else self.duration
         W, H = L.W, L.H
         n0, n1 = int(round(t_from * FPS)), int(round(t_to * FPS))
+        self.check_footage(n / FPS for n in range(n0, n1))
         items = sorted(self.items, key=lambda i: i.z)
         bg = make_bg(W, H)
         ow, oh = (scale_out or (W, H))

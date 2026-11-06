@@ -17,21 +17,7 @@ import os
 import re
 import sys
 from pathlib import Path
-
-# Where things are. This file is <repo>/marketing/reels/tools/spec.py, so the
-# parents are tools/, then reels/, then marketing/, then the repo itself.
-REELS_DIR = Path(__file__).resolve().parents[1]   # <repo>/marketing/reels: tools/, add-narration.sh and the published files
-REPO_ROOT = Path(__file__).resolve().parents[3]
-
-
-def checked_reel_path(path):
-    """Resolve a local input/output inside this project's root, including symlinks."""
-    resolved = Path(path).resolve()
-    if resolved != REELS_DIR and REELS_DIR not in resolved.parents:
-        raise SystemExit(f"Refused path {path!r}: must resolve inside {REELS_DIR}. "
-                         "Copy external inputs (including /tmp files) into the project first.")
-    return str(resolved)
-
+from demo_paths import REELS_DIR, REPO_ROOT, checked_demo_input, checked_reel_path
 
 def _need_env(name, what):
     value = os.environ.get(name)

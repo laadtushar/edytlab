@@ -430,12 +430,13 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     r = REELS[name]
     work = f"{WORK}/{tl['file']}-{mode}"
     checked_reel_path(out_path or f"{work}/video.mp4")
+    cues = tl["cues"]
+    segs = [c for c in cues if c["kind"] in ("step", "listen")]
+    demo_inputs = [checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4") for c in segs]
     os.makedirs(checked_reel_path(work), exist_ok=True)
     words = words or {}
-    cues = tl["cues"]
     hook = next((c for c in cues if c["kind"] == "hook"), None)
     end = next((c for c in cues if c["kind"] == "end"), None)
-    segs = [c for c in cues if c["kind"] in ("step", "listen")]
     t0 = hook["end"] if hook else 0.0
     demo_dur = (end["start"] if end else tl["duration"]) - t0
     demo_frames = fr(demo_dur)
@@ -447,9 +448,9 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(hook['end']-hook['start'])/FPS:.4f}", "-i", hp]
         hidx = idx; idx += 1
     sidx = []
-    for c in segs:
+    for c, demo in zip(segs, demo_inputs):
         s = c["source"]
-        inputs += ["-ss", f"{s['start']:.3f}", "-t", f"{(c['end']-c['start'])+0.5:.3f}", "-i", f"{DEMO_DIR}/{s['demo']}.mp4"]
+        inputs += ["-ss", f"{s['start']:.3f}", "-t", f"{(c['end']-c['start'])+0.5:.3f}", "-i", demo]
         sidx.append(idx); idx += 1
     if end:
         ep = f"{work}/end.png"
@@ -531,6 +532,8 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[outv]", "-an",
            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
            "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS, "-movflags", "+faststart", out_path]
+    for demo in demo_inputs:
+        checked_demo_input(demo)
     run(cmd)
     return out_path
 
@@ -538,11 +541,13 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
 # ----------------------------------------------------------------- app audio
 def demo_wav(slug):
     """Whole-file 48 kHz stereo decode with gaps filled, so absolute times line up with the picture."""
-    os.makedirs(checked_reel_path(f"{WORK}/audio"), exist_ok=True)
     p = f"{WORK}/audio/{slug}.wav"
     checked_reel_path(p)
     if not os.path.exists(p):
-        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", f"{DEMO_DIR}/{slug}.mp4", "-vn", "-af",
+        demo = checked_demo_input(f"{DEMO_DIR}/{slug}.mp4")
+        os.makedirs(checked_reel_path(f"{WORK}/audio"), exist_ok=True)
+        checked_demo_input(demo)
+        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", demo, "-vn", "-af",
              "aresample=48000:async=1:first_pts=0", "-ac", "2", "-c:a", "pcm_s16le", p])
     return p
 

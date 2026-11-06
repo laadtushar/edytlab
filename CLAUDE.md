@@ -66,7 +66,7 @@ In a Linux cloud session (claude.ai/code) the checkout is a normal Linux path an
 - **Disk is a fixed allowance** shared by every agent in the session. Give each worktree a private `CARGO_TARGET_DIR` and build with `CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0`; run one cargo build at a time across parallel agents; delete the target dir when the branch is done.
 - **One worktree per branch** (`git worktree add <dir> -b <branch> origin/main`), removed once the branch merges.
 - **GitHub through REST.** GraphQL is refused here, so `gh pr list` and `gh pr view` fail: use `gh api repos/laadtushar/edytlab/...`, and the `/pulls/{n}/ccr/...` routes for draft, ready and auto-merge.
-- **Runner starvation** (a job queued with no runner, usually macOS): re-run the job once (`gh api -X POST repos/<owner>/<repo>/actions/jobs/<job-id>/rerun`). If it is cancelled again, dispatch a fresh run on the branch with `gh workflow run ci.yml --ref <branch>`; its checks land on the same commit under the same names (#963).
+- **Runner starvation** (a job queued with no runner, usually macOS): re-run the job once (`gh api -X POST repos/<owner>/<repo>/actions/jobs/<job-id>/rerun`). If it is cancelled again, create a fresh eligible `pull_request` run, for example with a head update. A `workflow_dispatch` run is diagnostic only and does not satisfy PR required checks (#963).
 
 ## Repo map
 
