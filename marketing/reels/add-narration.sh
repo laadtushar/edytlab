@@ -25,15 +25,73 @@
 #                         AAC_BITRATE (192k)  KEEP_TMP=1 keeps the work directory
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
+if [[ "$#" -eq 1 && ( "$1" = "--help" || "$1" = "-h" ) ]]; then
+  echo "usage: $0 <video.mp4> <cues.json> <audio-dir> <out.mp4>"
+  echo "Video inputs must be inside marketing/reels or one of the three repository demo MP4s."
+  echo "Cue/audio inputs, outputs and scratch must resolve inside marketing/reels, including symlinks."
+  echo "Copy external inputs (including /tmp files) into the project first."
+  echo "An in-project TMPDIR selects scratch; an external or unset TMPDIR falls back to work/."
+  exit 0
+fi
+if [[ "$#" -ne 4 ]]; then
   echo "usage: $0 <video.mp4> <cues.json> <audio-dir> <out.mp4>" >&2
   exit 2
 fi
 VIDEO=$1; CUES=$2; ADIR=$3; OUT=$4
+OUT_DISPLAY=$OUT; ADIR_DISPLAY=$ADIR
 for t in ffmpeg ffprobe python3 awk; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 1; }; done
-[ -f "$VIDEO" ] || { echo "no such video: $VIDEO" >&2; exit 1; }
-[ -f "$CUES" ] || { echo "no such cues file: $CUES" >&2; exit 1; }
-[ -d "$ADIR" ] || { echo "no such audio dir: $ADIR" >&2; exit 1; }
+PROJECT_ROOT=$(python3 - "$0" <<'PYROOT'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).resolve().parent)
+PYROOT
+)
+checked_path() {
+  python3 - "$PROJECT_ROOT" "$1" "${2:-}" <<'PYPATH'
+from pathlib import Path
+import sys
+root, path, fallback = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+resolved = Path(path).resolve()
+if fallback and ("\n" in path or "\r" in path or "\n" in str(resolved) or "\r" in str(resolved) or
+                 (resolved != root and root not in resolved.parents)):
+    path = fallback
+    resolved = Path(path).resolve()
+if "\n" in path or "\r" in path or "\n" in str(resolved) or "\r" in str(resolved):
+    sys.exit(f"Refused path {path!r}: line breaks are not supported inside {root}")
+if resolved != root and root not in resolved.parents:
+    sys.exit(f"Refused path {path!r}: must resolve inside {root}. Copy external /tmp files into the project first.")
+print(resolved)
+PYPATH
+}
+# Check the concrete video argument before any media tool opens it, retaining
+# its spelling for FFmpeg. Only the repository's three full demos are allowed
+# outside the project; aliases are allowed when their target is within bounds.
+# Mirrors tools/demo_paths.py while keeping this script usable as a standalone copy.
+python3 - "$PROJECT_ROOT" "$VIDEO" <<'PYVIDEO'
+import sys
+from pathlib import Path
+
+root, video = Path(sys.argv[1]), sys.argv[2]
+demo_dir = root.parent.parent / "website" / "public" / "demos"
+demos = {demo_dir / name for name in (
+    "dj-beatmatched-transition.mp4", "dj-extended-club-intro.mp4", "dj-mini-mix.mp4",
+)}
+resolved = Path(video).resolve()
+inside = lambda path: path == root or root in path.parents
+if (not video or video.startswith("-") or ":" in video.split("/", 1)[0]
+        or any(c in video or c in str(resolved) for c in "\r\n")
+        or not (inside(resolved) or resolved in demos)):
+    sys.exit(f"Refused path {video!r}: video must be a local project file or an approved repository demo MP4")
+PYVIDEO
+CUES=$(checked_path "$CUES")
+ADIR=$(checked_path "$ADIR")
+OUT=$(checked_path "$OUT")
+# TMPDIR is ambient on macOS; use the hint only when it stays inside this project.
+# The selected fallback is validated too, including any work/ symlink.
+TMPBASE=$(checked_path "${TMPDIR:-$PROJECT_ROOT/work}" "$PROJECT_ROOT/work")
+[[ -f "$VIDEO" ]] || { echo "no such video: $VIDEO" >&2; exit 1; }
+[[ -f "$CUES" ]] || { echo "no such cues file: $CUES" >&2; exit 1; }
+[[ -d "$ADIR" ]] || { echo "no such audio dir: $ADIR" >&2; exit 1; }
 
 DUCK_DB=${DUCK_DB:-12}
 ATTACK_MS=${ATTACK_MS:-150}
@@ -45,8 +103,9 @@ AAC_BITRATE=${AAC_BITRATE:-192k}
 NICE="nice -n 10"
 FF="$NICE ffmpeg -nostdin -hide_banner -y -v error"
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/add-narration.XXXXXX")
-cleanup() { if [ -z "${KEEP_TMP:-}" ]; then rm -rf "$TMP"; else echo "work dir kept: $TMP" >&2; fi; }
+mkdir -p "$TMPBASE"
+TMP=$(mktemp -d "$TMPBASE/add-narration.XXXXXX")
+cleanup() { if [[ -z "${KEEP_TMP:-}" ]]; then rm -rf "$TMP"; else echo "work dir kept: $TMP" >&2; fi; }
 trap cleanup EXIT
 
 # Video length drives everything; the audio is padded or cut to it.
@@ -54,19 +113,33 @@ VDUR=$(ffprobe -v error -select_streams v:0 -show_entries stream=duration -of cs
 case "$VDUR" in ""|N/A) VDUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDEO");; esac
 
 # --- 1. read the cues, find the clips, warn, write the voice-track filter graph --------------------
-python3 - "$VIDEO" "$CUES" "$ADIR" "$TMP" "$VDUR" <<'PY'
+python3 - "$VIDEO" "$CUES" "$ADIR" "$TMP" "$VDUR" "$PROJECT_ROOT" "$ADIR_DISPLAY" <<'PY'
 import json, os, subprocess, sys
+from pathlib import Path
 video, cues_path, adir, tmp, vdur = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], float(sys.argv[5])
-doc = json.load(open(cues_path))
+root, adir_display = Path(sys.argv[6]), sys.argv[7]
+
+def checked_path(path):
+    resolved = Path(path).resolve()
+    if "\n" in path or "\r" in path or "\n" in str(resolved) or "\r" in str(resolved):
+        sys.exit(f"Refused path {path!r}: line breaks are not supported inside {root}")
+    if resolved != root and root not in resolved.parents:
+        sys.exit(f"Refused path {path!r}: must resolve inside {root}. Copy external /tmp files into the project first.")
+    return str(resolved)
+
+with open(checked_path(cues_path)) as source:
+    doc = json.load(source)
 cues = doc["cues"] if isinstance(doc, dict) else doc
 base = os.path.dirname(os.path.abspath(cues_path))
 
 def dur(path):
+    path = checked_path(path)
     p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], capture_output=True, text=True)
     return float(p.stdout.strip())
 
 def speech_length(path, total):
     """Clip length without its trailing silence (TTS files end with a little air)."""
+    path = checked_path(path)
     p = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-i", path, "-af", "silencedetect=n=-45dB:d=0.12", "-f", "null", "-"], capture_output=True, text=True)
     last = None
     for line in p.stderr.splitlines():
@@ -79,10 +152,11 @@ warn = lambda m: print(f"WARNING: {m}", file=sys.stderr)
 for c in cues:
     cid, start, end = c["id"], float(c["start"]), float(c["end"])
     stem = c.get("audio", cid)
-    clip = next((f"{adir}/{stem}.{e}" for e in ("mp3", "wav") if os.path.isfile(f"{adir}/{stem}.{e}")), None)
+    candidates = [checked_path(f"{adir}/{stem}.{e}") for e in ("mp3", "wav")]
+    clip = next((path for path in candidates if os.path.isfile(path)), None)
     if clip is None:
         if not c.get("silent") and c.get("narration") is not False:
-            warn(f"{cid}: no {stem}.mp3 or {stem}.wav in {adir}, cue left silent")
+            warn(f"{cid}: no {stem}.mp3 or {stem}.wav in {adir_display}, cue left silent")
         continue
     total = dur(clip)
     eff = speech_length(clip, total)
@@ -103,13 +177,16 @@ if not placed:
     print("ERROR: no narration clips found for any cue", file=sys.stderr)
     sys.exit(3)
 filt.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest:dropout_transition=0,apad=whole_dur={vdur:.4f},atrim=end={vdur:.4f}[voice]")
-open(f"{tmp}/voice.filter", "w").write(";\n".join(filt))
-open(f"{tmp}/voice.args", "w").write("\n".join(inputs[1::2]))
+with open(f"{tmp}/voice.filter", "w") as output:
+    output.write(";\n".join(filt))
+with open(f"{tmp}/voice.args", "w") as output:
+    output.write("\n".join(inputs[1::2]))
 # sound effects
 sfx = doc.get("sfx", []) if isinstance(doc, dict) else []
 sf, sargs = [], []
 for k, s in enumerate(sfx):
     p = s["file"] if os.path.isabs(s["file"]) else os.path.join(base, s["file"])
+    p = checked_path(p)
     if not os.path.isfile(p):
         warn(f"sfx file missing: {p}")
         continue
@@ -117,8 +194,10 @@ for k, s in enumerate(sfx):
     g = float(s.get("gain_db", -18))
     sargs.append(p)
     sf.append(f"[{{IDX{len(sargs)-1}}}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={g}dB,adelay={ms}|{ms}[s{len(sargs)-1}]")
-open(f"{tmp}/sfx.filter", "w").write("\n".join(sf))
-open(f"{tmp}/sfx.args", "w").write("\n".join(sargs))
+with open(f"{tmp}/sfx.filter", "w") as output:
+    output.write("\n".join(sf))
+with open(f"{tmp}/sfx.args", "w") as output:
+    output.write("\n".join(sargs))
 print(f"{placed} narration clip(s) placed, {len(sargs)} sound effect(s)", file=sys.stderr)
 PY
 
@@ -203,19 +282,19 @@ print(f"{best:.5f}")
 PY
 )
 SFX_FILTER=""; SFX_LABELS=""; SARGS=()
-if [ -s "$TMP/sfx.args" ]; then
+if [[ -s "$TMP/sfx.args" ]]; then
   mapfile -t SIN < "$TMP/sfx.args"
   for f in "${SIN[@]}"; do SARGS+=(-i "$f"); done
   # inputs: 0 = video, 1 = voice.wav, 2.. = sfx
   SFX_FILTER=$(awk 'BEGIN{ORS=";"} {print}' "$TMP/sfx.filter")
   for k in "${!SIN[@]}"; do
     SFX_FILTER=${SFX_FILTER//\{IDX$k\}/$((k+2))}
-    SFX_LABELS="$SFX_LABELS[s$k]"
+    SFX_LABELS="${SFX_LABELS}[s${k}]"
   done
 fi
 NMIX=$((2 + ${#SARGS[@]}/2))
 cat > "$TMP/mix.filter" <<EOF
-[0:a]aresample=48000:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,apad=whole_dur=$VDUR,atrim=end=$VDUR[app];
+[0:a]aresample=48000:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,apad=whole_dur=$VDUR,atrim=end=${VDUR}[app];
 [1:a]volume=${VGAIN}dB,asplit=2[vkey][vmix];
 [app][vkey]sidechaincompress=threshold=$THR:ratio=20:attack=$ATTACK_MS:release=$RELEASE_MS:makeup=1:knee=1.5:link=average:detection=rms,asplit=2[ducked][dkcopy];
 ${SFX_FILTER}
@@ -225,16 +304,16 @@ $FF -i "$VIDEO" -i "$TMP/voice.wav" "${SARGS[@]}" -filter_complex_script "$TMP/m
     -map "[dkcopy]" -c:a pcm_s16le -ar 48000 "$TMP/ducked.wav"
 
 # --- 4. loudness: gain, lookahead limiter, AAC; measure the AAC itself and iterate ----------------------
-read -r MI MP < <(measure "$TMP/mix.wav")
+read -r MI _ < <(measure "$TMP/mix.wav")
 GAIN=$(awk -v t="$TARGET_LUFS" -v i="$MI" 'BEGIN{printf "%.3f", t-i}')
 CEIL=$(awk -v tp="$TARGET_TP" 'BEGIN{printf "%.2f", tp-0.6}')
-for n in 1 2 3 4 5 6 7 8; do
+for _ in 1 2 3 4 5 6 7 8; do
   LIM=$(awk -v c="$CEIL" 'BEGIN{printf "%.4f", 10^(c/20)}')
   $FF -i "$TMP/mix.wav" -af "volume=${GAIN}dB,alimiter=limit=$LIM:attack=4:release=60:level=0,aresample=48000" \
       -c:a aac -b:a "$AAC_BITRATE" -ar 48000 -ac 2 "$TMP/mix.m4a"
   read -r OI OP < <(measure "$TMP/mix.m4a")
   DONE=$(awk -v i="$OI" -v p="$OP" -v t="$TARGET_LUFS" -v tp="$TARGET_TP" 'BEGIN{d=i-t; if(d<0)d=-d; print (d<=0.25 && p<=tp-0.05) ? 1 : 0}')
-  [ "$DONE" = 1 ] && break
+  [[ "$DONE" = 1 ]] && break
   GAIN=$(awk -v g="$GAIN" -v i="$OI" -v t="$TARGET_LUFS" 'BEGIN{d=i-t; if(d<0)d=-d; if(d<=0.25){printf "%.3f", g} else {printf "%.3f", g+(t-i)*0.9}}')
   CEIL=$(awk -v c="$CEIL" -v p="$OP" -v tp="$TARGET_TP" 'BEGIN{if(p>tp-0.05){printf "%.2f", c-(p-tp)-0.15} else {printf "%.2f", c}}')
 done
@@ -248,4 +327,4 @@ read -r FI FP < <(measure "$OUT")
 VD=$(ffprobe -v error -select_streams v:0 -show_entries stream=duration -of csv=p=0 "$OUT")
 AD=$(ffprobe -v error -select_streams a:0 -show_entries stream=duration -of csv=p=0 "$OUT")
 printf 'wrote %s\n  video %.2fs, audio %.2fs, loudness %s LUFS integrated, true peak %s dBTP (targets %s / %s)\n  voice %s LUFS -> %s dB gain; ducking about %s dB (attack %s ms, release %s ms)\n' \
-  "$OUT" "$VD" "$AD" "$FI" "$FP" "$TARGET_LUFS" "$TARGET_TP" "$VI" "$VGAIN" "$DUCK_DB" "$ATTACK_MS" "$RELEASE_MS"
+  "$OUT_DISPLAY" "$VD" "$AD" "$FI" "$FP" "$TARGET_LUFS" "$TARGET_TP" "$VI" "$VGAIN" "$DUCK_DB" "$ATTACK_MS" "$RELEASE_MS"

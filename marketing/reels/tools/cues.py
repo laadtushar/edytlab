@@ -50,7 +50,11 @@ SPEECH_FILE = f"{ROOT}/work/speech.json"
 
 def load_speech():
     """spoken text -> seconds from the clip start to the end of the last word (written by narrate.py)."""
-    return json.load(open(SPEECH_FILE)) if os.path.exists(SPEECH_FILE) else {}
+    path = checked_reel_path(SPEECH_FILE)
+    if not os.path.exists(path):
+        return {}
+    with open(path) as source:
+        return json.load(source)
 
 
 def clamp(x, lo, hi):
@@ -98,11 +102,18 @@ def build_reel(name, lines=None, speech=None, narrated=False):
             else:
                 src = math.floor((onset - it.get("lead", LISTEN_LEAD)) * SRC_FPS + 1e-6) / SRC_FPS
                 dur = snap((onset - src) + it["music"])
-            assert src >= onset - 0.3, (name, capid, "starts well before the sound", src, onset)
+            if not (src >= onset - 0.3):
+                raise AssertionError((name, capid, "starts well before the sound", src, onset))
             sound = (round(t + max(0.0, onset - src), 3), round(t + min(offset, src + dur) - src, 3))
-            assert src + dur <= offset + 0.02, (name, capid, "runs past the end of the sound", src + dur, offset)
+            if not (src + dur <= offset + 0.02):
+                raise AssertionError(
+                    (name, capid, "runs past the end of the sound", src + dur, offset)
+                )
         src_end = src + dur
-        assert src >= cs - 1e-6 and src_end <= ce + 0.05, (name, capid, "outside its caption's window", src, src_end, cs, ce)
+        if not (src >= cs - 1e-6 and src_end <= ce + 0.05):
+            raise AssertionError(
+                (name, capid, "outside its caption's window", src, src_end, cs, ce)
+            )
         cue = dict(id=cid, kind=kind, start=round(t, 3), end=round(t + dur, 3), onscreen=text,
                    source=_source(code, capid, src, src_end))
         if sound:
@@ -167,7 +178,8 @@ def _build_narrated(r, name, lines, speech):
                 src = onset - lead
                 dur = snap(lead + it["music"]); src_end = src + dur
                 voice_end = lead if line else None
-        assert src >= cs - 1e-6 and src_end <= ce + 0.05, (name, capid, src, src_end, cs, ce)
+        if not (src >= cs - 1e-6 and src_end <= ce + 0.05):
+            raise AssertionError((name, capid, src, src_end, cs, ce))
         cue = _cue_common(cid, t, t + dur, text, line, voice_end=(t + voice_end) if voice_end is not None else None, kind=kind,
                           source=_source(code, capid, src, src_end))
         if sp:

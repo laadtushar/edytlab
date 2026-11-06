@@ -130,7 +130,13 @@ with about 4.9 GB of disk free and three render tabs open, so keep a few GB free
 Single steps: `pnpm tokens:check` (the colours are generated from `website/app/globals.css`), `pnpm typecheck`,
 `node scripts/cues.ts` (the sound cues and the `.srt` files), `node scripts/render.ts R1` (a silent near-lossless render into
 `work/`), `python3 tools/audio.py work/cues/R1.json work/R1.silent.mp4 out.mp4` (sound, mastering, the final encode),
-`node scripts/stills.ts R1 /some/dir 3 8 14` (one PNG per time, for looking), `pnpm studio` (the Remotion Studio).
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f8fa4cce47acb19778e7556139ed8981bace271abc593060db571b38143606c0 -->
+
+`node scripts/stills.ts R1 work/stills 3 8 14` (one PNG per time, for looking), `pnpm studio` (the Remotion Studio).
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## How it is built (`remotion/`)
 

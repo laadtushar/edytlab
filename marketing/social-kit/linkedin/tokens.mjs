@@ -52,9 +52,47 @@ function ruleBody(css, selector) {
   throw new Error(`unterminated rule \`${selector}\``);
 }
 
-/** `--name: value;` declarations of a rule body, in order. */
+/** The ASCII word characters and hyphen accepted in declaration names. */
+function declarationNameChar(code) {
+  return code === 45 || code === 95 || (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+/** First matching name and colon before a semicolon, without retrying suffixes. */
+function declarationHeader(body, start, end) {
+  let cursor = start;
+  while (cursor < end) {
+    if (!declarationNameChar(body.charCodeAt(cursor))) {
+      cursor++;
+      continue;
+    }
+    const runStart = cursor;
+    while (cursor < end && declarationNameChar(body.charCodeAt(cursor))) cursor++;
+    const nameEnd = cursor;
+    const offset = body.slice(runStart, nameEnd).indexOf("--");
+    // Each maximal name run and following whitespace is visited only once.
+    while (cursor < end && /\s/.test(body[cursor])) cursor++;
+    if (offset >= 0 && nameEnd - runStart - offset > 2
+      && body[cursor] === ":" && cursor + 1 < end) {
+      return [runStart + offset, nameEnd, cursor];
+    }
+  }
+  return undefined;
+}
+
+/** `--name: value;` declarations of a rule body, in the original matcher order. */
 function declarations(body) {
-  return [...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]);
+  const result = [];
+  let start = 0;
+  for (let end = body.indexOf(";"); end !== -1; end = body.indexOf(";", start)) {
+    const header = declarationHeader(body, start, end);
+    if (header) {
+      const [nameStart, nameEnd, colon] = header;
+      result.push([body.slice(nameStart, nameEnd), body.slice(colon + 1, end).trim()]);
+    }
+    start = end + 1;
+  }
+  return result;
 }
 
 /** One property's value out of a rule body. */
@@ -144,7 +182,13 @@ export function logoSvg(className = "logo") {
   const component = read(join(SITE, "components/motion/logo.tsx"));
   const viewBox = /viewBox="([^"]+)"/.exec(component)?.[1];
   const file = read(join(SITE, "public/logo.svg"));
-  const shapes = /<g transform="[^"]*">([\s\S]*)<\/g>\s*<\/svg>/.exec(file)?.[1];
+  // Find the first opening group and last valid closing group in separate scans.
+  // A failed greedy whole-file match would retry the suffix for every opening group.
+  const open = /<g transform="[^"]*">/.exec(file);
+  let close;
+  for (const match of file.matchAll(/<\/g>\s*<\/svg>/g)) close = match;
+  const start = open ? open.index + open[0].length : -1;
+  const shapes = start >= 0 && close && close.index >= start ? file.slice(start, close.index) : undefined;
   if (!viewBox || !shapes) throw new Error("could not read the logo from website/");
   return `<svg class="${className}" viewBox="${viewBox}" aria-hidden="true" focusable="false">${shapes}</svg>`;
 }

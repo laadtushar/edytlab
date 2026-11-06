@@ -9,15 +9,26 @@ case "$1" in -h|--help) sed -n '2,7p' "$0"; exit 0;; esac
 set -e
 cd "$(dirname "$0")"
 OUT=../out; WORK=../work
-mkdir -p $OUT $WORK/sfx
-if [ ! -f $WORK/sfx/whoosh.wav ] || [ ! -f $WORK/sfx/tick.wav ] || [ ! -f $WORK/sfx/chime.wav ]; then python3 -I sfx.py $WORK/sfx; fi
+python3 -I - "$PWD" "$OUT" "$WORK/sfx" <<'PYPATH'
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(sys.argv[1]).resolve()))
+from launch_paths import checked_path
+
+for path in sys.argv[2:]:
+    checked_path(path)
+PYPATH
+mkdir -p "$OUT" "$WORK/sfx"
+if [[ ! -f $WORK/sfx/whoosh.wav || ! -f $WORK/sfx/tick.wav || ! -f $WORK/sfx/chime.wav ]]; then python3 -I sfx.py "$WORK/sfx"; fi
 declare -A NAME=( [li]=linkedin [rd]=reddit [ig]=instagram )
 declare -A SHEET=( [li]="5 360 1.0 2.8 5.5 9.2 12.5 16.5 20.5 24.5 27 29 32 35 38 41.5 44.5 46.5 49.5 53 57 59.5 61.5 63" [rd]="4 480 1.5 3.5 7 10.5 14 18.5 21 24.5 28 32 34.5 38.5 41 44 47 50 54 56.5 57.2" [ig]="8 240 0.5 2.0 4 7.2 9.5 11.5 14 16.5 19 21.5 24 26.5 28.5 30.5" )
 for k in li rd ig; do
   n=${NAME[$k]}
-  nice -n 10 python3 -I launch.py $k cues $WORK/cues_$k.json > /dev/null
-  nice -n 10 python3 -I audio.py mix $WORK/cues_$k.json ../out/picture-only/launch-$n-picture-only.mp4 $OUT/launch-$n.mp4 | tail -1
-  python3 -I mksrt.py $WORK/cues_$k.json $OUT/launch-$n.srt
-  nice -n 10 python3 -I sheet.py $OUT/launch-$n.mp4 $OUT/launch-$n-contact.png ${SHEET[$k]}
+  nice -n 10 python3 -I launch.py "$k" cues "$WORK/cues_$k.json" > /dev/null
+  nice -n 10 python3 -I audio.py mix "$WORK/cues_$k.json" "../out/picture-only/launch-$n-picture-only.mp4" "$OUT/launch-$n.mp4" | tail -1
+  python3 -I mksrt.py "$WORK/cues_$k.json" "$OUT/launch-$n.srt"
+  read -r -a sheet_args <<< "${SHEET[$k]}"
+  nice -n 10 python3 -I sheet.py "$OUT/launch-$n.mp4" "$OUT/launch-$n-contact.png" "${sheet_args[@]}"
 done
 echo assembled

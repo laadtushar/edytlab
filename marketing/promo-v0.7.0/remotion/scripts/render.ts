@@ -1,18 +1,24 @@
 // `node scripts/render.ts <composition...> [--no-bundle]` renders each composition to work/<id>.silent.mp4: the picture
 // only, as near-lossless H.264 (CRF 12; tools/audio.py makes the final file). One bundle, one browser.
 import {mkdirSync} from 'node:fs';
+import {projectPath} from './paths.ts';
 import {openBrowser, renderMedia, selectComposition} from '@remotion/renderer';
 import {BROWSER, BUNDLE, WORK, bundle} from './common.ts';
 
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log('usage: node scripts/render.ts <composition...> [--no-bundle]\nPaths must resolve inside marketing/promo-v0.7.0. EDYTLAB_PROMO_WORK must also resolve inside this project.');
+  process.exit(0);
+}
 const ids = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 if (ids.length === 0) throw new Error('usage: node scripts/render.ts <composition...> [--no-bundle]');
+for (const id of ids) projectPath(`${WORK}/${id}.silent.mp4`);
 if (!process.argv.includes('--no-bundle')) bundle();
 mkdirSync(WORK, {recursive: true});
 
 const browser = await openBrowser('chrome', {browserExecutable: BROWSER});
 for (const id of ids) {
   const composition = await selectComposition({serveUrl: BUNDLE, id, puppeteerInstance: browser});
-  const output = `${WORK}/${id}.silent.mp4`;
+  const output = projectPath(`${WORK}/${id}.silent.mp4`);
   let last = -1;
   const t0 = Date.now();
   await renderMedia({

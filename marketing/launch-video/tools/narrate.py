@@ -1,45 +1,84 @@
 #!/usr/bin/env python3
-"""ElevenLabs narration for the launch cuts: one clip per line, a few takes each, pick the take that fits its window.
+"""ElevenLabs narration for the launch cuts: one clip per line, a few takes each, pick the \
+take that fits its window.
 
   narrate.py status                         -> prints credits used / limit (never the key)
-  narrate.py gen  lines.json OUTDIR [N]     -> N takes (default 2) per line, with word timings; logs characters to OUTDIR/usage.log
-  narrate.py pick lines.json OUTDIR OUT.json -> best take per line (fits its window, fewest odd pauses) as audio.py's narration json + .srt
+  narrate.py gen  lines.json OUTDIR [N]     -> N takes (default 2) per line, with word \
+timings; logs characters to OUTDIR/usage.log
+  narrate.py pick lines.json OUTDIR OUT.json -> best take per line (fits its window, \
+fewest odd pauses) as audio.py's narration json + .srt
 
-Voice Roger (CwhRBWXzGAHq8TQ4Fs17), model eleven_v4, stability 0.5, similarity 0.75, mp3_44100_128. The key is read from the
-environment variable ELEVENLABS_API_KEY (load it with `set -a; . <env file>; set +a` in the same command) and is handed to curl on
+Voice Roger (CwhRBWXzGAHq8TQ4Fs17), model eleven_v4, stability 0.5, similarity 0.75, \
+mp3_44100_128. The key is read from the
+environment variable ELEVENLABS_API_KEY (load it with `set -a; . <env file>; set +a` in \
+the same command) and is handed to curl on
 stdin, so it never appears in an argument list, a log or a file.
+
+Interrupted paid requests stop automatic retries when their billing outcome is
+unknown; reconcile the named request marker with the provider before retrying.
+Publication is recoverable for these tools. After an interruption, rerun the
+command to recover before reading its outputs with other tools. Independent raw
+readers do not get an atomic view of two separate output files.
+
+Inputs and outputs must resolve inside marketing/launch-video. Copy external
+inputs, including /tmp files, into that folder first.
 """
 import base64
+import io
 import json
 import os
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+# Keep the project helper importable when Python's isolated mode omits script paths.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import checked_path as _checked_path  # noqa: E402
+import narration_store as store  # noqa: E402
 
 VOICE = "CwhRBWXzGAHq8TQ4Fs17"
 MODEL = "eleven_v4"
 API = "https://api.elevenlabs.io/v1"
 
 
+def checked_path(path):
+    """Resolve paths through the shared policy, preserving string refusal labels."""
+    return _checked_path(str(path))
+
+
 def curl(method, path, body=None, out=None):
+    """Call the narration service with the API key supplied on stdin.
+
+    Keep the legacy out keyword accepted; responses are always returned as text.
+    """
+    _ = out
     key = os.environ["ELEVENLABS_API_KEY"]
     cfg = f'header = "xi-api-key: {key}"\nheader = "Content-Type: application/json"\n'
     cmd = ["curl", "-sS", "-m", "120", "-K", "-", "-X", method, API + path, "-w", "\n%{http_code}"]
     if body is not None:
         cmd += ["--data-binary", json.dumps(body)]
-    p = subprocess.run(cmd, input=cfg, capture_output=True, text=True)
+    p = subprocess.run(cmd, input=cfg, capture_output=True, text=True, check=False)
     txt, _, code = p.stdout.rpartition("\n")
     return int(code or 0), txt
 
 
 def status():
-    code, txt = curl("GET", "/user/subscription")
+    """Read current narration credits and subscription tier."""
+    _code, txt = curl("GET", "/user/subscription")
     d = json.loads(txt)
     return d.get("character_count"), d.get("character_limit"), d.get("tier")
 
 
 def words_from_alignment(al, text):
-    chars, st, en = al["characters"], al["character_start_times_seconds"], al["character_end_times_seconds"]
+    """Group aligned characters into words with their start and end times.
+
+    The text argument remains accepted for callers of the original helper.
+    """
+    _ = text
+    chars = al["characters"]
+    st = al["character_start_times_seconds"]
+    en = al["character_end_times_seconds"]
     words, cur, s0, e0 = [], "", None, None
     for ch, a, b in zip(chars, st, en):
         if ch.isspace():
@@ -56,88 +95,257 @@ def words_from_alignment(al, text):
     return words
 
 
+def _ledger_path(outdir):
+    """Require a file-shaped canonical ledger before acquiring any locks."""
+    ledger = checked_path(f"{outdir}/usage.log")
+    if ledger.exists() and not ledger.is_file():
+        raise SystemExit(f"Usage ledger must be a regular file: {ledger}")
+    return ledger
+
+
+def _take_paths(base, outdir):
+    """Identify the take pair and its serialized usage ledger."""
+    return [checked_path(base + ".mp3"), checked_path(base + ".json"),
+            _ledger_path(outdir)]
+
+
+def _usage_entry(receipt):
+    """Keep the original visible usage-log encoding and entry format."""
+    return store.text_bytes(
+        f"{receipt['timestamp']}  {receipt['id']} take {receipt['take']}  "
+        f"{len(receipt['text'])} chars\n")
+
+
+def _save_take(paths, receipt):
+    """Publish a saved provider response and one matching ledger entry."""
+    data = receipt["response"]
+    alignment = dict(text=receipt["text"],
+                     words=words_from_alignment(data["alignment"], receipt["text"]))
+    log = paths[2].read_bytes() if paths[2].exists() else b""
+    store.publish(paths, [base64.b64decode(data["audio_base64"]),
+                          store.text_bytes(json.dumps(alignment)),
+                          log + _usage_entry(receipt)])
+
+
+def _recover_take(base, outdir):
+    """Finish saved paid responses before deciding whether to request a take.
+
+    An abandoned in-flight request has an unknown billing outcome. Refuse an
+    automatic new charge until the operator reconciles that request with the
+    provider and removes its named request marker. No API key is stored.
+    """
+    _recover_paths(_take_paths(base, outdir))
+
+
+def _recover_paths(paths, legacy=False):
+    """Recover known destinations; refuse ambiguous pre-coordinator snapshots."""
+    request = store.state_file(paths, "request")
+    response = store.state_file(paths, "response")
+    if legacy:
+        journal = store.state_file(paths, "pending")
+        if checked_path(journal / "ready").exists():
+            current = paths[2].read_bytes() if paths[2].exists() else b""
+            staged = checked_path(journal / "2").read_bytes()
+            entry = _usage_entry(json.loads(response.read_text())) if response.exists() else None
+            # Visible rows are not unique receipts: equality may be another paid take.
+            if entry is None or staged != current + entry:
+                raise SystemExit(f"Conflicting legacy narration ledger: {journal}. "
+                                 "Reconcile its saved usage with the current ledger "
+                                 "before retrying; "
+                                 "no outputs were replaced and no new request was sent.")
+    store.recover(paths)
+    if paths[0].exists() and paths[1].exists():
+        request.unlink(missing_ok=True)
+        response.unlink(missing_ok=True)
+        return
+    if response.exists():
+        _save_take(paths, json.loads(response.read_text()))
+        request.unlink(missing_ok=True)
+        response.unlink()
+    elif request.exists():
+        raise SystemExit(f"Uncertain paid narration request: {request}. Reconcile its billing "
+                         "and response with the provider before removing this marker to retry.")
+    elif paths[0].exists():
+        raise SystemExit(f"Incomplete narration take: {paths[0]} has no alignment {paths[1]}. "
+                         "Restore its original alignment before retrying; no new charge was sent.")
+
+
 def gen(lines_path, outdir, n_takes):
-    lines = json.load(open(lines_path))
-    os.makedirs(outdir, exist_ok=True)
+    """Generate takes from in-project input and write them within the project."""
+    with open(checked_path(lines_path)) as lines_file:  # skipcq: PTC-W6004
+        lines = json.load(lines_file)
+    checked_path(outdir)
+    _ledger_path(outdir)
+    # Validate IDs before making directories or sending requests.
+    for ln in lines:
+        for k in range(1, n_takes + 1):
+            checked_path(f"{outdir}/{ln['id']}_t{k}.mp3")
+            checked_path(f"{outdir}/{ln['id']}_t{k}.json")
+    os.makedirs(checked_path(outdir), exist_ok=True)
+    known = [_take_paths(f"{outdir}/{ln['id']}_t{k}", outdir)
+             for ln in lines for k in range(1, n_takes + 1)]
+    with store.locked([checked_path(outdir)]), store.ledger_locked(
+            _ledger_path(outdir), known, _recover_paths):
+        _generate_lines(lines, outdir, n_takes)
+
+
+def _request_take(body, request):
+    """Keep the request marker when no HTTP response was received."""
+    code, text = curl(
+        "POST",
+        f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body,
+    )
+    if code == 0:
+        raise SystemExit(f"Uncertain paid narration request: {request}. No HTTP response "
+                         "was received; reconcile its billing and response with the provider "
+                         "before removing this marker to retry.")
+    return code, text
+
+
+def _generate_lines(lines, outdir, n_takes):
+    """Generate under the directory lock, recovering each take before skipping."""
     used0, limit, tier = status()
     print(f"credits before: {used0}/{limit} ({tier})")
     total = 0
     for ln in lines:
         for k in range(1, n_takes + 1):
             base = f"{outdir}/{ln['id']}_t{k}"
-            if os.path.exists(base + ".mp3"):
+            _recover_take(base, outdir)
+            if os.path.exists(checked_path(base + ".mp3")):
                 continue
-            body = {"text": ln["text"], "model_id": MODEL, "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
+            paths = _take_paths(base, outdir)
+            request = store.state_file(paths, "request")
+            response = store.state_file(paths, "response")
+            store.claim_ledger(paths)
+            store.write_state(request, store.text_bytes(json.dumps(dict(
+                id=ln["id"], take=k, text=ln["text"], created=time.time()))))
+            body = {
+                "text": ln["text"], "model_id": MODEL,
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+            }
             if ln.get("prev"):
                 body["previous_text"] = ln["prev"]
             if ln.get("next"):
                 body["next_text"] = ln["next"]
-            code, txt = curl("POST", f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body)
+            code, txt = _request_take(body, request)
             if code != 200 and ("previous_text" in body or "next_text" in body):
                 body.pop("previous_text", None)
                 body.pop("next_text", None)
-                code, txt = curl("POST", f"/text-to-speech/{VOICE}/with-timestamps?output_format=mp3_44100_128", body)
+                code, txt = _request_take(body, request)
             if code != 200:
+                # Preserve the original explicit-error retry behavior. An HTTP
+                # code does not establish whether the provider billed a request.
+                request.unlink()
+                store.release_ledger(paths)
                 print(f"{ln['id']} take {k}: HTTP {code}: {txt[:200]}")
                 continue
-            d = json.loads(txt)
-            open(base + ".mp3", "wb").write(base64.b64decode(d["audio_base64"]))
-            json.dump(dict(text=ln["text"], words=words_from_alignment(d["alignment"], ln["text"])), open(base + ".json", "w"))
+            receipt = dict(id=ln["id"], take=k, text=ln["text"],
+                           timestamp=time.strftime('%Y-%m-%d %H:%M:%S'), response=json.loads(txt))
+            store.write_state(response, store.text_bytes(json.dumps(receipt)))
+            _save_take(paths, receipt)
+            request.unlink()
+            response.unlink()
+            store.release_ledger(paths)
             total += len(ln["text"])
-            with open(f"{outdir}/usage.log", "a") as f:
-                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {ln['id']} take {k}  {len(ln['text'])} chars\n")
             print(f"{ln['id']} take {k}: ok ({len(ln['text'])} chars)")
     used1, limit, _ = status()
-    print(f"characters sent this run: {total}; credits after: {used1}/{limit}; remaining {limit - used1}")
+    print(
+        f"characters sent this run: {total}; credits after: {used1}/{limit}; "
+        f"remaining {limit - used1}"
+    )
 
 
 def dur(path):
-    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], capture_output=True, text=True)
+    """Return the duration reported by ffprobe for an in-project take."""
+    p = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+         str(checked_path(path))],
+        capture_output=True, text=True, check=True,
+    )  # skipcq: BAN-B607
     return float(p.stdout.strip())
 
 
-def pick(lines_path, outdir, out_json):
-    lines = json.load(open(lines_path))
+def best_take(ln, outdir):
+    """Choose the fitting take with the fewest pauses, then shortest speech."""
+    best = None
+    for k in range(1, 6):
+        base = f"{outdir}/{ln['id']}_t{k}"
+        _recover_take(base, outdir)
+        if not os.path.exists(checked_path(base + ".mp3")):
+            continue
+        d = dur(base + ".mp3")
+        with open(checked_path(base + ".json")) as take_file:
+            w = json.load(take_file)["words"]
+        gaps = [w[i + 1][1] - w[i][2] for i in range(len(w) - 1)] or [0]
+        speech_end = w[-1][2] / ln.get("tempo", 1.0)
+        fit = speech_end <= ln["win"]
+        score = (0 if fit else 1, max(gaps), speech_end)
+        if best is None or score < best[0]:
+            best = (score, base, d, speech_end, max(gaps), fit)
+    return best
+
+
+def pick(lines_path, outdir, out_json):  # skipcq: PY-R1000
+    """Write the chosen takes and subtitles using the original path strings."""
+    if not out_json.endswith(".json"):
+        raise SystemExit(f"Output must end in .json: {out_json!r}")
+    with open(checked_path(lines_path)) as lines_file:  # skipcq: PTC-W6004
+        lines = json.load(lines_file)
+    checked_path(outdir)
+    checked_path(out_json)
+    checked_path(out_json.replace(".json", ".srt"))
+    outputs = [checked_path(out_json), checked_path(out_json.replace(".json", ".srt"))]
+    known = [_take_paths(f"{outdir}/{ln['id']}_t{k}", outdir)
+             for ln in lines for k in range(1, 6)]
+    with store.locked([checked_path(outdir)]), store.ledger_locked(
+            _ledger_path(outdir), known, _recover_paths, outputs), store.locked(outputs):
+        store.recover(outputs)
+        store.claim_ledger(outputs, _ledger_path(outdir))
+        _pick_lines(lines, outdir, outputs)
+        store.release_ledger(outputs, _ledger_path(outdir))
+
+
+def _pick_lines(lines, outdir, outputs):
+    """Select under both locks and publish complete JSON/subtitle payloads."""
     chosen, report, srt = [], [], []
     for ln in lines:
-        best = None
-        for k in range(1, 6):
-            base = f"{outdir}/{ln['id']}_t{k}"
-            if not os.path.exists(base + ".mp3"):
-                continue
-            d = dur(base + ".mp3")
-            w = json.load(open(base + ".json"))["words"]
-            gaps = [w[i + 1][1] - w[i][2] for i in range(len(w) - 1)] or [0]
-            speech_end = w[-1][2] / ln.get("tempo", 1.0)
-            fit = speech_end <= ln["win"]
-            score = (0 if fit else 1, max(gaps), speech_end)
-            if best is None or score < best[0]:
-                best = (score, base, d, speech_end, max(gaps), fit)
+        best = best_take(ln, outdir)
         if not best:
             report.append(f"{ln['id']}: NO TAKE")
             continue
-        _, base, d, se, mg, fit = best
-        chosen.append(dict(id=ln["id"], t=ln["t"], file=base + ".mp3", gain_db=ln.get("gain_db", 0), tempo=ln.get("tempo", 1.0), speech_end=se, win=ln["win"], text=ln["text"]))
-        report.append(f"{ln['id']}: {os.path.basename(base)} speech {se:.2f}s of {ln['win']:.1f}s window, longest pause {mg:.2f}s {'OK' if fit else 'TOO LONG'}")
+        _, base, _duration, se, mg, fit = best
+        chosen.append(dict(
+            id=ln["id"], t=ln["t"], file=base + ".mp3", gain_db=ln.get("gain_db", 0),
+            tempo=ln.get("tempo", 1.0), speech_end=se, win=ln["win"], text=ln["text"],
+        ))
+        report.append(
+            f"{ln['id']}: {os.path.basename(base)} speech {se:.2f}s of {ln['win']:.1f}s window, "
+            f"longest pause {mg:.2f}s {'OK' if fit else 'TOO LONG'}"
+        )
         srt.append((ln["t"], ln["t"] + se + 0.15, ln["text"]))
-    json.dump(chosen, open(out_json, "w"), indent=1)
     srt = [list(x) for x in srt]
     for i in range(len(srt) - 1):
         if srt[i][1] > srt[i + 1][0] - 0.03:
             srt[i][1] = max(srt[i][0] + 0.4, srt[i + 1][0] - 0.03)
-    with open(out_json.replace(".json", ".srt"), "w") as f:
-        for i, (a, b, t) in enumerate(srt, 1):
-            f.write(f"{i}\n{ts(a)} --> {ts(b)}\n{t}\n\n")
+    subtitles = io.StringIO()
+    for i, (a, b, t) in enumerate(srt, 1):
+        subtitles.write(f"{i}\n{ts(a)} --> {ts(b)}\n{t}\n\n")
+    store.publish(outputs, [store.text_bytes(json.dumps(chosen, indent=1)),
+                            store.text_bytes(subtitles.getvalue())])
     print("\n".join(report))
 
 
 def ts(x):
+    """Format seconds as an SRT timestamp."""
     h, r = divmod(x, 3600)
     m, s = divmod(r, 60)
     return f"{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s - int(s)) * 1000)):03d}"
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        raise SystemExit(0 if len(sys.argv) > 1 else 1)
     c = sys.argv[1]
     if c == "status":
         print("credits used/limit/tier:", status())

@@ -1,27 +1,58 @@
 #!/usr/bin/env python3
-"""The three edytlab launch cuts as code: scene scripts -> Piece (video) + audio events + caption cues.
+"""The three edytlab launch cuts as code: scene scripts -> Piece (video) + audio events + \
+caption cues.
 
   python3 launch.py <li|rd|ig> still T1 T2 ...      contact-sheet stills (QC)
   python3 launch.py <li|rd|ig> render [--from a --to b] out.mp4
-  python3 launch.py <li|rd|ig> cues out.json         timing of every scene, sfx and caption (for audio + narration)
+  python3 launch.py <li|rd|ig> cues out.json         timing of every scene, sfx and \
+caption (for audio + narration)
 
-li = LinkedIn 1:1 1080x1080, rd = Reddit 16:9 1920x1080, ig = Instagram Reels 9:16 1080x1920.
-Every shot is a stretch of one of the three real demo recordings in website/public/demos/ (re-filmed in the app's violet look,
-#581). Times are demo-video seconds, the clock the reels measured: where each burned-in step caption starts (`detect_captions.py`)
-and where the app's sound is audible are in marketing/reels/tools/spec.py, which this file reads, and `Plan.clip` asserts that
-every shot lies inside the caption it is cut from, that a shot with no sound never overlaps the app's sound, and that a Listen
-shot starts at most 0.3 s before the sound and ends inside it. Nothing on screen is invented UI; the one diagram is labelled.
+li = LinkedIn 1:1 1080x1080, rd = Reddit 16:9 1920x1080, ig = Instagram Reels 9:16 \
+1080x1920.
+Every shot is a stretch of one of the three real demo recordings in \
+website/public/demos/ (re-filmed in the app's violet look,
+#581). Times are demo-video seconds, the clock the reels measured: where each burned-in \
+step caption starts (`detect_captions.py`)
+and where the app's sound is audible are in marketing/reels/tools/spec.py, which this \
+file reads, and `Plan.clip` asserts that
+every shot lies inside the caption it is cut from, that a shot with no sound never \
+overlaps the app's sound, and that a Listen
+shot starts at most 0.3 s before the sound and ends inside it. Nothing on screen is \
+invented UI; the one diagram is labelled.
+
+Command output paths must resolve inside marketing/launch-video. Copy external
+inputs into that folder first; the three documented recordings are also allowed
+from website/public/demos/. EDYTLAB_DEMO_DIR may point inside the launch project.
 """
 import json
+import math
 import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from engine import *  # noqa
+if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+    print(__doc__)
+    raise SystemExit(0)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import checked_path as _checked_path
+from launch_paths import checked_system_font
+
+from engine import (  # noqa: E402
+    BarsBG, Callout, EndCard, FPS, Flow, FootageClip, Image, ImageDraw,
+    ImageFont, Lockup, Note, Piece, Progress, Stack, Title,
+)
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# The reels' spec.py holds the caption windows and the audible windows measured on the re-filmed demos. It wants a scratch
-# root for the narration work it does not do here; nothing of it is used.
+
+
+def checked_output(path):
+    """Resolve command outputs through the shared project-root policy."""
+    return _checked_path(str(path))
+
+
+# The reels' spec.py holds measured caption and audio windows from the re-filmed demos.
+# Its narration scratch root is configured here but unused by the launch scripts.
 os.environ.setdefault("EDYTLAB_REEL_ROOT", os.path.join(HERE, "work"))
 import spec  # noqa: E402
 
@@ -30,9 +61,11 @@ CODE = {BT: "BT", EI: "EI", MM: "MM"}
 MINUS = "\u2212"
 NOTE = "Real screen recording  \u00b7  waits sped up"
 
-# Regions of the recorded app window, in source pixels (1280x776). Measured on native frames with a 50 px grid. The recording
-# burns its own step caption into a card across the bottom (y 684 to 754), which this cut replaces with its own titles, so no
-# crop reaches below y 684, except the composer's (TYPE), which a short caption's card never touches.
+# Regions of the recorded app window, in source pixels (1280x776), measured
+# on native frames with a 50 px grid. The recording burns its step caption
+# into a card across the bottom (y 684 to 754), replaced by this cut's titles.
+# No crop reaches below y 684 except the composer's (TYPE), which a short
+# caption's card never touches.
 REG = {
     "WIDE": (0, 0, 1280, 684),
     "TYPE": (905, 440, 375, 266),        # chat composer + the last bubble
@@ -45,7 +78,8 @@ REG = {
     "PLAYHEAD": (300, 92, 440, 340),
 }
 LAYOUT_OF = {"li": "sq", "rd": "wide", "ig": "tall"}
-LISTEN_LEAD_MAX = 0.3     # a Listen shot starts at most this long before the app's sound (as in the reels)
+# A Listen shot starts at most this long before the app's sound, as in the reels.
+LISTEN_LEAD_MAX = 0.3
 
 
 def caption_window(code, ids):
@@ -55,20 +89,35 @@ def caption_window(code, ids):
 
 
 def check_shot(demo, src0, dur, caps, listen=False):
-    """The shot lies inside its caption(s); a shot without sound keeps clear of the app's sound; a Listen shot starts on it."""
+    (
+        """The shot lies inside its caption(s); a shot without sound keeps clear """
+        """of the app's sound; a Listen shot starts on it."""
+    )
     code = CODE[demo]
     lo, hi = caption_window(code, caps)
     end = src0 + dur
-    assert lo - 1e-6 <= src0 and end <= hi + 0.05, (demo, caps, "outside its caption", src0, end, lo, hi)
+    if not (lo - 1e-6 <= src0 and end <= hi + 0.05):
+        raise AssertionError((demo, caps, "outside its caption", src0, end, lo, hi))
     windows = list(spec.DEMOS[code]["audio"].values())
     if listen:
         w = [w for w in windows if w[0] - LISTEN_LEAD_MAX <= src0 <= w[1]]
-        assert w, (demo, caps, "a Listen shot must start at most 0.3 s before the app's sound", src0, windows)
+        if not w:
+            raise AssertionError((
+                demo, caps, "a Listen shot must start at most 0.3 s before the app's sound",
+                src0, windows,
+            ))
         onset, offset = w[0]
-        assert src0 >= onset - LISTEN_LEAD_MAX - 1e-6 and end <= offset + 0.02, (demo, caps, "must end inside the sound", src0, end, onset, offset)
+        if not (src0 >= onset - LISTEN_LEAD_MAX - 1e-6 and end <= offset + 0.02):
+            raise AssertionError((
+                demo, caps, "must end inside the sound", src0, end, onset, offset,
+            ))
     else:
         for onset, offset in windows:
-            assert end <= onset + 1e-6 or src0 >= offset - 1e-6, (demo, caps, "the app's sound would leak into a silent shot", src0, end, onset, offset)
+            if not (end <= onset + 1e-6 or src0 >= offset - 1e-6):
+                raise AssertionError((
+                    demo, caps, "the app's sound would leak into a silent shot",
+                    src0, end, onset, offset,
+                ))
 
 
 class Plan:
@@ -86,9 +135,11 @@ class Plan:
         self.scenes = []       # (name, t0, t1) for narration timing
 
     def add(self, it):
+        """Append a visual item to the piece and return that item."""
         return self.piece.add(it)
 
     def set_total(self, total):
+        """Round the cut's duration to whole frames and update the piece."""
         total = round(total * FPS) / FPS        # a whole number of frames
         self.total = total
         self.piece.duration = total
@@ -98,12 +149,14 @@ class Plan:
         self.title(markup, t0, t1, cue=cue, size=self.L.step_size, fixed=True, max_lines=2, **kw)
 
     def title(self, markup, t0, t1, cue=None, **kw):
+        """Add a title and its caption unless an empty cue suppresses it."""
         self.add(Title(self.ctx, markup, t0, t1, **kw))
         plain = markup.replace("*", "").replace("|", " ").replace("  ", " ")
         if cue != "":
             self.cues.append((t0 + 0.2, t1 - 0.1, cue or plain))
 
     def clip(self, demo, src0, dur, t0, shots, caps=None, listen=False, **kw):
+        """Validate a demo shot, add its footage, and retain it for audio cues."""
         check_shot(demo, src0, dur, caps, listen)
         c = FootageClip(self.ctx, demo, src0, dur, t0, shots, REG, **kw)
         self.add(c)
@@ -111,6 +164,7 @@ class Plan:
         return c
 
     def call(self, clip, region, label, t_in, t_out, **kw):
+        """Add a timed callout and place its tick sound on the cut's clock."""
         c = Callout(self.ctx, clip, region, label, t_in, t_out, **kw)
         self.add(c)
         self.sfx.append((clip.t0 + t_in + 0.5, "tick", -10))
@@ -122,12 +176,15 @@ END_SECONDS = {"li": 5.2, "rd": 5.5, "ig": 5.5}    # how long the end card holds
 
 
 def demo_blend(P, t, style):
-    """The beatmatch-and-blend demo, step by step. Returns (t_end, last_clip, nxt). Cuts overlap by 0.3 s (crossfade)."""
+    (
+        """The beatmatch-and-blend demo, step by step. Returns (t_end, last_clip, nxt). """
+        """Cuts overlap by 0.3 s (crossfade)."""
+    )
     ig = style == "ig"
-    chat_low = "CHAT_LOW"
     prev = None
 
     def nxt(c, tt, dur):
+        """Crossfade the previous clip and return the next clip's start time."""
         nonlocal prev
         if prev is not None and prev is not c:
             prev.fade_out = 0.3
@@ -135,12 +192,22 @@ def demo_blend(P, t, style):
         return tt + dur - 0.3
 
     # 1. describe it: a question typed into the composer (real typing, real send)
-    d = P.clip(BT, 23.6 if ig else 23.4, 4.4 if ig else 5.0, t, [dict(t=0, crop="WIDE"), dict(t=0.9, crop="TYPE", move=0.8)], caps=("BT04",))
-    P.step("*1* · Describe it in plain English" if not ig else "*1* · Say it in plain English", t + 0.15, t + d.dur - 0.12)
+    d = P.clip(
+        BT, 23.6 if ig else 23.4, 4.4 if ig else 5.0, t,
+        [{"t": 0, "crop": "WIDE"}, {"t": 0.9, "crop": "TYPE", "move": 0.8}], caps=("BT04",),
+    )
+    P.step(
+        "*1* · Describe it in plain English" if not ig else "*1* · Say it in plain English",
+        t + 0.15, t + d.dur - 0.12,
+    )
     P.call(d, (930, 578, 345, 124), "You type the edit", 1.2, d.dur - 0.9, sides=("t",))
     t = nxt(d, t, d.dur)
     # 2. the agent calls a tool: "Time stretch" runs, the chip turns green
-    d = P.clip(BT, 40.0, 3.5, t, [dict(t=0, crop="TYPE"), dict(t=0.4, crop="CHAT_MID", move=0.6)], caps=("BT05",), fade_in=0.3, rise=False)
+    d = P.clip(
+        BT, 40.0, 3.5, t,
+        [{"t": 0, "crop": "TYPE"}, {"t": 0.4, "crop": "CHAT_MID", "move": 0.6}],
+        caps=("BT05",), fade_in=0.3, rise=False,
+    )
     P.step("*2* · The agent calls a tool", t + 0.15, t + d.dur - 0.12)
     P.call(d, (937, 181, 108, 22), "A real tool call", 0.9, 3.0, sides=("r", "b"))
     if not ig:
@@ -148,21 +215,40 @@ def demo_blend(P, t, style):
     t = nxt(d, t, d.dur)
     if not ig:
         # 3. it reports what it did: the reply lands (src 52 to 54.5)
-        d = P.clip(BT, 50.6, 3.9, t, [dict(t=0, crop="CHAT_MID")], caps=("BT06",), fade_in=0.3, rise=False)
+        d = P.clip(
+            BT, 50.6, 3.9, t, [{"t": 0, "crop": "CHAT_MID"}],
+            caps=("BT06",), fade_in=0.3, rise=False,
+        )
         P.step("*3* · It reports what changed", t + 0.15, t + d.dur - 0.12)
         P.call(d, (945, 160, 250, 92), "It says what it did", 2.2, 3.7, sides=("b",))
         t = nxt(d, t, d.dur)
-    # 4. describe the blend: the request is sent (src 65), the reply lists three edits (from 68), then the fades on the waveforms
+    # 4. describe the blend: the request is sent (src 65), the reply lists three edits
+    # (from 68), then the fades on the waveforms
     s0, d4, k_w = (64.0, 7.0, 5.2) if ig else (63.0, 8.0, 6.2)
     shots = [dict(t=0, crop="CHAT_TALL"), dict(t=k_w, crop="WAVES", move=0.9)]
     d = P.clip(BT, s0, d4, t, shots, caps=("BT07",), fade_in=0.3, rise=False)
-    P.step("*4* · Describe the blend" if not ig else "*3* · Describe the blend", t + 0.15, t + d.dur - 0.12)
+    P.step(
+        "*4* · Describe the blend" if not ig else "*3* · Describe the blend",
+        t + 0.15, t + d.dur - 0.12,
+    )
     if not ig:
-        P.call(d, (995, 395, 255, 150), "Fades + low-pass, in plain English", 1.9, 3.1, sides=("t", "b"))
-        P.call(d, (940, 110, 260, 300), "Three edits, one request", 3.7, k_w - 0.1, sides=("r", "l"))
+        P.call(
+            d, (995, 395, 255, 150), "Fades + low-pass, in plain English", 1.9, 3.1,
+            sides=("t", "b"),
+        )
+        P.call(
+            d, (940, 110, 260, 300), "Three edits, one request", 3.7, k_w - 0.1,
+            sides=("r", "l"),
+        )
     else:
-        P.call(d, (940, 110, 260, 300), "Three edits, one request", 2.7, k_w - 0.1, sides=("r", "l"))
-    P.call(d, (495, 110, 385, 400), "The crossfade", k_w + 0.5, d.dur - 0.3, sides=("t", "b", "l"))
+        P.call(
+            d, (940, 110, 260, 300), "Three edits, one request", 2.7, k_w - 0.1,
+            sides=("r", "l"),
+        )
+    P.call(
+        d, (495, 110, 385, 400), "The crossfade", k_w + 0.5, d.dur - 0.3,
+        sides=("t", "b", "l"),
+    )
     t = nxt(d, t, d.dur)
     return t, prev, nxt
 
@@ -205,7 +291,7 @@ def build(key):
         t = 2.2
 
     first_clip_t = t
-    t, last, nxt = demo_blend(P, t, key)
+    t, _last, nxt = demo_blend(P, t, key)
     P.scenes += [("demo", first_clip_t, t)]
     # 5. hear it: the cut starts as the sound does and ends inside it
     ldur = 9.2 if not ig else 7.0
@@ -306,12 +392,13 @@ BUILDERS = {k: (lambda k=k: build(k)) for k in LAYOUT_OF}
 
 
 def contact(P, times, out, cols=4, w=480):
+    P.piece.check_footage(times)
     L = P.L
     h = round(w * L.H / L.W)
     rows = (len(times) + cols - 1) // cols
     sheet = Image.new("RGB", (cols * w, rows * h), (0, 0, 0))
     d = ImageDraw.Draw(sheet)
-    f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+    f = ImageFont.truetype(checked_system_font(), 16)
     for i, t in enumerate(times):
         im = P.piece.still(t).resize((w, h), Image.LANCZOS)
         x, y = (i % cols) * w, (i // cols) * h
@@ -326,24 +413,68 @@ def cues_json(P):
                 clips=[dict(demo=c.demo, src0=c.src0, dur=c.dur, t0=c.t0, fade_in=c.fade_in, fade_out=c.fade_out) for c in P.clips])
 
 
-if __name__ == "__main__":
+def render_output_argument(args):
+    """Validate render option values before selecting the final output argument."""
+    # main() uses the first occurrence of each option, including repeated ones.
+    for option in ("--from", "--to"):
+        if option not in args:
+            continue
+        try:
+            value = float(args[args.index(option) + 1])
+        except (IndexError, ValueError):
+            raise SystemExit(
+                f"render requires a numeric value after {option} "
+                "and an explicit output path after its options"
+            ) from None
+        if not math.isfinite(value) or not math.isfinite(value * FPS):
+            raise SystemExit(f"render requires a finite frame value after {option}")
+    index = 0
+    while index < len(args):
+        if args[index] in ("--from", "--to"):
+            index += 2
+        elif index == len(args) - 1:
+            return args[index]
+        else:
+            index += 1
+    raise SystemExit("render requires an explicit output path after its options")
+
+
+def main():
+    """Validate command outputs before constructing the plan or rendering media."""
     plat, cmd = sys.argv[1], sys.argv[2]
+    if cmd == "still":
+        out = f"{HERE}/work/qc_{plat}.png"
+        checked = checked_output(out)
+    elif cmd == "cues":
+        checked = checked_output(sys.argv[3])
+    elif cmd == "render":
+        checked = checked_output(render_output_argument(sys.argv[3:]))
     P = BUILDERS[plat]()
     if cmd == "still":
         times = [float(x) for x in sys.argv[3:]]
-        os.makedirs(f"{HERE}/work", exist_ok=True)   # work/ is a scratch directory, not committed
-        out = f"{HERE}/work/qc_{plat}.png"
+        P.piece.check_footage(times)
+        if len(times) != 1:
+            checked_system_font()
+        os.makedirs(checked.parent, exist_ok=True)   # work/ is scratch, not committed
         if len(times) == 1:
-            P.piece.still(times[0]).save(out)
+            P.piece.still(times[0]).save(checked)
         else:
-            contact(P, times, out, cols=4 if plat != "rd" else 3, w=480 if plat != "rd" else 640)
+            contact(
+                P, times, checked, cols=4 if plat != "rd" else 3,
+                w=480 if plat != "rd" else 640,
+            )
         print(out)
     elif cmd == "cues":
-        json.dump(cues_json(P), open(sys.argv[3], "w"), indent=1)
+        with open(checked, "w") as cues_file:
+            json.dump(cues_json(P), cues_file, indent=1)
         print(sys.argv[3], "total", P.total)
     elif cmd == "render":
         a = sys.argv[3:]
         t_from = float(a[a.index("--from") + 1]) if "--from" in a else 0.0
         t_to = float(a[a.index("--to") + 1]) if "--to" in a else None
-        P.piece.render(a[-1], t_from, t_to)
+        P.piece.render(str(checked), t_from, t_to)
         print(a[-1])
+
+
+if __name__ == "__main__":
+    main()

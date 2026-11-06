@@ -58,9 +58,25 @@ Two things about the capture, both measured and handled:
 
 ## Cutting
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d21bac7be9ca8d01ca79edbf8320109288883020b876c3acc7404cceebf1a602 -->
+
+The cutter requires every data input and output to resolve inside `marketing/promo-v0.7.0`, including through symlinks. The native suite can still record to `/tmp`; copy that completed run into the promo project before cutting. Copied captures live under the ignored `native-runs/` folder. From the repository root, create a fresh destination for each invocation and copy the run's contents into it:
+
 ```bash
-OUT=/tmp/promo-run DEST=marketing/promo-v0.7.0/footage node marketing/promo-v0.7.0/record/make-footage.mjs [clip …]
+(
+  set -e
+  mkdir -p marketing/promo-v0.7.0/native-runs
+  RUN=$(mktemp -d "marketing/promo-v0.7.0/native-runs/promo-run.XXXXXX")
+  cp -R /tmp/promo-run/. "$RUN/"
+  OUT="$RUN" DEST=marketing/promo-v0.7.0/footage node marketing/promo-v0.7.0/record/make-footage.mjs [clip …]
+)
 ```
+
+Unset `OUT` no longer selects the native suite's per-user temporary folder. Set it explicitly to the copied run. Inputs or destinations outside the project are refused with the path and required root.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 It refuses a recording that ends before its story did (ffmpeg fell behind) or that dropped more than 15% of its frames, and
 says to record it again. `REENCODE=1` re-encodes a clip whose `.mp4` already exists.

@@ -7,9 +7,9 @@
                               so the files are Debian/Ubuntu's `fonts-inter` 4.0+ds-1 (SIL OFL, the licence text is
                               /usr/share/doc/fonts-inter/copyright), the same ones
                               apps/desktop/e2e-native/make-demo-videos.mjs sets the demos' captions in.
-                              No font file is added to the repo. EDYTLAB_REEL_FONT_DIR points at another copy
-                              (a folder holding Inter-Medium.otf, Inter-SemiBold.otf, Inter-Bold.otf, or the same
-                              names as .ttf from Google Fonts).
+                              No font file is added to the repo. EDYTLAB_REEL_FONT_DIR may point at a copy inside
+                              the caller's project, marketing/reels or marketing/launch-video (Inter-Medium,
+                              Inter-SemiBold and Inter-Bold as .otf or .ttf from Google Fonts).
 
 Colours are (r, g, b) tuples. `check()` runs at import: it fails the render if a text colour on its own fill is
 under the 4.5:1 contrast the reels promise, so a palette change on the site cannot slip an unreadable caption in.
@@ -22,8 +22,17 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SITE = REPO_ROOT / "website"
-_CSS = (SITE / "app" / "globals.css").read_text()
-_LOGO = (SITE / "public" / "logo.svg").read_text()
+
+
+def _site_input(path):
+    """Read only the canonical shared site file, not a symlink elsewhere."""
+    if path.resolve() != path:
+        raise SystemExit(f"Refused brand input {path}: must be the canonical site file")
+    return path.read_text()
+
+
+_CSS = _site_input(SITE / "app" / "globals.css")
+_LOGO = _site_input(SITE / "public" / "logo.svg")
 
 
 def hsl(h, s, l):
@@ -128,16 +137,39 @@ def check():
 
 
 # ---------------------------------------------------------------------- fonts
-FONT_DIR = os.environ.get("EDYTLAB_REEL_FONT_DIR") or "/usr/share/fonts/opentype/inter"
+_SYSTEM_FONT_DIR = Path("/usr/share/fonts/opentype/inter")
+_FONT_PROJECTS = {
+    "reels": REPO_ROOT / "marketing" / "reels",
+    "launch-video": REPO_ROOT / "marketing" / "launch-video",
+}
+FONT_DIR = os.environ.get("EDYTLAB_REEL_FONT_DIR") or str(_SYSTEM_FONT_DIR)
 
 
-def font(weight, size):
-    """Inter at `weight` ("Medium", "SemiBold" or "Bold") and `size` px."""
+def font(weight, size, *, project="reels"):
+    """Inter at `weight` and `size` px, with project-local font copies confined to `project`."""
+    if weight not in ("Medium", "SemiBold", "Bold"):
+        raise ValueError(f"unsupported Inter weight: {weight!r}")
+    if project not in _FONT_PROJECTS:
+        raise ValueError(f"unsupported font project: {project!r}")
+    root = _FONT_PROJECTS[project]
+    directory = Path(FONT_DIR)
+    system = directory == _SYSTEM_FONT_DIR
+    if not system:
+        resolved_dir = directory.resolve()
+        if root.resolve() != root or (resolved_dir != root and root not in resolved_dir.parents):
+            raise SystemExit(f"Refused font directory {directory}: use a copy inside {root}")
     for ext in ("otf", "ttf"):
-        p = Path(FONT_DIR) / f"Inter-{weight}.{ext}"
+        p = directory / f"Inter-{weight}.{ext}"
+        resolved = p.resolve()
+        if system:
+            allowed = resolved == p
+        else:
+            allowed = root.resolve() == root and root in resolved.parents
+        if not allowed:
+            raise SystemExit(f"Refused font input {p}: path escapes its permitted directory")
         if p.exists():
             return ImageFont.truetype(str(p), size)
-    raise FileNotFoundError(f"no Inter-{weight}.otf/.ttf in {FONT_DIR}: install fonts-inter, or set EDYTLAB_REEL_FONT_DIR")
+    raise FileNotFoundError(f"no Inter-{weight}.otf/.ttf in {FONT_DIR}: install fonts-inter, or set EDYTLAB_REEL_FONT_DIR to an in-project copy")
 
 
 # ----------------------------------------------------------- shared drawing
@@ -169,6 +201,7 @@ def add_grain(bg, grain, seed=2026):
     is encoded. Seeded, so a rebuild gives the same bytes."""
     w, h = bg.size
     width = grain * 12 ** 0.5   # a uniform spread of this width has std. dev. `grain`
+    # This PRNG only draws reproducible film grain; it generates no secrets or identifiers.
     noise = Image.frombytes("L", (w, h), random.Random(seed).randbytes(w * h)).point(lambda v: 128 + round((v / 255 - 0.5) * width))
     return ImageChops.add(bg, noise.convert("RGB"), 1.0, -128)
 
