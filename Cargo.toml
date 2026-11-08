@@ -67,6 +67,10 @@ unsafe_op_in_unsafe_fn = "warn"
 [workspace.lints.clippy]
 # Tighten as the codebase grows; start permissive so M01 is a clean smoke gate.
 all = { level = "warn", priority = -1 }
+# Style lints DeepSource reported on every Rust PR; on here so new code keeps to them.
+bool_assert_comparison = "warn"
+default_trait_access = "warn"
+range_plus_one = "warn"
 
 [profile.release]
 codegen-units = 1

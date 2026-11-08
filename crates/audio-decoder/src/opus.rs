@@ -333,6 +333,7 @@ impl Decoder for OpusPacketDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use symphonia::core::io::MediaSourceStreamOptions;
 
     fn head(channels: u8, pre_skip: u16, gain: i16, family: u8, table: &[u8]) -> Vec<u8> {
         let mut v = b"OpusHead".to_vec();
@@ -487,7 +488,7 @@ mod tests {
         use symphonia::core::probe::Hint;
         let mss = MediaSourceStream::new(
             Box::new(std::io::Cursor::new(bytes.to_vec())),
-            Default::default(),
+            MediaSourceStreamOptions::default(),
         );
         let mut format = symphonia::default::get_probe()
             .format(

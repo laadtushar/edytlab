@@ -519,6 +519,7 @@ mod tests {
     use super::*;
     use crate::frames::tests::{case, fixture_segmentation};
     use std::cell::{Cell, RefCell};
+    use std::collections::{BTreeMap, HashSet};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -695,7 +696,7 @@ mod tests {
 
     /// Turns by speaker, as sets of (start, end), to compare two numberings.
     fn partition(turns: impl Iterator<Item = (f64, f64, usize)>) -> Vec<Vec<(i64, i64)>> {
-        let mut groups: std::collections::BTreeMap<usize, Vec<(i64, i64)>> = Default::default();
+        let mut groups: std::collections::BTreeMap<usize, Vec<(i64, i64)>> = BTreeMap::default();
         for (s, e, k) in turns {
             groups
                 .entry(k)
@@ -885,7 +886,7 @@ mod tests {
         let run = |workers| {
             let embedder = FeatureEmbedder {
                 workers,
-                threads: Mutex::new(Default::default()),
+                threads: Mutex::new(HashSet::default()),
             };
             let d = diarize(
                 &ReplaySegmenter { next: Cell::new(0) },

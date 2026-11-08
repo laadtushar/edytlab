@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use session::{
-    Annotation, AnnotationId, AnnotationKind, BusGraph, Clip, NodeId, NodeOp, SessionNode,
-    SessionState, TempoMap, Track, TrackId, STORE_DIR,
+    Annotation, AnnotationId, AnnotationKind, BusGraph, Clip, EnvelopeFrames, NodeId, NodeOp,
+    SessionNode, SessionState, TempoMap, Track, TrackId, STORE_DIR,
 };
 
 /// A session with no tracks, 48 kHz, `length_samples` long.
@@ -77,7 +77,7 @@ pub fn clip_of(path: &Path, length: u64) -> Clip {
         pitch_shift_semitones: None,
         beat_grid: None,
         volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
+        volume_envelope_frames: EnvelopeFrames::default(),
     }
 }
 

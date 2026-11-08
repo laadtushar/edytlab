@@ -277,8 +277,8 @@ mod canonical_hash_tests {
     //! review of id drift.
     use super::*;
     use crate::state::{
-        BusGraph, Clip, EffectInstance, KeyMap, KeySegment, SessionState, TempoMap, TempoSegment,
-        Track, TrackId, Transcript, TranscriptWord,
+        BusGraph, Clip, EffectInstance, EnvelopeFrames, KeyMap, KeySegment, SessionState, TempoMap,
+        TempoSegment, Track, TrackId, Transcript, TranscriptWord,
     };
     use std::path::PathBuf;
     use uuid::Uuid;
@@ -316,7 +316,7 @@ mod canonical_hash_tests {
                     pitch_shift_semitones: None,
                     beat_grid: None,
                     volume_envelope: Vec::new(),
-                    volume_envelope_frames: Default::default(),
+                    volume_envelope_frames: EnvelopeFrames::default(),
                 }],
                 gain_db: 0.0,
                 pan: 0.0,

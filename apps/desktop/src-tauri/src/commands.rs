@@ -6375,7 +6375,7 @@ fn mcp_server_to_entry(id: &str, cfg: &mcp::McpServerConfig) -> McpServerEntry {
             args: args.clone(),
             env: env.clone(),
             url: String::new(),
-            headers: Default::default(),
+            headers: std::collections::HashMap::default(),
             enabled: *enabled,
         },
         mcp::McpServerConfig::Sse {
@@ -6387,7 +6387,7 @@ fn mcp_server_to_entry(id: &str, cfg: &mcp::McpServerConfig) -> McpServerEntry {
             transport: "sse".into(),
             command: String::new(),
             args: Vec::new(),
-            env: Default::default(),
+            env: std::collections::HashMap::default(),
             url: url.clone(),
             headers: headers.clone(),
             enabled: *enabled,
@@ -9204,7 +9204,7 @@ mod tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
+            volume_envelope_frames: session::EnvelopeFrames::default(),
         });
         store
             .append(session::SessionNode {
