@@ -51,7 +51,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
 - [`eq`](#eq) — EQ a track with biquad bands.
 - [`export_labels`](#export_labels) — Export markers and regions as Audacity label text, Podlove chapters JSON or a CUE sheet (at most 99 tracks).
-- [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
+- [`export_multiple`](#export_multiple) — Export selected tracks (or regions) as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
 - [`export_transcript`](#export_transcript) — Export the stored transcript as SRT, WebVTT, or plain text.
 - [`fade`](#fade) — Apply a fade-in or fade-out to a time range of a track.
@@ -518,13 +518,14 @@ _Read-only — never held for approval._
 
 ## `export_multiple`
 
-Export selected tracks as individual WAV files to a directory. Does not modify the session. Returns list of exported file paths.
+Export selected tracks (or regions) as individual WAV files to a directory. Does not modify the session. Returns list of exported file paths.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `format` | one of `wav` | no |  |
 | `output_dir` | string | yes | Directory to write exported files into |
-| `track_indices` | array of integer | yes | Indices of tracks to export |
+| `regions` | boolean | no | Instead of track_indices: one file per region marker, each its span of the full mix |
+| `track_indices` | array of integer | no | Indices of tracks to export |
 
 ## `export_recipe`
 
