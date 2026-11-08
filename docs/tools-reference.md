@@ -50,7 +50,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`echo`](#echo) — Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).
 - [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
 - [`eq`](#eq) — EQ a track with biquad bands.
-- [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
+- [`export_labels`](#export_labels) — Export markers and regions as Audacity label text, Podlove chapters JSON or a CUE sheet (at most 99 tracks).
 - [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
 - [`export_transcript`](#export_transcript) — Export the stored transcript as SRT, WebVTT, or plain text.
@@ -506,11 +506,14 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `export_labels`
 
-Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line). Does not modify audio. Returns the label text.
+Export markers and regions as Audacity label text, Podlove chapters JSON or a CUE sheet (at most 99 tracks). Chapters are sorted, a region at its start. Writes no file; returns the text.
 
 _Read-only — never held for approval._
 
-Takes no parameters.
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `file_name` | string | no | cue only: the audio file it names |
+| `format` | one of `audacity`, `podlove_json`, `cue` | no |  |
 
 ## `export_multiple`
 
