@@ -18,6 +18,7 @@ The website and `marketing/` describe the released app, so a feature's copy ther
 | M4A/AAC import on macOS and Windows (#764) | v0.9.4 |
 | Punch-in (#203) | v0.9.4 |
 | Marker tools (#766) | v0.9.4 |
+| Chapter files: `export_labels` `format` (#766 item 4) | pending |
 | Per-region export: `export_multiple` with `regions: true` (#766) | pending |
 
 ## CI

@@ -48,7 +48,9 @@ struct Args {
 
 pub struct ExportTranscriptTool;
 
-fn timestamp(milliseconds: u64, separator: char) -> String {
+/// `HH:MM:SS` then `separator` then milliseconds; the hours grow past two
+/// digits. SRT writes `,`, WebVTT and Podlove chapters `.`.
+pub(crate) fn timestamp(milliseconds: u64, separator: char) -> String {
     format!(
         "{:02}:{:02}:{:02}{separator}{:03}",
         milliseconds / 3_600_000,
