@@ -271,3 +271,33 @@ fn track_indices_alone_still_export_tracks() {
     assert_eq!(out["count"], 2, "{out}");
     assert_eq!(files_in(&s.out_dir("stems")).len(), 2);
 }
+
+/// A solo silences the other tracks, so a longer track that is not soloed
+/// does not lengthen the mix: a region past the soloed track's end is cut
+/// there, and the file is that render.
+#[test]
+fn a_track_that_solo_silences_does_not_lengthen_the_mix() {
+    let tone = |seconds: usize| -> Vec<f32> {
+        (0..seconds * RATE as usize)
+            .map(|n| 0.25 * (std::f32::consts::TAU * 440.0 * n as f32 / RATE as f32).sin())
+            .collect()
+    };
+    // Track 0 is 2 s and soloed; track 1 is 4 s and silenced by the solo.
+    let mut s = Session::with_tracks(&[(RATE, tone(2)), (RATE, tone(4))]);
+    s.ok("solo_track", json!({ "track": 0, "solo": true }));
+    s.plant_labels(vec![region("Late", 1.0, 3.0)]);
+
+    let out = s.ok(
+        "export_multiple",
+        json!({ "regions": true, "output_dir": "solo" }),
+    );
+
+    assert_eq!(out["clamped"], 1, "{out}");
+    let file = s.out_dir("solo").join("1_Late.wav");
+    assert_eq!(read_pcm(&file), s.render_pcm(Some(range(1.0, 2.0))));
+    assert_eq!(
+        read_pcm(&file).len(),
+        RATE as usize,
+        "cut at the soloed track's 2 s"
+    );
+}

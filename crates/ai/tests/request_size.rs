@@ -208,8 +208,8 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // #768's crossfade adds 735 B on top.
 // #769's declip and repair_span add 1,209 B on top.
 // #766's chapter formats on export_labels add 225 B on top (78,679 B to 78,904 B).
-// #766's per-region export (export_multiple `regions`) adds 119 B on top (78,904 B to 79,023 B).
-const FULL_TOOLS_MAX_BYTES: usize = 79_057; // main ratchet 78,938 + 119 B of #766's export_multiple regions
+// #766's per-region export (export_multiple `regions`) adds 126 B on top (78,904 B to 79,030 B).
+const FULL_TOOLS_MAX_BYTES: usize = 79_064; // main ratchet 78,938 + 126 B of #766's export_multiple regions
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -814,8 +814,8 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #768's crossfade adds 766 B on top.
 // #769's declip and repair_span add 1,271 B on top.
 // #766's chapter formats on export_labels add the same 225 B (82,243 B to 82,468 B).
-// #766's per-region export adds the same 119 B (82,468 B to 82,587 B).
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 82_621; // main ratchet 82,502 + 119 B of #766's export_multiple regions
+// #766's per-region export adds the same 126 B (82,468 B to 82,594 B).
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 82_628; // main ratchet 82,502 + 126 B of #766's export_multiple regions
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

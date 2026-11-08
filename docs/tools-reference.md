@@ -523,7 +523,7 @@ Export selected tracks (or regions) as individual WAV files to a directory. Does
 |---|---|---|---|
 | `format` | one of `wav` | no |  |
 | `output_dir` | string | yes | Directory to write exported files into |
-| `regions` | boolean | no | Instead of tracks: one file per region marker, each its span of the full mix |
+| `regions` | boolean | no | Instead of track_indices: one file per region marker, each its span of the full mix |
 | `track_indices` | array of integer | no | Indices of tracks to export |
 
 ## `export_recipe`

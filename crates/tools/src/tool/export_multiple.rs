@@ -200,7 +200,7 @@ impl Tool for ExportMultipleTool {
                     },
                     "regions": {
                         "type": "boolean",
-                        "description": "Instead of tracks: one file per region marker, each its span of the full mix"
+                        "description": "Instead of track_indices: one file per region marker, each its span of the full mix"
                     },
                     "output_dir": {
                         "type": "string",
