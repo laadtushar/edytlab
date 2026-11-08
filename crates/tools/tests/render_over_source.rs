@@ -581,6 +581,41 @@ fn export_multiple_will_not_write_over_a_loaded_original() {
     assert!(msg.contains("0_vox.wav"), "{msg}");
 }
 
+/// `export_multiple` by region (#766) names its files `<n>_<region name>.wav`.
+/// One of them landing on a loaded original refuses the whole call before
+/// anything is written: the other region's file is not written either.
+#[test]
+fn export_multiple_by_region_will_not_write_over_a_loaded_original() {
+    let mut s = Session::new();
+    let project = s.store.project_dir().to_path_buf();
+    let folder = project.join("takes");
+    std::fs::create_dir_all(&folder).unwrap();
+    let original = write_take(&folder.join("2_vox.wav"), 440.0);
+    let before = bytes(&original);
+    s.load_quietened(&original);
+    let region = |name: &str, start_sec: f64, end_sec: f64| session::Annotation {
+        id: session::AnnotationId::new(),
+        name: name.into(),
+        kind: session::AnnotationKind::Region { start_sec, end_sec },
+    };
+    let mut state = s.head_node().state;
+    state.annotations = vec![region("intro", 0.0, 0.25), region("vox", 0.5, 0.75)];
+    s.append_state("regions", state);
+
+    let result = s.call(
+        "export_multiple",
+        json!({ "regions": true, "output_dir": "takes" }),
+    );
+    assert_unchanged(&original, &before);
+    let msg = err(result);
+
+    assert!(msg.contains("2_vox.wav"), "{msg}");
+    assert!(
+        !folder.join("1_intro.wav").exists(),
+        "a refused call wrote another region's file"
+    );
+}
+
 /// Nothing is exported into the folders the project owns (#719), its
 /// `.audiograph/` folder and `generated/` beside it:
 /// a render written into `derived/` would sit under a content name its bytes
