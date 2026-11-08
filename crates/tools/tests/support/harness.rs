@@ -382,7 +382,6 @@ impl DerefMut for TurnSession {
     }
 }
 
-/// The value of a result that must be `Ok`.
 /// A point marker named `name` at `t` seconds.
 pub fn marker(name: &str, t: f64) -> Annotation {
     Annotation {
@@ -404,6 +403,7 @@ pub fn region(name: &str, s: f64, e: f64) -> Annotation {
     }
 }
 
+/// The value of a result that must be `Ok`.
 pub fn ok(r: ToolResult) -> Value {
     match r {
         ToolResult::Ok(v) => v,
