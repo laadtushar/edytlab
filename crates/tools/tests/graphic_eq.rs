@@ -89,6 +89,19 @@ fn midway_between_two_boosted_centres_their_halves_add_up() {
 }
 
 #[test]
+fn the_top_octaves_keep_an_octave_of_bandwidth() {
+    // A fixed analog Q of sqrt(2) narrows a band near Nyquist (the
+    // cookbook's digital relation scales the bandwidth by w0/sin(w0)), so
+    // two +6 dB neighbours up top would leave a dip between them (3.0 dB
+    // midway between 8 kHz and 16 kHz at 44.1 kHz). With the warped Q the
+    // midpoint is within 1 dB of +6 dB: near Nyquist the bilinear
+    // transform makes each peak lopsided, so it is not exactly +6 dB.
+    let mid = (8000.0f32 * 16000.0).sqrt();
+    let (db, _) = graphic_gain_db(44_100, mid, gains(&[(8, 6.0), (9, 6.0)]));
+    assert_near(db, 6.0, 1.0, &format!("{mid} Hz at 44100"));
+}
+
+#[test]
 fn cuts_land_as_well_as_boosts() {
     let (db, _) = graphic_gain_db(44_100, 250.0, gains(&[(3, -12.0)]));
     assert_near(db, -12.0, 0.3, "250 Hz cut");

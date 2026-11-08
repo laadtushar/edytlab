@@ -92,11 +92,23 @@ const GRAPHIC_HZ: [f32; 10] = [
     31.5, 63.0, 125.0, 250.0, 500.0, 1_000.0, 2_000.0, 4_000.0, 8_000.0, 16_000.0,
 ];
 
-/// One octave of bandwidth. The cookbook's peaking EQ measures bandwidth
-/// between the frequencies where the gain is half its dB value, and its
-/// analog relation `1/Q = 2 sinh(ln(2)/2 * BW)` gives `Q = sqrt(2)` at
-/// `BW = 1` (https://www.w3.org/TR/audio-eq-cookbook/).
-const GRAPHIC_Q: f32 = std::f32::consts::SQRT_2;
+/// The Q that gives a peak band one octave of bandwidth at `freq_hz`.
+///
+/// The cookbook's peaking EQ measures bandwidth between the frequencies
+/// where the gain is half its dB value, and relates it to Q by
+/// `1/Q = 2 sinh(ln(2)/2 * BW * w0/sin(w0))`, `w0 = 2 pi f0/Fs`
+/// (https://www.w3.org/TR/audio-eq-cookbook/). Far below Nyquist
+/// `w0/sin(w0)` is 1 and Q is sqrt(2); near it a fixed sqrt(2) would
+/// narrow the band (to about 0.4 octave at 16 kHz in 48 kHz), so the top
+/// bands would leave a dip between them. With no rate known, sqrt(2).
+fn graphic_q(freq_hz: f32, sample_rate: Option<u32>) -> f32 {
+    let Some(rate) = sample_rate.filter(|&r| r > 0) else {
+        return std::f32::consts::SQRT_2;
+    };
+    let w0 = std::f64::consts::TAU * f64::from(freq_hz) / f64::from(rate);
+    let warp = if w0.sin() > 0.0 { w0 / w0.sin() } else { 1.0 };
+    (1.0 / (2.0 * (std::f64::consts::LN_2 / 2.0 * warp).sinh())) as f32
+}
 
 /// The peak bands a `graphic` call stands for at `sample_rate`, and the
 /// centres it leaves out because the rate cannot hold them.
@@ -121,7 +133,7 @@ fn graphic_bands(gains: &[f32], sample_rate: Option<u32>) -> (Vec<Band>, Vec<f32
         bands.push(Band {
             freq_hz,
             gain_db,
-            q: Some(GRAPHIC_Q),
+            q: Some(graphic_q(freq_hz, sample_rate)),
             kind: Kind::Peak,
         });
     }
