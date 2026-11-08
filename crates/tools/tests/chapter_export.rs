@@ -25,100 +25,29 @@
 //! (75 frames a second, `mm` unbounded, track numbers at most 99, titles
 //! of at most 80 characters, quoted).
 
+#[path = "support/harness.rs"]
+mod harness;
+
+use harness::{marker, region, Session};
 use serde_json::{json, Value};
-use session::{
-    Annotation, AnnotationId, AnnotationKind, BusGraph, NodeId, SessionNode, SessionState, Store,
-    TempoMap,
-};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use session::Annotation;
+use tools::{ToolDispatcher, ToolResult};
 
-struct Fixture {
-    dir: TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-}
+type Fixture = Session;
 
-fn marker(name: &str, t: f64) -> Annotation {
-    Annotation {
-        id: AnnotationId::new(),
-        name: name.into(),
-        kind: AnnotationKind::Marker { time_sec: t },
-    }
-}
-
-fn region(name: &str, s: f64, e: f64) -> Annotation {
-    Annotation {
-        id: AnnotationId::new(),
-        name: name.into(),
-        kind: AnnotationKind::Region {
-            start_sec: s,
-            end_sec: e,
-        },
-    }
-}
-
-impl Fixture {
+impl Session {
     fn with(annotations: Vec<Annotation>) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = Store::open(dir.path()).expect("open store");
-        let mut f = Self {
-            dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            dispatcher: ToolDispatcher::default_dispatcher(),
-        };
-        f.store
-            .append(SessionNode {
-                id: NodeId([0u8; 32]),
-                parent: None,
-                created_at: chrono::Utc::now(),
-                label: Some("fixture".into()),
-                reasoning: None,
-                state: SessionState {
-                    tracks: Vec::new(),
-                    bus_routing: BusGraph::default(),
-                    master_chain: Vec::new(),
-                    tempo_map: TempoMap::default(),
-                    key_map: None,
-                    transcript: None,
-                    sample_rate: 1_000,
-                    length_samples: 0,
-                    annotations,
-                    sync_lock: false,
-                },
-                op: None,
-            })
-            .expect("append the head");
-        f
+        Self::with_annotations(annotations, 0)
     }
 
-    fn call(&mut self, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher
-            .invoke("export_labels", args, &mut ctx)
-            .unwrap_or_else(|e| panic!("export_labels was refused by the dispatcher: {e}"))
-    }
-
-    fn ok(&mut self, args: Value) -> Value {
-        match self.call(args.clone()) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(e) => panic!("export_labels {args} failed: {e}"),
-        }
+    /// The result of an `export_labels` call that must succeed.
+    fn export(&mut self, args: Value) -> Value {
+        self.ok("export_labels", args)
     }
 
     /// The text of a call that must succeed.
     fn text(&mut self, args: Value) -> String {
-        self.ok(args)["labels"]
+        self.export(args)["labels"]
             .as_str()
             .expect("labels is a string")
             .to_string()
@@ -126,16 +55,7 @@ impl Fixture {
 
     /// Whether the dispatcher refuses `args` against the tool's schema.
     fn schema_refuses(&mut self, args: Value) -> bool {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher
-            .invoke("export_labels", args, &mut ctx)
-            .is_err()
+        self.try_call("export_labels", args).is_err()
     }
 }
 
@@ -159,7 +79,7 @@ const AUDACITY: &str = "3725.5\t3725.5\tOutro\n0\t0\tIntro\n62.25\t1800\tIntervi
 #[test]
 fn no_format_is_the_audacity_text_byte_for_byte() {
     let mut f = Fixture::with(episode());
-    let v = f.ok(json!({}));
+    let v = f.export(json!({}));
     assert_eq!(v["labels"], json!(AUDACITY));
     assert_eq!(v["count"], json!(3));
     assert_eq!(
@@ -168,7 +88,7 @@ fn no_format_is_the_audacity_text_byte_for_byte() {
     );
     assert_eq!(v["format"], json!("audacity"));
 
-    let named = f.ok(json!({ "format": "audacity" }));
+    let named = f.export(json!({ "format": "audacity" }));
     assert_eq!(named, v, "naming the default changes nothing");
 }
 
@@ -182,7 +102,7 @@ fn no_markers_is_empty_text_in_every_format() {
         "TITLE \"audio\"\nFILE \"audio.wav\" WAVE\n"
     );
     for format in ["audacity", "podlove_json", "cue"] {
-        assert_eq!(f.ok(json!({ "format": format }))["count"], json!(0));
+        assert_eq!(f.export(json!({ "format": format }))["count"], json!(0));
     }
 }
 
@@ -193,7 +113,7 @@ fn no_markers_is_empty_text_in_every_format() {
 #[test]
 fn podlove_json_is_sorted_with_normal_play_times() {
     let mut f = Fixture::with(episode());
-    let v = f.ok(json!({ "format": "podlove_json" }));
+    let v = f.export(json!({ "format": "podlove_json" }));
     assert_eq!(
         v["labels"],
         json!(concat!(
@@ -258,7 +178,7 @@ fn podlove_json_escapes_any_name() {
 #[test]
 fn cue_sheet_is_sorted_with_75_frames_a_second() {
     let mut f = Fixture::with(episode());
-    let v = f.ok(json!({ "format": "cue" }));
+    let v = f.export(json!({ "format": "cue" }));
     assert_eq!(
         v["labels"],
         json!(concat!(
@@ -348,7 +268,7 @@ fn cue_holds_at_most_99_tracks_and_says_what_it_left_out() {
             .map(|i| marker(&format!("m{i}"), f64::from(i)))
             .collect(),
     );
-    let v = f.ok(json!({ "format": "cue" }));
+    let v = f.export(json!({ "format": "cue" }));
     let text = v["labels"].as_str().expect("text");
     assert_eq!(text.matches("TRACK ").count(), 99);
     assert!(
@@ -383,12 +303,15 @@ fn file_name_belongs_to_cue_only() {
         if let Some(format) = format {
             args["format"] = json!(format);
         }
-        match f.call(args.clone()) {
+        match f.call("export_labels", args.clone()) {
             ToolResult::Error(e) => assert!(e.contains("cue"), "{e}"),
             ToolResult::Ok(v) => panic!("{args} was accepted: {v}"),
         }
     }
-    match f.call(json!({ "format": "cue", "file_name": " \n" })) {
+    match f.call(
+        "export_labels",
+        json!({ "format": "cue", "file_name": " \n" }),
+    ) {
         ToolResult::Error(e) => assert!(e.contains("file_name"), "{e}"),
         ToolResult::Ok(v) => panic!("a blank file_name was accepted: {v}"),
     }
@@ -416,7 +339,7 @@ fn every_format_is_read_only_and_writes_nothing() {
         json!({ "format": "podlove_json" }),
         json!({ "format": "cue", "file_name": "episode.wav" }),
     ] {
-        f.ok(args);
+        f.export(args);
     }
     assert_eq!(f.store.head(), before_head, "a node was appended");
     assert_eq!(listing(f.dir.path()), before_files, "a file was written");
@@ -430,7 +353,7 @@ fn walk(dir: &std::path::Path) -> Vec<(String, u64)> {
         if path.is_dir() {
             out.extend(walk(&path));
         } else {
-            let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            let len = entry.metadata().map_or(0, |m| m.len());
             out.push((path.display().to_string(), len));
         }
     }

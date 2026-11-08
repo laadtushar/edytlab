@@ -20,8 +20,8 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
 use session::{
-    Clip, EffectInstance, NodeId, SessionNode, SessionState, Store, Transcript, TranscriptSource,
-    TranscriptWord,
+    Annotation, AnnotationId, AnnotationKind, BusGraph, Clip, EffectInstance, NodeId, SessionNode,
+    SessionState, Store, TempoMap, Transcript, TranscriptSource, TranscriptWord,
 };
 use tempfile::TempDir;
 use tools::{Clipboard, Tool, ToolContext, ToolDispatcher, ToolResult};
@@ -63,6 +63,28 @@ impl Session {
             dispatcher: ToolDispatcher::default_dispatcher(),
             clipboard: None,
         }
+    }
+
+    /// A project with no tracks whose head holds `annotations`, at 1 kHz and
+    /// `length_samples` long, for the tools that read and edit markers.
+    pub fn with_annotations(annotations: Vec<Annotation>, length_samples: u64) -> Self {
+        let mut s = Self::empty();
+        s.append_state(
+            "fixture",
+            SessionState {
+                tracks: Vec::new(),
+                bus_routing: BusGraph::default(),
+                master_chain: Vec::new(),
+                tempo_map: TempoMap::default(),
+                key_map: None,
+                transcript: None,
+                sample_rate: 1_000,
+                length_samples,
+                annotations,
+                sync_lock: false,
+            },
+        );
+        s
     }
 
     /// One mono track per `(sample_rate, samples)`, in order.
@@ -361,6 +383,27 @@ impl DerefMut for TurnSession {
 }
 
 /// The value of a result that must be `Ok`.
+/// A point marker named `name` at `t` seconds.
+pub fn marker(name: &str, t: f64) -> Annotation {
+    Annotation {
+        id: AnnotationId::new(),
+        name: name.into(),
+        kind: AnnotationKind::Marker { time_sec: t },
+    }
+}
+
+/// A region named `name` from `s` to `e` seconds.
+pub fn region(name: &str, s: f64, e: f64) -> Annotation {
+    Annotation {
+        id: AnnotationId::new(),
+        name: name.into(),
+        kind: AnnotationKind::Region {
+            start_sec: s,
+            end_sec: e,
+        },
+    }
+}
+
 pub fn ok(r: ToolResult) -> Value {
     match r {
         ToolResult::Ok(v) => v,
