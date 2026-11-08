@@ -1,10 +1,11 @@
-//! Parametric EQ tool — biquad peak filter chain (Audio-EQ-Cookbook).
+//! Parametric and graphic EQ tool — biquad peak filter chain
+//! (Audio-EQ-Cookbook).
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit_rechannel, parse_args};
+use crate::tool::util::{destructive_edit_rechannel, first_clip, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -14,7 +15,7 @@ use crate::{Tool, ToolContext, ToolResult};
 // Moved to `audio-dsp` so the render path can reach it (#127). The
 // tool keeps its argument parsing and session plumbing; the DSP is
 // shared.
-pub(crate) use audio_dsp::eq::{apply_eq, BandKind, EqBand};
+pub(crate) use audio_dsp::eq::{apply_eq, band_ceiling_hz, BandKind, EqBand};
 
 // ---------------------------------------------------------------------------
 // Args
@@ -74,7 +75,69 @@ fn to_eq_bands(bands: &[Band]) -> Vec<EqBand> {
 #[derive(Debug, Deserialize)]
 struct Args {
     track: usize,
-    bands: Vec<Band>,
+    bands: Option<Vec<Band>>,
+    /// The graphic EQ (#765): one gain in dB per [`GRAPHIC_HZ`] centre.
+    graphic: Option<Vec<f32>>,
+}
+
+// ---------------------------------------------------------------------------
+// Graphic EQ
+// ---------------------------------------------------------------------------
+
+/// The ten octave-band centres of the graphic EQ: the nominal values of
+/// ISO 266:1997 (the R10 preferred numbers, every third one), which every
+/// octave graphic EQ is labelled with. The exact base-ten centres of
+/// IEC 61260-1 (31.62 Hz, 63.10 Hz, ...) differ by under 1%.
+const GRAPHIC_HZ: [f32; 10] = [
+    31.5, 63.0, 125.0, 250.0, 500.0, 1_000.0, 2_000.0, 4_000.0, 8_000.0, 16_000.0,
+];
+
+/// The Q that gives a peak band one octave of bandwidth at `freq_hz`.
+///
+/// The cookbook's peaking EQ measures bandwidth between the frequencies
+/// where the gain is half its dB value, and relates it to Q by
+/// `1/Q = 2 sinh(ln(2)/2 * BW * w0/sin(w0))`, `w0 = 2 pi f0/Fs`
+/// (https://www.w3.org/TR/audio-eq-cookbook/). Far below Nyquist
+/// `w0/sin(w0)` is 1 and Q is sqrt(2); near it a fixed sqrt(2) would
+/// narrow the band (to about 0.4 octave at 16 kHz in 48 kHz), so the top
+/// bands would leave a dip between them. With no rate known, sqrt(2).
+fn graphic_q(freq_hz: f32, sample_rate: Option<u32>) -> f32 {
+    let Some(rate) = sample_rate.filter(|&r| r > 0) else {
+        return std::f32::consts::SQRT_2;
+    };
+    let w0 = std::f64::consts::TAU * f64::from(freq_hz) / f64::from(rate);
+    let warp = if w0.sin() > 0.0 { w0 / w0.sin() } else { 1.0 };
+    (1.0 / (2.0 * (std::f64::consts::LN_2 / 2.0 * warp).sinh())) as f32
+}
+
+/// The peak bands a `graphic` call stands for at `sample_rate`, and the
+/// centres it leaves out because the rate cannot hold them.
+///
+/// A 0 dB band is the identity (the cookbook peak with `A = 1`), so it is
+/// left out rather than filtered through. A band above
+/// [`band_ceiling_hz`] would be pulled down to the ceiling and boost the
+/// wrong frequencies (16 kHz at 22.05 kHz lands on 9.9 kHz), so it is
+/// left out too, and named in `skipped_hz` when its gain was not 0 dB.
+fn graphic_bands(gains: &[f32], sample_rate: Option<u32>) -> (Vec<Band>, Vec<f32>) {
+    let ceiling = sample_rate.map_or(f64::INFINITY, band_ceiling_hz);
+    let mut bands = Vec::new();
+    let mut skipped = Vec::new();
+    for (&freq_hz, &gain_db) in GRAPHIC_HZ.iter().zip(gains) {
+        if gain_db == 0.0 {
+            continue;
+        }
+        if f64::from(freq_hz) > ceiling {
+            skipped.push(freq_hz);
+            continue;
+        }
+        bands.push(Band {
+            freq_hz,
+            gain_db,
+            q: Some(graphic_q(freq_hz, sample_rate)),
+            kind: Kind::Peak,
+        });
+    }
+    (bands, skipped)
 }
 
 // ---------------------------------------------------------------------------
@@ -93,10 +156,11 @@ impl Tool for EqTool {
             "eq",
             "EQ a track with biquad bands. Each band: freq_hz, \
              gain_db, optional Q (default 1.0; 0.707 for shelves), optional type \
-             peak (default), low_shelf or high_shelf. Appends a new session node.",
+             peak (default), low_shelf or high_shelf. Or graphic instead: 10 gains (dB) \
+             for octaves 31.5 Hz-16 kHz. Appends a new session node.",
             json!({
                 "type": "object",
-                "required": ["track", "bands"],
+                "required": ["track"],
                 "additionalProperties": false,
                 "properties": {
                     "track": { "type": "integer" },
@@ -114,6 +178,10 @@ impl Tool for EqTool {
                                 "type": { "type": "string", "enum": ["peak", "low_shelf", "high_shelf"] }
                             }
                         }
+                    },
+                    "graphic": {
+                        "type": "array",
+                        "items": { "type": "number" }
                     }
                 }
             }),
@@ -132,11 +200,26 @@ impl Tool for EqTool {
             Err(r) => return Ok(r),
         };
 
+        let bands = match (parsed.bands, parsed.graphic) {
+            (Some(_), Some(_)) => {
+                return Ok(ToolResult::Error(
+                    "give bands or graphic, not both".to_string(),
+                ))
+            }
+            (None, None) => {
+                return Ok(ToolResult::Error(
+                    "give bands or graphic (10 gains in dB)".to_string(),
+                ))
+            }
+            (Some(bands), None) => bands,
+            (None, Some(gains)) => return Ok(invoke_graphic(ctx, parsed.track, &gains)),
+        };
+
         // Validate bands.
-        if parsed.bands.is_empty() {
+        if bands.is_empty() {
             return Ok(ToolResult::Error("bands must not be empty".to_string()));
         }
-        for (i, b) in parsed.bands.iter().enumerate() {
+        for (i, b) in bands.iter().enumerate() {
             if b.freq_hz <= 0.0 {
                 return Ok(ToolResult::Error(format!(
                     "band {i}: freq_hz must be > 0 (got {})",
@@ -156,8 +239,55 @@ impl Tool for EqTool {
             }
         }
 
-        Ok(invoke_eq(ctx, parsed.track, parsed.bands))
+        Ok(invoke_eq(ctx, parsed.track, bands))
     }
+}
+
+/// The graphic EQ: its gains expanded into ordinary peak bands at the
+/// track's rate, then the same edit as `bands`, so the node it appends is
+/// stored, replayed and undone like any other `eq` node.
+fn invoke_graphic(ctx: &mut ToolContext, track_idx: usize, gains: &[f32]) -> ToolResult {
+    if gains.len() != GRAPHIC_HZ.len() {
+        return ToolResult::Error(format!(
+            "graphic takes {} gains, one per octave from 31.5 Hz to 16 kHz (got {})",
+            GRAPHIC_HZ.len(),
+            gains.len()
+        ));
+    }
+    if let Some(i) = gains.iter().position(|g| !g.is_finite()) {
+        return ToolResult::Error(format!("graphic {i}: gain must be finite"));
+    }
+    // The edit runs at the first clip's rate (a track whose clips differ
+    // is refused by the edit itself). A rate that cannot be read leaves
+    // every band in, and the edit reports the unreadable file.
+    let clip = match first_clip(ctx, track_idx) {
+        Ok(c) => c,
+        Err(msg) => return ToolResult::Error(msg),
+    };
+    let rate = audio_decoder::probe_sample_rate(&clip.source_path).ok();
+    let (bands, skipped) = graphic_bands(gains, rate);
+    let skipped_note = skipped
+        .iter()
+        .map(|hz| format!("{hz} Hz"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if bands.is_empty() {
+        return ToolResult::Error(if skipped.is_empty() {
+            "graphic: every gain is 0 dB; nothing to change".to_string()
+        } else {
+            format!(
+                "graphic: nothing to change; {skipped_note} {} above what a {} Hz track \
+                 holds, and every other gain is 0 dB",
+                if skipped.len() == 1 { "is" } else { "are" },
+                rate.unwrap_or_default()
+            )
+        });
+    }
+    let mut result = invoke_eq(ctx, track_idx, bands);
+    if let (ToolResult::Ok(Value::Object(out)), false) = (&mut result, skipped.is_empty()) {
+        out.insert("skipped_hz".into(), json!(skipped));
+    }
+    result
 }
 
 /// Core EQ logic.
@@ -219,13 +349,11 @@ mod tests {
         let parsed: Result<Args, _> = serde_json::from_value(args.clone());
         if let Ok(parsed) = parsed {
             // If serde accepts it (minItems not enforced by serde), our code should reject it.
-            if parsed.bands.is_empty() {
+            let bands = parsed.bands.unwrap_or_default();
+            if bands.is_empty() {
                 // Expected: our validation returns Error.
                 // We can't call invoke without a ToolContext, so just assert the logic.
-                assert!(
-                    parsed.bands.is_empty(),
-                    "expected empty bands to be rejected"
-                );
+                assert!(bands.is_empty(), "expected empty bands to be rejected");
             }
         }
         // Also verify the schema includes minItems:1 so the dispatcher catches it.

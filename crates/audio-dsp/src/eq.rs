@@ -60,6 +60,15 @@ struct BiquadCoeffs {
     a2: f64,
 }
 
+/// The highest centre or corner frequency a band keeps at `sample_rate`:
+/// 0.45 of the rate, which leaves headroom below Nyquist, where the
+/// bilinear transform's frequency warping is still well behaved. A band
+/// above it is pulled down to it ([`safe_w0`]), so a caller that would
+/// rather leave such a band out (the graphic EQ, #765) asks here.
+pub fn band_ceiling_hz(sample_rate: u32) -> f64 {
+    (f64::from(sample_rate.max(1)) * 0.45).max(1.0)
+}
+
 /// Normalised angular frequency for a band, held safely below Nyquist.
 ///
 /// The cookbook formulas assume `0 < w0 < π`. Past Nyquist `sin(w0)`
@@ -71,9 +80,7 @@ struct BiquadCoeffs {
 /// carries the same guard for the shared biquad constructors.
 fn safe_w0(freq_hz: f32, sample_rate: u32) -> f64 {
     let sr = sample_rate.max(1) as f64;
-    // 0.45·sr leaves headroom below Nyquist, where the bilinear
-    // transform's frequency warping is still well behaved.
-    let ceiling = (sr * 0.45).max(1.0);
+    let ceiling = band_ceiling_hz(sample_rate);
     let f = freq_hz as f64;
     let clamped = if f.is_finite() {
         f.clamp(1.0, ceiling)

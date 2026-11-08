@@ -20,6 +20,7 @@ The website and `marketing/` describe the released app, so a feature's copy ther
 | Marker tools (#766) | v0.9.4 |
 | Chapter files: `export_labels` `format` (#766 item 4) | pending |
 | Per-region export: `export_multiple` with `regions: true` (#766) | pending |
+| Graphic EQ: `eq` `graphic` (#765) | pending |
 
 ## CI
 
