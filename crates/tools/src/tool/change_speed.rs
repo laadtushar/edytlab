@@ -87,7 +87,7 @@ impl Tool for ChangeSpeedTool {
                 // doubled-speed track belongs at 5s (#231). Nothing is
                 // dropped — a stretch removes no part of the audio.
                 remap_after_scale(state, Moved::track(edited), 1.0 / factor as f64);
-                Default::default()
+                serde_json::Map::default()
             },
             format!("change_speed track {} x{:.3}", args.track, args.factor),
         ))

@@ -351,7 +351,7 @@ fn non_finite_samples_never_escape_and_never_poison_the_gain() {
 
         let mut x: Vec<f32> = (0..frames * channels).map(|_| rng.unit() * 2.0).collect();
         let mut bad = Vec::new();
-        for _ in 0..(1 + rng.below(30)) {
+        for _ in 0..=rng.below(30) {
             let i = rng.below(x.len());
             x[i] = rng.pick(&[f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
             bad.push(i);

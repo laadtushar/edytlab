@@ -133,7 +133,7 @@ pub fn unity_clip(source: &Path, start_in_track: u64, source_offset: u64, length
         pitch_shift_semitones: None,
         beat_grid: None,
         volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
+        volume_envelope_frames: session::EnvelopeFrames::default(),
     }
 }
 

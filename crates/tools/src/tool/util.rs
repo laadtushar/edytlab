@@ -438,7 +438,7 @@ fn clip_window(clip: &Clip, from: u64, to: u64, new_origin: u64) -> Option<Clip>
         pitch_shift_semitones: clip.pitch_shift_semitones,
         beat_grid: clip.beat_grid.clone(),
         volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
+        volume_envelope_frames: session::EnvelopeFrames::default(),
     };
     piece.set_envelope(slice_envelope(&clip.volume_envelope, into_clip, len));
     Some(piece)
@@ -1252,7 +1252,7 @@ where
         ctx,
         track_idx,
         |samples, rate, channels| Ok(edit_fn(samples, rate, channels)),
-        |_, _| Default::default(),
+        |_, _| serde_json::Map::default(),
         label,
     )
 }
@@ -1457,7 +1457,7 @@ where
         pitch_shift_semitones: first.pitch_shift_semitones,
         beat_grid: first.beat_grid.clone(),
         volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
+        volume_envelope_frames: session::EnvelopeFrames::default(),
     };
     joined.set_envelope(volume_envelope);
     state.tracks[track_idx].clips = vec![joined];
@@ -2588,7 +2588,7 @@ mod abort_tests {
             |_samples, _rate, _channels| Err("vocoder said no".to_string()),
             |_, _| {
                 hook_ran.set(true);
-                Default::default()
+                serde_json::Map::default()
             },
             "should never be recorded",
         );
@@ -2630,7 +2630,7 @@ mod abort_tests {
                 }
                 Ok((rate, channels))
             },
-            |_, _| Default::default(),
+            |_, _| serde_json::Map::default(),
             "halve",
         );
         assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
@@ -2692,7 +2692,7 @@ mod timeline_stream_tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
+            volume_envelope_frames: session::EnvelopeFrames::default(),
         }
     }
 

@@ -98,7 +98,7 @@ pub(super) fn append_generated(
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
+            volume_envelope_frames: session::EnvelopeFrames::default(),
         }],
         gain_db: 0.0,
         pan: 0.0,

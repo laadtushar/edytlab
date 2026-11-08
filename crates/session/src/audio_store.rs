@@ -1041,6 +1041,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::EnvelopeFrames;
 
     /// 4,800 samples of `sin(i * 0.01)`, the buffer the golden names below
     /// were taken from on main before this module existed.
@@ -1207,7 +1208,7 @@ mod tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
+            volume_envelope_frames: EnvelopeFrames::default(),
         };
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"take.wav");
@@ -1848,7 +1849,7 @@ mod tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
-            volume_envelope_frames: Default::default(),
+            volume_envelope_frames: EnvelopeFrames::default(),
         }
     }
 

@@ -541,7 +541,7 @@ fn invoke_noise_reduction(
             *samples = result;
             Ok((sample_rate, channels as u16))
         },
-        |_, _| Default::default(),
+        |_, _| serde_json::Map::default(),
         label,
     )
 }

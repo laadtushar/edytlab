@@ -29,7 +29,7 @@ fn cubic(x: &[f32], start: usize, end: usize, bounded: bool) -> Vec<f32> {
             0.0
         };
     }
-    (1..end - start + 1)
+    (1..=(end - start))
         .map(|i| {
             let t = i as f64 / length;
             ((2.0 * t.powi(3) - 3.0 * t * t + 1.0) * a

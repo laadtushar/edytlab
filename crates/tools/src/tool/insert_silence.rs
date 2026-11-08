@@ -161,7 +161,7 @@ impl Tool for InsertSilenceTool {
                 remap_after_insert(state, Moved::sync_locked(state, edited), at, duration);
 
                 if !state.sync_lock {
-                    return Default::default();
+                    return serde_json::Map::default();
                 }
                 sync_other_tracks(state, edited, &rates, |clips, rate| {
                     let len_frames = seconds_to_frames(duration, rate);
@@ -170,7 +170,7 @@ impl Tool for InsertSilenceTool {
                     }
                     insert_gap_timeline(clips, seconds_to_frames(at, rate), len_frames)
                 });
-                Default::default()
+                serde_json::Map::default()
             },
             format!("insert {duration:.2}s silence at {at:.2}s on track {track}"),
         ))

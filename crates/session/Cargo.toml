@@ -36,3 +36,6 @@ tempfile = "3"
 [[bin]]
 name = "crash_writer"
 path = "src/bin/crash_writer.rs"
+
+[lints]
+workspace = true

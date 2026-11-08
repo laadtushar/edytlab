@@ -547,9 +547,9 @@ fn only_derived_audio_is_a_rebuild_target() {
         let mut store = session::Store::open(&original).unwrap();
         let mut state = session::SessionState {
             tracks: Vec::new(),
-            bus_routing: Default::default(),
+            bus_routing: session::BusGraph::default(),
             master_chain: Vec::new(),
-            tempo_map: Default::default(),
+            tempo_map: session::TempoMap::default(),
             key_map: None,
             transcript: None,
             sample_rate: SR,
@@ -571,7 +571,7 @@ fn only_derived_audio_is_a_rebuild_target() {
                     pitch_shift_semitones: None,
                     beat_grid: None,
                     volume_envelope: Vec::new(),
-                    volume_envelope_frames: Default::default(),
+                    volume_envelope_frames: session::EnvelopeFrames::default(),
                 }],
                 gain_db: 0.0,
                 pan: 0.0,

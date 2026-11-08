@@ -149,6 +149,7 @@ fn install_entries(
 #[cfg(test)]
 mod tests {
     use super::PluginManifest;
+    use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
 
@@ -209,7 +210,7 @@ mod tests {
             description: None,
             author: None,
             skills: vec!["skills/my-skill.md".into()],
-            mcp_servers: Default::default(),
+            mcp_servers: HashMap::default(),
             agents: vec![],
         };
 
@@ -230,7 +231,7 @@ mod tests {
             description: None,
             author: None,
             skills: vec![],
-            mcp_servers: Default::default(),
+            mcp_servers: HashMap::default(),
             agents: vec![],
         };
         let dst_dir = TempDir::new().unwrap();
@@ -270,7 +271,7 @@ mod tests {
                 "../{}/secret.md",
                 outside.path().file_name().unwrap().to_string_lossy()
             )],
-            mcp_servers: Default::default(),
+            mcp_servers: HashMap::default(),
             agents: vec![],
         };
         let dest = TempDir::new().unwrap();
@@ -299,7 +300,7 @@ mod tests {
             description: None,
             author: None,
             skills: vec!["skills/link.md".into()],
-            mcp_servers: Default::default(),
+            mcp_servers: HashMap::default(),
             agents: vec![],
         };
         let dest = TempDir::new().unwrap();
@@ -326,7 +327,7 @@ mod tests {
             description: None,
             author: None,
             skills: vec!["skills/podcast-cleanup.md".into()],
-            mcp_servers: Default::default(),
+            mcp_servers: HashMap::default(),
             agents: vec![],
         };
         let err = manifest
@@ -358,7 +359,7 @@ mod tests {
             description: None,
             author: None,
             skills: vec!["skills/fresh.md".into(), "skills/taken.md".into()],
-            mcp_servers: Default::default(),
+            mcp_servers: HashMap::default(),
             agents: vec![],
         };
         manifest
@@ -386,7 +387,7 @@ mod tests {
             description: None,
             author: None,
             skills: vec!["a/dup.md".into(), "b/dup.md".into()],
-            mcp_servers: Default::default(),
+            mcp_servers: HashMap::default(),
             agents: vec![],
         };
         let dest = TempDir::new().unwrap();
@@ -409,7 +410,7 @@ mod tests {
                 description: None,
                 author: None,
                 skills: vec![format!("skills/{name}")],
-                mcp_servers: Default::default(),
+                mcp_servers: HashMap::default(),
                 agents: vec![],
             };
             let dest = TempDir::new().unwrap();

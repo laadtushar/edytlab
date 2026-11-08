@@ -43,6 +43,7 @@
 //! No tracing, no session tracking, no logs, no metrics, no replay.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -50,7 +51,7 @@ use std::sync::{Arc, LazyLock, Mutex, Once, RwLock};
 use std::time::{Duration, Instant};
 
 use regex::{Captures, Regex};
-use sentry::protocol::{Event, Exception, Frame, Level, Mechanism, Stacktrace};
+use sentry::protocol::{Event, Exception, Frame, Level, Mechanism, Stacktrace, Values};
 use sentry::types::Dsn;
 use sentry::{Client, ClientOptions, Envelope, Transport, TransportFactory, TransportOptions};
 use serde::{Deserialize, Serialize};
@@ -522,10 +523,10 @@ pub fn scrub_event(mut event: Event<'static>, redactions: &Redactions) -> Option
     event.user = None;
     event.request = None;
     event.server_name = None;
-    event.breadcrumbs = Default::default();
-    event.extra = Default::default();
-    event.modules = Default::default();
-    event.debug_meta = Default::default();
+    event.breadcrumbs = Values::default();
+    event.extra = BTreeMap::default();
+    event.modules = BTreeMap::default();
+    event.debug_meta = Cow::default();
     event.template = None;
     let clear_frames = |stacktrace: &mut Option<Stacktrace>| {
         if let Some(stacktrace) = stacktrace {
