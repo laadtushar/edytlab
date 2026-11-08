@@ -229,8 +229,8 @@ impl AppState {
             plan_first: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             settings_path: Arc::new(Mutex::new(PathBuf::new())),
             selection: Arc::new(Mutex::new(None)),
-            compare: Arc::new(Mutex::new(Default::default())),
-            window_mix: Arc::new(Mutex::new(Default::default())),
+            compare: Arc::new(Mutex::new(crate::compare::CompareHolds::default())),
+            window_mix: Arc::new(Mutex::new(crate::window_mix::WindowMix::default())),
             clipboard: Arc::new(Mutex::new(None)),
             memory: Arc::new(Mutex::new(None)),
             skills: Arc::new(Mutex::new(

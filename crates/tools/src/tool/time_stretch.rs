@@ -107,7 +107,7 @@ impl Tool for TimeStretchTool {
                 // Unconditional now: the hook only runs when the edit
                 // succeeded.
                 remap_after_scale(state, Moved::track(edited), 1.0 / factor as f64);
-                Default::default()
+                serde_json::Map::default()
             },
             format!(
                 "time_stretch track {track} factor {factor:.4} \

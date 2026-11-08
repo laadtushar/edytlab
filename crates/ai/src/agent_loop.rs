@@ -1443,7 +1443,7 @@ where
                     // so the conversation stores valid JSON regardless
                     // of what the model streamed.
                     input: serde_json::from_str::<Value>(args_json)
-                        .unwrap_or_else(|_| Value::Object(Default::default())),
+                        .unwrap_or_else(|_| Value::Object(serde_json::Map::default())),
                 }),
                 _ => None,
             })

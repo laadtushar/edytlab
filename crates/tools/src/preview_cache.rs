@@ -566,9 +566,9 @@ mod tests {
     fn node_id(seed: u8) -> session::NodeId {
         let state = session::SessionState {
             tracks: Vec::new(),
-            bus_routing: Default::default(),
+            bus_routing: session::BusGraph::default(),
             master_chain: Vec::new(),
-            tempo_map: Default::default(),
+            tempo_map: session::TempoMap::default(),
             key_map: None,
             transcript: None,
             sample_rate: 48_000,

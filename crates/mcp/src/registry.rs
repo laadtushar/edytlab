@@ -348,7 +348,7 @@ mod tests {
         let cfg = McpServerConfig::Stdio {
             command: "npx".into(),
             args: vec![],
-            env: Default::default(),
+            env: HashMap::default(),
             enabled: true,
         };
         assert_eq!(

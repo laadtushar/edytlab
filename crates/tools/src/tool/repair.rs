@@ -136,7 +136,7 @@ impl Tool for RepairSpanTool {
                     .map_err(str::to_owned)?;
                 Ok((rate, channels))
             },
-            |_, _| Default::default(),
+            |_, _| serde_json::Map::default(),
             format!(
                 "repair_span track {} {}-{}s",
                 args.track, args.start_sec, args.end_sec

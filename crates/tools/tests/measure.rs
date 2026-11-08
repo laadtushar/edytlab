@@ -650,7 +650,9 @@ fn a_range_measures_the_same_as_that_audio_alone() {
         .iter()
         .map(|&x| ((x * 32_768.0).round().clamp(-32_768.0, 32_767.0)) / 32_768.0)
         .collect();
-    let want = audio_analysis::qc::measure(&slice, rate, 1, Default::default()).unwrap();
+    let want =
+        audio_analysis::qc::measure(&slice, rate, 1, audio_analysis::qc::QcOptions::default())
+            .unwrap();
     close("start", num(&r, &["start_sec"]), 5.0, 0.001);
     close("end", num(&r, &["end_sec"]), 7.0, 0.001);
     close("duration", num(&r, &["duration_sec"]), 2.0, 0.001);
