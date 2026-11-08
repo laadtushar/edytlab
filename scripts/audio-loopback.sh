@@ -25,7 +25,7 @@
 set -euo pipefail
 
 for lock in "${EDYTLAB_RECORDING_LOCK:-}" "${TMPDIR:-/tmp}/recording.lock" /tmp/recording.lock /tmp/promo-run/recording.lock; do
-  if [ -n "$lock" ] && [ -e "$lock" ]; then
+  if [[ -n "$lock" ]] && [[ -e "$lock" ]]; then
     echo "a recording session holds $lock; not running the loopback while it does" >&2
     exit 4
   fi
@@ -38,7 +38,7 @@ dir="$(mktemp -d "${TMPDIR:-/tmp}/edytlab-loopback.XXXXXX")"
 pid=""
 
 cleanup() {
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
     kill "$pid" 2>/dev/null || true
     # A bounded wait for it to go; the PID is ours, nothing else is signalled.
     for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
@@ -59,11 +59,11 @@ pid=$!
 
 ready=""
 for _ in $(seq 1 100); do
-  if [ -S "$sock" ] && PULSE_SERVER="unix:$sock" pactl info >/dev/null 2>&1; then ready=1; break; fi
+  if [[ -S "$sock" ]] && PULSE_SERVER="unix:$sock" pactl info >/dev/null 2>&1; then ready=1; break; fi
   kill -0 "$pid" 2>/dev/null || break
   sleep 0.1
 done
-if [ -z "$ready" ]; then
+if [[ -z "$ready" ]]; then
   echo "the private PulseAudio daemon did not start:" >&2
   cat "$dir/pulseaudio.log" >&2
   exit 3
