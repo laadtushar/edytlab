@@ -66,7 +66,7 @@ Xvfb :99 -screen 0 "${SCREEN:-1440x900x24}" >"$OUT/xvfb.log" 2>&1 &
 echo $! >"$OUT/xvfb.pid"
 # Wait for the display to accept connections before anything uses it.
 for _ in $(seq 1 40); do
-  [ -S /tmp/.X11-unix/X99 ] && DISPLAY=:99 xdotool getdisplaygeometry >/dev/null 2>&1 && break
+  [[ -S /tmp/.X11-unix/X99 ]] && DISPLAY=:99 xdotool getdisplaygeometry >/dev/null 2>&1 && break
   sleep 0.25
 done
 DISPLAY=:99 xdotool getdisplaygeometry >/dev/null 2>&1 || { echo "Xvfb did not start" >&2; exit 1; }
@@ -77,7 +77,7 @@ echo $! >"$OUT/openbox.pid"
 sleep 1
 # The scripted model, unless a real one already answers on :11434
 # (LLM=real: llama-server with a local model, started separately).
-if [ "${LLM:-fake}" != real ]; then
+if [[ "${LLM:-fake}" != real ]]; then
   node "$(dirname "$0")/fake-llm.mjs" >"$OUT/fake-llm.log" 2>&1 &
   echo $! >"$OUT/fake-llm.pid"
   # Something else already on :11434 (a real llama-server left running)
@@ -116,7 +116,7 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent
 if ! keyctl rdescribe @s >/dev/null 2>&1; then
   echo "run-env.sh: no session keyring; start the suite through run-suite.sh" >&2
 fi
-if [ "${KEEP_KEYRING:-0}" != 1 ]; then
+if [[ "${KEEP_KEYRING:-0}" != 1 ]]; then
   # The persistent keyring must be linked into the session keyring to be
   # possessed: clearing it through @u is "Permission denied".
   keyctl clear "$(keyctl get_persistent @s)" >/dev/null || echo "run-env.sh: could not clear the persistent keyring" >&2
@@ -141,5 +141,5 @@ for attempt in $(seq 1 30); do
   done
   sleep 1
 done
-[ "$started" = 1 ] || { echo "tauri-driver did not start" >&2; tail -5 "$OUT/tauri-driver.log" >&2; exit 1; }
+[[ "$started" = 1 ]] || { echo "tauri-driver did not start" >&2; tail -5 "$OUT/tauri-driver.log" >&2; exit 1; }
 echo "$E2E_HOME"
