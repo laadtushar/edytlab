@@ -63,10 +63,9 @@ fn region_file_name(n: usize, width: usize, name: &str) -> String {
 /// end over the tracks the render mixes, so a muted track, or one another
 /// track's solo silences, does not lengthen it. Which tracks those are is
 /// asked of the renderer's own plan, so the two agree.
-fn mix_length_frames(state: &SessionState) -> u64 {
-    let Ok(graph) = audio_engine::graph::build(state) else {
-        return 0;
-    };
+fn mix_length_frames(state: &SessionState) -> Result<u64, String> {
+    let graph = audio_engine::graph::build(state)
+        .map_err(|e| format!("could not plan the mix to export: {e}; nothing was written"))?;
     let mut heard = state.clone();
     let mut index = 0;
     heard.tracks.retain(|_| {
@@ -77,7 +76,7 @@ fn mix_length_frames(state: &SessionState) -> u64 {
         index += 1;
         mixed
     });
-    session_length_frames(&heard)
+    Ok(session_length_frames(&heard))
 }
 
 /// A region to export: its name, and its frames of the mix.
@@ -128,14 +127,26 @@ fn plan_regions(state: &SessionState) -> Result<RegionPlan<'_>, String> {
     regions.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)));
 
     let rate = f64::from(state.sample_rate.max(1));
-    let total = mix_length_frames(state);
+    // A float-to-integer cast saturates, so a huge time is the largest frame
+    // and a negative one frame 0.
+    let frame = |sec: f64| (sec * rate) as u64;
+    if let Some((name, start_sec, end_sec)) = regions
+        .iter()
+        .find(|&&(_, start_sec, end_sec)| frame(start_sec) >= frame(end_sec))
+    {
+        let name: String = name.chars().take(REGION_NAME_CHARS).collect();
+        return Err(format!(
+            "region {name:?} ({start_sec:.3}-{end_sec:.3} s) is empty: it is shorter \
+             than one sample at {rate} Hz. Widen or delete it, then export again; \
+             nothing was written"
+        ));
+    }
+    let total = mix_length_frames(state)?;
     let mut clamped = 0;
     let mut spans = Vec::with_capacity(regions.len());
     for (name, start_sec, end_sec) in regions {
-        // A float-to-integer cast saturates, so a huge time is the largest
-        // frame and a negative one frame 0.
-        let start = (start_sec * rate) as u64;
-        let end = (end_sec * rate) as u64;
+        let start = frame(start_sec);
+        let end = frame(end_sec);
         let end_frame = end.min(total);
         if start >= end_frame {
             let name: String = name.chars().take(REGION_NAME_CHARS).collect();
@@ -471,12 +482,25 @@ mod tests {
     // asked of the plan and not through the store.
 
     #[test]
+    fn a_region_shorter_than_one_sample_is_refused_as_empty_not_past_the_end() {
+        // 1.0000 to 1.0004 s is the same frame at 1 kHz.
+        let err = plan_regions(&state_with(&[(1.0, 1.0004)]))
+            .err()
+            .expect("an empty region is refused");
+        assert!(err.contains("is empty"), "{err}");
+        assert!(!err.contains("past the end"), "{err}");
+    }
+
+    #[test]
     fn a_region_whose_time_is_not_finite_is_skipped_and_counted() {
-        let state = state_with(&[(f64::NAN, 1.0), (1.0, f64::INFINITY), (0.0, 0.0)]);
-        // The third is finite: it is planned, then refused as empty, which
-        // shows the first two were skipped rather than refused.
-        let err = plan_regions(&state).err().expect("an empty mix refuses it");
-        assert!(err.contains("past the end"), "{err}");
+        let state = state_with(&[(f64::NAN, 1.0), (1.0, f64::INFINITY), (0.5, 1.0)]);
+        // The third is finite: it goes on to the mix plan, which a session
+        // with no tracks refuses, which shows the first two were skipped
+        // rather than refused.
+        let err = plan_regions(&state)
+            .err()
+            .expect("a session with no tracks refuses it");
+        assert!(err.contains("could not plan the mix"), "{err}");
 
         let only_broken = state_with(&[(f64::NAN, 1.0), (f64::NEG_INFINITY, 2.0)]);
         let err = plan_regions(&only_broken).err().expect("nothing to export");
