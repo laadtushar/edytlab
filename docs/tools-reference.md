@@ -495,11 +495,12 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `eq`
 
-EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Appends a new session node.
+EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Or graphic instead: 10 gains (dB) for octaves 31.5 Hz-16 kHz. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `bands` | array of object | yes |  |
+| `bands` | array of object | no |  |
+| `graphic` | array of number | no |  |
 | `track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
