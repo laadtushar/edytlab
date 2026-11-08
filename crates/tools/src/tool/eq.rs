@@ -266,8 +266,9 @@ fn invoke_graphic(ctx: &mut ToolContext, track_idx: usize, gains: &[f32]) -> Too
             "graphic: every gain is 0 dB; nothing to change".to_string()
         } else {
             format!(
-                "graphic: nothing to change; {skipped_note} is above what a {} Hz track \
+                "graphic: nothing to change; {skipped_note} {} above what a {} Hz track \
                  holds, and every other gain is 0 dB",
+                if skipped.len() == 1 { "is" } else { "are" },
                 rate.unwrap_or_default()
             )
         });
