@@ -43,14 +43,7 @@ fn chapters(annotations: &[Annotation]) -> Vec<(f64, &str)> {
 /// Normal Play Time as Podlove Simple Chapters writes it, `HH:MM:SS.mmm`,
 /// to the nearest millisecond; the hours grow past two digits.
 fn normal_play_time(sec: f64) -> String {
-    let ms = (sec * 1000.0).round() as u64;
-    format!(
-        "{:02}:{:02}:{:02}.{:03}",
-        ms / 3_600_000,
-        ms / 60_000 % 60,
-        ms / 1000 % 60,
-        ms % 1000
-    )
+    crate::tool::export_transcript::timestamp((sec * 1000.0).round() as u64, '.')
 }
 
 /// Podlove Simple Chapters as JSON: `[{"start": "HH:MM:SS.mmm", "title": ..}]`.
