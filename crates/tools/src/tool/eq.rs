@@ -181,8 +181,6 @@ impl Tool for EqTool {
                     },
                     "graphic": {
                         "type": "array",
-                        "minItems": 10,
-                        "maxItems": 10,
                         "items": { "type": "number" }
                     }
                 }

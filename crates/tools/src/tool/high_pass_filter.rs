@@ -28,7 +28,7 @@ impl Tool for HighPassFilterTool {
                 "type": "object",
                 "properties": {
                     "track": { "type": "integer" },
-                    "cutoff_hz": { "type": "number", "description": "Cutoff frequency in Hz" },
+                    "cutoff_hz": { "type": "number" },
                     "start_sec": { "type": "number" },
                     "end_sec": { "type": "number" }
                 },

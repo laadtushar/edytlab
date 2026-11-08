@@ -672,7 +672,7 @@ Apply a Butterworth high-pass filter to a track, removing frequencies below cuto
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `cutoff_hz` | number | yes | Cutoff frequency in Hz |
+| `cutoff_hz` | number | yes |  |
 | `end_sec` | number | no |  |
 | `start_sec` | number | no |  |
 | `track` | integer | yes |  |
