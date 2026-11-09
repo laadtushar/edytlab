@@ -161,17 +161,38 @@ class SharedDemoPathsTests(unittest.TestCase):
             video, video_argv = only_call(lambda: render.render_video(tl, out_path="pipe:1"))
             audio, audio_argv = only_call(lambda: render.render_app_audio(audio_tl, "pipe:2"))
             wav, wav_argv = only_call(lambda: render.demo_wav(self.slug))
-        written = {"video": (video, video_argv, self.root / "pipe:1"),
-                   "app audio": (audio, audio_argv, self.root / "pipe:2"),
-                   "demo audio": (wav, wav_argv, self.work / "audio" / f"{self.slug}.wav")}
-        for name, (result, argv, expected) in written.items():
+        written = {"video": (video, video_argv, self.root / "pipe:1", "mp4"),
+                   "app audio": (audio, audio_argv, self.root / "pipe:2", "wav"),
+                   "demo audio": (wav, wav_argv,
+                                  self.work / "audio" / f"{self.slug}.wav", "wav")}
+        for name, (result, argv, expected, muxer) in written.items():
             with self.subTest(writer=name):
                 self.assertEqual(argv[-1], str(expected))
+                self.assertEqual(argv[-3:-1], ["-f", muxer])
                 self.assertEqual(result, str(expected))
         for name, argv, graph in (("video", video_argv, self.work / "test-plain" / "graph.txt"),
                                   ("app audio", audio_argv, self.work / "test-audio-graph.txt")):
             with self.subTest(graph=name):
                 self.assertEqual(argv[argv.index("-filter_complex_script") + 1], str(graph))
+
+    def test_mux_and_master_name_their_format(self):
+        """The resolved destination may have no extension (`pipe:3` here), and
+        ffmpeg then cannot pick a muxer, so both writers name it with `-f`.
+        """
+        (self.root / "in.mp4").write_bytes(b"v")
+        (self.root / "in.wav").write_bytes(b"a")
+        measured = mock.Mock(stderr="Summary:\n I: -20.0 LUFS\n Peak: -3.0 dBFS\n")
+        target = {"integrated_lufs": -14.0, "true_peak_dbtp": -1.5}
+        video, wav = str(self.root / "in.mp4"), str(self.root / "in.wav")
+        with mock.patch.object(render, "run", return_value=measured) as run, \
+                mock.patch.object(render, "measure_loudness", return_value=target):
+            render.mux(video, wav, str(self.root / "pipe:3"))
+            mux_argv = run.call_args.args[0]
+            run.reset_mock()
+            render.loudnorm_two_pass(wav, str(self.root / "pipe:4"))
+            encode_argv = run.call_args_list[-1].args[0]
+        self.assertEqual(mux_argv[-3:], ["-f", "mp4", str(self.root / "pipe:3")])
+        self.assertEqual(encode_argv[-3:], ["-f", "ipod", str(self.root / "pipe:4")])
 
     def test_narration_invocation_checks_video(self):
         with tempfile.TemporaryDirectory() as external, \

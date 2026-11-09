@@ -7,9 +7,16 @@
     "tauri:dev": "pnpm --filter @edytlab/desktop tauri dev",
     "tauri:build": "pnpm --filter @edytlab/desktop tauri build"
   },
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "pnpm@10.34.9",
   "engines": {
     "node": ">=22.22.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "pnpm": {
+    "onlyBuiltDependencies": [],
+    "ignoredBuiltDependencies": [
+      "esbuild",
+      "fsevents"
+    ]
+  }
 }

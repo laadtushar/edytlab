@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     /// The text the model is shown on a rejected call: every error as
-    /// `<message> at <instance path>`, joined with `; ` (jsonschema 0.52).
+    /// `<message> at <instance path>`, joined with `; ` (jsonschema 0.60).
     #[test]
     fn errors_are_joined_with_their_instance_path() {
         let schema = json!({

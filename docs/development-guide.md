@@ -31,7 +31,7 @@ description: "Dev setup for macOS, Windows and Linux, daily workflow, testing, d
 |------|---------|---------|
 | Rust | 1.90 (auto via `rust-toolchain.toml`) | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | Node.js | 22.22.2+ (CI uses 24) | [nodejs.org](https://nodejs.org) or `nvm install 24` |
-| pnpm | 9.15+ | `npm install -g pnpm` |
+| pnpm | 10.34+ | `npm install -g pnpm` |
 | Git | Any recent | |
 
 ### macOS
@@ -69,7 +69,7 @@ sudo apt-get install -y \
   patchelf
 ```
 
-`libdbus-1-dev` and `pkg-config` are for the keychain: on Linux `crates/ai` reaches the Secret Service over D-Bus (#394). This is the list `ci.yml` and the release workflows install — note `libayatana-appindicator3-dev`, not the older `libappindicator3-dev`. `patchelf` is only needed to bundle an AppImage; the release build also adds `libfuse2` for that.
+`libdbus-1-dev` and `pkg-config` are for the keychain: on Linux `crates/ai` reaches the Secret Service over D-Bus (#394). It is the list every Linux build in CI installs, through `scripts/ci/install-linux-build-deps.sh` — note `libayatana-appindicator3-dev`, not the older `libappindicator3-dev`. `patchelf` is only needed to bundle an AppImage; the release build also adds `libfuse2` for that.
 
 ### ML Model Files (Whisper/Demucs)
 
