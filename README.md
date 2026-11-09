@@ -119,7 +119,7 @@ For the long version, read [`docs/specs/2026-05-05-conversational-audio-editor-d
 - **ML:** `ort` (ONNX Runtime, `load-dynamic`) for Demucs / Whisper — the installers carry the runtime library (1.23.2, since v0.7.0), and `ml-whisper` runs Whisper on a model the user downloads (`transcribe`), and the stem model (`ml-demucs`, run by `separate_stems`) is downloaded the same way, from its row in Settings, but no model is bundled ([#383](https://github.com/laadtushar/edytlab/issues/383))
 - **LLM:** `reqwest` + `eventsource-stream` for SSE; `keyring` for OS-keychain credential storage
 - **Test:** `cargo test` (unit + integration), `vitest` (frontend), Playwright (`apps/desktop/e2e/`, the frontend in Chromium with the IPC boundary faked), `wiremock` for HTTP fakes
-- **Tooling:** pnpm 9 workspace, conventional commits
+- **Tooling:** pnpm 10 workspace, conventional commits
 
 ## Project structure
 
