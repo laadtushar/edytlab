@@ -5,6 +5,8 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
+import { checkInputPath } from "../artifact/paths.mjs";
+
 const moduleUrl = new URL("./tokens.mjs", import.meta.url);
 const source = readFileSync(moduleUrl, "utf8");
 const sectionEnd = source.indexOf("/** One property's value");
@@ -82,12 +84,13 @@ test("actual website token stylesheet bytes match the original declaration match
     "@fontsource-variable/geist-mono/package.json");
   const context = {
     readFileSync, dirname, join, fileURLToPath, pathToFileURL,
-    createRequire: (filename) => {
-      assert.equal(filename, join(repo, "apps/desktop/package.json"));
-      return { resolve: (specifier) => {
-        assert.equal(specifier, "@fontsource-variable/geist-mono/package.json");
-        return fontPackage;
-      } };
+    // The real input boundary: every site file read must be an allowlisted shared source.
+    checkInputPath,
+    // Packages are not installed for this job; paths.test.mjs covers the package boundary.
+    packageSourcePath: (specifier, file) => {
+      assert.equal(specifier, "@fontsource-variable/geist-mono");
+      assert.equal(file, "files/geist-mono-latin-wght-normal.woff2");
+      return join(dirname(fontPackage), file);
     },
   };
   const executable = source.replace(/^import .*;\n/gm, "")

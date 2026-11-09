@@ -6,6 +6,8 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { SHARED_SOURCES } from "./paths.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../../..");
 
@@ -63,6 +65,12 @@ function fixture(t) {
   fs.mkdirSync(artifact, { recursive: true });
   for (const name of ["build.mjs", "launch-hub.mjs", "paths.mjs"]) {
     fs.copyFileSync(path.join(HERE, name), path.join(artifact, name));
+  }
+  // Shared sources must be real files at their own paths, so the fixture holds
+  // copies of those the builds read (the frame recordings are not read here).
+  for (const entry of SHARED_SOURCES.filter((name) => !name.endsWith(".mp4"))) {
+    fs.mkdirSync(path.dirname(path.join(repo, entry)), { recursive: true });
+    fs.copyFileSync(path.join(REPO, entry), path.join(repo, entry));
   }
   const outside = path.join(scratch, "outside");
   fs.mkdirSync(outside);
@@ -216,3 +224,188 @@ test("cyclic output links fail before any output effect", (t) => {
   assert.match(result.stderr, /Too many symbolic links/);
   assert.deepEqual(result.effects, []);
 });
+
+// ---------------------------------------------------------------- inputs
+
+/** An input refusal must also precede every output effect and name the input. */
+function refusedInput(f, name, source) {
+  const result = run(f, name);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /^Refused input /);
+  assert.ok(result.stderr.includes(JSON.stringify(source)), result.stderr);
+  assert.deepEqual(result.effects, []);
+  assert.equal(fs.readFileSync(path.join(f.outside, "sentinel"), "utf8"), "untouched");
+}
+
+/** Load the fixture's own copy of paths.mjs, so its roots are the fixture's. */
+async function fixturePaths(f) {
+  return import(`${new URL(`file://${path.join(f.artifact, "paths.mjs")}`).href}?${Math.random()}`);
+}
+
+test("the launch hub reads the allowlisted shared sources at their own paths", (t) => {
+  const f = fixture(t);
+  const pressKit = path.join(f.repo, "marketing/press-kit.md");
+  fs.writeFileSync(pressKit, fs.readFileSync(pressKit, "utf8")
+    .replace("AI what you want done.", "AI what you want done. Fixture marker 7f3a."));
+  const hub = run(f, "launch-hub.mjs");
+  assert.equal(hub.status, 0, hub.stderr);
+  const html = Buffer.from(hub.effects.find((e) => e.name.endsWith("index.html")).base64, "base64");
+  assert.match(html.toString(), /Fixture marker 7f3a/);
+  const poster = hub.effects.find((e) => e.kind === "copy" && e.name.endsWith("posters/launch-video.jpg"));
+  assert.equal(poster.from, path.join(f.repo, "website/public/videos/launch-video.jpg"));
+});
+
+for (const entry of ["marketing/press-kit.md", "website/lib/videos.ts",
+  "website/public/videos/launch-video.jpg"]) {
+  test(`the launch hub refuses ${entry} when a link sends it outside`, (t) => {
+    const f = fixture(t);
+    const source = path.join(f.repo, entry);
+    fs.rmSync(source);
+    fs.symlinkSync(path.join(f.outside, "sentinel"), source);
+    refusedInput(f, "launch-hub.mjs", source);
+  });
+}
+
+test("a shared source is refused when a link in its parent redirects it", (t) => {
+  const f = fixture(t);
+  const videos = path.join(f.repo, "website/public/videos");
+  fs.cpSync(videos, path.join(f.outside, "videos"), { recursive: true });
+  fs.rmSync(videos, { recursive: true });
+  fs.symlinkSync(path.join(f.outside, "videos"), videos);
+  refusedInput(f, "launch-hub.mjs", path.join(videos, "launch-video.jpg"));
+});
+
+test("a shared source is refused when it is redirected to another file in the repository", (t) => {
+  const f = fixture(t);
+  const source = path.join(f.repo, "website/lib/videos.ts");
+  fs.renameSync(source, path.join(f.repo, "website/lib/moved.ts"));
+  fs.symlinkSync("moved.ts", source);
+  refusedInput(f, "launch-hub.mjs", source);
+});
+
+test("a project-local input linked outside the project is refused before output", (t) => {
+  const f = fixture(t);
+  const template = path.join(f.artifact, "template.html");
+  fs.symlinkSync(path.join(f.outside, "sentinel"), template);
+  refusedInput(f, "build.mjs", template);
+  const copy = path.join(f.repo, "marketing/social-kit/calendar.md");
+  fs.symlinkSync(path.join(f.outside, "sentinel"), copy);
+  refusedInput(f, "launch-hub.mjs", copy);
+});
+
+test("only project paths and the listed shared sources pass the input check", async (t) => {
+  const f = fixture(t);
+  const { checkInputPath, SHARED_SOURCES } = await fixturePaths(f);
+  const local = path.join(f.repo, "marketing/social-kit/linkedin-posts.md");
+  assert.equal(checkInputPath(local), local);
+  for (const entry of SHARED_SOURCES.filter((name) => !name.endsWith(".mp4"))) {
+    assert.equal(checkInputPath(path.join(f.repo, entry)), path.join(f.repo, entry));
+  }
+  // Not listed, though inside the repository or a listed folder, or outside it entirely.
+  for (const name of ["README.md", "marketing/launch/README.md", "website/lib/other.ts",
+    "website/public/videos/other.jpg", "../outside/sentinel"]) {
+    const source = path.join(f.repo, name);
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    if (!fs.existsSync(source)) fs.writeFileSync(source, "not listed");
+    assert.throws(() => checkInputPath(source), /^Error: Refused input /, name);
+  }
+  // A listed name must be a regular file.
+  const missing = path.join(f.repo, "marketing/press-kit.md");
+  fs.rmSync(missing);
+  assert.throws(() => checkInputPath(missing), /^Error: Refused input /);
+  fs.mkdirSync(missing);
+  assert.throws(() => checkInputPath(missing), /^Error: Refused input /);
+});
+
+/** A fixture install of the allowlisted font package in pnpm's layout. */
+function fontPackage(f, store = path.join(f.repo, "node_modules/.pnpm/pkg/node_modules/@fontsource-variable/geist-mono")) {
+  fs.mkdirSync(path.join(store, "files"), { recursive: true });
+  fs.writeFileSync(path.join(store, "package.json"), JSON.stringify({ name: "@fontsource-variable/geist-mono", version: "0.0.0" }));
+  fs.writeFileSync(path.join(store, "files/geist-mono-latin-wght-normal.woff2"), "font");
+  const desktop = path.join(f.repo, "apps/desktop");
+  fs.mkdirSync(path.join(desktop, "node_modules/@fontsource-variable"), { recursive: true });
+  if (!fs.existsSync(path.join(desktop, "package.json"))) fs.writeFileSync(path.join(desktop, "package.json"), "{}");
+  fs.symlinkSync(store, path.join(desktop, "node_modules/@fontsource-variable/geist-mono"));
+  return store;
+}
+
+test("the allowlisted package font resolves through pnpm's link to the installed file", async (t) => {
+  const f = fixture(t);
+  const store = fontPackage(f);
+  const { packageSourcePath } = await fixturePaths(f);
+  const font = "files/geist-mono-latin-wght-normal.woff2";
+  assert.equal(packageSourcePath("@fontsource-variable/geist-mono", font), path.join(store, font));
+  for (const [specifier, file] of [["@fontsource-variable/geist-mono", "package.json"],
+    ["@fontsource-variable/geist-mono", "files/other.woff2"], ["@fontsource-variable/geist", font]]) {
+    assert.throws(() => packageSourcePath(specifier, file), /not an allowlisted package source/);
+  }
+});
+
+test("a package font installed outside the checkout is refused", async (t) => {
+  const f = fixture(t);
+  fontPackage(f, path.join(f.outside, "node_modules/@fontsource-variable/geist-mono"));
+  const { packageSourcePath } = await fixturePaths(f);
+  assert.throws(() => packageSourcePath("@fontsource-variable/geist-mono",
+    "files/geist-mono-latin-wght-normal.woff2"), /^Error: Refused input /);
+});
+
+test("a package font file linked outside the checkout is refused", async (t) => {
+  const f = fixture(t);
+  const store = fontPackage(f);
+  const font = path.join(store, "files/geist-mono-latin-wght-normal.woff2");
+  fs.rmSync(font);
+  fs.symlinkSync(path.join(f.outside, "sentinel"), font);
+  const { packageSourcePath } = await fixturePaths(f);
+  assert.throws(() => packageSourcePath("@fontsource-variable/geist-mono",
+    "files/geist-mono-latin-wght-normal.woff2"), /^Error: Refused input /);
+});
+
+/** extract-frames.sh in the fixture, with an ffmpeg that only records its calls. */
+function frames(f, prepare = () => {}) {
+  const images = path.join(f.repo, "marketing/social-kit/images");
+  fs.mkdirSync(images, { recursive: true });
+  fs.copyFileSync(path.join(HERE, "../images/extract-frames.sh"), path.join(images, "extract-frames.sh"));
+  for (const entry of SHARED_SOURCES.filter((name) => name.endsWith(".mp4"))) {
+    fs.mkdirSync(path.dirname(path.join(f.repo, entry)), { recursive: true });
+    fs.writeFileSync(path.join(f.repo, entry), "recording");
+  }
+  prepare(images);
+  const bin = path.join(f.scratch, "bin");
+  fs.mkdirSync(bin);
+  const log = path.join(f.scratch, "ffmpeg.log");
+  fs.writeFileSync(path.join(bin, "ffmpeg"), `#!/bin/sh\necho "$@" >> '${log}'\n`, { mode: 0o755 });
+  const result = spawnSync("bash", [path.join(images, "extract-frames.sh")],
+    { encoding: "utf8", env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+  assert.ifError(result.error);
+  const calls = fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [];
+  return { ...result, calls, out: path.join(images, "frames") };
+}
+
+test("extract-frames reads the allowlisted recordings into the project", { skip: process.platform === "win32" }, (t) => {
+  const f = fixture(t);
+  const result = frames(f);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.calls.length, 12);
+  assert.ok(result.calls.every((call) => / -i (marketing\/promo-v0\.7\.0\/out|website\/public\/demos)\//.test(call)));
+  assert.ok(fs.statSync(result.out).isDirectory());
+});
+
+for (const [label, prepare, refusal] of [
+  ["a recording linked outside", (f) => {
+    const demo = path.join(f.repo, "website/public/demos/dj-mini-mix.mp4");
+    fs.rmSync(demo);
+    fs.symlinkSync(path.join(f.outside, "sentinel"), demo);
+  }, /^Refused input "website\/public\/demos\/dj-mini-mix\.mp4"/],
+  ["a frames folder linked outside", (f, images) => {
+    fs.symlinkSync(f.outside, path.join(images, "frames"));
+  }, /^Refused path "marketing\/social-kit\/images\/frames"/],
+]) {
+  test(`extract-frames refuses ${label} before writing a frame`, { skip: process.platform === "win32" }, (t) => {
+    const f = fixture(t);
+    const result = frames(f, (images) => prepare(f, images));
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, refusal);
+    assert.deepEqual(result.calls, []);
+    assert.deepEqual(fs.readdirSync(f.outside), ["sentinel"]);
+  });
+}

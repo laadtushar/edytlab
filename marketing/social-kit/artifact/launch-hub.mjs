@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkOutputPath } from "./paths.mjs";
+import { checkInputPath, checkOutputPath } from "./paths.mjs";
 
 if (process.argv.includes("--help")) {
   console.log("Usage: node marketing/social-kit/artifact/launch-hub.mjs\nBuild the launch hub into artifact/out/launch-hub/, copying existing assets without publishing.");
@@ -26,7 +26,9 @@ const REPO = path.resolve(MK, "..");
 const OUT = path.join(HERE, "out", "launch-hub");
 
 // ---------------------------------------------------------------- reading markdown
-const read = (rel) => fs.readFileSync(path.join(MK, rel), "utf8").replace(/\r\n/g, "\n");
+// Every input is project-local or a fixed, read-only shared source (paths.mjs), checked before it is read.
+const readText = (file) => fs.readFileSync(checkInputPath(file), "utf8");
+const read = (rel) => readText(path.join(MK, rel)).replace(/\r\n/g, "\n");
 const lines = (rel) => read(rel).split("\n");
 
 /** Every fenced block, with the nearest headings and the label line above it. */
@@ -182,7 +184,7 @@ const THEME_VIDEO = [
 
 const files = {}; // published path -> absolute source
 const addFile = (pub, src) => {
-  if (!fs.existsSync(src)) throw new Error("missing file " + src);
+  if (!fs.existsSync(checkInputPath(src))) throw new Error("missing file " + src);
   files[pub] = src;
 };
 
@@ -590,8 +592,8 @@ ${themes}
 
 // ---------------------------------------------------------------- 4. videos
 function videosHtml() {
-  const vts = fs.readFileSync(path.join(REPO, "website/lib/videos.ts"), "utf8");
-  const dts = fs.readFileSync(path.join(REPO, "website/lib/demos.ts"), "utf8");
+  const vts = readText(path.join(REPO, "website/lib/videos.ts"));
+  const dts = readText(path.join(REPO, "website/lib/demos.ts"));
   const entries = (src) => {
     const chunks = [];
     let from = 0, scan = 0;
@@ -690,7 +692,7 @@ function build() {
   }
   const existing = [];
   for (const t of cap) for (const s of SIZES) existing.push(`img/${t.n}-${slugOf(t)}__${s}.png`);
-  for (const e of existing) if (!fs.existsSync(path.join(MK, "social-kit/images/out", e.replace("img/", "")))) throw new Error("theme image missing in the repo: " + e);
+  for (const e of existing) if (!fs.existsSync(checkInputPath(path.join(MK, "social-kit/images/out", e.replace("img/", ""))))) throw new Error("theme image missing in the repo: " + e);
 
   const images = imagesHtml();
   const videos = videosHtml();
@@ -706,8 +708,8 @@ function build() {
     ["news", "Newsletter, Discord", newsletterHtml()],
     ["press", "Press kit", pressHtml()],
   ];
-  const css = fs.readFileSync(path.join(HERE, "launch-hub.css"), "utf8");
-  const js = fs.readFileSync(path.join(HERE, "launch-hub.client.js"), "utf8");
+  const css = readText(path.join(HERE, "launch-hub.css"));
+  const js = readText(path.join(HERE, "launch-hub.client.js"));
 
   const html = `<title>edytlab Launch Kit</title>
 <meta name="claude:viewport-fit-sides" content="cover">

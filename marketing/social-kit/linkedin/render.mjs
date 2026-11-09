@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { lintCanvas } from "./lint.mjs";
+import { checkInputPath } from "../artifact/paths.mjs";
 import { appVersion, logoSvg, toolCount, tokensCss } from "./tokens.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +47,11 @@ const CAROUSEL = { id: "post-3-carousel", pages: { w: 1080, h: 1350 }, minPages:
 
 const MIN_FONT = { square: 24, page: 28 };
 
+// Every outside input is read here, before the screenshots or any output, and
+// checked against the fixed read-only sources in ../artifact/paths.mjs.
+const TOKENS = tokensCss();
+const facts = { "{{version}}": appVersion(), "{{tools}}": String(toolCount()), "{{logo}}": logoSvg() };
+
 // ---- screenshots ----------------------------------------------------------
 
 if (args.includes("--shots")) {
@@ -62,13 +68,12 @@ if (args.includes("--shots")) {
 
 const { chromium } = createRequire(join(DESKTOP, "package.json"))("@playwright/test");
 
-const facts = { "{{version}}": appVersion(), "{{tools}}": String(toolCount()), "{{logo}}": logoSvg() };
 
 function compose(name) {
-  const body = readFileSync(join(HERE, "templates", `${name}.html`), "utf8");
+  const body = readFileSync(checkInputPath(join(HERE, "templates", `${name}.html`)), "utf8");
   const html = body
-    .replace("{{tokens}}", `<style>\n${tokensCss()}\n</style>`)
-    .replace("{{base}}", `<style>\n${readFileSync(join(HERE, "base.css"), "utf8")}\n</style>`)
+    .replace("{{tokens}}", `<style>\n${TOKENS}\n</style>`)
+    .replace("{{base}}", `<style>\n${readFileSync(checkInputPath(join(HERE, "base.css")), "utf8")}\n</style>`)
     .replaceAll(/\{\{(version|tools|logo)\}\}/g, (m) => facts[m]);
   const left = /\{\{\w+\}\}/.exec(html);
   if (left) throw new Error(`${name}.html: unfilled placeholder ${left[0]}`);

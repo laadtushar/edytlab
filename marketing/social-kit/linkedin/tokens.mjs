@@ -21,15 +21,17 @@
  */
 
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { checkInputPath, packageSourcePath } from "../artifact/paths.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "../../..");
 const SITE = join(REPO, "website");
 
-const read = (path) => readFileSync(path, "utf8");
+// Project files, or the fixed read-only shared sources listed in ../artifact/paths.mjs.
+const read = (path) => readFileSync(checkInputPath(path), "utf8");
 
 /** The body of the first `selector { ... }` rule, braces matched. */
 function ruleBody(css, selector) {
@@ -104,9 +106,7 @@ function property(body, name, what) {
 
 /** Mono face: the app's own, so every render is set in the same one. */
 function geistMonoUrl() {
-  const desktop = createRequire(join(REPO, "apps/desktop/package.json"));
-  const dir = dirname(desktop.resolve("@fontsource-variable/geist-mono/package.json"));
-  return pathToFileURL(join(dir, "files/geist-mono-latin-wght-normal.woff2")).href;
+  return pathToFileURL(packageSourcePath("@fontsource-variable/geist-mono", "files/geist-mono-latin-wght-normal.woff2")).href;
 }
 
 /**
@@ -146,7 +146,7 @@ export function tokensCss() {
   font-style: normal;
   font-weight: 100 900;
   font-display: block;
-  src: url("${pathToFileURL(join(HERE, "fonts/inter-latin-variable.woff2")).href}") format("woff2");
+  src: url("${pathToFileURL(checkInputPath(join(HERE, "fonts/inter-latin-variable.woff2"))).href}") format("woff2");
 }
 /* The app's mono, from @fontsource-variable/geist-mono in apps/desktop. */
 @font-face {

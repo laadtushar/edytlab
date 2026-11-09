@@ -27,6 +27,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { lintCanvas } from "../linkedin/lint.mjs";
+import { checkInputPath } from "../artifact/paths.mjs";
 import { logoSvg, toolCount, tokensCss } from "../linkedin/tokens.mjs";
 import { CANVASES, THEMES } from "./themes.mjs";
 
@@ -56,10 +57,14 @@ function loadPlaywright() {
 
 /** A PNG's width and height from its header. */
 function pngSize(file) {
-  const b = readFileSync(file);
+  const b = readFileSync(checkInputPath(file));
   return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
 }
 
+// Every outside input is read here, before any output, and checked against the
+// fixed read-only sources in ../artifact/paths.mjs.
+const TOKENS = tokensCss();
+const LOGO = logoSvg();
 const tools = String(toolCount());
 const fill = (s) => s.replaceAll("{{tools}}", tools);
 
@@ -114,14 +119,14 @@ ${brand}
 }
 
 function compose(theme, canvas) {
-  const template = readFileSync(join(HERE, "templates/image.html"), "utf8");
+  const template = readFileSync(checkInputPath(join(HERE, "templates/image.html")), "utf8");
   const html = template
     .replace("{{title}}", `${theme.id} at ${canvas.id}`)
-    .replace("{{tokens}}", () => `<style>\n${tokensCss()}\n</style>`)
-    .replace("{{base}}", () => `<style>\n${readFileSync(join(LINKEDIN, "base.css"), "utf8")}\n</style>`)
-    .replace("{{images_css}}", () => `<style>\n${readFileSync(join(HERE, "images.css"), "utf8")}\n</style>`)
+    .replace("{{tokens}}", () => `<style>\n${TOKENS}\n</style>`)
+    .replace("{{base}}", () => `<style>\n${readFileSync(checkInputPath(join(LINKEDIN, "base.css")), "utf8")}\n</style>`)
+    .replace("{{images_css}}", () => `<style>\n${readFileSync(checkInputPath(join(HERE, "images.css")), "utf8")}\n</style>`)
     .replace("{{body}}", () => body(theme, canvas))
-    .replaceAll("{{logo}}", () => logoSvg());
+    .replaceAll("{{logo}}", () => LOGO);
   const left = /\{\{\w+\}\}/.exec(html);
   if (left) throw new Error(`${theme.id}/${canvas.id}: unfilled placeholder ${left[0]}`);
   mkdirSync(join(HERE, ".build"), { recursive: true });

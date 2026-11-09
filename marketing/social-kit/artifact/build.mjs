@@ -1,7 +1,7 @@
 // Build the social-kit artifact page from the reviewed markdown copy files.
 import fs from "node:fs";
 import path from "node:path";
-import { checkOutputPath } from "./paths.mjs";
+import { checkInputPath, checkOutputPath } from "./paths.mjs";
 if (process.argv.includes("--help")) {
   console.log("Usage: node marketing/social-kit/artifact/build.mjs\nBuild the reviewed copy into artifact/social-kit.html.");
   process.exit(0);
@@ -15,9 +15,9 @@ const tabs = [
   { id: "more", label: "X, Bluesky, Mastodon, TikTok, YouTube, HN", file: "more.md" },
   { id: "calendar", label: "Two-week plan", file: "calendar.md" },
 ];
-const data = tabs.map((t) => ({ id: t.id, label: t.label, md: fs.readFileSync(path.join(dir, t.file), "utf8") }));
+const data = tabs.map((t) => ({ id: t.id, label: t.label, md: fs.readFileSync(checkInputPath(path.join(dir, t.file)), "utf8") }));
 const json = JSON.stringify(data).replace(/</g, "\\u003c");
-const tpl = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "template.html"), "utf8");
+const tpl = fs.readFileSync(checkInputPath(path.join(path.dirname(new URL(import.meta.url).pathname), "template.html")), "utf8");
 checkOutputPath(path.join(path.dirname(new URL(import.meta.url).pathname), "social-kit.html"));
 fs.writeFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "social-kit.html"), tpl.replace("__DATA__", json));
 console.log("wrote social-kit.html", fs.statSync(path.join(path.dirname(new URL(import.meta.url).pathname), "social-kit.html")).size, "bytes");

@@ -6,7 +6,7 @@
 node marketing/social-kit/artifact/launch-hub.mjs
 ```
 
-It reads the markdown under `marketing/` (the launch, social-kit and social folders, `press-kit.md`) and `website/lib/videos.ts` and `demos.ts`. It writes `out/launch-hub/` (git-ignored):
+It reads the markdown under `marketing/` (the launch, social-kit and social folders, `press-kit.md`) and `website/lib/videos.ts` and `demos.ts`. Every input outside `marketing/social-kit/` is a read-only shared source listed in `SHARED_SOURCES` in `paths.mjs` (the five launch, social and press-kit files, the two video lists and the nine posters, plus the files the renders and `images/extract-frames.sh` read); it must be the regular file at its own path, so a link that sends one elsewhere, or any other outside path, is refused before anything is written. Outputs must resolve inside `marketing/social-kit/`. It writes `out/launch-hub/` (git-ignored):
 
 | File | What |
 |---|---|
