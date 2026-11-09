@@ -7,13 +7,16 @@
 //!   value into the canonical Anthropic shape.
 //! * [`schema_for`] — derive an `input_schema` from a `JsonSchema`
 //!   type, with the `$schema` and `title` keys stripped (Anthropic
-//!   ignores them and they only add noise to the wire format).
+//!   ignores them and they only add noise to the wire format), written
+//!   as schemars 0.8 wrote it.
 //! * [`validate`] — validate a JSON value against a tool's `input_schema`
 //!   using `jsonschema`. Returns a single combined error string so
 //!   dispatch errors stay flat.
 
 use jsonschema::Validator;
-use schemars::JsonSchema;
+use schemars::generate::SchemaSettings;
+use schemars::transform::transform_subschemas;
+use schemars::{JsonSchema, Schema};
 use serde_json::{json, Map, Value};
 
 /// Build the Anthropic-shaped tool descriptor:
@@ -33,15 +36,84 @@ pub fn anthropic_tool(name: &str, description: &str, input_schema: Value) -> Val
 /// Derive an `input_schema` JSON value from a Rust type that implements
 /// [`JsonSchema`]. Strips top-level `$schema` and `title` to keep the
 /// payload tight.
+///
+/// It writes what it wrote with schemars 0.8, byte for byte, so that the
+/// move to schemars 1 changes nothing a provider is sent (the test
+/// `schema_for_writes_what_schemars_0_8_wrote` pins it): Draft 7 settings
+/// (0.8's default; 1's is 2020-12, with `$defs`), no `definitions` (0.8's
+/// `schema_for!` returned them beside the schema, which is all this
+/// serialised), and [`as_written_by_0_8`] for what 1 writes differently.
 pub fn schema_for<T: JsonSchema>() -> Value {
-    let root = schemars::schema_for!(T);
-    let mut value =
-        serde_json::to_value(root.schema).expect("schemars schema serialization is infallible");
-    if let Value::Object(map) = &mut value {
+    let mut schema = SchemaSettings::draft07()
+        .into_generator()
+        .into_root_schema_for::<T>();
+    if let Some(map) = schema.as_object_mut() {
         map.remove("$schema");
         map.remove("title");
+        map.remove("definitions");
     }
-    value
+    as_written_by_0_8(&mut schema);
+    schema.to_value()
+}
+
+/// Writes `schema` and every subschema in it as schemars 0.8 did, where
+/// schemars 1 differs for the shapes a tool's arguments use.
+fn as_written_by_0_8(schema: &mut Schema) {
+    if let Some(obj) = schema.as_object_mut() {
+        // 0.8 kept `required` in a set: sorted, each name once. 1 keeps the
+        // fields' order.
+        if let Some(Value::Array(required)) = obj.get_mut("required") {
+            required.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+            required.dedup();
+        }
+        // 0.8 wrote no bounds for an 8- or 16-bit integer but an unsigned
+        // one's `minimum`; 1 writes the type's whole range.
+        let left_out: &[&str] = match obj.get("format").and_then(Value::as_str) {
+            Some("int8" | "int16") => &["minimum", "maximum"],
+            Some("uint8" | "uint16") => &["maximum"],
+            _ => &[],
+        };
+        for key in left_out {
+            obj.remove(*key);
+        }
+        // 0.8 held numeric bounds as `f64`, so it wrote `0` as `0.0`.
+        for key in [
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "multipleOf",
+        ] {
+            let as_float = obj
+                .get(key)
+                .and_then(Value::as_f64)
+                .and_then(serde_json::Number::from_f64);
+            if let Some(n) = as_float {
+                obj.insert(key.to_owned(), Value::Number(n));
+            }
+        }
+        // 0.8 joined a doc comment's lines into paragraphs; 1 keeps them.
+        if let Some(Value::String(description)) = obj.get_mut("description") {
+            *description = doc_paragraphs_as_0_8(description);
+        }
+    }
+    transform_subschemas(&mut as_written_by_0_8, schema);
+}
+
+/// A doc comment's text as `schemars_derive` 0.8 wrote it: every line
+/// trimmed, the lines of a paragraph joined by spaces, and paragraphs
+/// by a blank line.
+fn doc_paragraphs_as_0_8(doc: &str) -> String {
+    doc.split('\n')
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .split("\n\n")
+        .map(|paragraph| paragraph.trim().replace('\n', " "))
+        .filter(|paragraph| !paragraph.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Validate `args` against `input_schema`. Returns the combined error
