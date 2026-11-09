@@ -53,7 +53,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 # Opens the system browser for Sign in with ChatGPT (#474). Used from Rust only (`open_url`): it is never registered with `.plugin(..)`, so the window gets no opener command, capability or permission, and the CSP is unchanged. The crate has no cargo features, so there is nothing to switch off, and on Linux it depends on `zbus` (5.x) unconditionally (for its reveal-in-folder support, which is not used). Locked at 2.5.x: 2.7.x re-resolved about 300 unrelated lines of Cargo.lock.
 tauri-plugin-opener = "2.5"
 # Opt-in crash reports (#958): off by default, and inert in a build with no `EDYTLAB_SENTRY_DSN`. No default features: no transport of its own (`crash_reports::HttpTransport` sends through the `reqwest` 0.12 + rustls above, so no second TLS stack), no debug images (they list library paths), no release health, logs or metrics. Pinned to an exact version.
-sentry = { version = "=0.49.3", default-features = false, features = ["backtrace", "contexts", "panic"] }
+sentry = { version = "=0.49.5", default-features = false, features = ["backtrace", "contexts", "panic"] }
 
 [dev-dependencies]
 # The tests open stores the raw way; see `Store::open`. A dev-dependency, so a plain build of this crate has no such open.
