@@ -90,11 +90,11 @@ fn auto_release_documents_that_the_branch_filter_is_not_a_boundary() {
 }
 
 /// Any other consumer of `workflow_run` inherits the same trust
-/// problem: the triggering run may belong to a fork. Today
-/// `auto-release.yml` is the only one, and this fails if that changes
-/// without the new consumer being considered.
+/// problem: the triggering run may belong to a fork. Today they are
+/// `auto-release.yml` and `coverage-report.yml`, each with a test that holds
+/// its gate, and this fails if another appears without being considered.
 #[test]
-fn auto_release_is_the_only_workflow_run_consumer() {
+fn every_workflow_run_consumer_is_known() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows");
     let mut consumers: Vec<String> = Vec::new();
 
@@ -117,10 +117,125 @@ fn auto_release_is_the_only_workflow_run_consumer() {
     consumers.sort();
     assert_eq!(
         consumers,
-        vec!["auto-release.yml".to_string()],
+        vec![
+            "auto-release.yml".to_string(),
+            "coverage-report.yml".to_string(),
+        ],
         "a new `workflow_run` consumer appeared. The triggering run can \
          belong to a fork, so it must gate on `workflow_run.event` and \
          `head_repository` exactly as auto-release.yml does — then add it \
          to this list."
+    );
+}
+
+/// The workflow's lines without its comments, each trimmed: a gate quoted in
+/// a comment is not a gate, and a comment naming a field is not a use of it.
+fn code_lines(yaml: &str) -> Vec<String> {
+    yaml.lines()
+        .map(without_comment)
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// A YAML line up to its comment: a `#` at the start or after whitespace,
+/// outside quotes. A gate copied into a trailing comment is not a gate.
+fn without_comment(line: &str) -> &str {
+    let mut quote = None;
+    let mut after_space = true;
+    for (i, c) in line.char_indices() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '\'' || c == '"' => quote = Some(c),
+            None if c == '#' && after_space => return &line[..i],
+            None => {}
+        }
+        after_space = c.is_whitespace();
+    }
+    line
+}
+
+#[test]
+fn a_gate_in_a_comment_is_not_code() {
+    let yaml = "    if: ${{ github.event.workflow_run.event == 'pull_request' }} \
+                # && github.event.workflow_run.actor.login == 'dependabot[bot]'\n\
+                # permissions: {}\n\
+                uses: actions/checkout@abc # v7\n\
+                name: 'a # in quotes'";
+    assert_eq!(
+        code_lines(yaml),
+        vec![
+            "if: ${{ github.event.workflow_run.event == 'pull_request' }}",
+            "uses: actions/checkout@abc",
+            "name: 'a # in quotes'",
+        ]
+    );
+}
+
+/// `coverage-report.yml` runs with `id-token: write` on the completion of a
+/// pull request's Coverage run, so it must take only Dependabot's runs in this
+/// repository, never a fork's, and must never check out anything of the
+/// triggering run: its artifacts are the only thing it takes, and only as data.
+#[test]
+fn coverage_report_acts_only_on_this_repos_dependabot_runs() {
+    let lines = code_lines(&read_workflow("coverage-report.yml"));
+    let code = normalised(&lines.join("\n"));
+
+    for gate in [
+        "github.event.workflow_run.event == 'pull_request'",
+        "github.event.workflow_run.conclusion != 'cancelled'",
+        "github.event.workflow_run.head_repository.full_name == github.repository",
+        "github.event.workflow_run.actor.login == 'dependabot[bot]'",
+    ] {
+        assert!(
+            code.contains(gate),
+            "coverage-report.yml no longer gates on `{gate}`; without it a \
+             fork's run reaches a job that can mint this repository's OIDC tokens"
+        );
+    }
+    assert!(
+        lines.iter().any(|l| l == "permissions: {}"),
+        "coverage-report.yml no longer drops every permission at the top level"
+    );
+    assert!(
+        lines.iter().any(|l| l == "persist-credentials: false"),
+        "coverage-report.yml's checkout keeps its credentials"
+    );
+
+    // The only checkout is the default branch: no `ref:` or `repository:`
+    // on any step, and the triggering run is named only to the CLI.
+    for key in ["ref:", "repository:"] {
+        assert!(
+            !lines.iter().any(|l| l.starts_with(key)),
+            "coverage-report.yml sets `{key}` on a step; it must check out \
+             only the default branch"
+        );
+    }
+    for field in ["head_branch", "head_commit", "pull_requests", "refs/pull"] {
+        assert!(
+            !code.contains(field),
+            "coverage-report.yml reads `{field}` of the triggering run"
+        );
+    }
+    let head_sha_uses: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.contains("workflow_run.head_sha"))
+        .collect();
+    assert_eq!(
+        head_sha_uses,
+        vec!["commit: ${{ github.event.workflow_run.head_sha }}"],
+        "coverage-report.yml uses the triggering run's head commit somewhere \
+         other than the report's `commit:`"
+    );
+
+    // The two halves of one rule: coverage.yml skips Dependabot's runs, this
+    // workflow takes exactly those, both by the run's original actor.
+    let coverage = normalised(&code_lines(&read_workflow("coverage.yml")).join("\n"));
+    assert!(
+        coverage.contains("github.actor != 'dependabot[bot]'"),
+        "coverage.yml's report job no longer skips Dependabot's runs, which \
+         coverage-report.yml reports"
     );
 }

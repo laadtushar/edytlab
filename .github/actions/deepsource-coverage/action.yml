@@ -1,0 +1,111 @@
+name: Report coverage to DeepSource
+description: >-
+  Sends the Rust and frontend LCOV files in a folder to DeepSource's Code
+  Coverage over OIDC, with the pinned DeepSource CLI. Used by coverage.yml's
+  report job and by coverage-report.yml; the calling job needs
+  `id-token: write`.
+
+inputs:
+  reports:
+    description: >-
+      Folder holding the merged `coverage-*` artifacts: coverage-rust.lcov
+      (key `rust`) and lcov.info (key `javascript`). A missing file is a
+      warning; the action fails if any upload fails.
+    required: true
+  commit:
+    description: >-
+      Commit SHA to report against. Empty: the CLI reads it from the
+      checked-out HEAD.
+    required: false
+    default: ''
+  allow-none:
+    description: >-
+      'true': finding neither report is a notice and the action passes
+      without fetching the CLI (the tests that write them may all have
+      failed). Otherwise it fails.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    # Which reports are there, before anything is downloaded: with none and
+    # `allow-none`, the action is done, whether or not the CLI could be had.
+    - name: Find the reports
+      id: find
+      shell: bash
+      env:
+        REPORTS: ${{ inputs.reports }}
+        ALLOW_NONE: ${{ inputs.allow-none }}
+      run: |
+        found=0
+        for file in "$REPORTS/coverage-rust.lcov" "$REPORTS/lcov.info"; do
+          if [ -f "$file" ]; then
+            found=$((found + 1))
+          fi
+        done
+        echo "found=$found" >> "$GITHUB_OUTPUT"
+        if [ "$found" -eq 0 ]; then
+          if [ "$ALLOW_NONE" = "true" ]; then
+            echo "::notice::no coverage report to send"
+            exit 0
+          fi
+          echo "::error::no coverage report in $REPORTS"
+          exit 1
+        fi
+
+    # The DeepSource CLI, pinned by version and SHA-256 instead of the
+    # `curl https://cli.deepsource.com/install | sh` installer, which always
+    # takes the latest version. To bump: read https://cli.deepsource.com/manifest.json
+    # and copy the `linux_amd64` archive name and sha256 here.
+    - name: Install the DeepSource CLI
+      if: steps.find.outputs.found != '0'
+      shell: bash
+      env:
+        DEEPSOURCE_CLI_ARCHIVE: deepsource_2.0.57_linux_amd64.tar.gz
+        DEEPSOURCE_CLI_SHA256: 7a22daa62328fde38e275674ed0b52b780b2ac48f4af8f1b92eff0a347b81ab0
+      run: |
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
+          -o "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" \
+          "https://cli.deepsource.com/build/$DEEPSOURCE_CLI_ARCHIVE"
+        echo "$DEEPSOURCE_CLI_SHA256  $RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" | sha256sum --check --strict
+        mkdir -p "$RUNNER_TEMP/deepsource"
+        tar -xzf "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" -C "$RUNNER_TEMP/deepsource" deepsource
+
+    # One report per key that has a file; DeepSource merges by key. The keys
+    # are independent: a missing artifact (its job failed) or a refused
+    # upload for one must not stop the other, so each is attempted and the
+    # step fails afterwards if any upload failed or none was sent. Each key
+    # is found by the file name its job uploads (coverage-rust.lcov,
+    # lcov.info), which the merged download keeps at the top of the folder.
+    - name: Report to DeepSource
+      if: steps.find.outputs.found != '0'
+      shell: bash
+      env:
+        REPORTS: ${{ inputs.reports }}
+        COMMIT: ${{ inputs.commit }}
+      run: |
+        commit_args=()
+        if [ -n "$COMMIT" ]; then
+          commit_args=(--commit "$COMMIT")
+        fi
+        sent=0
+        failed=0
+        for key in rust javascript; do
+          case "$key" in
+            rust) file="$REPORTS/coverage-rust.lcov" ;;
+            javascript) file="$REPORTS/lcov.info" ;;
+          esac
+          if [ ! -f "$file" ]; then
+            echo "::warning::no $key coverage report to send"
+            continue
+          fi
+          if "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key "$key" \
+            --value-file "$file" "${commit_args[@]}" --use-oidc --host https://app.deepsource.com; then
+            sent=$((sent + 1))
+          else
+            echo "::error::the $key coverage report was not accepted"
+            failed=$((failed + 1))
+          fi
+        done
+        [ "$failed" -eq 0 ] && [ "$sent" -gt 0 ]
