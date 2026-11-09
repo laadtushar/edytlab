@@ -1,8 +1,10 @@
 # Decode fixtures
 
 A short synthetic sine tone in each format the decoder opens (M4A/AAC only where
-the operating system decodes it), plus Opus files of layouts it refuses. They are made here from `aevalsrc`, so there is no recording
-and no third-party audio in them. They are the project's own work, dedicated
+the operating system decodes it), plus Opus files of layouts it refuses, an MP3
+with a LAME tag and a Vorbis square wave that decodes past full scale. They are
+made here from `aevalsrc`, so there is no recording and no third-party audio in
+them. They are the project's own work, dedicated
 to the public domain under CC0 1.0.
 
 Made with `ffmpeg 6.1.1` (Ubuntu 24.04 package `6.1.1-3ubuntu5`) from this
@@ -34,6 +36,14 @@ ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*550*t)|0.5*sin(
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.1:c=stereo" -c:a libopus -b:a 48k -mapping_family 255 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_discrete_2ch_48000.opus
 
 
+# MP3 with a LAME tag (libmp3lame, 64 kbps), whose encoder delay and padding
+# a gapless decoder would trim (tests/pinned_output.rs: they are kept).
+ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a libmp3lame -b:a 64k -map_metadata -1 -fflags +bitexact -flags:a +bitexact tone_440_mono_44100.mp3
+
+# Ogg Vorbis of a square wave just under full scale, which decodes past it
+# (tests/pinned_output.rs: the decode is clamped to full scale).
+ffmpeg -y -f lavfi -i "aevalsrc=0.98*sgn(sin(2*PI*220*t)):s=44100:d=0.3" -c:a libvorbis -q:a 4 -map_metadata -1 -fflags +bitexact -flags:a +bitexact square_220_full_scale_mono_44100.ogg
+
 # AAC-LC in M4A (ffmpeg's native `aac` encoder), mono 44.1 kHz and stereo 48 kHz.
 # Decoded by the operating system on macOS and Windows (tests/formats.rs); refused
 # on Linux, which has no system decoder (tests/unsupported.rs). ffmpeg has no
@@ -45,7 +55,8 @@ ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=0.5" -c:a aac -b:a
 ffmpeg -y -f lavfi -i "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=0.5:c=stereo" -c:a aac -b:a 96k -aac_coder fast -aac_pns 0 -map_metadata -1 -fflags +bitexact -flags:a +bitexact tones_440_880_stereo_48000.m4a
 ```
 
-The encoded properties are what the tests assert (`tests/formats.rs`):
+The encoded properties are what the tests assert (`tests/formats.rs`; the last
+two rows, `tests/pinned_output.rs`, which also pins every file's exact samples):
 
 | File | Rate | Channels | Tones | Length |
 |---|---|---|---|---|
@@ -58,6 +69,8 @@ The encoded properties are what the tests assert (`tests/formats.rs`):
 | `tones_440_880_stereo_48000.opus` | 48,000 | 2 | 440 / 880 Hz | exactly 46,560 frames (`duration_ts` 46,872 less 312), the last packet trimmed |
 | `tone_440_mono_44100.m4a` | 44,100 | 1 | 440 Hz | exactly 22,050 frames on macOS and Windows (the edit list: 1,024 frames of priming skipped, `ffprobe` `duration_ts` 22,050) |
 | `tones_440_880_stereo_48000.m4a` | 48,000 | 2 | 440 / 880 Hz | exactly 24,000 frames (`duration_ts` 24,000) |
+| `tone_440_mono_44100.mp3` | 44,100 | 1 | 440 Hz | 24,192 frames (21 MPEG frames of 1,152): the 22,050 encoded with the LAME tag's delay and padding kept |
+| `square_220_full_scale_mono_44100.ogg` | 44,100 | 1 | 220 Hz square | 13,312 frames, clamped to full scale |
 
 Measured: the mono Vorbis decodes to 22,080 frames (30 more than encoded,
 0.7 ms) and the stereo one to 24,256 (256 more, 5.3 ms); the tolerance is
