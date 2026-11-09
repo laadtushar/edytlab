@@ -7,6 +7,8 @@ import sys
 import tempfile
 import unittest
 
+from stub_commands import write_python_command
+
 from PIL import Image
 
 TOOLS = Path(__file__).resolve().parent
@@ -24,12 +26,10 @@ class StandaloneDemoPathsTests(unittest.TestCase):
             (self.demos / f"{name}.mp4").write_bytes(b"demo")
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        nice = self.bin / "nice"
-        nice.write_text(f'#!{sys.executable}\n'
+        write_python_command(self.bin / "nice",
                         'import json, os, pathlib, sys\n'
                         'with open(os.environ["MEDIA_MARKER"], "a") as f: f.write(json.dumps(sys.argv[1:]) + "\\n")\n'
                         'if "image2pipe" in sys.argv: sys.stdout.buffer.write(pathlib.Path(os.environ["TEST_PNG"]).read_bytes())\n')
-        nice.chmod(0o755)
         self.png = self.root / "frame.png"
         Image.new("RGB", (2, 2)).save(self.png)
         self.marker = self.root / "media-called"
@@ -112,8 +112,8 @@ class StandaloneDemoPathsTests(unittest.TestCase):
 
     def test_failed_decode_stops_instead_of_reporting_empty_media(self):
         """A failing decoder fails the utility; empty output is not read as silence."""
-        nice = self.bin / "nice"
-        nice.write_text(nice.read_text() + 'sys.stderr.write("decoder exploded\\n"); sys.exit(1)\n')
+        body = self.bin / "nice.py"  # the Python body write_python_command runs
+        body.write_text(body.read_text() + 'sys.stderr.write("decoder exploded\\n"); sys.exit(1)\n')
         output = self.root / "out.png"
         for script, args in (("detect_captions.py", ["dj-mini-mix"]),
                              ("rms_listen_regions.py", []),

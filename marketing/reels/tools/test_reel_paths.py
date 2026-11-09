@@ -12,6 +12,8 @@ import shutil
 import sys
 import tempfile
 import unittest
+
+from stub_commands import write_python_command
 from unittest import mock
 
 TOOLS = Path(__file__).resolve().parent
@@ -570,16 +572,13 @@ class ShellPathsTests(unittest.TestCase):
         """Log the actual mkdir/mktemp arguments and stop before any media tool runs."""
         scratch_log = self.root / "scratch-commands.jsonl"
         stub_source = (
-            f"#!{sys.executable}\n"
             "import json, pathlib, sys\n"
             f"with open({str(scratch_log)!r}, 'a') as output:\n"
             "    output.write(json.dumps(sys.argv) + '\\n')\n"
-            "if pathlib.Path(sys.argv[0]).name == 'mktemp': sys.exit(73)\n"
+            "if pathlib.Path(sys.argv[0]).stem == 'mktemp': sys.exit(73)\n"
         )
         for command in ("mkdir", "mktemp"):
-            stub = self.bin / command
-            stub.write_text(stub_source)
-            stub.chmod(0o755)
+            write_python_command(self.bin / command, stub_source)
         return scratch_log
 
     def make_shell_fixture(self):

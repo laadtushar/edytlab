@@ -7,6 +7,8 @@ import sys
 import tempfile
 import unittest
 
+from stub_commands import write_python_command
+
 
 PROJECT = Path(__file__).resolve().parents[1]
 SCRIPT = PROJECT / "add-narration.sh"
@@ -27,14 +29,12 @@ class VideoBoundaryTests(unittest.TestCase):
         self.bin = self.project / "bin"
         self.bin.mkdir()
         self.log = self.project / "probe.json"
-        probe = self.bin / "ffprobe"
-        probe.write_text(
-            f"#!{sys.executable}\n"
+        write_python_command(
+            self.bin / "ffprobe",
             "import json, os, sys\n"
             "with open(os.environ['PROBE_LOG'], 'w') as f: json.dump(sys.argv[1:], f)\n"
-            "sys.exit(73)\n"
+            "sys.exit(73)\n",
         )
-        probe.chmod(0o755)
         ffmpeg = self.bin / "ffmpeg"
         ffmpeg.write_text("#!/bin/sh\nexit 74\n")
         ffmpeg.chmod(0o755)

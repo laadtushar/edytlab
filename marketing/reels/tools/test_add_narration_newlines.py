@@ -7,6 +7,8 @@ import sys
 import tempfile
 import unittest
 
+from stub_commands import write_python_command
+
 
 PROJECT = Path(__file__).resolve().parent.parent
 SCRIPT = PROJECT / "add-narration.sh"
@@ -109,9 +111,9 @@ class NarrationLineBreakTests(unittest.TestCase):
         self.assertIn("mix-reached", result.stderr)
 
     def test_line_break_scratch_symlink_uses_fallback(self):
-        mkdir = self.bin / "mkdir"
-        mkdir.write_text(f"#!{sys.executable}\nimport sys\nprint(sys.argv[2], file=sys.stderr)\nsys.exit(73)\n")
-        mkdir.chmod(0o755)
+        write_python_command(
+            self.bin / "mkdir", "import sys\nprint(sys.argv[2], file=sys.stderr)\nsys.exit(73)\n"
+        )
         for char in ("\n", "\r"):
             with self.subTest(char=repr(char)):
                 target = self.root / ("scratch" + char + "target")
