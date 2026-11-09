@@ -29,7 +29,7 @@
 use std::path::PathBuf;
 
 /// Every workflow carrying the Linux build-deps step.
-const WORKFLOWS: [&str; 3] = ["ci.yml", "release-dev.yml", "release-signed.yml"];
+const WORKFLOWS: [&str; 4] = ["ci.yml", "release-dev.yml", "release-signed.yml", "coverage.yml"];
 
 /// Seconds of pause between the two attempts, from `sleep 10`.
 const RETRY_PAUSE_SECS: u64 = 10;

@@ -1,0 +1,188 @@
+name: Coverage
+
+# Measures test coverage and sends it to DeepSource (Code Coverage), which
+# reports it on each pull request and on main.
+#
+# What is measured, and how:
+#   - Rust: every workspace test under nextest's `ci` profile, the same set
+#     ci.yml runs, instrumented by cargo-llvm-cov -> LCOV, DeepSource key
+#     `rust`.
+#   - Frontend (apps/desktop): vitest with the V8 provider -> LCOV, key
+#     `javascript`. The coverage settings live in vite.config.ts.
+# DeepSource merges reports sent under the same key, so the two jobs report
+# independently.
+#
+# Why this is its own workflow and not jobs in ci.yml: auto-release.yml tags a
+# dev release only when the run named "CI" succeeds on a push to main, and the
+# required checks are ci.yml's. A coverage service being down, or an
+# instrumented build being slow, must never turn either red. Nothing waits on
+# this workflow; do not make it a required status check.
+#
+# Authentication is OIDC (DeepSource's recommended method): the report step
+# exchanges the job's short-lived GitHub OIDC token for a temporary DSN, so no
+# DeepSource secret is stored in the repository. Only the two jobs that report
+# get `id-token: write`. GitHub does not issue OIDC tokens to pull requests
+# from forks or to Dependabot runs, so those still run the tests but skip the
+# report.
+#
+# Coverage must be attributed to the commit DeepSource analyses: the PR's head
+# commit, not the merge commit actions/checkout makes by default.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Superseded PR runs are cancelled; a run on main is left to finish so the
+# commit keeps its report.
+concurrency:
+  group: coverage-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  # The DeepSource CLI, pinned by version and SHA-256 instead of the
+  # `curl https://cli.deepsource.com/install | sh` installer, which always
+  # takes the latest version. To bump: read https://cli.deepsource.com/manifest.json
+  # and copy the `linux_amd64` archive name and sha256 here.
+  DEEPSOURCE_CLI_ARCHIVE: deepsource_2.0.57_linux_amd64.tar.gz
+  DEEPSOURCE_CLI_SHA256: 7a22daa62328fde38e275674ed0b52b780b2ac48f4af8f1b92eff0a347b81ab0
+  # Report only where GitHub can issue an OIDC token: not a fork PR, not
+  # Dependabot.
+  CAN_REPORT: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+
+jobs:
+  rust:
+    name: coverage (rust)
+    runs-on: ubuntu-22.04
+    # An instrumented build of the whole workspace is slower than ci.yml's
+    # Linux leg, and its cache is separate.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # The same step as ci.yml's Linux leg (apt_retry_budget.rs checks both).
+      - name: Install Linux build deps
+        timeout-minutes: 18
+        run: |
+          sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          grep -h -r azure /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
+            && echo "::warning::apt still names an Azure mirror" || true
+          install_deps() {
+            sudo timeout 150 apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 \
+              update
+            sudo timeout 300 apt-get install -y --no-install-recommends \
+              libwebkit2gtk-4.1-dev \
+              libgtk-3-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libssl-dev \
+              libasound2-dev \
+              libdbus-1-dev \
+              pkg-config
+          }
+          install_deps || {
+            echo "::warning::apt failed once — retrying on a fresh connection"
+            sleep 10
+            install_deps
+          }
+
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+
+      # cargo-llvm-cov needs llvm-tools for the toolchain rust-toolchain.toml
+      # selects, which is not the `stable` the step above installs.
+      - name: Add llvm-tools to the pinned toolchain
+        run: rustup component add llvm-tools-preview
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: coverage-linux-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-llvm-cov and cargo-nextest
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        with:
+          tool: cargo-llvm-cov@0.9.1,cargo-nextest@0.9.146
+
+      - name: cargo llvm-cov nextest
+        run: cargo llvm-cov nextest --workspace --profile ci --lcov --output-path coverage-rust.lcov
+
+      - name: Install the DeepSource CLI
+        if: env.CAN_REPORT == 'true'
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" \
+            "https://cli.deepsource.com/build/$DEEPSOURCE_CLI_ARCHIVE"
+          echo "$DEEPSOURCE_CLI_SHA256  $RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/deepsource"
+          tar -xzf "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" -C "$RUNNER_TEMP/deepsource" deepsource
+
+      - name: Report to DeepSource
+        if: env.CAN_REPORT == 'true'
+        run: |
+          "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key rust \
+            --value-file coverage-rust.lcov --use-oidc --host https://app.deepsource.com
+
+  frontend:
+    name: coverage (frontend)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: vitest with coverage
+        run: pnpm --filter @edytlab/desktop test:coverage
+
+      - name: Install the DeepSource CLI
+        if: env.CAN_REPORT == 'true'
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" \
+            "https://cli.deepsource.com/build/$DEEPSOURCE_CLI_ARCHIVE"
+          echo "$DEEPSOURCE_CLI_SHA256  $RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/deepsource"
+          tar -xzf "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" -C "$RUNNER_TEMP/deepsource" deepsource
+
+      - name: Report to DeepSource
+        if: env.CAN_REPORT == 'true'
+        run: |
+          "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key javascript \
+            --value-file apps/desktop/coverage/lcov.info --use-oidc --host https://app.deepsource.com
