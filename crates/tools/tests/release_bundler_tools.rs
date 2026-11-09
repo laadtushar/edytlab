@@ -19,12 +19,15 @@
 
 use std::path::PathBuf;
 
+/// The file's text with LF line ends. A Windows checkout writes CRLF
+/// (`* text=auto`), and the tuple and step markers below match on `\n`.
 fn repo_file(rel: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(rel);
     std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()))
+        .replace("\r\n", "\n")
 }
 
 /// A YAML line up to its comment: a `#` at the start or after whitespace,
@@ -145,10 +148,6 @@ fn the_pins_belong_to_the_locked_tauri_cli() {
     );
 }
 
-/// The three hashes the bundler itself checks (tauri-bundler 2.10.4:
-/// `windows/msi/mod.rs` WIX_SHA256, `windows/nsis/mod.rs` NSIS_SHA1 and
-/// NSIS_TAURI_UTILS_SHA1), with the URLs they belong to. The bundler writes
-/// the SHA-1s in capitals.
 /// The string literals of the script's `NAME = (...)` tuple, in order, with
 /// implicit concatenation (`"a" "b"`, however it is wrapped) joined into one.
 fn tuple_literals(script: &str, name: &str) -> Vec<String> {

@@ -170,7 +170,7 @@ def download(url, dest, sleep=time.sleep):
             )
             # Safe: every URL is a module constant, and https:// is checked above.
             # skipcq: BAN-B310
-            with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # nosec B310
                 with open(part, "wb") as out:
                     shutil.copyfileobj(response, out)
                     written = out.tell()
