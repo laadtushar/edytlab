@@ -25,9 +25,10 @@ name: Coverage
 # temporary DSN, so no DeepSource secret exists.
 #
 # GitHub runs fork and Dependabot PRs with a read-only token, as if from a
-# fork, and documents no OIDC token for them, so `report` is skipped there and
-# coverage-report.yml sends those runs' artifacts instead: a `workflow_run`
-# workflow runs from the default branch with the permissions this run lacks.
+# fork, and documents no OIDC token for them, so `report` is skipped there.
+# coverage-report.yml sends Dependabot's instead: a `workflow_run` workflow
+# runs from the default branch with the permissions this run lacks. Fork PRs
+# go unreported (that file says why).
 #
 # Coverage must be attributed to the commit DeepSource analyses: the PR's head
 # commit, not the merge commit actions/checkout makes by default.

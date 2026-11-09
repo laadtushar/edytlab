@@ -90,11 +90,11 @@ fn auto_release_documents_that_the_branch_filter_is_not_a_boundary() {
 }
 
 /// Any other consumer of `workflow_run` inherits the same trust
-/// problem: the triggering run may belong to a fork. Today
-/// `auto-release.yml` is the only one, and this fails if that changes
-/// without the new consumer being considered.
+/// problem: the triggering run may belong to a fork. Today they are
+/// `auto-release.yml` and `coverage-report.yml`, each with a test that holds
+/// its gate, and this fails if another appears without being considered.
 #[test]
-fn auto_release_is_the_only_workflow_run_consumer() {
+fn every_workflow_run_consumer_is_known() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows");
     let mut consumers: Vec<String> = Vec::new();
 
@@ -117,10 +117,50 @@ fn auto_release_is_the_only_workflow_run_consumer() {
     consumers.sort();
     assert_eq!(
         consumers,
-        vec!["auto-release.yml".to_string()],
+        vec![
+            "auto-release.yml".to_string(),
+            "coverage-report.yml".to_string(),
+        ],
         "a new `workflow_run` consumer appeared. The triggering run can \
          belong to a fork, so it must gate on `workflow_run.event` and \
          `head_repository` exactly as auto-release.yml does — then add it \
          to this list."
+    );
+}
+
+/// `coverage-report.yml` runs with `id-token: write` on the completion of a
+/// pull request's Coverage run, so it must take only Dependabot's runs in this
+/// repository, never a fork's, and must never check out the triggering commit:
+/// the artifacts are the only thing it takes from that run, and only as data.
+#[test]
+fn coverage_report_acts_only_on_this_repos_dependabot_runs() {
+    let yaml = normalised(&read_workflow("coverage-report.yml"));
+
+    for gate in [
+        "github.event.workflow_run.event == 'pull_request'",
+        "github.event.workflow_run.head_repository.full_name == github.repository",
+        "github.event.workflow_run.actor.login == 'dependabot[bot]'",
+    ] {
+        assert!(
+            yaml.contains(gate),
+            "coverage-report.yml no longer gates on `{gate}`; without it a \
+             fork's run reaches a job that can mint this repository's OIDC tokens"
+        );
+    }
+
+    // The triggering commit is named to the CLI and never checked out.
+    assert_eq!(
+        yaml.matches("workflow_run.head_sha").count(),
+        1,
+        "coverage-report.yml uses the triggering run's head commit somewhere \
+         other than the report's `commit:`"
+    );
+    assert!(
+        yaml.contains("commit: ${{ github.event.workflow_run.head_sha }}"),
+        "coverage-report.yml no longer reports against the run's head commit"
+    );
+    assert!(
+        !yaml.contains("head_branch") && !yaml.contains("ref: ${{ github.event.workflow_run"),
+        "coverage-report.yml checks out something from the triggering run"
     );
 }

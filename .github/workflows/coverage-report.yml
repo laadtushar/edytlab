@@ -1,10 +1,10 @@
 name: Coverage report
 
-# Sends the coverage of the Coverage runs whose own `report` job is skipped:
-# Dependabot and fork pull requests. GitHub runs those with a read-only token,
-# as if from a fork, and documents no OIDC token for them, so DeepSource's
-# Test coverage check waited 30 minutes on every Dependabot PR and failed with
-# "Timed out: Artifact was never reported".
+# Sends the coverage of Dependabot's pull requests, whose Coverage run skips
+# its own `report` job: GitHub runs them with a read-only token, as if from a
+# fork, and documents no OIDC token for them, so DeepSource's Test coverage
+# check waited 30 minutes on every Dependabot PR and failed with "Timed out:
+# Artifact was never reported".
 #
 # This is the two-step pattern GitHub documents for such runs. The
 # unprivileged run (coverage.yml) builds and tests with `contents: read` and
@@ -17,6 +17,12 @@ name: Coverage report
 # nothing from the pull request: the LCOV files are passed to the pinned
 # DeepSource CLI as data, against the run's head commit (`--commit`, so the
 # CLI needs no checkout of it).
+#
+# Like auto-release.yml, the only other `workflow_run` consumer, it acts only
+# on runs from this repository (`release_gating.rs` holds both gates). Fork
+# PRs stay unreported: their artifacts are a stranger's files, and handling
+# them in a job that can mint this repository's OIDC tokens is not worth a
+# coverage figure for the rare fork PR.
 on:
   workflow_run:
     workflows: [Coverage]
@@ -26,13 +32,14 @@ permissions: {}
 
 jobs:
   report:
-    name: coverage report (Dependabot and forks)
-    # Only the pull request runs coverage.yml's own `report` job skips (the
-    # same test, from the run's side); push and same-repo runs report there.
+    name: coverage report (Dependabot)
+    # Dependabot's pull request runs in this repository: the runs coverage.yml's
+    # own `report` job skips that are not from a fork. Push and other same-repo
+    # runs report there.
     if: >-
       ${{ github.event.workflow_run.event == 'pull_request'
-      && (github.event.workflow_run.head_repository.full_name != github.repository
-          || github.event.workflow_run.actor.login == 'dependabot[bot]') }}
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.actor.login == 'dependabot[bot]' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
