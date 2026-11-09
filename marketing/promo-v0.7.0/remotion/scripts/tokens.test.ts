@@ -62,7 +62,9 @@ export const CONTRASTS = {
 /** Copy the actual CLI and path policy into a synthetic repository with brand inputs. */
 function fixture(t: TestContext) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'promo-tokens-')));
-  t.after(() => rmSync(root, {recursive: true, force: true}));
+  t.after(() => {
+    rmSync(root, {recursive: true, force: true});
+  });
   const promo = join(root, 'marketing/promo-v0.7.0');
   const remotion = join(promo, 'remotion');
   const scripts = join(remotion, 'scripts');
@@ -93,7 +95,7 @@ function outsideFiles(directory: string) {
   return readdirSync(directory).sort().map((name) => [name, readFileSync(join(directory, name)).toString('hex')]);
 }
 
-test('tokens write exact original bytes and preserve current/stale check behavior', (t) => {
+await test('tokens write exact original bytes and preserve current/stale check behavior', (t) => {
   const {remotion, output} = fixture(t);
   const missing = run(remotion, true);
   assert.equal(missing.status, 1);
@@ -115,7 +117,7 @@ test('tokens write exact original bytes and preserve current/stale check behavio
 });
 
 for (const kind of ['existing leaf', 'dangling leaf', 'parent']) {
-  test(`tokens preserve valid internal ${kind} symlink output`, (t) => {
+  await test(`tokens preserve valid internal ${kind} symlink output`, (t) => {
     const {promo, remotion, output} = fixture(t);
     const targetDirectory = join(promo, 'local-token-output');
     mkdirSync(targetDirectory);
@@ -140,7 +142,7 @@ for (const kind of ['existing leaf', 'dangling leaf', 'parent']) {
 
 for (const kind of ['existing leaf', 'dangling leaf', 'existing parent', 'dangling parent']) {
   for (const check of [false, true]) {
-    test(`tokens ${check ? '--check' : 'write'} refuses outside ${kind} symlink`, (t) => {
+    await test(`tokens ${check ? '--check' : 'write'} refuses outside ${kind} symlink`, (t) => {
       const {promo, remotion, outside, output} = fixture(t);
       const parent = kind.endsWith('parent');
       const dangling = kind.startsWith('dangling');

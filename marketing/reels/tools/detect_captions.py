@@ -24,7 +24,7 @@ THRESHOLD = 8000                  # summed absolute difference of two frames' st
 
 def changes(slug):
     p = subprocess.run(["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-i", checked_demo_input(f"{DEMOS}/{slug}.mp4"), "-vf",
-                        f"{STRIP},scale={W}:{H}:flags=area,format=gray,fps={FPS}", "-f", "rawvideo", "-"], capture_output=True)
+                        f"{STRIP},scale={W}:{H}:flags=area,format=gray,fps={FPS}", "-f", "rawvideo", "-"], capture_output=True, check=True)
     data, fs = p.stdout, W * H
     n = len(data) // fs
     diffs = [0] + [sum(abs(x - y) for x, y in zip(data[(i - 1) * fs:i * fs], data[i * fs:(i + 1) * fs])) for i in range(1, n)]

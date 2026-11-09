@@ -26,6 +26,7 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
     raise SystemExit(0)
 
 from render import *
+from demo_paths import checked_demo_input, checked_reel_path
 import cues as C
 
 OUT = f"{ROOT}/out"

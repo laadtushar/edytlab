@@ -41,7 +41,7 @@ class StandaloneDemoPathsTests(unittest.TestCase):
                    PATH=f"{self.bin}:{env['PATH']}", MEDIA_MARKER=str(self.marker),
                    TEST_PNG=str(self.png))
         return subprocess.run([sys.executable, str(TOOLS / script), *map(str, args)],
-                              cwd=PROJECT, env=env, capture_output=True, text=True)
+                              cwd=PROJECT, env=env, capture_output=True, text=True, check=False)
 
     def test_utilities_reject_external_override_before_media(self):
         with tempfile.TemporaryDirectory() as external:
@@ -109,6 +109,20 @@ class StandaloneDemoPathsTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("-i") + 1], str(self.demos / f"{expected}.mp4"))
         self.assertTrue(output.is_file())
         self.assertTrue(self.marker.is_file())
+
+    def test_failed_decode_stops_instead_of_reporting_empty_media(self):
+        """A failing decoder fails the utility; empty output is not read as silence."""
+        nice = self.bin / "nice"
+        nice.write_text(nice.read_text() + 'sys.exit(1)\n')
+        output = self.root / "out.png"
+        for script, args in (("detect_captions.py", ["dj-mini-mix"]),
+                             ("rms_listen_regions.py", []),
+                             ("sheet.py", [output, "1", "32", "dj-mini-mix:0"])):
+            with self.subTest(script=script):
+                result = self.run_tool(script, args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("CalledProcessError", result.stderr)
+        self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

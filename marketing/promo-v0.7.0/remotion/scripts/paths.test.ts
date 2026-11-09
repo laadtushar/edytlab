@@ -5,7 +5,7 @@ import {join, resolve} from 'node:path';
 import {test} from 'node:test';
 import {PROJECT_ROOT, projectPath} from './paths.ts';
 
-test('promo paths contain new files and reject traversal and symlink escapes', () => {
+await test('promo paths contain new files and reject traversal and symlink escapes', () => {
   const inside = mkdtempSync(join(PROJECT_ROOT, '.paths-test-'));
   const outside = mkdtempSync(join(tmpdir(), 'promo-paths-'));
   const refuses = (path: string) => assert.throws(() => projectPath(path), (error: Error) =>

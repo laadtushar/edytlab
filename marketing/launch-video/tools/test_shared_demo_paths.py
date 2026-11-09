@@ -73,8 +73,8 @@ class SharedDemoPaths(unittest.TestCase):
                 self.assertEqual(run.call_args.args[0], [
                     'nice', '-n', '10', 'ffmpeg', '-nostdin', '-v', 'error',
                     '-ss', '1.250', '-t', '0.001', '-i', source, '-vn', '-af',
-                    'aformat=sample_rates=48000:channel_layouts=stereo,afade=t=in:d=0.03,'
-                    'afade=t=out:st=0.000:d=0.300,volume=-3dB',
+                    ('aformat=sample_rates=48000:channel_layouts=stereo,afade=t=in:d=0.03,'
+                     'afade=t=out:st=0.000:d=0.300,volume=-3dB'),
                     '-f', 's16le', '-ar', '48000', '-ac', '2', '-',
                 ])
                 with mock.patch.object(engine.subprocess, 'Popen') as popen:

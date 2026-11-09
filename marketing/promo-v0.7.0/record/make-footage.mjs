@@ -120,8 +120,9 @@ function captureLog(file) {
   if (!existsSync(log)) return null;
   const lines = readFileSync(log, "utf8").split(/[\r\n]/).filter((l) => /^frame=/.test(l));
   const last = lines.at(-1) ?? "";
-  const num = (k) => Number(new RegExp(`${k}=\\s*([\\d.]+)`).exec(last)?.[1] ?? Number.NaN);
-  return { frames: num("frame"), dup: num("dup"), drop: num("drop"), speed: num("speed") };
+  const num = (pattern) => Number(pattern.exec(last)?.[1] ?? Number.NaN);
+  return { frames: num(/frame=\s*([\d.]+)/), dup: num(/dup=\s*([\d.]+)/),
+    drop: num(/drop=\s*([\d.]+)/), speed: num(/speed=\s*([\d.]+)/) };
 }
 
 const results = JSON.parse(readFileSync(projectPath(join(OUT, "results.json")), "utf8"));

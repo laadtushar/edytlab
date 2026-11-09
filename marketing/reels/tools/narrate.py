@@ -126,7 +126,7 @@ def ledger_add(n, what):
         with open(path) as ledger:
             data = json.load(ledger)
     else:
-        data = dict(spent=0, entries=[])
+        data = {"spent": 0, "entries": []}
     data["spent"] += n
     data["entries"].append([time.strftime("%H:%M:%S"), what, n])
     with open(path, "w") as ledger:

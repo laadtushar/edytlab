@@ -34,7 +34,7 @@ def checked_demo_path(path):
     if raw == '-' or (not native_drive and not raw.startswith('file:') and
                       (protocol or (raw.startswith('subfile,') and ':' in raw[8:]))):
         raise SystemExit(f'Refused demo path {raw!r}: must name a local file inside {ROOT}')
-    actual = raw[5:] if raw.startswith('file:') else raw
+    actual = raw.removeprefix('file:')
     demo_dir = REPO_ROOT / 'website' / 'public' / 'demos'
     candidate = Path(actual).absolute()
     resolved_dir = demo_dir.resolve()

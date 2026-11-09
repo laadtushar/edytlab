@@ -614,9 +614,14 @@ function videosHtml() {
     return chunks.slice(1).map((chunk) => {
       const slug = chunk.slice(0, chunk.indexOf('"'));
       const fields = chunk.split("\n").slice(1);
+      // The first line naming the field, as `^\s*<field>: "?([^",\n]+)` matched each line.
       const g = (k) => {
-        const re = new RegExp("^\\s*" + k + ": \"?([^\",\\n]+)");
-        for (const line of fields) { const m = re.exec(line); if (m) return m[1]; }
+        for (const line of fields) {
+          const rest = line.trimStart();
+          if (!rest.startsWith(k + ": ")) continue;
+          const m = /^"?([^",\n]+)/.exec(rest.slice(k.length + 2));
+          if (m) return m[1];
+        }
         return "";
       };
       return { slug, title: g("title"), seconds: +g("seconds"), width: +g("width"), height: +g("height") };

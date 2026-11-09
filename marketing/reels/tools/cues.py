@@ -8,6 +8,7 @@ spec.LINES, written for the earlier takes) and a Listen cut leads in long enough
 """
 import json, math, os
 from spec import *
+from demo_paths import checked_reel_path
 
 FPS = 30
 SRC_FPS = 15        # the demo videos' frame rate: a cut starts on one of their frames

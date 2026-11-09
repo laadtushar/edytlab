@@ -142,9 +142,9 @@ class BrandInputTests(unittest.TestCase):
             link = base / "linked-inter"
             link.symlink_to(fonts, target_is_directory=True)
             with mock.patch.object(brand, "_SYSTEM_FONT_DIR", link), \
-                    mock.patch.object(brand, "FONT_DIR", str(link)):
-                with self.assertRaises(SystemExit):
-                    brand.font("Medium", 18)
+                    mock.patch.object(brand, "FONT_DIR", str(link)), \
+                    self.assertRaises(SystemExit):
+                brand.font("Medium", 18)
 
     def test_font_weight_cannot_supply_a_path(self):
         fonts = self.reels / "fonts"

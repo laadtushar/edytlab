@@ -37,7 +37,7 @@ FMT = "aformat=sample_rates=48000:channel_layouts=stereo"
 
 def run(cmd, **kw):
     """Run one ffmpeg command and surface its bounded diagnostic tail."""
-    p = subprocess.run(["nice", "-n", "10"] + cmd, capture_output=True, text=True, **kw)
+    p = subprocess.run(["nice", "-n", "10"] + cmd, capture_output=True, text=True, check=False, **kw)
     if p.returncode:
         raise SystemExit("ffmpeg failed:\n" + p.stderr[-3000:])
     return p
@@ -46,7 +46,7 @@ def run(cmd, **kw):
 def decode(in_args, filt):
     """Decode the selected source and filter to stereo 48 kHz signed PCM."""
     cmd = ["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error"] + in_args + ["-vn", "-af", filt, "-f", "s16le", "-ar", str(SR), "-ac", "2", "-"]
-    p = subprocess.run(cmd, capture_output=True)
+    p = subprocess.run(cmd, capture_output=True, check=False)
     if p.returncode:
         raise SystemExit("decode failed: " + p.stderr.decode()[-2000:])
     return p.stdout
@@ -74,7 +74,7 @@ def _checked_media_path(path):
             f"Refused path {raw!r}: must name a local file inside {launch_paths.ROOT}"
         )
     # FFmpeg's file_open strips exactly one file: prefix, then opens that filename.
-    actual = raw[5:] if raw.startswith("file:") else raw
+    actual = raw.removeprefix("file:")
     try:
         checked_path(actual)
     except SystemExit as error:

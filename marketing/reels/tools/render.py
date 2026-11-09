@@ -14,14 +14,12 @@ Local work, intermediate and output paths must resolve inside marketing/reels,
 including symlinks. Copy external /tmp files into that project before rendering.
 """
 import io
-import json
-import math
 import os
 import re
 import subprocess
-import sys
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from spec import *
+from demo_paths import checked_demo_input, checked_reel_path
 from cues import build_reel, FPS
 import brand   # the site's colours and Inter, from website/app/globals.css and the `fonts-inter` package, as make-demo-videos.mjs uses them
 from brand import font, BACKGROUND, CARD, FOREGROUND, PRIMARY, MUTED_FG, BORDER, GRADIENT, AURORA

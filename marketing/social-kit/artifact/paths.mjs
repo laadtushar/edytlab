@@ -55,7 +55,12 @@ function regularFile(resolved) {
 }
 
 /** Follow each link before applying a later parent component, including new targets. */
-function canonicalPath(destination, budget = { links: 0 }, base = process.cwd()) {
+function canonicalPath(destination) {
+  return followLinks(destination, { links: 0 }, process.cwd());
+}
+
+/** canonicalPath's walk, sharing one link budget across nested link targets. */
+function followLinks(destination, budget, base) {
   const { root } = parse(destination);
   let current = root ? resolve(base, root) : base;
   const separator = process.platform === "win32" ? /[\\/]/ : /\//;
@@ -75,7 +80,7 @@ function canonicalPath(destination, budget = { links: 0 }, base = process.cwd())
     }
     if (stat?.isSymbolicLink()) {
       if (++budget.links > 40) throw new Error(`Too many symbolic links in ${destination}`);
-      current = canonicalPath(readlinkSync(candidate), budget, current);
+      current = followLinks(readlinkSync(candidate), budget, current);
     } else {
       current = candidate;
     }
