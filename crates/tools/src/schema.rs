@@ -104,7 +104,7 @@ fn as_written_by_0_8(schema: &mut Schema) {
 /// trimmed, the lines of a paragraph joined by spaces, and paragraphs
 /// by a blank line.
 fn doc_paragraphs_as_0_8(doc: &str) -> String {
-    doc.split('\n')
+    doc.lines()
         .map(str::trim)
         .collect::<Vec<_>>()
         .join("\n")
