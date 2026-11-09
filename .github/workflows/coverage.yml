@@ -78,13 +78,15 @@ jobs:
       - name: Install Linux build deps
         timeout-minutes: 18
         run: |
-          # http:// is deliberate here (SonarCloud S5332 reviewed, safe, as in
-          # ci.yml): apt does not trust the transport, it verifies every package
-          # index and .deb against the distribution's signing keys
-          # (Release.gpg / InRelease), so a tampered mirror response fails the
-          # install instead of being used. The Azure mirror is the one that
-          # stalls (#660, #661, #669).
-          sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+          # https:// because plain http to archive.ubuntu.com stalls on these
+          # runners: on 2026-11-09 each .deb asked for over http hung 35-40 s
+          # before apt gave up on it (`Ign:` lines) while the same host answered
+          # at once over https, and #979's install ran out of its 300 s (exit
+          # 124). The rewrite also moves any plain-http archive entry the image
+          # ships to https. apt verifies every index and .deb against the
+          # archive's signing keys whatever the transport, so https adds a
+          # transport that answers, not trust.
+          sudo sed -i 's#https\?://\(azure\.\)\?archive\.ubuntu\.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
             /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
             /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           grep -h -r azure /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
@@ -217,10 +219,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      # merge-multiple keeps the layout the same whether one artifact or two
+      # exist: without it, a lone matching artifact is extracted straight into
+      # `path` while two get a folder each (download-artifact's dist/index.js
+      # at this SHA), so a report step that looked in per-artifact folders
+      # would miss the one report left when the other job failed.
       - name: Download the reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-*
+          merge-multiple: true
           path: ${{ runner.temp }}/coverage
 
       - name: Install the DeepSource CLI
@@ -232,18 +240,31 @@ jobs:
           mkdir -p "$RUNNER_TEMP/deepsource"
           tar -xzf "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" -C "$RUNNER_TEMP/deepsource" deepsource
 
-      # One report per key that has a file; DeepSource merges by key.
+      # One report per key that has a file; DeepSource merges by key. The keys
+      # are independent: a missing artifact (its job failed) or a refused
+      # upload for one must not stop the other, so each is attempted and the
+      # step fails afterwards if any upload failed or none was sent. Each key
+      # is found by the file name its job uploads (coverage-rust.lcov,
+      # lcov.info), which the merged download keeps at the top of the folder.
       - name: Report to DeepSource
         run: |
           sent=0
+          failed=0
           for key in rust javascript; do
-            file=$(find "$RUNNER_TEMP/coverage/coverage-$key" -type f 2>/dev/null | head -n 1)
-            if [ -z "$file" ]; then
+            case "$key" in
+              rust) file="$RUNNER_TEMP/coverage/coverage-rust.lcov" ;;
+              javascript) file="$RUNNER_TEMP/coverage/lcov.info" ;;
+            esac
+            if [ ! -f "$file" ]; then
               echo "::warning::no $key coverage report to send"
               continue
             fi
-            "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key "$key" \
-              --value-file "$file" --use-oidc --host https://app.deepsource.com
-            sent=$((sent + 1))
+            if "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key "$key" \
+              --value-file "$file" --use-oidc --host https://app.deepsource.com; then
+              sent=$((sent + 1))
+            else
+              echo "::error::the $key coverage report was not accepted"
+              failed=$((failed + 1))
+            fi
           done
-          [ "$sent" -gt 0 ]
+          [ "$failed" -eq 0 ] && [ "$sent" -gt 0 ]
