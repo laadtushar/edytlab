@@ -43,7 +43,7 @@ export default function DeveloperGuidePage() {
           </tr>
           <tr>
             <td>pnpm</td>
-            <td>9.15+</td>
+            <td>10.34+</td>
             <td><code>npm install -g pnpm</code></td>
           </tr>
         </tbody>

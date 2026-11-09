@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "pnpm@10.34.9",
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
@@ -58,6 +58,11 @@
       "@opentelemetry/api": "1.9.1",
       "eslint>minimatch": "^11.0.4",
       "@eslint/config-array>minimatch": "^11.0.4"
-    }
+    },
+    "onlyBuiltDependencies": [],
+    "ignoredBuiltDependencies": [
+      "fsevents",
+      "unrs-resolver"
+    ]
   }
 }
