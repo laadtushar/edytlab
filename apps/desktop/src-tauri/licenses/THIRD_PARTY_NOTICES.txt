@@ -880,8 +880,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 --------------------------------------------------------------------------------
 Used by:
-  * @tanstack/query-core 5.104.5 - declared: MIT - https://github.com/TanStack/query
-  * @tanstack/react-query 5.104.5 - declared: MIT - https://github.com/TanStack/query
+  * @tanstack/query-core 5.105.1 - declared: MIT - https://github.com/TanStack/query
+  * @tanstack/react-query 5.105.1 - declared: MIT - https://github.com/TanStack/query
 --------------------------------------------------------------------------------
 
 MIT License
@@ -1090,7 +1090,7 @@ Used by:
 
 --------------------------------------------------------------------------------
 Used by:
-  * @tauri-apps/plugin-dialog 2.8.3 - declared: MIT OR Apache-2.0 - https://github.com/tauri-apps/plugins-workspace
+  * @tauri-apps/plugin-dialog 2.8.4 - declared: MIT OR Apache-2.0 - https://github.com/tauri-apps/plugins-workspace
 --------------------------------------------------------------------------------
 
 SPDXVersion: SPDX-2.1
@@ -5542,7 +5542,6 @@ Used by:
   * windows-result 0.4.1 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-strings 0.5.1 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-sys 0.52.0 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
-  * windows-sys 0.59.0 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-sys 0.60.2 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-sys 0.61.2 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
   * windows-targets 0.52.6 - declared: MIT OR Apache-2.0 - https://github.com/microsoft/windows-rs
@@ -5908,7 +5907,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * ebur128 0.1.10 - declared: MIT - https://github.com/sdroege/ebur128
+  * ebur128 0.1.11 - declared: MIT - https://github.com/sdroege/ebur128
 
 Copyright (c) 2011 Jan Kokemüller
 Copyright (c) 2020 Sebastian Dröge <sebastian@centricular.com>
@@ -9952,7 +9951,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * tauri-plugin-dialog 2.8.3 - declared: Apache-2.0 OR MIT - https://github.com/tauri-apps/plugins-workspace
+  * tauri-plugin-dialog 2.8.4 - declared: Apache-2.0 OR MIT - https://github.com/tauri-apps/plugins-workspace
   * tauri-plugin-fs 2.7.1 - declared: Apache-2.0 OR MIT - https://github.com/tauri-apps/plugins-workspace
   * tauri-plugin-opener 2.7.2 - declared: Apache-2.0 OR MIT - https://github.com/tauri-apps/plugins-workspace
 
@@ -10522,6 +10521,66 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
+  * rfd 0.17.2 - declared: MIT - https://github.com/PolyMeilex/rfd
+
+MIT License
+
+Copyright (c) 2020 Bilal Elmoussaoui
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
+  * realfft 3.5.1 - declared: MIT - https://github.com/HEnquist/realfft
+
+MIT License
+
+Copyright (c) 2020 Henrik Enquist and RealFFT contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
   * embed_plist 1.2.2 - declared: MIT OR Apache-2.0 - https://github.com/nvzqz/embed-plist-rs
 
 MIT License
@@ -10612,8 +10671,8 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * jsonschema 0.52.1 - declared: MIT - https://github.com/Stranger6667/jsonschema
-  * referencing 0.52.1 - declared: MIT - https://github.com/Stranger6667/jsonschema
+  * jsonschema 0.60.2 - declared: MIT - https://github.com/Stranger6667/jsonschema
+  * referencing 0.60.2 - declared: MIT - https://github.com/Stranger6667/jsonschema
 
 MIT License
 
@@ -10674,12 +10733,12 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * sentry-backtrace 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
-  * sentry-contexts 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
-  * sentry-core 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
-  * sentry-panic 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
-  * sentry-types 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
-  * sentry 0.49.3 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-backtrace 0.49.5 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-contexts 0.49.5 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-core 0.49.5 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-panic 0.49.5 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry-types 0.49.5 - declared: MIT - https://github.com/getsentry/sentry-rust
+  * sentry 0.49.5 - declared: MIT - https://github.com/getsentry/sentry-rust
 
 MIT License
 
@@ -10739,7 +10798,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * rfd 0.16.0 - declared: MIT - https://github.com/PolyMeilex/rfd
+  * rfd 0.17.2 - declared: MIT - https://github.com/PolyMeilex/rfd
 
 MIT License
 
@@ -11059,9 +11118,9 @@ Used by:
       (no licence file in the crate; copyright: Szymon Wieloch, OpenByte)
   * eventsource-stream 0.2.3 - declared: MIT OR Apache-2.0 - https://github.com/jpopesculian/eventsource-stream
       (no licence file in the crate; copyright: Julian Popescu)
-  * jsonschema-regex 0.52.1 - declared: MIT - https://github.com/Stranger6667/jsonschema
+  * jsonschema-regex 0.60.2 - declared: MIT - https://github.com/Stranger6667/jsonschema
       (no licence file in the crate; copyright: Dmitry Dygalo)
-  * jsonschema-value 0.52.1 - declared: MIT - https://github.com/Stranger6667/jsonschema
+  * jsonschema-value 0.60.2 - declared: MIT - https://github.com/Stranger6667/jsonschema
       (no licence file in the crate; copyright: Dmitry Dygalo)
   * linux-keyutils 0.2.5 - declared: Apache-2.0 OR MIT - https://github.com/landhb/linux-keyutils
       (no licence file in the crate; copyright: landhb)
@@ -11091,8 +11150,6 @@ Used by:
       (no licence file in the crate; copyright: Mads Marquart)
   * opus-decoder 0.1.1 - declared: MIT OR Apache-2.0 - https://github.com/TadeuszWolfGang/Rusopus
       (no licence file in the crate; copyright: see the repository above)
-  * realfft 3.5.0 - declared: MIT - https://github.com/HEnquist/realfft
-      (no licence file in the crate; copyright: HEnquist)
   * siphasher 1.0.3 - declared: MIT OR Apache-2.0 - https://github.com/jedisct1/rust-siphash
       (no licence file in the crate; copyright: Frank Denis)
   * uuid-simd 0.8.0 - declared: MIT - https://github.com/Nugine/simd
@@ -11694,7 +11751,7 @@ MIT License (MIT)
 
 Used by:
   * tracing-core 0.1.36 - declared: MIT - https://github.com/tokio-rs/tracing
-  * zip 9.1.2 - declared: MIT - https://github.com/zip-rs/zip2
+  * zip 9.2.2 - declared: MIT - https://github.com/zip-rs/zip2
 
 The MIT License (MIT)
 
