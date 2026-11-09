@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:slow-scheduler": "vitest run --mode slow-scheduler",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "typecheck:e2e": "tsc --noEmit -p e2e"
@@ -42,6 +43,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^4.6.0",
+    "@vitest/coverage-v8": "^4.1.12",
     "jsdom": "^30",
     "rollup-plugin-license": "3.7.1",
     "typescript": "~5.9.3",

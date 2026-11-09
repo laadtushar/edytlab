@@ -34,7 +34,7 @@ const appVersion: string = JSON.parse(
 const noticesJson = process.env.EDYTLAB_NOTICES_JSON;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(() => ({
   plugins: [
     react(),
     tailwindcss(),
@@ -106,5 +106,21 @@ export default defineConfig(async () => ({
     setupFiles: ["./src/__tests__/setup.ts"],
     css: false,
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // Off unless asked for (`pnpm test:coverage`, run by coverage.yml), so
+    // `pnpm test` and the slow-scheduler run stay uninstrumented. LCOV is
+    // the format DeepSource reads, and DeepSource matches its paths against
+    // the repository, so they are written relative to the repository root
+    // (`apps/desktop/src/...`), not this package.
+    coverage: {
+      provider: "v8",
+      reporter: [["lcovonly", { projectRoot: "../.." }], "text-summary"],
+      reportsDirectory: "coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/__tests__/**",
+        "src/**/*.{test,spec}.{ts,tsx}",
+        "src/**/*.d.ts",
+      ],
+    },
   },
 }));
