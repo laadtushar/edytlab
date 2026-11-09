@@ -666,7 +666,8 @@ class ShellPathsTests(unittest.TestCase):
                 with mock.patch.object(sys, "argv", argv), \
                         mock.patch.object(subprocess, "run", return_value=fake):
                     with self.assertRaises(SystemExit) as error:
-                        exec(compile(block, "<shell cue-reader>", "exec"), {})
+                        # Running the script's own embedded Python is the point of this test.
+                        exec(compile(block, "<shell cue-reader>", "exec"), {})  # skipcq: PYL-W0122
                     self.assertIn("Refused path", str(error.exception))
                     self.assertIn(str(PROJECT), str(error.exception))
 

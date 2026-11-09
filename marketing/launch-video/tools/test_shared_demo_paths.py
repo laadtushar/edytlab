@@ -60,7 +60,8 @@ class SharedDemoPaths(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(engine, 'DEMO_DIR', str(self.demos)))
         self.stack.enter_context(mock.patch.object(audio, 'HERE', str(self.root)))
 
-    def cues(self, names):
+    @staticmethod
+    def cues(names):
         return {'total': 0.001, 'clips': [
             {'demo': name, 'src0': 1.25, 'dur': 0.001, 't0': 0} for name in names
         ], 'sfx': []}
@@ -261,7 +262,8 @@ class SharedDemoPaths(unittest.TestCase):
             launch.contact(plan, [0, 3.5], self.root / 'contact.png', w=8)
         still.assert_not_called()
 
-    def test_launch_font_requests_launch_project_scope(self):
+    @staticmethod
+    def test_launch_font_requests_launch_project_scope():
         with mock.patch.dict(engine._fonts, {}, clear=True), \
                 mock.patch.object(engine.brand, 'font', return_value=object()) as font:
             engine.font('Bold', 24)
