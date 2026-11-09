@@ -74,10 +74,14 @@ fn step<'a>(yaml: &'a str, name: &str) -> &'a str {
         .find(&marker)
         .unwrap_or_else(|| panic!("no step named {name:?}"));
     let rest = &yaml[start + marker.len()..];
+    // The whole rest when no later step or job follows. Bound first: clippy
+    // wants a cheap `len()` passed eagerly, DeepSource (RS-W1031) wants no
+    // call inside `unwrap_or`, and a plain value satisfies both.
+    let to_end = rest.len();
     let end = rest
         .find("\n      - name: ")
         .or_else(|| rest.find("\n  publish:"))
-        .unwrap_or_else(|| rest.len());
+        .unwrap_or(to_end);
     &yaml[start..start + marker.len() + end]
 }
 
@@ -168,7 +172,8 @@ fn tuple_literals(script: &str, name: &str) -> Vec<String> {
         joined = true;
         rest = &rest[close + 1..];
         // A `,` or `(` between literals ends the concatenation.
-        let next = rest.find('"').unwrap_or(rest.len());
+        let to_end = rest.len();
+        let next = rest.find('"').unwrap_or(to_end);
         if !rest[..next].trim().is_empty() {
             joined = false;
         }
@@ -292,31 +297,47 @@ fn the_script_never_weakens_tls() {
     }
 }
 
-/// Runs the script's own functions under `python3 -I` with the network
-/// stubbed, so what is asserted is what the code does, not what its text
-/// says. Python is on every runner that runs these tests (the release
-/// workflows run their scripts with it too); it is looked for as `python3`,
-/// then `python` (the Windows runner has no `python3`), and the test fails,
-/// not skips, if neither starts.
-fn run_python(code: &str) -> String {
+/// The first of `python3` and `python` that runs Python, picked the way the
+/// release workflows pick theirs (`"$py" -I -c 'import sys'`): a `python3`
+/// that starts but does not run Python, such as the Windows Store stub, is
+/// passed over rather than failing the test.
+fn python() -> Option<&'static str> {
+    ["python3", "python"].into_iter().find(|py| {
+        std::process::Command::new(py)
+            .args(["-I", "-c", "import sys"])
+            .output()
+            .is_ok_and(|out| out.status.success())
+    })
+}
+
+/// Runs the script's own functions under `-I` with the network stubbed, so
+/// what is asserted is what the code does, not what its text says. Every CI
+/// runner has Python (the release workflows run their scripts with it), and
+/// there a missing one fails the test; on a machine without it the test is
+/// skipped, as `audio-decoder/tests/formats.rs` does for `afconvert`.
+fn run_python(code: &str) -> Option<String> {
+    let Some(py) = python() else {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "neither python3 nor python runs Python on CI"
+        );
+        eprintln!("SKIPPED: neither python3 nor python runs Python here");
+        return None;
+    };
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(SCRIPT);
-    for py in ["python3", "python"] {
-        let out = std::process::Command::new(py)
-            .args(["-I", "-c", code])
-            .arg(&script)
-            .output();
-        if let Ok(out) = out {
-            assert!(
-                out.status.success(),
-                "{py} failed: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-            return String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n");
-        }
-    }
-    panic!("neither python3 nor python starts, so the script cannot be run");
+    let out = std::process::Command::new(py)
+        .args(["-I", "-c", code])
+        .arg(&script)
+        .output()
+        .unwrap_or_else(|e| panic!("{py} could not be run: {e}"));
+    assert!(
+        out.status.success(),
+        "{py} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Some(String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n"))
 }
 
 const PY_STUBS: &str = r#"
@@ -372,7 +393,9 @@ with tempfile.TemporaryDirectory() as d:
         print("http: refused")
 "#
     );
-    let out = run_python(&code);
+    let Some(out) = run_python(&code) else {
+        return;
+    };
     for line in [
         "mismatch: IntegrityError",
         "left: []",
@@ -409,7 +432,9 @@ with tempfile.TemporaryDirectory() as d:
     print("nsis kept:", sorted(os.listdir(os.path.join(tools, "NSIS"))) == ["Plugins"])
 "#
     );
-    let out = run_python(&code);
+    let Some(out) = run_python(&code) else {
+        return;
+    };
     assert!(out.lines().any(|l| l == "plugin: True"), "{out}");
     assert!(out.lines().any(|l| l == "nsis kept: True"), "{out}");
 }
@@ -418,7 +443,8 @@ with tempfile.TemporaryDirectory() as d:
 fn build_job(yaml: &str) -> &str {
     let start = yaml.find("\n  build:\n").expect("a build job") + 1;
     let rest = &yaml[start..];
-    let end = rest.find("\n  publish:").unwrap_or(rest.len());
+    let to_end = rest.len();
+    let end = rest.find("\n  publish:").unwrap_or(to_end);
     &rest[..end]
 }
 
