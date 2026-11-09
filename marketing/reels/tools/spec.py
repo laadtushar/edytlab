@@ -16,13 +16,7 @@ import math
 import os
 import re
 import sys
-from pathlib import Path
-
-# Where things are. This file is <repo>/marketing/reels/tools/spec.py, so the
-# parents are tools/, then reels/, then marketing/, then the repo itself.
-REELS_DIR = Path(__file__).resolve().parents[1]   # <repo>/marketing/reels: tools/, add-narration.sh and the published files
-REPO_ROOT = Path(__file__).resolve().parents[3]
-
+from demo_paths import REPO_ROOT
 
 def _need_env(name, what):
     value = os.environ.get(name)
@@ -34,10 +28,14 @@ def _need_env(name, what):
 # The app's demo recordings the reels are cut from. Same variable and default
 # as marketing/launch-video/tools: <repo>/website/public/demos.
 DEMO_DIR = os.environ.get("EDYTLAB_DEMO_DIR") or str(REPO_ROOT / "website" / "public" / "demos")
-# The scratch working directory, which is not in the repo: work/ holds the
+# The working directory must now be inside marketing/reels: work/ holds the
 # text-to-speech cache, the character ledger and speech.json, and out/ the
 # files a run writes (their copies are what is committed in marketing/reels).
-ROOT = _need_env("EDYTLAB_REEL_ROOT", "the working directory that holds work/ and out/ (create it empty for a first run)")
+ROOT = _need_env(
+    "EDYTLAB_REEL_ROOT",
+    "an in-project working directory holding work/ and out/; "
+    "copy external /tmp files into marketing/reels first",
+)
 SITE_URL = "edytlab.com"
 WORDS_PER_SECOND = 2.4          # the brief's conservative narration rate
 BREATHING_ROOM = 0.3            # seconds kept free at the end of a cue
@@ -138,13 +136,52 @@ TOKEN_RE = re.compile(r"^(?P<pre>[^{]*)\{(?P<d>[^|]*)\|(?P<s>[^}]*)\}(?P<post>.*
 TAG_RE = re.compile(r"^\[[^\]]+\]$")
 
 
-TOKEN_SPLIT = re.compile(r"\[[^\]]+\]|\S*\{[^}]*\}\S*|\S+")
+def markup_tokens(text):
+    """Tokenize the markup in one pass without retrying unclosed braces.
+
+    Preserve the old alternation's precedence: a leading tag first, otherwise
+    the last opening brace in a non-space prefix that has a closing brace,
+    followed by its non-space suffix, otherwise a plain non-space token.
+    """
+    next_close = [-1] * (len(text) + 1)
+    next_bracket = [-1] * (len(text) + 1)
+    closing = bracket = -1
+    for i in range(len(text) - 1, -1, -1):
+        if text[i] == "}":
+            closing = i
+        if text[i] == "]":
+            bracket = i
+        next_close[i] = closing
+        next_bracket[i] = bracket
+    tokens, pos = [], 0
+    while pos < len(text):
+        if text[pos].isspace():
+            pos += 1
+            continue
+        if text[pos] == "[":
+            end = next_bracket[pos + 1]
+            if end > pos + 1:
+                tokens.append(text[pos:end + 1])
+                pos = end + 1
+                continue
+        end, opening = pos, -1
+        while end < len(text) and not text[end].isspace():
+            if text[end] == "{" and next_close[end] >= 0:
+                opening = end
+            end += 1
+        if opening >= 0:
+            end = next_close[opening] + 1
+            while end < len(text) and not text[end].isspace():
+                end += 1
+        tokens.append(text[pos:end])
+        pos = end
+    return tokens
 
 
 def parse_markup(text):
     """-> list of dict(display, spoken, tag) per token (a {display|spoken} group may hold spaces)."""
     units = []
-    for tok in TOKEN_SPLIT.findall(text):
+    for tok in markup_tokens(text):
         if TAG_RE.match(tok):
             units.append(dict(display="", spoken=tok, tag=True))
             continue

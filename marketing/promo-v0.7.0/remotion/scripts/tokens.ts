@@ -9,12 +9,14 @@
 import {readFileSync, writeFileSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {projectPath} from './paths.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
 const CSS = readFileSync(resolve(REPO, 'website/app/globals.css'), 'utf8');
 const LOGO = readFileSync(resolve(REPO, 'website/public/logo.svg'), 'utf8');
-const OUT = resolve(HERE, '../src/tokens.generated.ts');
+const OUT_DISPLAY = resolve(HERE, '../src/tokens.generated.ts');
+const OUT = projectPath(OUT_DISPLAY);
 
 type RGB = [number, number, number];
 
@@ -63,11 +65,17 @@ const foreground = token(dark, 'foreground');
 const primary = token(dark, 'primary');
 const mutedForeground = token(dark, 'muted-foreground');
 const border = token(dark, 'border');
-const radiusPx = Math.round(parseFloat(/--radius:\s*([\d.]+)rem/.exec(CSS)![1]) * 16);
+/** Require a numeric CSS capture before parsing a website brand value. */
+function cssNumber(pattern: RegExp, text: string): number {
+  const match = pattern.exec(text);
+  if (!match) throw new Error(`CSS value not found for ${pattern}`);
+  return Number.parseFloat(match[1]);
+}
+const radiusPx = Math.round(cssNumber(/--radius:\s*([\d.]+)rem/, CSS) * 16);
 const gradient = hsls(rule('.gradient-text')).slice(0, 2);
 const aurora = hsls(CSS.slice(CSS.indexOf('.aurora::before {'))).slice(0, 2);
-const auroraOpacity = parseFloat(/opacity:\s*([\d.]+)/.exec(rule('.aurora::before,\n  .aurora::after'))![1]);
-const fills = [...new Set([...LOGO.matchAll(/(?:fill|stroke)="#([0-9A-Fa-f]{6})"/g)].map((m) => '#' + m[1].toUpperCase()))];
+const auroraOpacity = cssNumber(/opacity:\s*([\d.]+)/, rule('.aurora::before,\n  .aurora::after'));
+const fills = [...new Set([...LOGO.matchAll(/(?:fill|stroke)="#([0-9A-Fa-f]{6})"/g)].map((m) => `#${m[1].toUpperCase()}`))];
 if (fills.length !== 2) throw new Error(`expected two colours in website/public/logo.svg, found ${fills}`);
 
 // ---------------------------------------------------------------- contrast (WCAG 2)
@@ -129,5 +137,5 @@ if (process.argv.includes('--check')) {
   console.log('tokens ok', contrasts);
 } else {
   writeFileSync(OUT, body);
-  console.log('wrote', OUT, contrasts);
+  console.log('wrote', OUT_DISPLAY, contrasts);
 }

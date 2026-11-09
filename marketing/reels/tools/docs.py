@@ -1,9 +1,15 @@
 """Writes out/transcripts.md, out/transcripts/<cue-id>.txt (plus es/) and the per-cue tables.
 The intro (ElevenLabs settings, licence terms) is a template in INTRO below."""
-import json, os, re, sys
-from spec import *
+import json
+import os
+import sys
+if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+    print(__doc__)
+    raise SystemExit(0)
+
+from spec import DEMOS, ROOT
+from demo_paths import REELS_DIR, checked_reel_path
 import cues as C
-import narrate as N
 import build as B
 
 
@@ -21,8 +27,12 @@ KEYS = [("highlights", "Highlights reel (reel-highlights)"),
 
 
 def timing(file):
-    p = f"{OUT}/{file}-narration-timing.json"
-    return json.load(open(p)) if os.path.exists(p) else {}
+    """Read a reel's narration timing, or an empty mapping when it has none."""
+    p = checked_reel_path(f"{OUT}/{file}-narration-timing.json")
+    if not os.path.exists(p):
+        return {}
+    with open(p) as timing_file:
+        return json.load(timing_file)
 
 
 def cell(s):
@@ -30,6 +40,7 @@ def cell(s):
 
 
 def table(tl):
+    """Describe cue narration and exact tempo processing in a Markdown table."""
     t = timing(tl["file"])
     rows = ["| Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |",
             "|---|---|---|---|---|---|---|"]
@@ -41,6 +52,7 @@ def table(tl):
             tm = t.get(c["id"], {})
             sp = f"{tm['speech_end']:.2f} s" if tm else "-"
             note = {"hook": "title card", "end": "end card", "listen": "lead-in only, silent over the music"}.get(c["kind"], "")
+            # prepare() uses exact 1.0 to mark a copy without tempo processing.
             if tm.get("tempo", 1.0) != 1.0:
                 note = (note + "; " if note else "") + f"clip sped up {tm['tempo']:.2f}x to keep 0.3 s of room"
             rows.append(f"| {c['id']} | {win} | {cell(c['onscreen'])} | {cell(c['narration_spoken'])} | {c['words']} / {c['max_words']} | {sp} | {note} |")
@@ -51,27 +63,33 @@ def table(tl):
 
 
 def write_txt():
-    os.makedirs(f"{OUT}/transcripts/es", exist_ok=True)
+    """Write each narrated cue's spoken text and return how many were written."""
+    os.makedirs(checked_reel_path(f"{OUT}/transcripts/es"), exist_ok=True)
     n = 0
     all_tl = [(k, get_tl(k)) for k, _ in KEYS] + [(code, C.build_demo(code)) for code in DEMOS]
     for key, tl in all_tl:
         sub = "es/" if key.endswith("-es") else ""
         for c in tl["cues"]:
             if c.get("narration") and not c.get("silent"):
-                open(f"{OUT}/transcripts/{sub}{c['id']}.txt", "w").write(c["narration_spoken"] + "\n")
+                path = checked_reel_path(f"{OUT}/transcripts/{sub}{c['id']}.txt")
+                with open(path, "w") as output:
+                    output.write(c["narration_spoken"] + "\n")
                 n += 1
     return n
 
 
 def usage_text():
-    d = json.load(open(f"{ROOT}/work/ledger.json"))
+    """Summarise the narration ledger's usage."""
+    with open(checked_reel_path(f"{ROOT}/work/ledger.json")) as ledger_file:
+        d = json.load(ledger_file)
     tts = sum(n for t, w, n in d["entries"] if w.startswith("tts") and "speed" not in w)
     spd = sum(n for t, w, n in d["entries"] if "speed" in w)
     sfx = sum(n for t, w, n in d["entries"] if w.startswith("sfx"))
     last = ""
-    for line in open(f"{OUT}/usage.log"):
-        if "status: character_count=" in line:
-            last = line.strip()
+    with open(checked_reel_path(f"{OUT}/usage.log")) as log_file:
+        for line in log_file:
+            if "status: character_count=" in line:
+                last = line.strip()
     lines = [
         f"- text-to-speech: {tts} characters in {sum(1 for t, w, n in d['entries'] if w.startswith('tts') and 'speed' not in w)} calls (every distinct line of the reels, the three demos and the Spanish reel; "
         f"a line that appears in several files was generated once). Included: one line regenerated because its first take had unparsed markup, and one line replaced by a shorter wording to fit its window",
@@ -84,7 +102,8 @@ def usage_text():
 
 
 _u, _spent = usage_text()
-INTRO = open(f"{REELS_DIR}/tools/intro.md").read().replace("@@USAGE@@", _u).replace("@@CHARS@@", f"{_spent:,}")
+with open(checked_reel_path(f"{REELS_DIR}/tools/intro.md")) as source:
+    INTRO = source.read().replace("@@USAGE@@", _u).replace("@@CHARS@@", f"{_spent:,}")
 
 
 def main():
@@ -104,7 +123,8 @@ def main():
         parts.append(f"\n### {d['title']} (demo-{d['slug']})\n")
         parts.append(f"Video: `{d['slug']}.mp4` (the website video, untouched) / `demo-{d['slug']}-narrated.mp4`, {d['duration']:.1f} s. Cue file: `demo-{d['slug']}-cues.json`. Audio: `audio/demo-{d['slug']}/<cue-id>.mp3`.\n")
         parts.append(table(tl))
-    open(f"{OUT}/transcripts.md", "w").write("\n".join(parts) + "\n")
+    with open(checked_reel_path(f"{OUT}/transcripts.md"), "w") as output:
+        output.write("\n".join(parts) + "\n")
     print("txt files:", write_txt())
 
 

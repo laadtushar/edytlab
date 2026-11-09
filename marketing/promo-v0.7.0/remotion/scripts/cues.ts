@@ -9,12 +9,9 @@ import {mkdirSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {CUTS} from '../src/cuts.ts';
 import {placements, segStarts, srt} from '../src/captions.ts';
-import {CLIPS, joined, ringSpan, shown, srcToOut, type Cut} from '../src/timeline.ts';
+import {CLIPS, joined, ringSpan, shown, srcToOut, type Cut, type Shot, type Seg} from '../src/timeline.ts';
 import {PUBLIC_DIR, ROOT, WORK} from './common.ts';
-
-const outDir = process.argv[2] ?? resolve(ROOT, '../out');
-mkdirSync(resolve(WORK, 'cues'), {recursive: true});
-mkdirSync(outDir, {recursive: true});
+import {projectPath} from './paths.ts';
 
 /** Peak (0..1) of a stretch of a wav, decoded by ffmpeg. */
 function peak(file: string, a: number, b: number): number {
@@ -38,6 +35,13 @@ export interface CueFile {
   sfx: [number, 'whoosh' | 'tick' | 'chime', number, number?][];
 }
 
+/** Refuse a silent cut when its source stretch contains audible app audio. */
+function requireSilence(file: string, cutId: string, part: Shot, segment: Seg, rate: number): void {
+  if (peak(file, segment.a, segment.b) > 0.01) {
+    throw new Error(`${cutId}/${part.id}: the clip's sound is audible in ${segment.a}..${segment.b} s, but this stretch does not play it (rate ${rate}, audio ${Boolean(part.audio)})`);
+  }
+}
+
 function build(cut: Cut): CueFile {
   const at = placements(cut);
   const clips: CueFile['clips'] = [];
@@ -54,12 +58,10 @@ function build(cut: Cut): CueFile {
     const wav = CLIPS[p.clip].wav;
     p.segs.forEach((g, k) => {
       if (!wav) return;
-      const file = resolve(PUBLIC_DIR, wav);
+      const file = projectPath(resolve(PUBLIC_DIR, wav));
       const rate = g.rate ?? 1;
       if (p.audio && rate === 1) clips.push({wav, src0: g.a, dur: g.b - g.a, t0: T + starts[k]});
-      else if (peak(file, g.a, g.b) > 0.01) {
-        throw new Error(`${cut.id}/${p.id}: the clip's sound is audible in ${g.a}..${g.b} s, but this stretch does not play it (rate ${rate}, audio ${!!p.audio})`);
-      }
+      else requireSilence(file, cut.id, p, g, rate);
     });
     // a tick when a label lands
     for (const r of p.rings) {
@@ -74,17 +76,36 @@ function build(cut: Cut): CueFile {
   // thin out ticks that land within 0.12 s of another
   sfx.sort((x, y) => x[0] - y[0]);
   const kept: CueFile['sfx'] = [];
-  for (const s of sfx) {
-    const prev = [...kept].reverse().find((k) => k[1] === s[1]);
-    if (s[1] === 'tick' && prev && s[0] - prev[0] < 0.08) continue;
-    kept.push(s);
+  for (const cue of sfx) {
+    const prev = [...kept].reverse().find((keptCue) => keptCue[1] === cue[1]);
+    if (cue[1] === 'tick' && prev && cue[0] - prev[0] < 0.08) continue;
+    kept.push(cue);
   }
   return {id: cut.id, slug: cut.slug, title: cut.title, platform: cut.platform, total: last.start + last.dur, clips, sfx: kept};
 }
 
-for (const cut of CUTS) {
-  const c = build(cut);
-  writeFileSync(resolve(WORK, 'cues', `${cut.id}.json`), JSON.stringify(c, null, 1));
-  writeFileSync(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`), srt(cut));
-  console.log(`${cut.id}: ${c.total.toFixed(2)} s, ${c.clips.length} app-audio stretch(es), ${c.sfx.length} UI sounds`);
+/** Write every cut's cue file and .srt, after checking all their destinations. */
+function main(): void {
+  const outDir = projectPath(process.argv[2] ?? resolve(ROOT, '../out'));
+  const cueDir = projectPath(resolve(WORK, 'cues'));
+  // Validate every destination before creating directories or writing any cut.
+  for (const cut of CUTS) {
+    projectPath(resolve(cueDir, `${cut.id}.json`));
+    projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`));
+  }
+  mkdirSync(cueDir, {recursive: true});
+  mkdirSync(outDir, {recursive: true});
+
+  for (const cut of CUTS) {
+    const cueFile = build(cut);
+    writeFileSync(projectPath(resolve(cueDir, `${cut.id}.json`)), JSON.stringify(cueFile, null, 1));
+    writeFileSync(projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`)), srt(cut));
+    console.log(`${cut.id}: ${cueFile.total.toFixed(2)} s, ${cueFile.clips.length} app-audio stretch(es), ${cueFile.sfx.length} UI sounds`);
+  }
+}
+
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log('usage: node scripts/cues.ts [outDir]\nPaths must resolve inside marketing/promo-v0.7.0. Copy external /tmp inputs into the project first.');
+} else {
+  main();
 }

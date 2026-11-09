@@ -3,11 +3,12 @@ import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {projectPath} from './paths.ts';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const WORK = process.env.EDYTLAB_PROMO_WORK ?? resolve(ROOT, 'work');
-export const BUNDLE = resolve(WORK, 'bundle');
-export const PUBLIC_DIR = resolve(ROOT, '../footage');
+export const WORK = projectPath(process.env.EDYTLAB_PROMO_WORK ?? resolve(ROOT, 'work'));
+export const BUNDLE = projectPath(resolve(WORK, 'bundle'));
+export const PUBLIC_DIR = projectPath(resolve(ROOT, '../footage'));
 
 const FALLBACK = '/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell';
 export const BROWSER = process.env.REMOTION_BROWSER_EXECUTABLE ?? (existsSync(FALLBACK) ? FALLBACK : undefined);

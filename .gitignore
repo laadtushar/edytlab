@@ -90,3 +90,6 @@ __pycache__/
 
 # Output of marketing/social-kit/artifact/launch-hub.mjs
 marketing/social-kit/artifact/out/
+
+# Private native captures copied into the promo project for cutting.
+marketing/promo-v0.7.0/native-runs/

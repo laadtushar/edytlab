@@ -1,22 +1,35 @@
 #!/usr/bin/env python3
-"""Synthesise the few UI sounds the launch cuts use (code-driven sound design, no samples, no licence strings).
-
-whoosh : band-limited noise whose low-pass sweeps up then down under a smooth envelope (scene change)
+"""Synthesise UI sounds for launch cuts, without samples or licence strings.
+The existing output directory must resolve inside marketing/launch-video.
+whoosh : band-limited noise with a low-pass sweep and smooth envelope (scene change)
 tick   : a 35 ms sine ping with a hair of noise (callout ring closes)
 chime  : three soft sine partials and a low sub thump (the wordmark lands)
 All 48 kHz mono 16-bit; peaks stay under 0.5 so the mix never clips.
 """
-import math, random, struct, sys, wave
+import math
+import random
+import struct
+import sys
+import wave
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from launch_paths import checked_path  # noqa: E402
 
 SR = 48000
 OUT = sys.argv[1]
 
 
 def save(name, x):
+    """Write one deterministic synthetic WAV within the launch project."""
+    destination = f"{OUT}/{name}.wav"
+    checked_path(destination)
     pk = max(abs(v) for v in x) or 1
     x = [v / pk * 0.5 for v in x]
-    with wave.open(f"{OUT}/{name}.wav", "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
+    with wave.open(destination, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SR)
         w.writeframes(b"".join(struct.pack("<h", int(max(-1, min(1, v)) * 32767)) for v in x))
 
 
@@ -46,7 +59,7 @@ def tick(d=0.12):
 def chime(d=1.6):
     n = int(SR * d)
     out = [0.0] * n
-    for k, (f, delay, amp) in enumerate(((784.0, 0.0, 1.0), (987.8, 0.07, 0.8), (1174.7, 0.14, 0.7))):
+    for f, delay, amp in ((784.0, 0.0, 1.0), (987.8, 0.07, 0.8), (1174.7, 0.14, 0.7)):
         s0 = int(delay * SR)
         for i in range(n - s0):
             t = i / SR
@@ -57,6 +70,9 @@ def chime(d=1.6):
     return out
 
 
-for name, fn in (("whoosh", whoosh), ("tick", tick), ("chime", chime)):
-    save(name, fn())
+_sounds = (("whoosh", whoosh), ("tick", tick), ("chime", chime))
+for sound, _ in _sounds:
+    checked_path(f"{OUT}/{sound}.wav")
+for sound, fn in _sounds:
+    save(sound, fn())
 print("sfx ok")

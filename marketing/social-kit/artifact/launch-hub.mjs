@@ -13,14 +13,22 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkInputPath, checkOutputPath } from "./paths.mjs";
 
+/**
+ * Read the copy and build the hub. --help, checked at the end of this file, skips it, so
+ * nothing is read or written then. The body keeps the indentation it had at the top level.
+ */
+function main() {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MK = path.resolve(HERE, "../.."); // marketing/
 const REPO = path.resolve(MK, "..");
 const OUT = path.join(HERE, "out", "launch-hub");
 
 // ---------------------------------------------------------------- reading markdown
-const read = (rel) => fs.readFileSync(path.join(MK, rel), "utf8").replace(/\r\n/g, "\n");
+// Every input is project-local or a fixed, read-only shared source (paths.mjs), checked before it is read.
+const readText = (file) => fs.readFileSync(checkInputPath(file), "utf8");
+const read = (rel) => readText(path.join(MK, rel)).replace(/\r\n/g, "\n");
 const lines = (rel) => read(rel).split("\n");
 
 /** Every fenced block, with the nearest headings and the label line above it. */
@@ -77,17 +85,43 @@ function bullets(ls) {
 function labelled(blockText, name) {
   const m = new RegExp("\\*\\*" + name + ":?\\*\\*:?\\s*([\\s\\S]*?)(?:\\n\\n|$)").exec(blockText);
   if (!m) return "";
-  return m[1].replace(/\s*\n\s*/g, " ").trim();
+  // Consume each whitespace run once; only runs containing a line break join lines.
+  return m[1].replace(/\s+/g, (space) => space.includes("\n") ? " " : space).trim();
 }
 
 // ---------------------------------------------------------------- html helpers
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${text}</a>`;
+/** Replace markdown links in one scan, including labels containing opening brackets. */
+function replaceLinks(text, externalOnly) {
+  const parts = [];
+  let copied = 0, scan = 0;
+  while (scan < text.length) {
+    const start = text.indexOf("[", scan);
+    if (start < 0) break;
+    const labelEnd = text.indexOf("]", start + 1);
+    if (labelEnd < 0) break;
+    scan = labelEnd + 1;
+    if (labelEnd === start + 1 || text[labelEnd + 1] !== "(") continue;
+    const urlStart = labelEnd + 2;
+    if (externalOnly && !text.startsWith("http:", urlStart) && !text.startsWith("https:", urlStart)) continue;
+    const end = text.indexOf(")", urlStart);
+    if (end < 0) break;
+    const url = text.slice(urlStart, end);
+    if (!url || (externalOnly && (url === "http:" || url === "https:"))) continue;
+    const label = text.slice(start + 1, labelEnd);
+    parts.push(text.slice(copied, start), externalOnly ? ext(url.replace(/&amp;/g, "&"), label) : label);
+    copied = end + 1;
+    scan = copied;
+  }
+  parts.push(text.slice(copied));
+  return parts.join("");
+}
 function inline(md) {
   let s = esc(md);
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
-  s = s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, (m, t, u) => ext(u.replace(/&amp;/g, "&"), t));
-  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // relative repo links: text only
+  s = replaceLinks(s, true);
+  s = replaceLinks(s, false); // relative repo links: text only
   s = s.replace(/&lt;(https?:\/\/[^&]+?)&gt;/g, (m, u) => ext(u, u.replace(/^https?:\/\//, "")));
   s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   return s;
@@ -150,7 +184,7 @@ const THEME_VIDEO = [
 
 const files = {}; // published path -> absolute source
 const addFile = (pub, src) => {
-  if (!fs.existsSync(src)) throw new Error("missing file " + src);
+  if (!fs.existsSync(checkInputPath(src))) throw new Error(`missing file ${src}`);
   files[pub] = src;
 };
 
@@ -159,19 +193,20 @@ const cap = (() => {
   const ls = lines("social-kit/images/captions.md");
   const themes = [];
   let cur = null, plat = null;
-  for (let i = 0; i < ls.length; i++) {
-    const l = ls[i];
-    const th = /^## (\d)\. (.+)$/.exec(l);
+  let i = 0;
+  while (i < ls.length) {
+    const line = ls[i++];
+    const th = /^## (\d)\. (.+)$/.exec(line);
     if (th) { cur = { n: +th[1], title: th[2], image: "", videoLine: "", caps: {} }; themes.push(cur); plat = null; continue; }
     if (!cur) continue;
-    if (/^Image:/.test(l)) { cur.image = l; continue; }
-    const pm = /^\*\*(X|LinkedIn|Instagram|Facebook|Threads|Bluesky|TikTok|YouTube|Pinterest)\*\*$/.exec(l);
+    if (/^Image:/.test(line)) { cur.image = line; continue; }
+    const pm = /^\*\*(X|LinkedIn|Instagram|Facebook|Threads|Bluesky|TikTok|YouTube|Pinterest)\*\*$/.exec(line);
     if (pm) {
       const body = [];
-      let j = i + 1;
+      let j = i;
       while (j < ls.length && ls[j].trim() !== "" && ls[j] !== "---") body.push(ls[j++]);
       cur.caps[pm[1]] = body.join("\n").trim();
-      i = j - 1;
+      i = j;
     }
   }
   return themes;
@@ -512,7 +547,7 @@ function pressHtml() {
   return `<div class="dest" id="dest-press">${h3("Press kit")}${sourceNote("press-kit.md")}
 ${card("press-one", "One-sentence description", one, { nolimit: true, meta: "<p>The file wraps the sentence at 80 columns; the line break is kept here, as in the file.</p>" })}
 ${card("press-boiler", "Boilerplate", boilerText, { nolimit: true, meta: "<p>The file wraps the paragraph at 80 columns; the line breaks are kept here, as in the file.</p>" })}
-${bio.map((b, i) => card("press-bio-" + i, b.match(/\d+ words/)[0] + " bio", b.replace(/^\*\*\d+ words:\*\* /, ""), { nolimit: true })).join("")}
+${bio.map((b, i) => card(`press-bio-${i}`, `${b.match(/^\*\*(\d+ words):\*\*/)[1]} bio`, b.replace(/^\*\*\d+ words:\*\* /, ""), { nolimit: true })).join("")}
 ${card("press-quote", "Approved description of the demo (the only one to quote)", quote, { nolimit: true, badge: "derived", meta: "<p>The blockquote in the file, with its line breaks joined into one paragraph.</p>" })}
 <h4>Fact sheet</h4>${table(facts)}
 <h4>What is not shipped (state this plainly if asked)</h4>${ul(notShipped)}</div>`;
@@ -557,13 +592,41 @@ ${themes}
 
 // ---------------------------------------------------------------- 4. videos
 function videosHtml() {
-  const vts = fs.readFileSync(path.join(REPO, "website/lib/videos.ts"), "utf8");
-  const dts = fs.readFileSync(path.join(REPO, "website/lib/demos.ts"), "utf8");
-  const entries = (src) => src.split(/\n\s*slug: "/).slice(1).map((chunk) => {
-    const slug = chunk.slice(0, chunk.indexOf('"'));
-    const g = (k) => { const m = new RegExp("\\n\\s*" + k + ": \"?([^\",\\n]+)").exec(chunk); return m ? m[1] : ""; };
-    return { slug, title: g("title"), seconds: +g("seconds"), width: +g("width"), height: +g("height") };
-  });
+  const vts = readText(path.join(REPO, "website/lib/videos.ts"));
+  const dts = readText(path.join(REPO, "website/lib/demos.ts"));
+  const entries = (src) => {
+    const chunks = [];
+    let from = 0, scan = 0;
+    while (scan < src.length) {
+      const slug = src.indexOf('slug: "', scan);
+      if (slug < 0) break;
+      let start = slug, newline = -1;
+      while (start > 0 && /\s/.test(src[start - 1])) {
+        start--;
+        if (src[start] === "\n") newline = start;
+      }
+      scan = slug + 7;
+      if (newline < 0) continue;
+      chunks.push(src.slice(from, newline));
+      from = scan;
+    }
+    chunks.push(src.slice(from));
+    return chunks.slice(1).map((chunk) => {
+      const slug = chunk.slice(0, chunk.indexOf('"'));
+      const fields = chunk.split("\n").slice(1);
+      // The first line naming the field: `<field>:`, any spaces or tabs, then the value.
+      const field = (k) => {
+        for (const line of fields) {
+          const rest = line.trimStart();
+          if (!rest.startsWith(`${k}:`)) continue;
+          const match = /^[ \t]*"?([^",\n]+)/.exec(rest.slice(k.length + 1));
+          if (match) return match[1];
+        }
+        return "";
+      };
+      return { slug, title: field("title"), seconds: Number(field("seconds")), width: Number(field("width")), height: Number(field("height")) };
+    });
+  };
   const V1 = entries(vts), D1 = entries(dts);
   const want = [
     ["launch-video", V1, "videos", "Launch video", "Theme 1 (describe the edit); the YouTube upload for the Product Hunt gallery."],
@@ -628,16 +691,13 @@ ${table([["#", "Date", "ET", "UK", "Post", "Attach", "Thumbnail"], ...li])}
 
 // ---------------------------------------------------------------- assemble
 function build() {
-  fs.rmSync(OUT, { recursive: true, force: true });
-  fs.mkdirSync(OUT, { recursive: true });
-
   // files to publish
   for (const f of ["post-1-launch.png", "post-2-before-after.png", "post-3-model-never-touches-a-sample.png", "post-4-privacy.png", "post-5-help-wanted.png", "post-3-carousel.pdf"]) {
     addFile(`linkedin/${f}`, path.join(MK, "social-kit/linkedin/out", f));
   }
   const existing = [];
   for (const t of cap) for (const s of SIZES) existing.push(`img/${t.n}-${slugOf(t)}__${s}.png`);
-  for (const e of existing) if (!fs.existsSync(path.join(MK, "social-kit/images/out", e.replace("img/", "")))) throw new Error("theme image missing in the repo: " + e);
+  for (const e of existing) if (!fs.existsSync(checkInputPath(path.join(MK, "social-kit/images/out", e.replace("img/", ""))))) throw new Error(`theme image missing in the repo: ${e}`);
 
   const images = imagesHtml();
   const videos = videosHtml();
@@ -653,8 +713,8 @@ function build() {
     ["news", "Newsletter, Discord", newsletterHtml()],
     ["press", "Press kit", pressHtml()],
   ];
-  const css = fs.readFileSync(path.join(HERE, "launch-hub.css"), "utf8");
-  const js = fs.readFileSync(path.join(HERE, "launch-hub.client.js"), "utf8");
+  const css = readText(path.join(HERE, "launch-hub.css"));
+  const js = readText(path.join(HERE, "launch-hub.client.js"));
 
   const html = `<title>edytlab Launch Kit</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -694,12 +754,22 @@ ${js}</script>
   for (const j of JUMPS) if (!ids.has(j) && !html.includes(`id="${j}"`)) throw new Error("checklist jump target missing: " + j);
   for (const bad of ["whats-new-v070", "reel-v070"]) if (html.includes(bad)) throw new Error("stale reference " + bad);
 
+  // Validate every destination before clearing or writing any part of the output.
+  checkOutputPath(OUT);
+  const destinations = ["index.html", "files.json", "existing-files.txt",
+    "checklist-ids.txt", ...Object.keys(files)];
+  for (const name of destinations) {
+    checkOutputPath(path.join(OUT, name));
+  }
+  fs.rmSync(OUT, { recursive: true, force: true });
+  fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, "index.html"), html);
   for (const [pubPath, src] of Object.entries(files)) {
     const dst = path.join(OUT, pubPath);
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(src, dst);
   }
+  // Binary path order is part of files.json output; locale collation would change its bytes.
   const map = Object.fromEntries(Object.keys(files).sort().map((p) => [p, path.join(OUT, p)]));
   fs.writeFileSync(path.join(OUT, "files.json"), JSON.stringify(map, null, 2) + "\n");
   fs.writeFileSync(path.join(OUT, "existing-files.txt"), existing.join("\n") + "\n");
@@ -708,3 +778,10 @@ ${js}</script>
   console.log(`wrote ${path.relative(REPO, path.join(OUT, "index.html"))}: ${html.length} bytes, ${cardN} copy cards, ${CHECK_ITEMS.length} checklist items, ${Object.keys(files).length} files to publish, ${existing.length} existing theme images`);
 }
 build();
+}
+
+if (process.argv.includes("--help")) {
+  console.log("Usage: node marketing/social-kit/artifact/launch-hub.mjs\nBuild the launch hub into artifact/out/launch-hub/, copying existing assets without publishing.");
+} else {
+  main();
+}

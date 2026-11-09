@@ -15,8 +15,28 @@ lines in spec.LINES were written for the earlier takes, see the README):
   build.py reel <key> narrated|both     (highlights-es for the Spanish reel)
   build.py demo <BT|EI|MM>              narrated version of a full website demo (+ srt)
 """
-import json, os, subprocess, sys
-from render import *
+import json
+import os
+import re
+import subprocess
+import sys
+if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+    print(__doc__)
+    print("EDYTLAB_REEL_ROOT and outputs must resolve inside marketing/reels. Inputs must also "
+          "be inside the project, except the three repository website demo recordings.")
+    raise SystemExit(0)
+
+from render import (
+    WORK,
+    contact_sheet,
+    loudnorm_two_pass,
+    measure_loudness,
+    mux,
+    render_app_audio,
+    render_video,
+)
+from spec import DEMO_DIR, DEMOS, ES_LINES, ES_TEXT, REELS, REEL_ORDER, ROOT, SITE_URL
+from demo_paths import REELS_DIR, checked_demo_input, checked_reel_path
 import cues as C
 
 OUT = f"{ROOT}/out"
@@ -45,7 +65,21 @@ def get_tl(key, narrated=False):
 
 
 def mean_volume(path):
-    p = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-i", path, "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True)
+    """Read the mean loudness reported by the existing volume-detect filter."""
+    path = checked_reel_path(path)
+    p = subprocess.run(["ffmpeg",
+                        "-nostdin",
+                        "-hide_banner",
+                        "-i",
+                        path,
+                        "-af",
+                        "volumedetect",
+                        "-f",
+                        "null",
+                        "-"],
+                       capture_output=True,
+                       text=True,
+                       check=False)
     return float(re.search(r"mean_volume:\s+(-?[\d.]+) dB", p.stderr).group(1))
 
 
@@ -87,6 +121,7 @@ def wrap2(text, width=42):
 
 def write_srt(tl, timing, path):
     """One entry per narrated cue, timed from the character alignment (first word in -> last word out)."""
+    path = checked_reel_path(path)
     entries = []
     cs = [c for c in tl["cues"] if c["id"] in timing]
     for i, c in enumerate(cs):
@@ -113,8 +148,9 @@ def write_plain_cues(tl, path):
                note="Plain reel: app audio only, no narration. Cut lengths are the edit list's (spec.py). "
                     "The narration lines for the earlier takes are in transcripts.md.",
                cues=tl["cues"])
-    json.dump(doc, open(path, "w"), indent=2, ensure_ascii=False)
-    open(path, "a").write("\n")
+    with open(checked_reel_path(path), "w") as output:
+        json.dump(doc, output, indent=2, ensure_ascii=False)
+        output.write("\n")
 
 
 def write_cues(tl, timing, path, sfx=None, audio_rel=None, video_name=None):
@@ -127,6 +163,8 @@ def write_cues(tl, timing, path, sfx=None, audio_rel=None, video_name=None):
         if t:
             c["clip"] = t["clip"]
             c["clip_speech_seconds"] = t["speech_end"]
+            # Exact identity sentinel, not an approximate measurement: prepare()
+            # writes 1.0 when it copies a clip without applying a tempo filter.
             if t["tempo"] != 1.0:
                 c["clip_tempo"] = t["tempo"]
         cues.append(c)
@@ -138,7 +176,8 @@ def write_cues(tl, timing, path, sfx=None, audio_rel=None, video_name=None):
         doc["language"] = tl["lang"]
     if sfx:
         doc["sfx"] = sfx
-    json.dump(doc, open(path, "w"), indent=2, ensure_ascii=False)
+    with open(checked_reel_path(path), "w") as output:
+        json.dump(doc, output, indent=2, ensure_ascii=False)
 
 
 def write_demo_cues(code, path):
@@ -146,13 +185,19 @@ def write_demo_cues(code, path):
     starts). The lines are spec.LINES, written for the earlier takes, so the file says so."""
     tl = C.build_demo(code)
     doc = dict(video=f"{DEMOS[code]['slug']}.mp4", duration=tl["duration"], narration_status=STATUS, cues=tl["cues"])
-    json.dump(doc, open(path, "w"), indent=2, ensure_ascii=False)
-    open(path, "a").write("\n")
+    with open(checked_reel_path(path), "w") as output:
+        json.dump(doc, output, indent=2, ensure_ascii=False)
+        output.write("\n")
     return C.check(tl)
 
 
 def run_add(video, cues_path, audio_dir, out):
-    p = subprocess.run([ADD, video, cues_path, audio_dir, out], capture_output=True, text=True)
+    """Run the narration mixer and surface its output on failure."""
+    for path in (cues_path, audio_dir, out):
+        checked_reel_path(path)
+    checked_demo_input(video)
+    p = subprocess.run([ADD, video, cues_path, audio_dir, out],
+                       capture_output=True, text=True, check=False)
     sys.stderr.write(p.stderr)
     if p.returncode != 0:
         raise RuntimeError("add-narration failed:\n" + p.stdout + p.stderr)
@@ -160,8 +205,13 @@ def run_add(video, cues_path, audio_dir, out):
 
 
 def build_plain(key):
-    os.makedirs(OUT, exist_ok=True)
+    """Build one plain reel's cues and audio inside the reels project."""
+    checked_reel_path(OUT)
     tl = get_tl(key)
+    for c in tl["cues"]:
+        if c["kind"] in ("step", "listen"):
+            checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4")
+    os.makedirs(checked_reel_path(OUT), exist_ok=True)
     res = dict(key=key, file=tl["file"], duration=tl["duration"])
     write_plain_cues(tl, f"{OUT}/{tl['file']}-cues.json")
     # app audio, normalised once
@@ -183,6 +233,9 @@ def build_reel_key(key, what="plain"):
     if what in ("narrated", "both"):
         import narrate as N
         tl = get_tl(key, narrated=True)
+        for c in tl["cues"]:
+            if c["kind"] in ("step", "listen"):
+                checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4")
         timing, report = N.prepare(tl)
         bad = [r for r in report if r[1] in ("MISSING", "OVER")]
         if bad:
@@ -210,6 +263,7 @@ def build_demo(code):
     import narrate as N
     tl = C.build_demo(code)
     d = DEMOS[code]
+    checked_demo_input(f"{DEMO_DIR}/{d['slug']}.mp4")
     timing, report = N.prepare(tl)
     bad = [r for r in report if r[1] in ("MISSING", "OVER")]
     if bad:
@@ -224,6 +278,7 @@ def build_demo(code):
 
 
 if __name__ == "__main__":
+    checked_reel_path(ROOT)
     cmd = sys.argv[1]
     if cmd == "reel":
         res = build_reel_key(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "plain")

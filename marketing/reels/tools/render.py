@@ -9,11 +9,18 @@ Where things sit on the 1080x1920 canvas. Everything this file adds (captions, p
 bar, card text) stays inside SAFE: 120 px clear of both sides (the right side is where Reels,
 Shorts and TikTok put their buttons) and above the bottom 20 % (their caption and sound bar). The
 recording itself runs edge to edge. `assert_safe` checks each layer when it is drawn.
+
+Local work, intermediate and output paths must resolve inside marketing/reels,
+including symlinks. Copy external /tmp files into that project before rendering.
 """
-import io, json, math, os, re, subprocess, sys
+import io
+import os
+import re
+import subprocess
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
-from spec import *
-from cues import build_reel, FPS
+from spec import DEMO_DIR, DEMOS, ES_TEXT, REELS, ROOT, SITE_URL
+from demo_paths import checked_demo_input, checked_reel_path
+from cues import FPS
 import brand   # the site's colours and Inter, from website/app/globals.css and the `fonts-inter` package, as make-demo-videos.mjs uses them
 from brand import font, BACKGROUND, CARD, FOREGROUND, PRIMARY, MUTED_FG, BORDER, GRADIENT, AURORA
 
@@ -34,8 +41,12 @@ GRAIN = float(os.environ.get("REEL_GRAIN", "0.5"))   # std. dev. (8-bit levels) 
 
 
 def run(cmd, **kw):
+    """Run a media command and retain the caller's subprocess options."""
     cmd = ["nice", "-n", "10"] + cmd
-    p = subprocess.run(cmd, capture_output=True, text=True, **kw)
+    requested_check = kw.pop("check", False)
+    p = subprocess.run(
+        cmd, capture_output=True, text=True, check=requested_check, **kw
+    )
     if p.returncode != 0:
         raise RuntimeError("command failed: " + " ".join(cmd[:6]) + "\n" + p.stderr[-2500:])
     return p
@@ -145,6 +156,8 @@ def wrap(text, f, max_w, max_lines=2):
 
 # ------------------------------------------------------------------ cards
 def hook_card(path, title, sub):
+    """Draw the hook card to a validated project destination."""
+    checked_reel_path(path)
     bg = background(CARD_WASH, GRAIN, glow=False).convert("RGBA")
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     wordmark(layer, bg, W / 2, 330, 84, 64)
@@ -168,10 +181,12 @@ def hook_card(path, title, sub):
             y += 52
     assert_safe(layer, "hook card", top=SAFE_TOP)
     bg.alpha_composite(shadowed(layer, blur=8, off=6, alpha=0.45))
-    bg.convert("RGB").save(path)
+    bg.convert("RGB").save(checked_reel_path(path))
 
 
 def end_card(path, free="Free, open source"):
+    """Draw the end card to a validated project destination."""
+    checked_reel_path(path)
     bg = background(CARD_WASH, GRAIN, glow=False).convert("RGBA")
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
@@ -189,7 +204,7 @@ def end_card(path, free="Free, open source"):
     put_text(layer, bg, (W / 2, 1150), "macOS  ·  Windows  ·  Linux", font("Medium", 46), MUTED_FG, "ma", "end platforms")
     assert_safe(layer, "end card", top=SAFE_TOP)
     bg.alpha_composite(shadowed(layer, blur=8, off=6, alpha=0.45))
-    bg.convert("RGB").save(path)
+    bg.convert("RGB").save(checked_reel_path(path))
 
 
 # ------------------------------------------------------------- caption stills
@@ -287,11 +302,14 @@ def accent_count(text):
 
 
 def blank_caption(path):
-    Image.new("RGBA", (W, CAP_H), (0, 0, 0, 0)).save(path)
+    """Write a transparent caption frame inside the project."""
+    Image.new("RGBA", (W, CAP_H), (0, 0, 0, 0)).save(checked_reel_path(path))
 
 
 # ------------------------------------------------------------ group layers
 def group_layer(path, bg, pill_text, note=True, note_text="Real screen recording · waits sped up"):
+    """Write the pill, note and progress layer inside the project."""
+    checked_reel_path(path)
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     if pill_text:
@@ -305,13 +323,15 @@ def group_layer(path, bg, pill_text, note=True, note_text="Real screen recording
     # progress track
     d.rounded_rectangle([SAFE_L, BAR_Y, SAFE_R - 1, BAR_Y + 5], radius=3, fill=rgba(FOREGROUND, 36))
     assert_safe(layer, "pill, note and progress track")
-    layer.save(path)
+    layer.save(checked_reel_path(path))
 
 
 def bar_image(path):
+    """Write the progress bar image inside the project."""
+    checked_reel_path(path)
     im = Image.new("RGBA", (SAFE_R - SAFE_L, 6), (0, 0, 0, 0))
     ImageDraw.Draw(im).rounded_rectangle([0, 0, SAFE_R - SAFE_L - 1, 5], radius=3, fill=rgba(PRIMARY))
-    im.save(path)
+    im.save(checked_reel_path(path))
 
 
 # --------------------------------------------------------------- build graph
@@ -324,7 +344,7 @@ def caption_timeline(tl, work, mode, words):
     segs = [c for c in tl["cues"] if c["kind"] in ("step", "listen")]
     t0 = tl["cues"][0]["end"] if tl["cues"][0]["kind"] == "hook" else 0.0
     t_end = [c for c in tl["cues"] if c["kind"] == "end"][0]["start"] if any(c["kind"] == "end" for c in tl["cues"]) else tl["duration"]
-    os.makedirs(f"{work}/caps", exist_ok=True)
+    os.makedirs(checked_reel_path(f"{work}/caps"), exist_ok=True)
     blank = f"{work}/caps/blank.png"
     blank_caption(blank)
     out = []
@@ -360,12 +380,24 @@ def caption_timeline(tl, work, mode, words):
             if si == 0:  # fade-in ramp over the first 3 frames
                 for k, al in enumerate((0.34, 0.67)):
                     p2 = f"{work}/caps/c{n:04d}.png"; n += 1
-                    caption_image(tokens, acc, cur if cur is not None else -1, al, "words" if use_words else "plain").save(p2)
+                    caption_image(
+                        tokens,
+                        acc,
+                        cur if cur is not None else -1,
+                        al,
+                        "words" if use_words else "plain").save(
+                        checked_reel_path(p2))
                     out.append((p2, 1))
                 sa += 2
                 if sb <= sa:
                     continue
-            caption_image(tokens, acc, cur if cur is not None else -1, 1.0, "words" if use_words else "plain").save(png)
+            caption_image(
+                tokens,
+                acc,
+                cur if cur is not None else -1,
+                1.0,
+                "words" if use_words else "plain").save(
+                checked_reel_path(png))
             out.append((png, sb - sa))
         cursor = b
     total = fr(t_end - t0) + FPS
@@ -375,58 +407,23 @@ def caption_timeline(tl, work, mode, words):
 
 
 def write_concat(path, items):
-    with open(path, "w") as f:
+    """Write a concat manifest with validated, safely quoted frame paths."""
+    items = [(os.fspath(png), frames) for png, frames in items]
+    for png, _ in items:
+        checked_reel_path(png)
+        if "\n" in png or "\r" in png:
+            raise ValueError(f"Line breaks cannot be represented in a concat file: {png!r}")
+    with open(checked_reel_path(path), "w") as f:
         f.write("ffconcat version 1.0\n")
         for png, n in items:
-            f.write(f"file '{png}'\nduration {n / FPS:.6f}\n")
-        f.write(f"file '{items[-1][0]}'\n")
+            escaped = png.replace("'", "'\\''")
+            f.write(f"file '{escaped}'\nduration {n / FPS:.6f}\n")
+        escaped = items[-1][0].replace("'", "'\\''")
+        f.write(f"file '{escaped}'\n")
 
 
-def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
-    name = tl["name"]
-    r = REELS[name]
-    work = f"{WORK}/{tl['file']}-{mode}"
-    os.makedirs(work, exist_ok=True)
-    words = words or {}
-    cues = tl["cues"]
-    hook = next((c for c in cues if c["kind"] == "hook"), None)
-    end = next((c for c in cues if c["kind"] == "end"), None)
-    segs = [c for c in cues if c["kind"] in ("step", "listen")]
-    t0 = hook["end"] if hook else 0.0
-    demo_dur = (end["start"] if end else tl["duration"]) - t0
-    demo_frames = fr(demo_dur)
-
-    inputs, idx = [], 0
-    if hook:
-        hp = f"{work}/hook.png"
-        hook_card(hp, hook["title"], hook.get("sub", ""))
-        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(hook['end']-hook['start'])/FPS:.4f}", "-i", hp]
-        hidx = idx; idx += 1
-    sidx = []
-    for c in segs:
-        s = c["source"]
-        inputs += ["-ss", f"{s['start']:.3f}", "-t", f"{(c['end']-c['start'])+0.5:.3f}", "-i", f"{DEMO_DIR}/{s['demo']}.mp4"]
-        sidx.append(idx); idx += 1
-    if end:
-        ep = f"{work}/end.png"
-        end_card(ep, ES_TEXT["free"] if tl.get("lang") == "es" else "Free, open source")
-        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(end['end']-end['start'])/FPS:.4f}", "-i", ep]
-        eidx = idx; idx += 1
-    # the background the recording sits on
-    bp = f"{work}/bg.png"
-    bgimg = background()
-    bgimg.save(bp)
-    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bp]
-    bgidx = idx; idx += 1
-    bar = f"{work}/bar.png"
-    bar_image(bar)
-    # caption layer
-    items = caption_timeline(tl, work, mode, words)
-    cl = f"{work}/caps.txt"
-    write_concat(cl, items)
-    inputs += ["-f", "concat", "-safe", "0", "-i", cl]
-    cidx = idx; idx += 1
-    # group layers (pill per demo run, note everywhere)
+def _pill_groups(tl, segs, t0):
+    """Merge consecutive demo cuts that show the same pill: [start, end, pill] on the demo timeline."""
     groups = []  # (start, end, pill)
     for c in segs:
         code = c["source"]["code"]
@@ -436,17 +433,12 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
             groups[-1][1] = b
         else:
             groups.append([a, b, pill])
-    gidx = []
-    for gi, (a, b, pill) in enumerate(groups):
-        gp = f"{work}/group{gi}.png"
-        group_layer(gp, bgimg, pill, True, ES_TEXT["note"] if tl.get("lang") == "es" else "Real screen recording · waits sped up")
-        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", gp]
-        gidx.append(idx); idx += 1
-    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bar]
-    baridx = idx; idx += 1
+    return groups
 
+
+def _demo_cut_filters(segs, sidx):
+    """Filter lines that trim each demo cut (input sidx[k]) to its exact frame count and join them as [vc]."""
     f = []
-    # demo cuts -> exact frame counts
     labels = []
     for k, (c, i) in enumerate(zip(segs, sidx)):
         nf = fr(c["end"] - c["start"])
@@ -454,19 +446,12 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
                  f"tpad=stop_mode=clone:stop=4,trim=end_frame={nf},setpts=N/({FPS}*TB)[v{k}]")
         labels.append(f"[v{k}]")
     f.append("".join(labels) + f"concat=n={len(labels)}:v=1:a=0[vc]")
-    f.append(f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]")
-    f.append(f"[bg][vc]overlay=0:{FRAME_Y}:format=auto[b1]")
-    f.append(f"[{cidx}:v]fps={FPS},format=rgba,setsar=1[cap]")
-    f.append(f"[b1][cap]overlay=0:{CAP_Y}:format=auto:eof_action=pass[b2]")
-    cur = "b2"
-    for gi, ((a, b, pill), i) in enumerate(zip(groups, gidx)):
-        f.append(f"[{i}:v]format=rgba,setsar=1[gl{gi}]")
-        f.append(f"[{cur}][gl{gi}]overlay=0:0:format=auto:enable='between(t,{a:.3f},{b:.3f})':eof_action=pass[g{gi}]")
-        cur = f"g{gi}"
-    f.append(f"[{baridx}:v]format=rgba,setsar=1[bar]")
-    f.append(f"color=c=0x00000000:s={SAFE_R-SAFE_L}x6:r={FPS},format=rgba[bcan]")
-    f.append(f"[bcan][bar]overlay=x='-w+w*t/{demo_dur:.3f}':y=0:eval=frame:format=auto:shortest=1[bfill]")
-    f.append(f"[{cur}][bfill]overlay={SAFE_L}:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]")
+    return f
+
+
+def _card_concat_filters(hook, hidx, end, eidx):
+    """Filter lines that put the hook card (input hidx) before [demo] and the end card (input eidx) after it."""
+    f = []
     parts = []
     if hook:   # no fade in: the first frame is the card, which is what a feed shows before it plays
         hf = fr(hook["end"] - hook["start"])
@@ -479,12 +464,132 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
                  f"fade=t=out:st={ef/FPS-0.25:.3f}:d=0.25,trim=end_frame={ef},setpts=N/({FPS}*TB),setsar=1,format=yuv420p[ed]")
         parts.append("[ed]")
     f.append("".join(parts) + f"concat=n={len(parts)}:v=1:a=0[outv]")
+    return f
+
+
+def _card_cue(cues, kind):
+    """The reel's hook or end cue, or None when it has none."""
+    return next((c for c in cues if c["kind"] == kind), None)
+
+
+def _localized(tl, key, english):
+    """The Spanish reel's ES_TEXT[key]; the English text for every other reel."""
+    return ES_TEXT[key] if tl.get("lang") == "es" else english
+
+
+def _card_and_cut_inputs(tl, work, hook, end, segs, demo_inputs):
+    """Draw the hook and end cards and list them, with the demo cuts between, as ffmpeg inputs.
+
+    Returns the input arguments, the input indexes of the hook card (or None), of each cut and of
+    the end card (or None), and the next free input index."""
+    inputs, idx = [], 0
+    hidx = eidx = None   # the card inputs, when the reel has the card
+    if hook:
+        hp = f"{work}/hook.png"
+        hook_card(hp, hook["title"], hook.get("sub", ""))
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(hook['end']-hook['start'])/FPS:.4f}", "-i", hp]
+        hidx = idx; idx += 1
+    sidx = []
+    for c, demo in zip(segs, demo_inputs):
+        s = c["source"]
+        inputs += ["-ss", f"{s['start']:.3f}", "-t", f"{(c['end']-c['start'])+0.5:.3f}", "-i", demo]
+        sidx.append(idx); idx += 1
+    if end:
+        ep = f"{work}/end.png"
+        end_card(ep, _localized(tl, "free", "Free, open source"))
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(end['end']-end['start'])/FPS:.4f}", "-i", ep]
+        eidx = idx; idx += 1
+    return inputs, hidx, sidx, eidx, idx
+
+
+def _overlay_inputs(tl, work, mode, words, groups, demo_dur, idx):
+    """Draw the background, caption, group and progress-bar layers and list them as ffmpeg inputs
+    numbered from idx. Returns the input arguments and the input indexes of the background, the
+    caption layer, each group layer and the bar."""
+    inputs = []
+    # the background the recording sits on
+    bp = f"{work}/bg.png"
+    bgimg = background()
+    bgimg.save(checked_reel_path(bp))
+    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bp]
+    bgidx = idx; idx += 1
+    bar = f"{work}/bar.png"
+    bar_image(bar)
+    # caption layer
+    items = caption_timeline(tl, work, mode, words)
+    cl = f"{work}/caps.txt"
+    write_concat(cl, items)
+    inputs += ["-f", "concat", "-safe", "0", "-i", cl]
+    cidx = idx; idx += 1
+    # group layers (pill per demo run, note everywhere)
+    gidx = []
+    for gi, (_start, _end, pill) in enumerate(groups):
+        gp = f"{work}/group{gi}.png"
+        group_layer(gp, bgimg, pill, True, _localized(tl, "note", "Real screen recording · waits sped up"))
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", gp]
+        gidx.append(idx); idx += 1
+    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bar]
+    baridx = idx
+    return inputs, bgidx, cidx, gidx, baridx
+
+
+def _layer_filters(groups, gidx, bgidx, cidx, baridx, demo_dur, demo_frames):
+    """Filter lines that lay the joined cuts ([vc]) on the background, then the caption, group and
+    progress-bar layers, trimmed to the demo's frame count as [demo]."""
+    f = [
+        f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]",
+        f"[bg][vc]overlay=0:{FRAME_Y}:format=auto[b1]",
+        f"[{cidx}:v]fps={FPS},format=rgba,setsar=1[cap]",
+        f"[b1][cap]overlay=0:{CAP_Y}:format=auto:eof_action=pass[b2]",
+    ]
+    cur = "b2"
+    for gi, ((a, b, _pill), i) in enumerate(zip(groups, gidx)):
+        f.append(f"[{i}:v]format=rgba,setsar=1[gl{gi}]")
+        f.append(f"[{cur}][gl{gi}]overlay=0:0:format=auto:enable='between(t,{a:.3f},{b:.3f})':eof_action=pass[g{gi}]")
+        cur = f"g{gi}"
+    return f + [
+        f"[{baridx}:v]format=rgba,setsar=1[bar]",
+        f"color=c=0x00000000:s={SAFE_R-SAFE_L}x6:r={FPS},format=rgba[bcan]",
+        f"[bcan][bar]overlay=x='-w+w*t/{demo_dur:.3f}':y=0:eval=frame:format=auto:shortest=1[bfill]",
+        f"[{cur}][bfill]overlay={SAFE_L}:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]",
+    ]
+
+
+def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
+    """Compose a reel using validated project work and output paths."""
+    if tl["name"] not in REELS:   # only a reel's timeline renders here
+        raise KeyError(tl["name"])
+    work = f"{WORK}/{tl['file']}-{mode}"
+    checked_reel_path(out_path or f"{work}/video.mp4")
+    cues = tl["cues"]
+    segs = [c for c in cues if c["kind"] in ("step", "listen")]
+    demo_inputs = [checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4") for c in segs]
+    os.makedirs(checked_reel_path(work), exist_ok=True)
+    words = words or {}
+    hook = _card_cue(cues, "hook")
+    end = _card_cue(cues, "end")
+    t0 = hook["end"] if hook else 0.0
+    demo_dur = (end["start"] if end else tl["duration"]) - t0
+    demo_frames = fr(demo_dur)
+
+    inputs, hidx, sidx, eidx, idx = _card_and_cut_inputs(tl, work, hook, end, segs, demo_inputs)
+    groups = _pill_groups(tl, segs, t0)
+    layers, bgidx, cidx, gidx, baridx = _overlay_inputs(tl, work, mode, words, groups, demo_dur, idx)
+    inputs += layers
+
+    f = _demo_cut_filters(segs, sidx)
+    f += _layer_filters(groups, gidx, bgidx, cidx, baridx, demo_dur, demo_frames)
+    f += _card_concat_filters(hook, hidx, end, eidx)
     script = f"{work}/graph.txt"
-    open(script, "w").write(";\n".join(f))
+    with open(checked_reel_path(script), "w") as graph_file:
+        graph_file.write(";\n".join(f))
     out_path = out_path or f"{work}/video.mp4"
+    checked_reel_path(out_path)
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[outv]", "-an",
            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
            "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS, "-movflags", "+faststart", out_path]
+    for demo in demo_inputs:
+        checked_demo_input(demo)
     run(cmd)
     return out_path
 
@@ -492,16 +597,20 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
 # ----------------------------------------------------------------- app audio
 def demo_wav(slug):
     """Whole-file 48 kHz stereo decode with gaps filled, so absolute times line up with the picture."""
-    os.makedirs(f"{WORK}/audio", exist_ok=True)
     p = f"{WORK}/audio/{slug}.wav"
+    checked_reel_path(p)
     if not os.path.exists(p):
-        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", f"{DEMO_DIR}/{slug}.mp4", "-vn", "-af",
+        demo = checked_demo_input(f"{DEMO_DIR}/{slug}.mp4")
+        os.makedirs(checked_reel_path(f"{WORK}/audio"), exist_ok=True)
+        checked_demo_input(demo)
+        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", demo, "-vn", "-af",
              "aresample=48000:async=1:first_pts=0", "-ac", "2", "-c:a", "pcm_s16le", p])
     return p
 
 
 def render_app_audio(tl, out_wav):
     """Concatenate the demo audio of every cut (silence under the cards) to 48 kHz stereo wav."""
+    checked_reel_path(out_wav)
     name = tl["file"]
     inputs, f, labels = [], [], []
     for k, c in enumerate(tl["cues"]):
@@ -518,15 +627,18 @@ def render_app_audio(tl, out_wav):
         labels.append(f"[a{k}]")
     f.append("".join(labels) + f"concat=n={len(labels)}:v=0:a=1[aout]")
     script = f"{WORK}/{name}-audio-graph.txt"
-    open(script, "w").write(";\n".join(f))
+    with open(checked_reel_path(script), "w") as graph_file:
+        graph_file.write(";\n".join(f))
     run(["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[aout]",
         "-c:a", "pcm_s16le", "-ar", "48000", out_wav])
     return out_wav
 
 
 def measure_loudness(path):
+    """Measure a project audio file with the existing ebur128 filter."""
+    path = checked_reel_path(path)
     p = subprocess.run(["nice", "-n", "10", "ffmpeg", "-nostdin", "-hide_banner", "-i", path, "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=False)
     tail = p.stderr[p.stderr.rindex("Summary:"):]
     g = lambda rx: float(re.search(rx, tail).group(1))
     return dict(integrated_lufs=g(r"I:\s+(-?[\d.]+) LUFS"), lra=g(r"LRA:\s+([\d.]+) LU"), true_peak_dbtp=g(r"Peak:\s+(-?[\d.]+) dBFS"))
@@ -537,6 +649,7 @@ def loudnorm_two_pass(in_wav, out_m4a, target=-14.0, tp=-1.0, lra=11, max_peak=-
     Plain loudnorm cannot raise mastered music (peaks near 0 dBFS) to -14 LUFS without touching
     the peaks, so: measure, apply gain, catch the peaks with a lookahead limiter, encode, then
     measure the AAC itself and iterate gain/ceiling until both numbers hold."""
+    in_wav, out_m4a = map(checked_reel_path, (in_wav, out_m4a))
     p = run(["ffmpeg", "-nostdin", "-hide_banner", "-i", in_wav, "-af", "ebur128=peak=true", "-f", "null", "-"])
     tail = p.stderr[p.stderr.rindex("Summary:"):]
     i0 = float(re.search(r"I:\s+(-?[\d.]+) LUFS", tail).group(1))
@@ -560,12 +673,16 @@ def loudnorm_two_pass(in_wav, out_m4a, target=-14.0, tp=-1.0, lra=11, max_peak=-
 
 
 def mux(video, audio, out):
+    """Copy project video and audio streams into a project output."""
+    video, audio, out = map(checked_reel_path, (video, audio, out))
     run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", video, "-i", audio, "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
          "-movflags", "+faststart", "-shortest", out])
 
 
 def contact_sheet(video, tl, out_png, cols=4, rows=3, tw=270):
     """12 labelled frames: the middle of each cue (evenly thinned if more than 12)."""
+    video = checked_reel_path(video)
+    checked_reel_path(out_png)
     cues = tl["cues"]
     pts = [(c["id"], (c["start"] + c["end"]) / 2) for c in cues]
     if len(pts) > cols * rows:
@@ -583,13 +700,16 @@ def contact_sheet(video, tl, out_png, cols=4, rows=3, tw=270):
     d = ImageDraw.Draw(sheet)
     f = font("SemiBold", 18)
     for i, (cid, t) in enumerate(pts):
-        p = subprocess.run(["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}", "-i", video, "-frames:v", "1",
-                            "-f", "image2pipe", "-vcodec", "png", "-"], capture_output=True)
+        p = subprocess.run(
+            ["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}",
+             "-i", video, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+            capture_output=True, check=False,
+        )
         im = Image.open(io.BytesIO(p.stdout)).convert("RGB").resize((tw, th), Image.LANCZOS)
         x, y = (i % cols) * tw, (i // cols) * th
         sheet.paste(im, (x, y))
         d.rectangle([x, y, x + 120, y + 24], fill=(0, 0, 0))
         d.text((x + 4, y + 2), f"{cid} {t:5.1f}s", font=f, fill=(255, 255, 0))
-    sheet.save(out_png)
+    sheet.save(checked_reel_path(out_png))
 
 

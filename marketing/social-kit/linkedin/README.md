@@ -112,6 +112,8 @@ It does not judge whether a slide is any good. Look at the output after a change
 | `@fontsource-variable/geist-mono` (a dependency of `apps/desktop`) | the mono face, the app's own; the site's mono is a system stack that differs per machine, which would make every render different |
 | `apps/desktop/src-tauri/tauri.conf.json`, `docs/tools-reference.md` | the version and the tool count on the images |
 
+These are read-only shared inputs, and the only ones outside `marketing/social-kit/` the renders read: each must be listed in [`../artifact/paths.mjs`](../artifact/paths.mjs) (`SHARED_SOURCES`, and `PACKAGE_SOURCES` for the mono face) and be the regular file at its own path, so a link that sends one elsewhere is refused before anything is written.
+
 What the site keeps in Tailwind classes (type scale, tracking, the `rounded-xl`
 card, the panel header, the stats strip) is in [`base.css`](base.css), each rule
 with a comment naming the component it was read from. The site's px are doubled

@@ -20,15 +20,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 OUT=marketing/social-kit/images/frames
-mkdir -p "$OUT"
-
-# grab <name> <video> <seconds> <x> <y> <w> <h>
-grab() {
-  ffmpeg -v error -y -ss "$3" -i "$2" -frames:v 1 -vf "crop=$6:$7:$4:$5" "$OUT/$1.png"
-}
-
 V=marketing/promo-v0.7.0/out
 D=website/public/demos
+
+# Every frame, as grab <name> <video> <seconds> <x> <y> <w> <h>.
+frames() {
 
 # 1 Describe the edit: the v0.7.0 video (edytlab-v0.7.0-16x9.mp4) at 11 s (1920x1080 video; the app's panel is x100 y150 1720x835).
 # The typed request, then the Fade and Gain calls. Crops start below the ruler.
@@ -58,3 +54,28 @@ grab t5-pin  $V/edytlab-v0.7.0-16x9.mp4 28.5 420 170 640 520
 # "1.7x speed" badge is above the crop).
 grab t6-chat $V/edytlab-v0.7.0-16x9.mp4 44 620 240 1190 720
 grab t6-pin  $V/edytlab-v0.7.0-16x9.mp4 44 900 240 910 740
+}
+
+# Check every recording and frame before writing any: the recordings must be the
+# fixed read-only shared sources in ../artifact/paths.mjs, the frames stay here.
+INPUTS=()
+OUTPUTS=("$OUT")
+grab() { INPUTS+=("$2"); OUTPUTS+=("$OUT/$1.png"); }
+frames
+node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+const [count, ...paths] = process.argv.slice(1);
+const { checkInputPath, checkOutputPath } = await import(pathToFileURL("marketing/social-kit/artifact/paths.mjs"));
+try {
+  paths.slice(0, +count).forEach(checkInputPath);
+  paths.slice(+count).forEach(checkOutputPath);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}' "${#INPUTS[@]}" "${INPUTS[@]}" "${OUTPUTS[@]}"
+
+mkdir -p "$OUT"
+grab() {
+  ffmpeg -v error -y -ss "$3" -i "$2" -frames:v 1 -vf "crop=$6:$7:$4:$5" "$OUT/$1.png"
+}
+frames
