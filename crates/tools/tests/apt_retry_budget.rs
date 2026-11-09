@@ -202,18 +202,26 @@ fn every_workflow_carrying_this_step_has_the_same_budget() {
 fn the_retry_recovers_dpkg_before_trying_again() {
     for name in WORKFLOWS {
         let yaml = read_workflow(name);
-        let step = apt_step(&yaml);
-        let retry = &step[step
-            .find("install_deps || {")
-            .unwrap_or_else(|| panic!("{name}: no `install_deps || {{` retry"))..];
-        let at = |needle: &str| {
+        // Line by line, trimmed: a Windows checkout has CRLF line endings.
+        let retry: Vec<&str> = apt_step(&yaml)
+            .lines()
+            .map(str::trim)
+            .skip_while(|line| *line != "install_deps || {")
+            .collect();
+        assert!(!retry.is_empty(), "{name}: no `install_deps || {{` retry");
+        let at = |what: &str, is: &dyn Fn(&str) -> bool| {
             retry
-                .find(needle)
-                .unwrap_or_else(|| panic!("{name}: the retry has no `{needle}`"))
+                .iter()
+                .position(|line| is(line))
+                .unwrap_or_else(|| panic!("{name}: the retry has no {what}"))
         };
-        let configure = at("sudo timeout 60 dpkg --configure -a");
-        let fix = at("sudo timeout 120 apt-get -f install -y");
-        let second = at("\n            install_deps\n");
+        let configure = at("`sudo timeout 60 dpkg --configure -a`", &|line| {
+            line.starts_with("sudo timeout 60 dpkg --configure -a")
+        });
+        let fix = at("`sudo timeout 120 apt-get -f install -y`", &|line| {
+            line.starts_with("sudo timeout 120 apt-get -f install -y")
+        });
+        let second = at("second `install_deps`", &|line| line == "install_deps");
         assert!(
             configure < fix && fix < second,
             "{name}: the retry must run `dpkg --configure -a`, then `apt-get -f \
