@@ -76,7 +76,7 @@ jobs:
       # The same step as ci.yml's Linux leg, where its budget and the Azure
       # mirror stalls are explained (apt_retry_budget.rs checks both copies).
       - name: Install Linux build deps
-        timeout-minutes: 18
+        timeout-minutes: 19
         run: |
           # https:// because plain http to archive.ubuntu.com stalls on these
           # runners: on 2026-11-09 each .deb asked for over http hung 35-40 s
@@ -110,6 +110,22 @@ jobs:
           install_deps || {
             echo "::warning::apt failed once — retrying on a fresh connection"
             sleep 10
+            # A first attempt that `timeout 300` stopped mid-unpack leaves
+            # dpkg's journal pending, and every apt-get after it then refuses
+            # at once: "E: dpkg was interrupted, you must manually run 'sudo
+            # dpkg --configure -a'", exit 100 (#957's Linux leg at 332c6a5).
+            # `dpkg --configure -a` replays the journal and configures what was
+            # unpacked. It exits 1 when one of those packages depends on one
+            # that was never unpacked, which is expected here, so its status
+            # does not end the step. `apt-get -f install` with no package names
+            # then installs those dependencies from the archives the first
+            # attempt already downloaded and re-unpacks the package the kill cut
+            # short; given the package list as well, it refuses with "Unmet
+            # dependencies". Both do nothing when the first attempt failed
+            # before unpacking anything.
+            sudo timeout 60 dpkg --configure -a \
+              || echo "::warning::dpkg --configure -a exited $?; apt-get -f install follows"
+            sudo timeout 120 apt-get -f install -y --no-install-recommends
             install_deps
           }
 
