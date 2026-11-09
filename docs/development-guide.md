@@ -69,7 +69,7 @@ sudo apt-get install -y \
   patchelf
 ```
 
-`libdbus-1-dev` and `pkg-config` are for the keychain: on Linux `crates/ai` reaches the Secret Service over D-Bus (#394). This is the list `ci.yml` and the release workflows install — note `libayatana-appindicator3-dev`, not the older `libappindicator3-dev`. `patchelf` is only needed to bundle an AppImage; the release build also adds `libfuse2` for that.
+`libdbus-1-dev` and `pkg-config` are for the keychain: on Linux `crates/ai` reaches the Secret Service over D-Bus (#394). It is the list every Linux build in CI installs, through `scripts/ci/install-linux-build-deps.sh` — note `libayatana-appindicator3-dev`, not the older `libappindicator3-dev`. `patchelf` is only needed to bundle an AppImage; the release build also adds `libfuse2` for that.
 
 ### ML Model Files (Whisper/Demucs)
 

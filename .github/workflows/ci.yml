@@ -140,83 +140,15 @@ jobs:
         if: env.RUN_NATIVE == 'true'
         uses: actions/checkout@v7
 
-      # Linux Tauri builds need GTK/WebKit/AppIndicator system libs.
-      # Skipped on the other matrix legs.
-      #
-      # The runner image points apt at azure.archive.ubuntu.com, which has
-      # now stalled mid-index-fetch on four separate runs: the log shows
-      # `Ign:` on every azure line, then silence until something kills the
-      # job. It is not a transient — the canonical archive.ubuntu.com in
-      # the same sources file answers fine in the very same log, so the
-      # fix is to stop asking the mirror that doesn't answer.
-      #
-      # The previous attempt at this bounded the step with
-      # `timeout-minutes: 6` and retried the shell function. That never
-      # fired: a step timeout kills the step, so the `||` branch below it
-      # is unreachable, and the job failed having only ever tried once.
-      # The timeout has to be on the *command* for a retry to exist, hence
-      # `timeout 150` / `timeout 300` here. `Acquire::*::Timeout` keeps a
-      # single unresponsive host from eating that budget on its own.
+      # Linux Tauri builds need GTK/WebKit/AppIndicator system libs; the other
+      # matrix legs skip this. scripts/ci/install-linux-build-deps.sh says why it
+      # moves apt off the Azure mirror and downloads under a timeout but installs
+      # without one. The cap holds two full download attempts and the local
+      # install; apt_retry_budget.rs checks it against the script's numbers.
       - name: Install Linux build deps
         if: matrix.platform.runner == 'ubuntu-22.04'
-        # Budget, and why it is this number: the retry below runs
-        # `install_deps` twice, and each attempt is `timeout 150` on
-        # update plus `timeout 300` on install, with a 10 s pause
-        # between — 2 x (150 + 300) + 10 = 910 s = 15.2 min. The cap has
-        # to clear that or the second attempt is killed part-way through
-        # `apt-get install`, which throws away the retry in exactly the
-        # tail case it was added for (#237).
-        #
-        # A timed-out `update` does not abort the attempt: GitHub runs
-        # steps under `bash -e`, and `errexit` is suspended inside a
-        # function on the left of `||`, so `install` still runs and one
-        # attempt really can reach 450 s.
-        #
-        # `apt_retry_budget.rs` checks this arithmetic, so changing
-        # either `timeout N` without changing the cap fails CI rather
-        # than waiting for a slow mirror to expose it.
         timeout-minutes: 18
-        run: |
-          # The runner reads its mirrors from /etc/apt/apt-mirrors.txt (sources say
-          # `mirror+file:/etc/apt/apt-mirrors.txt`), and newer images keep the
-          # sources in deb822 `*.sources` files, so the rewrite covers all three:
-          # rewriting only `*.list` left apt on the Azure mirror, and four runs
-          # timed out on it on 2026-10-22 (#660, #661, #669).
-          # https:// because plain http to archive.ubuntu.com stalls on these
-          # runners: on 2026-11-09 each .deb asked for over http hung 35-40 s
-          # before apt gave up on it (`Ign:` lines) while the same host answered
-          # at once over https, and #979's install ran out of its 300 s (exit
-          # 124). The rewrite also moves any plain-http archive entry the image
-          # ships to https. apt verifies every index and .deb against the
-          # archive's signing keys whatever the transport, so https adds a
-          # transport that answers, not trust.
-          sudo sed -i 's#https\?://\(azure\.\)\?archive\.ubuntu\.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
-            /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
-            /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-          grep -h -r azure /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
-            && echo "::warning::apt still names an Azure mirror" || true
-
-          install_deps() {
-            sudo timeout 150 apt-get \
-              -o Acquire::Retries=3 \
-              -o Acquire::http::Timeout=15 \
-              -o Acquire::https::Timeout=15 \
-              update
-            sudo timeout 300 apt-get install -y --no-install-recommends \
-              libwebkit2gtk-4.1-dev \
-              libgtk-3-dev \
-              libayatana-appindicator3-dev \
-              librsvg2-dev \
-              libssl-dev \
-              libasound2-dev \
-              libdbus-1-dev \
-              pkg-config
-          }
-          install_deps || {
-            echo "::warning::apt failed once — retrying on a fresh connection"
-            sleep 10
-            install_deps
-          }
+        run: bash scripts/ci/install-linux-build-deps.sh
 
       # Windows only: the build directory on a Dev Drive (ReFS), mounted at
       # <workspace>/target so cargo, rust-cache and every path in the repo
