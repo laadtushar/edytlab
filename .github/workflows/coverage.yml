@@ -1,0 +1,249 @@
+name: Coverage
+
+# Measures test coverage and sends it to DeepSource (Code Coverage), which
+# reports it on each pull request and on main.
+#
+# What is measured, and how:
+#   - Rust: every workspace test under nextest's `ci` profile, the same set
+#     ci.yml runs, instrumented by cargo-llvm-cov -> LCOV with
+#     repository-relative paths, DeepSource key `rust`.
+#   - Frontend (apps/desktop): vitest with the V8 provider -> LCOV, key
+#     `javascript`. The coverage settings live in vite.config.ts.
+# DeepSource merges reports sent under the same key.
+#
+# Why this is its own workflow and not jobs in ci.yml: auto-release.yml tags a
+# dev release only when the run named "CI" succeeds on a push to main, and the
+# required checks are ci.yml's. A coverage service being down, or an
+# instrumented build being slow, must never turn either red. Nothing waits on
+# this workflow; do not make it a required status check.
+#
+# Least privilege: the two jobs that build and run the PR's code hold only
+# `contents: read` and hand their LCOV files on as artifacts. A third job,
+# `report`, which runs no code from the PR (it checks the commit out only so
+# the CLI can read its identity), is the only one with `id-token: write`. It
+# authenticates by OIDC, DeepSource's recommended method: the CLI exchanges
+# the job's short-lived GitHub OIDC token for a temporary DSN, so no
+# DeepSource secret exists. GitHub issues no OIDC token to fork PRs or
+# Dependabot runs, so for those the tests still run and `report` is skipped.
+#
+# Coverage must be attributed to the commit DeepSource analyses: the PR's head
+# commit, not the merge commit actions/checkout makes by default.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Superseded PR runs are cancelled; a run on main is left to finish so the
+# commit keeps its report.
+concurrency:
+  group: coverage-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+# Every action is pinned to a commit SHA, first-party ones too, because this
+# workflow mints OIDC tokens.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  # The DeepSource CLI, pinned by version and SHA-256 instead of the
+  # `curl https://cli.deepsource.com/install | sh` installer, which always
+  # takes the latest version. To bump: read https://cli.deepsource.com/manifest.json
+  # and copy the `linux_amd64` archive name and sha256 here.
+  DEEPSOURCE_CLI_ARCHIVE: deepsource_2.0.57_linux_amd64.tar.gz
+  DEEPSOURCE_CLI_SHA256: 7a22daa62328fde38e275674ed0b52b780b2ac48f4af8f1b92eff0a347b81ab0
+
+jobs:
+  rust:
+    name: coverage (rust)
+    runs-on: ubuntu-22.04
+    # An instrumented build of the whole workspace is slower than ci.yml's
+    # Linux leg, and its cache is separate.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # The same step as ci.yml's Linux leg, where its budget and the Azure
+      # mirror stalls are explained (apt_retry_budget.rs checks both copies).
+      - name: Install Linux build deps
+        timeout-minutes: 18
+        run: |
+          # http:// is deliberate here (SonarCloud S5332 reviewed, safe, as in
+          # ci.yml): apt does not trust the transport, it verifies every package
+          # index and .deb against the distribution's signing keys
+          # (Release.gpg / InRelease), so a tampered mirror response fails the
+          # install instead of being used. The Azure mirror is the one that
+          # stalls (#660, #661, #669).
+          sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          grep -h -r azure /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
+            && echo "::warning::apt still names an Azure mirror" || true
+          install_deps() {
+            sudo timeout 150 apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 \
+              update
+            sudo timeout 300 apt-get install -y --no-install-recommends \
+              libwebkit2gtk-4.1-dev \
+              libgtk-3-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libssl-dev \
+              libasound2-dev \
+              libdbus-1-dev \
+              pkg-config
+          }
+          install_deps || {
+            echo "::warning::apt failed once — retrying on a fresh connection"
+            sleep 10
+            install_deps
+          }
+
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+
+      # cargo-llvm-cov needs llvm-tools for the toolchain rust-toolchain.toml
+      # selects, which is not the `stable` the step above installs.
+      - name: Add llvm-tools to the pinned toolchain
+        run: rustup component add llvm-tools-preview
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: coverage-linux-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-llvm-cov and cargo-nextest
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        with:
+          tool: cargo-llvm-cov@0.9.1,cargo-nextest@0.9.146
+
+      - name: cargo llvm-cov nextest
+        run: cargo llvm-cov nextest --workspace --profile ci --lcov --output-path coverage-rust.lcov
+
+      # llvm-cov writes absolute source paths. Make them relative to the
+      # repository, as the frontend report is, so each one names a file in the
+      # checkout whatever directory the runner cloned into; then refuse a
+      # report with no file or with a path the rewrite missed.
+      - name: Make the Rust report's paths repository-relative
+        run: |
+          sed -i "s|^SF:${GITHUB_WORKSPACE}/|SF:|" coverage-rust.lcov
+          files=$(grep -c '^SF:' coverage-rust.lcov || true)
+          absolute=$(grep -c '^SF:/' coverage-rust.lcov || true)
+          echo "coverage-rust.lcov: ${files} files, ${absolute} absolute paths"
+          if [ "$files" -eq 0 ] || [ "$absolute" -ne 0 ]; then
+            echo "::error::coverage-rust.lcov has no files or paths outside the checkout"
+            exit 1
+          fi
+
+      - name: Upload the Rust report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-rust
+          path: coverage-rust.lcov
+          if-no-files-found: error
+          retention-days: 3
+
+  frontend:
+    name: coverage (frontend)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: vitest with coverage
+        run: pnpm --filter @edytlab/desktop test:coverage
+
+      - name: Upload the frontend report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-javascript
+          path: apps/desktop/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 3
+
+  report:
+    name: coverage (report)
+    needs: [rust, frontend]
+    # Runs when either job produced a report, and only where GitHub can issue
+    # an OIDC token: not a fork PR, not Dependabot.
+    if: >-
+      ${{ !cancelled()
+      && (needs.rust.result == 'success' || needs.frontend.result == 'success')
+      && (github.event_name != 'pull_request'
+          || (github.event.pull_request.head.repo.full_name == github.repository
+              && github.actor != 'dependabot[bot]')) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # For the commit's identity only: nothing from the checkout is run.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Download the reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: ${{ runner.temp }}/coverage
+
+      - name: Install the DeepSource CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
+            -o "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" \
+            "https://cli.deepsource.com/build/$DEEPSOURCE_CLI_ARCHIVE"
+          echo "$DEEPSOURCE_CLI_SHA256  $RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/deepsource"
+          tar -xzf "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" -C "$RUNNER_TEMP/deepsource" deepsource
+
+      # One report per key that has a file; DeepSource merges by key.
+      - name: Report to DeepSource
+        run: |
+          sent=0
+          for key in rust javascript; do
+            file=$(find "$RUNNER_TEMP/coverage/coverage-$key" -type f 2>/dev/null | head -n 1)
+            if [ -z "$file" ]; then
+              echo "::warning::no $key coverage report to send"
+              continue
+            fi
+            "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key "$key" \
+              --value-file "$file" --use-oidc --host https://app.deepsource.com
+            sent=$((sent + 1))
+          done
+          [ "$sent" -gt 0 ]

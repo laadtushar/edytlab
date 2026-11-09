@@ -9,6 +9,9 @@ node_modules/
 dist/
 dist-ssr/
 .npm/
+# Test coverage output (pnpm test:coverage, coverage.yml)
+coverage/
+*.lcov
 
 # Tauri
 **/gen/schemas/
