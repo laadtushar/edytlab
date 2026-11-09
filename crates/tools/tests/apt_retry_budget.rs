@@ -5,9 +5,9 @@
 //! attempt: `timeout 150` on `apt-get update` and `timeout 300` on
 //! `apt-get install --download-only`. A failed attempt is retried once after
 //! a 10 s pause, and the packages are then installed from the downloaded
-//! archives with `--no-download` and no timeout. So the step's worst case is
-//! `2 * (150 + 300) + 10` plus that local install, and its `timeout-minutes`
-//! must hold all of it, or the second attempt is killed part-way through.
+//! archives with `--no-download` under `timeout 120`. So the step's worst
+//! case is `2 * (150 + 300) + 10 + 120`, and its `timeout-minutes` must hold
+//! all of it, or the second attempt or the install is killed part-way.
 //!
 //! The cap has been wrong twice. The first version bounded the step with
 //! `timeout-minutes: 6` and retried a shell function, which never fired: a
@@ -17,16 +17,16 @@
 //! stop somebody changing one `timeout N` without redoing the arithmetic,
 //! so the arithmetic is checked here.
 //!
-//! The budget depends on an `errexit` subtlety: GitHub runs steps under
-//! `bash -e`, and `errexit` is suspended inside a function on the left of
-//! `||`. A timed-out `update` therefore does *not* end the attempt (the
-//! download still runs), so 450 s in one attempt is reachable.
+//! A failed `update` must not end an attempt (the download still runs), so
+//! one attempt can take 150 + 300 s. The script says so with `|| echo`
+//! rather than leaning on `errexit` being suspended left of `||`, which holds
+//! for the first attempt but not for the retry.
 //!
-//! Only the download runs under a timeout. When the install itself was under
-//! `timeout 300`, a slow download used the time up and the kill landed in
-//! dpkg mid-unpack; dpkg's journal was left pending and the retry stopped at
-//! once with "dpkg was interrupted", exit 100 (#957's Linux leg at 332c6a5).
-//! The tests below hold that split in place.
+//! Only downloads and a network-free install run under a timeout. When the
+//! install itself was under `timeout 300`, a slow download used the time up
+//! and the kill landed in dpkg mid-unpack; dpkg's journal was left pending
+//! and the retry stopped at once with "dpkg was interrupted", exit 100
+//! (#957's Linux leg at 332c6a5). The tests below hold that split in place.
 
 use std::path::PathBuf;
 
@@ -38,14 +38,17 @@ const WORKFLOWS: [&str; 4] = [
     "coverage.yml",
 ];
 
+/// The release builds, which also bundle an AppImage.
+const RELEASE_WORKFLOWS: [&str; 2] = ["release-dev.yml", "release-signed.yml"];
+
 /// The shared script every one of them runs.
 const SCRIPT: &str = "scripts/ci/install-linux-build-deps.sh";
 
-/// Seconds the budget allows for the local install, which has no timeout
-/// of its own. Measured on GitHub's ubuntu-22.04 runners: unpack and
-/// configure took 8-21 s across 12 successful ci.yml and release-dev.yml
-/// runs on 2026-11-09 (the release builds install a few more packages).
-const LOCAL_INSTALL_SECS: u64 = 120;
+/// The longest local install measured on GitHub's ubuntu-22.04 runners:
+/// unpack and configure took 8-21 s across 12 successful ci.yml and
+/// release-dev.yml runs on 2026-11-09. The install's timeout must stay well
+/// clear of it (at least four times), so it only ever stops a hang.
+const MEASURED_LOCAL_INSTALL_MAX_SECS: u64 = 21;
 
 fn repo_file(path: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -82,26 +85,29 @@ fn cap_secs(step: &str) -> u64 {
     minutes * 60
 }
 
-/// Every `sudo timeout N` in `text`, in order.
-///
-/// Anchored on `sudo ` rather than the bare word: `Acquire::http::Timeout`
-/// is a different setting, and comments quote the numbers in prose.
-fn sudo_timeouts(text: &str) -> Vec<u64> {
-    text.match_indices("sudo timeout ")
-        .filter_map(|(i, _)| {
-            text[i + "sudo timeout ".len()..]
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect::<String>()
-                .parse()
-                .ok()
-        })
-        .collect()
+/// The step's `run:` line, trimmed.
+fn run_line(step: &str) -> &str {
+    step.lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("run:"))
+        .unwrap_or_else(|| panic!("the apt step has no `run:`"))
 }
 
-/// The script split into its `fetch` function and everything else, both
-/// with comment lines dropped. Line by line and trimmed, so a Windows
-/// checkout's CRLF endings read the same.
+/// The `N` of a `timeout N` anywhere in a command (`sudo timeout N ...`,
+/// `sudo VAR=x timeout N ...` or `timeout N sudo ...`). Token-based, so
+/// `Acquire::http::Timeout=15` is not one.
+fn timeout_of(command: &str) -> Option<u64> {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    tokens
+        .windows(2)
+        .find(|w| w[0] == "timeout")
+        .and_then(|w| w[1].parse().ok())
+}
+
+/// The script as logical commands (backslash continuations joined, comments
+/// and blank lines dropped), split into its `fetch` function and the rest.
+/// Line by line and trimmed, so a Windows checkout's CRLF endings read the
+/// same.
 struct Script {
     fetch: Vec<String>,
     rest: Vec<String>,
@@ -109,25 +115,52 @@ struct Script {
 
 fn script() -> Script {
     let text = repo_file(SCRIPT);
+    let mut commands: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for line in text.lines().map(str::trim) {
+        if pending.is_empty() && (line.is_empty() || line.starts_with('#')) {
+            continue;
+        }
+        if let Some(head) = line.strip_suffix('\\') {
+            pending.push_str(head);
+            pending.push(' ');
+        } else {
+            pending.push_str(line);
+            commands.push(std::mem::take(&mut pending));
+        }
+    }
+
     let mut fetch = Vec::new();
     let mut rest = Vec::new();
     let mut in_fetch = false;
-    for line in text.lines().map(str::trim) {
-        if line.starts_with('#') || line.is_empty() {
-            continue;
-        }
-        if line == "fetch() {" {
+    for command in commands {
+        if command == "fetch() {" {
             in_fetch = true;
-        } else if in_fetch && line == "}" {
+        } else if in_fetch && command == "}" {
             in_fetch = false;
         } else if in_fetch {
-            fetch.push(line.to_string());
+            fetch.push(command);
         } else {
-            rest.push(line.to_string());
+            rest.push(command);
         }
     }
     assert!(!fetch.is_empty(), "{SCRIPT} has no `fetch() {{ ... }}`");
     Script { fetch, rest }
+}
+
+fn apt_commands(commands: &[String]) -> Vec<&String> {
+    commands.iter().filter(|c| c.contains("apt-get")).collect()
+}
+
+/// The single install after `fetch`: the one that runs dpkg.
+fn local_install(script: &Script) -> &String {
+    let installs = apt_commands(&script.rest);
+    assert_eq!(
+        installs.len(),
+        1,
+        "{SCRIPT} should run apt-get once after `fetch`, to install: {installs:?}"
+    );
+    installs[0]
 }
 
 /// Seconds of pause before the retry, from `sleep N`.
@@ -143,9 +176,17 @@ fn every_workflow_runs_the_shared_script() {
     for name in WORKFLOWS {
         let yaml = read_workflow(name);
         let step = apt_step(&yaml);
-        assert!(
-            step.contains(&format!("run: bash {SCRIPT}")),
-            "{name}'s Linux build-deps step no longer runs {SCRIPT}"
+        let expected = if RELEASE_WORKFLOWS.contains(&name) {
+            format!("run: bash {SCRIPT} --recommends libfuse2 patchelf")
+        } else {
+            format!("run: bash {SCRIPT}")
+        };
+        assert_eq!(
+            run_line(step),
+            expected,
+            "{name}'s Linux build-deps step must run the shared script with \
+             exactly these arguments: the release builds need `libfuse2` and \
+             `patchelf` for the AppImage, and CI never builds one to notice"
         );
         assert!(
             !step.contains("apt-get"),
@@ -158,21 +199,26 @@ fn every_workflow_runs_the_shared_script() {
 #[test]
 fn the_step_cap_holds_two_downloads_and_the_local_install() {
     let script = script();
-    let per_attempt = sudo_timeouts(&script.fetch.join("\n"));
+    let per_attempt: Vec<u64> = apt_commands(&script.fetch)
+        .iter()
+        .map(|c| timeout_of(c).unwrap_or_else(|| panic!("no `timeout N` on `{c}` in `fetch`")))
+        .collect();
     assert!(
         per_attempt.len() >= 2,
-        "found {} `timeout N` commands in `fetch`; the parser is no longer \
+        "found {} apt-get commands in `fetch`; the parser is no longer \
          reading the attempt it is meant to be checking",
         per_attempt.len()
     );
-    let outside = sudo_timeouts(&script.rest.join("\n"));
+    let install = local_install(&script);
+    let install_secs = timeout_of(install)
+        .unwrap_or_else(|| panic!("the local install has no `timeout N`: {install}"));
     assert!(
-        outside.is_empty(),
-        "{SCRIPT} has `timeout N` outside `fetch` ({outside:?}); this budget \
-         counts only `fetch` twice plus the local install"
+        install_secs >= 4 * MEASURED_LOCAL_INSTALL_MAX_SECS,
+        "the local install's `timeout {install_secs}` is within four times \
+         the longest measured install ({MEASURED_LOCAL_INSTALL_MAX_SECS} s), \
+         so it could stop a slow but healthy install mid-unpack"
     );
-    let worst_case =
-        2 * per_attempt.iter().sum::<u64>() + pause_secs(&script.rest) + LOCAL_INSTALL_SECS;
+    let worst_case = 2 * per_attempt.iter().sum::<u64>() + pause_secs(&script.rest) + install_secs;
 
     for name in WORKFLOWS {
         let cap = cap_secs(apt_step(&read_workflow(name)));
@@ -180,9 +226,9 @@ fn the_step_cap_holds_two_downloads_and_the_local_install() {
             cap >= worst_case,
             "{name}: the Linux build-deps step is capped at {cap} s but the \
              script can take {worst_case} s ({per_attempt:?} per attempt, \
-             twice, the pause, and {LOCAL_INSTALL_SECS} s for the local \
-             install), so the second attempt or the install would be killed \
-             part-way. Raise `timeout-minutes` or shorten a `timeout N`."
+             twice, the pause, and {install_secs} s for the local install), \
+             so the second attempt or the install would be killed part-way. \
+             Raise `timeout-minutes` or shorten a `timeout N`."
         );
     }
 }
@@ -206,40 +252,33 @@ fn every_workflow_carrying_this_step_has_the_same_budget() {
     }
 }
 
-/// A timeout may only ever stop a download. The install that unpacks and
-/// configures runs from the downloaded archives with nothing that can kill
-/// dpkg part-way, and fails rather than quietly skipping a missing archive.
+/// The attempts only download, so a timeout there can never stop dpkg; the
+/// one install runs from the downloaded archives, without a terminal, and
+/// fails rather than quietly skipping a missing archive.
 #[test]
-fn only_the_download_runs_under_a_timeout() {
+fn the_attempts_only_download() {
     let script = script();
-    let fetch = script.fetch.join("\n");
-    assert!(
-        fetch.contains("--download-only"),
-        "`fetch` no longer downloads only: an install under `timeout` can be \
-         killed mid-unpack and leave dpkg interrupted"
-    );
-    assert_eq!(
-        fetch.matches("apt-get").count(),
-        fetch.matches("sudo timeout ").count(),
-        "every apt-get in `fetch` must run under `timeout`"
-    );
-
-    let installs: Vec<&String> = script
-        .rest
-        .iter()
-        .filter(|l| l.contains("apt-get") && l.contains(" install"))
-        .collect();
-    assert_eq!(
-        installs.len(),
-        1,
-        "{SCRIPT} should install once, after `fetch`: {installs:?}"
-    );
-    let install = installs[0];
-    assert!(
-        install.contains("--no-download") && !install.contains("timeout"),
-        "the local install must use `--no-download` and run under no \
-         timeout: {install}"
-    );
+    for command in apt_commands(&script.fetch) {
+        assert!(
+            command.contains("--download-only") || command.contains(" update"),
+            "`fetch` runs apt-get for something other than `update` or a \
+             download: {command}"
+        );
+        if command.contains(" update") {
+            assert!(
+                command.contains("|| echo"),
+                "a failed `update` must not end the attempt (the retry runs \
+                 under `errexit`): {command}"
+            );
+        }
+    }
+    let install = local_install(&script);
+    for needed in ["--no-download", "DEBIAN_FRONTEND=noninteractive"] {
+        assert!(
+            install.contains(needed),
+            "the local install lacks `{needed}`: {install}"
+        );
+    }
     assert!(
         !script
             .fetch

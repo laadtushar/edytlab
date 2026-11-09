@@ -32,12 +32,15 @@
 #   at once: "E: dpkg was interrupted, you must manually run 'sudo dpkg
 #   --configure -a'", exit 100 (#957's Linux leg at 332c6a5). So the attempts
 #   only download (`--download-only`: "package files are only retrieved, not
-#   unpacked or installed", apt-get(8)), and the install afterwards runs from
-#   those archives with `--no-download`, under no timeout: it has nothing to
-#   wait for, and nothing kills dpkg part-way. On a runner it took 8-21 s
-#   (12 successful ci.yml and release-dev.yml runs, 2026-11-09). Without
-#   `--ignore-missing`, an archive that is somehow missing fails the install
-#   instead of quietly leaving the package out.
+#   unpacked or installed"), and the install afterwards runs from those
+#   archives with `--no-download` ("Disables downloading of packages"); both
+#   from apt-get(8), https://manpages.ubuntu.com/manpages/jammy/man8/apt-get.8.html.
+#   The install has no network to wait for. It took 8-21 s on a runner (12
+#   successful ci.yml and release-dev.yml runs, 2026-11-09), so its
+#   `timeout 120` is reached only by a hang, and then fails the step in two
+#   minutes rather than at the step's cap. Without `--ignore-missing`, an
+#   archive that is somehow missing fails the install instead of quietly
+#   leaving the package out.
 set -euo pipefail
 
 recommends=(--no-install-recommends)
@@ -67,16 +70,18 @@ sudo sed -i 's#https\?://\(azure\.\)\?archive\.ubuntu\.com/ubuntu#https://archiv
 grep -h -r azure /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
   && echo "::warning::apt still names an Azure mirror" || true
 
-# One attempt: the index, then every archive the install needs. `errexit` is
-# suspended inside a function on the left of `||`, so a timed-out `update`
-# does not end the attempt: the download still runs, and one attempt really
-# can take 150 + 300 s.
+# One attempt: the index, then every archive the install needs. A failed or
+# timed-out `update` does not end the attempt (the download still runs, with
+# whatever lists there are), and it is said so here rather than left to
+# `errexit`, which is suspended for the first attempt (left of `||`) but not
+# for the retry. So one attempt can take 150 + 300 s, and the download's
+# result is the attempt's.
 fetch() {
   sudo timeout 150 apt-get \
     -o Acquire::Retries=3 \
     -o Acquire::http::Timeout=15 \
     -o Acquire::https::Timeout=15 \
-    update
+    update || echo "::warning::apt-get update failed (exit $?); downloading with the lists there are"
   sudo timeout 300 apt-get \
     -o Acquire::Retries=3 \
     -o Acquire::http::Timeout=15 \
@@ -89,5 +94,7 @@ fetch || {
   fetch
 }
 
-# Local only: unpack and configure what was downloaded.
-sudo apt-get install -y --no-download "${recommends[@]}" "${packages[@]}"
+# Local only: unpack and configure what was downloaded. Noninteractive, so
+# no debconf question can sit waiting for input.
+sudo DEBIAN_FRONTEND=noninteractive timeout 120 apt-get install -y --no-download \
+  "${recommends[@]}" "${packages[@]}"
