@@ -78,13 +78,15 @@ jobs:
       - name: Install Linux build deps
         timeout-minutes: 18
         run: |
-          # http:// is deliberate here (SonarCloud S5332 reviewed, safe, as in
-          # ci.yml): apt does not trust the transport, it verifies every package
-          # index and .deb against the distribution's signing keys
-          # (Release.gpg / InRelease), so a tampered mirror response fails the
-          # install instead of being used. The Azure mirror is the one that
-          # stalls (#660, #661, #669).
-          sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+          # https:// because plain http to archive.ubuntu.com stalls on these
+          # runners: on 2026-11-09 each .deb asked for over http hung 35-40 s
+          # before apt gave up on it (`Ign:` lines) while the same host answered
+          # at once over https, and #979's install ran out of its 300 s (exit
+          # 124). The rewrite also moves any plain-http archive entry the image
+          # ships to https. apt verifies every index and .deb against the
+          # archive's signing keys whatever the transport, so https adds a
+          # transport that answers, not trust.
+          sudo sed -i 's#https\?://\(azure\.\)\?archive\.ubuntu\.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
             /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
             /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           grep -h -r azure /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
