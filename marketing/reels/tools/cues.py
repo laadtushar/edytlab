@@ -256,8 +256,8 @@ if __name__ == "__main__":
         tl = build_reel(name)
         print(f"== {name}: {tl['duration']:.1f}s, {len(tl['cues'])} cues")
         for c in tl["cues"]:
-            src = c.get("source")
-            where = f"{src['demo']} {src['start']:.2f}-{src['end']:.2f}" if src else ""
+            cut_source = c.get("source")
+            where = f"{cut_source['demo']} {cut_source['start']:.2f}-{cut_source['end']:.2f}" if cut_source else ""
             sound = f" sound {c['sound'][0]:.2f}-{c['sound'][1]:.2f}" if "sound" in c else ""
             print(f"  {c['id']} {c['start']:6.2f}-{c['end']:6.2f} {c['kind']:6s} {where}{sound}  {c['onscreen'][:44]}")
     print("\nThe demo narration lines (written for the earlier takes) that do not fit their window now:")

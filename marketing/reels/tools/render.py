@@ -467,23 +467,21 @@ def _card_concat_filters(hook, hidx, end, eidx):
     return f
 
 
-def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
-    """Compose a reel using validated project work and output paths."""
-    name = tl["name"]
-    r = REELS[name]
-    work = f"{WORK}/{tl['file']}-{mode}"
-    checked_reel_path(out_path or f"{work}/video.mp4")
-    cues = tl["cues"]
-    segs = [c for c in cues if c["kind"] in ("step", "listen")]
-    demo_inputs = [checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4") for c in segs]
-    os.makedirs(checked_reel_path(work), exist_ok=True)
-    words = words or {}
-    hook = next((c for c in cues if c["kind"] == "hook"), None)
-    end = next((c for c in cues if c["kind"] == "end"), None)
-    t0 = hook["end"] if hook else 0.0
-    demo_dur = (end["start"] if end else tl["duration"]) - t0
-    demo_frames = fr(demo_dur)
+def _card_cue(cues, kind):
+    """The reel's hook or end cue, or None when it has none."""
+    return next((c for c in cues if c["kind"] == kind), None)
 
+
+def _localized(tl, key, english):
+    """The Spanish reel's ES_TEXT[key]; the English text for every other reel."""
+    return ES_TEXT[key] if tl.get("lang") == "es" else english
+
+
+def _card_and_cut_inputs(tl, work, hook, end, segs, demo_inputs):
+    """Draw the hook and end cards and list them, with the demo cuts between, as ffmpeg inputs.
+
+    Returns the input arguments, the input indexes of the hook card (or None), of each cut and of
+    the end card (or None), and the next free input index."""
     inputs, idx = [], 0
     hidx = eidx = None   # the card inputs, when the reel has the card
     if hook:
@@ -498,9 +496,17 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
         sidx.append(idx); idx += 1
     if end:
         ep = f"{work}/end.png"
-        end_card(ep, ES_TEXT["free"] if tl.get("lang") == "es" else "Free, open source")
+        end_card(ep, _localized(tl, "free", "Free, open source"))
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(end['end']-end['start'])/FPS:.4f}", "-i", ep]
         eidx = idx; idx += 1
+    return inputs, hidx, sidx, eidx, idx
+
+
+def _overlay_inputs(tl, work, mode, words, groups, demo_dur, idx):
+    """Draw the background, caption, group and progress-bar layers and list them as ffmpeg inputs
+    numbered from idx. Returns the input arguments and the input indexes of the background, the
+    caption layer, each group layer and the bar."""
+    inputs = []
     # the background the recording sits on
     bp = f"{work}/bg.png"
     bgimg = background()
@@ -516,23 +522,26 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     inputs += ["-f", "concat", "-safe", "0", "-i", cl]
     cidx = idx; idx += 1
     # group layers (pill per demo run, note everywhere)
-    groups = _pill_groups(tl, segs, t0)
     gidx = []
-    for gi, (a, b, pill) in enumerate(groups):
+    for gi, (_start, _end, pill) in enumerate(groups):
         gp = f"{work}/group{gi}.png"
-        group_layer(gp, bgimg, pill, True, ES_TEXT["note"] if tl.get("lang") == "es" else "Real screen recording · waits sped up")
+        group_layer(gp, bgimg, pill, True, _localized(tl, "note", "Real screen recording · waits sped up"))
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", gp]
         gidx.append(idx); idx += 1
     inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bar]
-    baridx = idx; idx += 1
+    baridx = idx
+    return inputs, bgidx, cidx, gidx, baridx
 
-    f = _demo_cut_filters(segs, sidx)
-    f.append(f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]")
+
+def _layer_filters(groups, gidx, bgidx, cidx, baridx, demo_dur, demo_frames):
+    """Filter lines that lay the joined cuts ([vc]) on the background, then the caption, group and
+    progress-bar layers, trimmed to the demo's frame count as [demo]."""
+    f = [f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]"]
     f.append(f"[bg][vc]overlay=0:{FRAME_Y}:format=auto[b1]")
     f.append(f"[{cidx}:v]fps={FPS},format=rgba,setsar=1[cap]")
     f.append(f"[b1][cap]overlay=0:{CAP_Y}:format=auto:eof_action=pass[b2]")
     cur = "b2"
-    for gi, ((a, b, pill), i) in enumerate(zip(groups, gidx)):
+    for gi, ((a, b, _pill), i) in enumerate(zip(groups, gidx)):
         f.append(f"[{i}:v]format=rgba,setsar=1[gl{gi}]")
         f.append(f"[{cur}][gl{gi}]overlay=0:0:format=auto:enable='between(t,{a:.3f},{b:.3f})':eof_action=pass[g{gi}]")
         cur = f"g{gi}"
@@ -540,6 +549,33 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     f.append(f"color=c=0x00000000:s={SAFE_R-SAFE_L}x6:r={FPS},format=rgba[bcan]")
     f.append(f"[bcan][bar]overlay=x='-w+w*t/{demo_dur:.3f}':y=0:eval=frame:format=auto:shortest=1[bfill]")
     f.append(f"[{cur}][bfill]overlay={SAFE_L}:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]")
+    return f
+
+
+def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
+    """Compose a reel using validated project work and output paths."""
+    name = tl["name"]
+    r = REELS[name]
+    work = f"{WORK}/{tl['file']}-{mode}"
+    checked_reel_path(out_path or f"{work}/video.mp4")
+    cues = tl["cues"]
+    segs = [c for c in cues if c["kind"] in ("step", "listen")]
+    demo_inputs = [checked_demo_input(f"{DEMO_DIR}/{c['source']['demo']}.mp4") for c in segs]
+    os.makedirs(checked_reel_path(work), exist_ok=True)
+    words = words or {}
+    hook = _card_cue(cues, "hook")
+    end = _card_cue(cues, "end")
+    t0 = hook["end"] if hook else 0.0
+    demo_dur = (end["start"] if end else tl["duration"]) - t0
+    demo_frames = fr(demo_dur)
+
+    inputs, hidx, sidx, eidx, idx = _card_and_cut_inputs(tl, work, hook, end, segs, demo_inputs)
+    groups = _pill_groups(tl, segs, t0)
+    layers, bgidx, cidx, gidx, baridx = _overlay_inputs(tl, work, mode, words, groups, demo_dur, idx)
+    inputs += layers
+
+    f = _demo_cut_filters(segs, sidx)
+    f += _layer_filters(groups, gidx, bgidx, cidx, baridx, demo_dur, demo_frames)
     f += _card_concat_filters(hook, hidx, end, eidx)
     script = f"{work}/graph.txt"
     with open(checked_reel_path(script), "w") as graph_file:
