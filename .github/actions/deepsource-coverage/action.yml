@@ -10,7 +10,7 @@ inputs:
     description: >-
       Folder holding the merged `coverage-*` artifacts: coverage-rust.lcov
       (key `rust`) and lcov.info (key `javascript`). A missing file is a
-      warning; the step fails if any upload fails or none was sent.
+      warning; the action fails if any upload fails.
     required: true
   commit:
     description: >-
@@ -20,19 +20,46 @@ inputs:
     default: ''
   allow-none:
     description: >-
-      'true': finding neither report is a notice and the step passes (the
-      tests that write them may all have failed). Otherwise it fails.
+      'true': finding neither report is a notice and the action passes
+      without fetching the CLI (the tests that write them may all have
+      failed). Otherwise it fails.
     required: false
     default: 'false'
 
 runs:
   using: composite
   steps:
+    # Which reports are there, before anything is downloaded: with none and
+    # `allow-none`, the action is done, whether or not the CLI could be had.
+    - name: Find the reports
+      id: find
+      shell: bash
+      env:
+        REPORTS: ${{ inputs.reports }}
+        ALLOW_NONE: ${{ inputs.allow-none }}
+      run: |
+        found=0
+        for file in "$REPORTS/coverage-rust.lcov" "$REPORTS/lcov.info"; do
+          if [ -f "$file" ]; then
+            found=$((found + 1))
+          fi
+        done
+        echo "found=$found" >> "$GITHUB_OUTPUT"
+        if [ "$found" -eq 0 ]; then
+          if [ "$ALLOW_NONE" = "true" ]; then
+            echo "::notice::no coverage report to send"
+            exit 0
+          fi
+          echo "::error::no coverage report in $REPORTS"
+          exit 1
+        fi
+
     # The DeepSource CLI, pinned by version and SHA-256 instead of the
     # `curl https://cli.deepsource.com/install | sh` installer, which always
     # takes the latest version. To bump: read https://cli.deepsource.com/manifest.json
     # and copy the `linux_amd64` archive name and sha256 here.
     - name: Install the DeepSource CLI
+      if: steps.find.outputs.found != '0'
       shell: bash
       env:
         DEEPSOURCE_CLI_ARCHIVE: deepsource_2.0.57_linux_amd64.tar.gz
@@ -52,11 +79,11 @@ runs:
     # is found by the file name its job uploads (coverage-rust.lcov,
     # lcov.info), which the merged download keeps at the top of the folder.
     - name: Report to DeepSource
+      if: steps.find.outputs.found != '0'
       shell: bash
       env:
         REPORTS: ${{ inputs.reports }}
         COMMIT: ${{ inputs.commit }}
-        ALLOW_NONE: ${{ inputs.allow-none }}
       run: |
         commit_args=()
         if [ -n "$COMMIT" ]; then
@@ -81,8 +108,4 @@ runs:
             failed=$((failed + 1))
           fi
         done
-        if [ "$failed" -eq 0 ] && [ "$sent" -eq 0 ] && [ "$ALLOW_NONE" = "true" ]; then
-          echo "::notice::no coverage report to send"
-          exit 0
-        fi
         [ "$failed" -eq 0 ] && [ "$sent" -gt 0 ]

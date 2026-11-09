@@ -132,10 +132,46 @@ fn every_workflow_run_consumer_is_known() {
 /// a comment is not a gate, and a comment naming a field is not a use of it.
 fn code_lines(yaml: &str) -> Vec<String> {
     yaml.lines()
+        .map(without_comment)
         .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter(|l| !l.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// A YAML line up to its comment: a `#` at the start or after whitespace,
+/// outside quotes. A gate copied into a trailing comment is not a gate.
+fn without_comment(line: &str) -> &str {
+    let mut quote = None;
+    let mut after_space = true;
+    for (i, c) in line.char_indices() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '\'' || c == '"' => quote = Some(c),
+            None if c == '#' && after_space => return &line[..i],
+            None => {}
+        }
+        after_space = c.is_whitespace();
+    }
+    line
+}
+
+#[test]
+fn a_gate_in_a_comment_is_not_code() {
+    let yaml = "    if: ${{ github.event.workflow_run.event == 'pull_request' }} \
+                # && github.event.workflow_run.actor.login == 'dependabot[bot]'\n\
+                # permissions: {}\n\
+                uses: actions/checkout@abc # v7\n\
+                name: 'a # in quotes'";
+    assert_eq!(
+        code_lines(yaml),
+        vec![
+            "if: ${{ github.event.workflow_run.event == 'pull_request' }}",
+            "uses: actions/checkout@abc",
+            "name: 'a # in quotes'",
+        ]
+    );
 }
 
 /// `coverage-report.yml` runs with `id-token: write` on the completion of a

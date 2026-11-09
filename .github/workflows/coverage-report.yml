@@ -43,7 +43,12 @@ jobs:
     # runs report there. `actor` is the run's original actor, as `github.actor`
     # is in coverage.yml's test, so a re-run by a person is still Dependabot's.
     # A cancelled (superseded) run is left alone, as coverage.yml's
-    # `!cancelled()` leaves it.
+    # `!cancelled()` leaves it. The actor only picks Dependabot's runs out of
+    # this repository's; it is not the boundary, because Dependabot can be
+    # made to push to an attacker's fork PR, which then runs with
+    # `dependabot[bot]` as its actor
+    # (https://labs.boostsecurity.io/articles/weaponizing-dependabot-pwn-request-at-its-finest/).
+    # The boundary is `head_repository`: a fork's run never matches it.
     if: >-
       ${{ github.event.workflow_run.event == 'pull_request'
       && github.event.workflow_run.conclusion != 'cancelled'
