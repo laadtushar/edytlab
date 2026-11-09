@@ -12,6 +12,7 @@ import time
 import unittest
 from unittest import mock
 
+import launch_paths
 import narrate
 import narration_store as store
 
@@ -809,6 +810,57 @@ class NarrationTransactions(unittest.TestCase):
         expected_file = f'{self.takes}/line_t1.mp3'
         self.assertEqual([line['file'] for line in chosen], [expected_file] * 2)
         self.assertIn('missing: NO TAKE', stdout.getvalue())
+
+
+class WindowsResolutionRace(unittest.TestCase):
+    """A path resolved while another process creates its folders stays inside.
+
+    CPython's Windows realpath can keep a `\\\\?\\` prefix when a folder
+    appears between its two lookups; two generators starting together create
+    work/.narrate-locks that way, and the second was refused as outside the
+    project (`launch_paths._plain_windows_spelling`).
+    """
+
+    def test_a_raced_prefix_is_dropped_from_a_plain_spelling(self):
+        """The plain form is what every process compares and names locks by."""
+        for raced, plain in (
+                ('\\\\?\\D:\\p\\work\\.narrate-locks', 'D:\\p\\work\\.narrate-locks'),
+                ('\\\\?\\UNC\\host\\share\\p\\work', '\\\\host\\share\\p\\work')):
+            with self.subTest(raced=raced):
+                spelled = launch_paths._plain_windows_spelling(plain, raced)
+                self.assertEqual(spelled, plain)
+
+    def test_a_prefix_the_caller_wrote_is_kept(self):
+        """Only a prefix resolution added is taken off again."""
+        for written in ('\\\\?\\D:\\p\\work', '//?/D:/p/work'):
+            with self.subTest(written=written):
+                self.assertEqual(
+                    launch_paths._plain_windows_spelling(written, '\\\\?\\D:\\p\\work'),
+                    '\\\\?\\D:\\p\\work')
+        plain = 'D:\\p'
+        self.assertEqual(launch_paths._plain_windows_spelling(plain, plain), plain)
+
+    @unittest.skipUnless(os.name == 'nt', 'the race is in Windows path resolution')
+    def test_a_path_resolved_mid_race_is_inside_the_project(self):
+        """The lock folder resolved with the raced prefix is accepted, unprefixed."""
+        real = os.path.realpath
+        folder = launch_paths.ROOT / 'work' / '.narrate-locks'
+
+        def raced(path, *, strict=False):
+            return '\\\\?\\' + real(path, strict=strict)
+
+        with mock.patch.object(os.path, 'realpath', side_effect=raced):
+            resolved = launch_paths.checked_path(folder)
+        self.assertEqual(resolved, Path(real(folder)))
+        self.assertFalse(str(resolved).startswith('\\\\?\\'))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows path normalisation')
+    def test_a_path_that_needs_the_prefix_is_still_refused(self):
+        """A trailing dot names another file without the prefix, so it stays out."""
+        dotted = '\\\\?\\' + str(launch_paths.ROOT / 'work' / 'take.')
+        with mock.patch.object(os.path, 'realpath', return_value=dotted), \
+                self.assertRaises(SystemExit):
+            launch_paths.checked_path(launch_paths.ROOT / 'work' / 'take')
 
 
 if __name__ == '__main__':

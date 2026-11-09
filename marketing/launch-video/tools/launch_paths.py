@@ -1,4 +1,5 @@
 """Path confinement shared by standalone launch-video command-line tools."""
+import ntpath
 import os
 import re
 from pathlib import Path
@@ -11,9 +12,41 @@ DEMO_NAMES = frozenset({
 })
 
 
+_EXTENDED_PREFIX = '\\\\?\\'
+_EXTENDED_UNC_PREFIX = '\\\\?\\UNC\\'
+
+
+def _plain_windows_spelling(path, resolved):
+    r"""Drop a `\\?\` prefix that Windows path resolution left by a race.
+
+    CPython's ntpath.realpath (3.12 and 3.13) gets the final path from Windows,
+    which spells it `\\?\D:\...`. It drops the prefix only when a second
+    lookup of the plain spelling agrees with the first: the same path, or the
+    same error for a missing one. If another process creates a missing folder
+    between the two lookups, the error changes from ERROR_PATH_NOT_FOUND to
+    ERROR_FILE_NOT_FOUND and the prefix stays. A path inside the project then
+    compares as outside it. Two narration generators starting together race
+    that way on work/.narrate-locks, and the second one was refused.
+
+    The prefix is dropped when the caller did not write one and Windows reads
+    the plain spelling back unchanged. Otherwise the path needs the prefix (a
+    trailing dot or space, a device name), so it is kept and refused as before.
+    """
+    if (ntpath.normpath(path).startswith(_EXTENDED_PREFIX)
+            or not resolved.startswith(_EXTENDED_PREFIX)):
+        return resolved
+    if resolved.startswith(_EXTENDED_UNC_PREFIX):
+        plain = '\\\\' + resolved[len(_EXTENDED_UNC_PREFIX):]
+    else:
+        plain = resolved[len(_EXTENDED_PREFIX):]
+    return plain if ntpath.abspath(plain) == plain else resolved
+
+
 def checked_path(path):
     """Resolve an input or output and refuse escapes, including through symlinks."""
     resolved = Path(path).resolve()
+    if os.name == 'nt':
+        resolved = Path(_plain_windows_spelling(os.fspath(path), str(resolved)))
     if resolved != ROOT and ROOT not in resolved.parents:
         raise SystemExit(f"Refused path {path!r}: must resolve inside {ROOT}")
     return resolved
