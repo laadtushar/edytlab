@@ -182,17 +182,20 @@ fn apt_calls(commands: &[String]) -> Vec<String> {
                 .map(|s| s.trim().to_string())
                 .collect::<Vec<_>>()
         })
-        .filter(|s| s.split_whitespace().any(|t| t == "apt-get"))
+        .filter(|s| s.split_whitespace().any(is_apt))
         .collect()
 }
 
-/// The apt-get subcommand of one call (`update`, `install`): the first word
-/// after `apt-get` that is neither an option nor the value of `-o`.
+/// A word that runs apt: `apt-get` or `apt`, bare or by path
+/// (`/usr/bin/apt-get`).
+fn is_apt(word: &str) -> bool {
+    matches!(word.rsplit('/').next(), Some("apt-get" | "apt"))
+}
+
+/// The apt subcommand of one call (`update`, `install`): the first word
+/// after `apt-get` (or `apt`) that is neither an option nor the value of `-o`.
 fn subcommand(call: &str) -> &str {
-    let mut words = call
-        .split_whitespace()
-        .skip_while(|w| *w != "apt-get")
-        .skip(1);
+    let mut words = call.split_whitespace().skip_while(|w| !is_apt(w)).skip(1);
     while let Some(w) = words.next() {
         if w == "-o" || w == "-c" {
             words.next();
@@ -375,4 +378,10 @@ fn joined_calls_are_read_one_by_one() {
     assert_eq!(subcommand(&calls[1]), "install");
     assert_eq!(timeout_of(&calls[1]), None);
     assert!(!calls[1].split_whitespace().any(|w| w == "--download-only"));
+
+    // By path, or as `apt`, it is still a call.
+    let by_path = ["sudo /usr/bin/apt-get install -y x; apt install y".to_string()];
+    let calls = apt_calls(&by_path);
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(calls.iter().all(|c| subcommand(c) == "install"));
 }
