@@ -39,12 +39,12 @@ A PR or a main commit is **green** when every required check on its head commit 
 | Bot | What it is | Its status |
 |---|---|---|
 | SonarCloud | Static analysis with a new-code quality gate | Its new-code duplication counts edited lines inside the boilerplate every tool shares, so a tool PR can fail it while adding no real duplication |
-| DeepSource | Static analysis (Rust, JavaScript, Python, shell, secrets) | Per-finding. It analyses with the config stored in its dashboard, not `.deepsource.toml`: change both together (the DeepSource connector's `save_repository_config` writes the stored one) |
-| FOSSA | Licence and vulnerability scan | A repo-wide baseline, red on every PR: 38 quality, 27 licence (6 until #953 re-keyed `next`'s lockfile entries), 1 vulnerability. Causes: the Remotion project under `marketing/` (FOSSA's GitHub import scans it despite `.fossa.yml`), ESLint 9's minimatch 3.x, and the licence classifications of gsap, next and tailwindcss-animate. Only a change in those counts is news |
+| DeepSource | Static analysis (Rust, JavaScript, Python, shell, secrets) and coverage | Per-finding. It analyses with the config stored in its dashboard, not `.deepsource.toml`: change both together (the DeepSource connector's `save_repository_config` writes the stored one). Dashboard settings, ignore rules and false positives: "Scanner dashboards" in `docs/agents/ci-release.md` |
+| FOSSA | Licence, vulnerability and outdated-dependency scan | Per-issue. Each issue no change in this repository can fix is ignored in FOSSA with its reason, so a red status names something new or fixable; its GitHub import also scans `marketing/` and does not read `.fossa.yml`. Current counts and how to read and ignore: "Scanner dashboards" in `docs/agents/ci-release.md` |
 | Gitar, CodeRabbit (and Gemini) | AI reviewers | Per-comment |
 
 - **Verify a bot finding against the code before acting.** Fix one that holds; decline one that does not.
-- A repo-wide red status (FOSSA's baseline, SonarCloud's boilerplate duplication): explain it once per PR in one comment, then stay silent on it.
+- A repo-wide red status (SonarCloud's boilerplate duplication): explain it once per PR in one comment, then stay silent on it.
 - Reply to an AI review comment only to decline it (with the reason) or to name the commit that fixed it.
 
 ## Release day
