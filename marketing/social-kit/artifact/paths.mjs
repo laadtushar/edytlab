@@ -59,6 +59,17 @@ function canonicalPath(destination) {
   return followLinks(destination, { links: 0 }, process.cwd());
 }
 
+/** lstat a path component; one below an existing file (ENOTDIR) reads as missing. */
+function componentStat(candidate) {
+  try {
+    return lstatSync(candidate, { throwIfNoEntry: false });
+  } catch (error) {
+    // The launch builder replaces OUT even when an earlier output is a file.
+    if (error.code !== "ENOTDIR") throw error;
+    return undefined;
+  }
+}
+
 /** canonicalPath's walk, sharing one link budget across nested link targets. */
 function followLinks(destination, budget, base) {
   const { root } = parse(destination);
@@ -71,13 +82,7 @@ function followLinks(destination, budget, base) {
       continue;
     }
     const candidate = join(current, component);
-    let stat;
-    try {
-      stat = lstatSync(candidate, { throwIfNoEntry: false });
-    } catch (error) {
-      // The launch builder replaces OUT even when an earlier output is a file.
-      if (error.code !== "ENOTDIR") throw error;
-    }
+    const stat = componentStat(candidate);
     if (stat?.isSymbolicLink()) {
       if (++budget.links > 40) throw new Error(`Too many symbolic links in ${destination}`);
       current = followLinks(readlinkSync(candidate), budget, current);

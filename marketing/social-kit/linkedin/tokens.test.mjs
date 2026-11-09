@@ -97,8 +97,7 @@ test("actual website token stylesheet bytes match the original declaration match
     .replace("import.meta.url", JSON.stringify(moduleUrl.href)).replace(/^export /gm, "");
   const declarationsStart = executable.indexOf("function declarations(body) {");
   const declarationsEnd = executable.indexOf("/** One property's value");
-  const baseline = executable.slice(0, declarationsStart) + originalSource + "\n\n"
-    + executable.slice(declarationsEnd);
+  const baseline = `${executable.slice(0, declarationsStart)}${originalSource}\n\n${executable.slice(declarationsEnd)}`;
   const current = runInNewContext(`${executable}\ntokensCss();`, { ...context });
   const previous = runInNewContext(`${baseline}\ntokensCss();`, { ...context });
   assert.equal(current, previous);

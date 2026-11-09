@@ -56,7 +56,7 @@ for (const { theme, canvas } of SELECTED) {
 }
 if (sheetsDir) {
   checkOutputPath(sheetsDir);
-  for (const theme of new Set(SELECTED.map(({ theme }) => theme))) {
+  for (const theme of new Set(SELECTED.map((selection) => selection.theme))) {
     checkOutputPath(join(HERE, ".build", `sheet-${theme.id}.html`));
     checkOutputPath(join(sheetsDir, `contact-${theme.id}.png`));
   }
@@ -77,8 +77,8 @@ function loadPlaywright() {
 
 /** A PNG's width and height from its header. */
 function pngSize(file) {
-  const b = readFileSync(checkInputPath(file));
-  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  const header = readFileSync(checkInputPath(file));
+  return { w: header.readUInt32BE(16), h: header.readUInt32BE(20) };
 }
 
 // Every outside input is read here, before any output, and checked against the
