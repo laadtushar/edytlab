@@ -591,8 +591,8 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     out_path = checked_reel_path(out_path or f"{work}/video.mp4")
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[outv]", "-an",
            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
-           "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS, "-movflags", "+faststart",
-           "-f", "mp4", out_path]
+           "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS,
+           "-movflags", "+faststart", "-f", "mp4", out_path]
     for demo in demo_inputs:
         checked_demo_input(demo)
     run(cmd)
@@ -663,7 +663,8 @@ def loudnorm_two_pass(in_wav, out_m4a, target=-14.0, tp=-1.0, lra=11, max_peak=-
     for _ in range(8):
         lim = 10 ** (ceil_db / 20)
         flt = f"volume={gain:.3f}dB,alimiter=limit={lim:.4f}:attack=4:release=60:level=0,aresample=48000"
-        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", in_wav, "-af", flt, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", in_wav, "-af", flt,
+             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
              "-f", "ipod", out_m4a])
         res = measure_loudness(out_m4a)
         ok_i = abs(res["integrated_lufs"] - target) <= tol
