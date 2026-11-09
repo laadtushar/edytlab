@@ -135,7 +135,9 @@ class SharedDemoPathsTests(unittest.TestCase):
         """ffmpeg reads each file it is given as a URL, so every writer hands it
         the resolved path the check approved. `pipe:1` resolves to a file in the
         project, but given to ffmpeg as it is, the media would go to stdout; a
-        relative work folder is checked as an absolute path too."""
+        relative work folder is checked as an absolute path too. Each writer
+        must call ffmpeg once, so no earlier call escapes the check.
+        """
         tl = {"name": "highlights", "file": "test", "duration": 1, "pills": False,
               "cues": [{"kind": "step", "start": 0, "end": 1,
                         "source": {"demo": self.slug, "start": 0, "code": "MM"}}]}
@@ -151,12 +153,14 @@ class SharedDemoPathsTests(unittest.TestCase):
                 mock.patch.object(render, "group_layer"), \
                 mock.patch.object(render, "caption_timeline", return_value=[(str(frame), 30)]), \
                 mock.patch.object(render, "run") as run:
-            video = render.render_video(tl, out_path="pipe:1")
-            video_argv = run.call_args.args[0]
-            audio = render.render_app_audio(audio_tl, "pipe:2")
-            audio_argv = run.call_args.args[0]
-            wav = render.demo_wav(self.slug)
-            wav_argv = run.call_args.args[0]
+            def only_call(write):
+                run.reset_mock()
+                result = write()
+                self.assertEqual(run.call_count, 1)
+                return result, run.call_args.args[0]
+            video, video_argv = only_call(lambda: render.render_video(tl, out_path="pipe:1"))
+            audio, audio_argv = only_call(lambda: render.render_app_audio(audio_tl, "pipe:2"))
+            wav, wav_argv = only_call(lambda: render.demo_wav(self.slug))
         written = {"video": (video, video_argv, self.root / "pipe:1"),
                    "app audio": (audio, audio_argv, self.root / "pipe:2"),
                    "demo audio": (wav, wav_argv, self.work / "audio" / f"{self.slug}.wav")}
