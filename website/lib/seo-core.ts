@@ -69,7 +69,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/tools/rendering": "2026-11-02",
   "/docs/tools/recipes-and-batch": "2026-11-02",
   "/docs/tools/history-and-session": "2026-11-01",
-  "/docs/tools/markers": "2026-11-01",
+  "/docs/tools/markers": "2026-11-02",
   "/docs/developer-guide": "2026-11-02",
   "/docs/api-reference": "2026-11-02",
   "/docs/api-reference/project": "2026-10-26",
