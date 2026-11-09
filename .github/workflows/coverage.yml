@@ -232,18 +232,32 @@ jobs:
           mkdir -p "$RUNNER_TEMP/deepsource"
           tar -xzf "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" -C "$RUNNER_TEMP/deepsource" deepsource
 
-      # One report per key that has a file; DeepSource merges by key.
+      # One report per key that has a file; DeepSource merges by key. The keys
+      # are independent: a missing artifact (its job failed) or a refused
+      # upload for one must not stop the other, so each is attempted and the
+      # step fails afterwards if any upload failed or none was sent. The
+      # default shell runs with -e and pipefail, so the lookup checks for the
+      # directory instead of letting `find` fail on a missing one.
       - name: Report to DeepSource
         run: |
           sent=0
+          failed=0
           for key in rust javascript; do
-            file=$(find "$RUNNER_TEMP/coverage/coverage-$key" -type f 2>/dev/null | head -n 1)
+            dir="$RUNNER_TEMP/coverage/coverage-$key"
+            file=""
+            if [ -d "$dir" ]; then
+              file=$(find "$dir" -type f -print -quit)
+            fi
             if [ -z "$file" ]; then
               echo "::warning::no $key coverage report to send"
               continue
             fi
-            "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key "$key" \
-              --value-file "$file" --use-oidc --host https://app.deepsource.com
-            sent=$((sent + 1))
+            if "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key "$key" \
+              --value-file "$file" --use-oidc --host https://app.deepsource.com; then
+              sent=$((sent + 1))
+            else
+              echo "::error::the $key coverage report was not accepted"
+              failed=$((failed + 1))
+            fi
           done
-          [ "$sent" -gt 0 ]
+          [ "$failed" -eq 0 ] && [ "$sent" -gt 0 ]
