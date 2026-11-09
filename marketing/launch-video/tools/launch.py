@@ -38,9 +38,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from launch_paths import checked_path as _checked_path
 from launch_paths import checked_system_font
 
+from PIL import ImageFont
+
 from engine import (  # noqa: E402
     BarsBG, Callout, EndCard, FPS, Flow, FootageClip, Image, ImageDraw,
-    ImageFont, Lockup, Note, Piece, Progress, Stack, Title,
+    Lockup, Note, Piece, Progress, Stack, Title,
 )
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

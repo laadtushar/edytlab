@@ -614,12 +614,12 @@ function videosHtml() {
     return chunks.slice(1).map((chunk) => {
       const slug = chunk.slice(0, chunk.indexOf('"'));
       const fields = chunk.split("\n").slice(1);
-      // The first line naming the field, as `^\s*<field>: "?([^",\n]+)` matched each line.
+      // The first line naming the field: `<field>:`, any spaces or tabs, then the value.
       const g = (k) => {
         for (const line of fields) {
           const rest = line.trimStart();
-          if (!rest.startsWith(k + ": ")) continue;
-          const m = /^"?([^",\n]+)/.exec(rest.slice(k.length + 2));
+          if (!rest.startsWith(k + ":")) continue;
+          const m = /^[ \t]*"?([^",\n]+)/.exec(rest.slice(k.length + 1));
           if (m) return m[1];
         }
         return "";

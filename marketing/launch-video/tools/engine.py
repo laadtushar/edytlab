@@ -20,14 +20,13 @@ Motion vocabulary (see research.md, section M):
   * type    : per-word kinetic reveal (rise + fade + blur-in, staggered)
   * callouts: ring that draws itself on, leader line, chip that springs in
 """
-import io
 import math
 import os
 import re
 import subprocess
 import sys
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from launch_paths import checked_demo_path, checked_path
 
 # The reels' brand module (<repo>/marketing/reels/tools/brand.py): the site's colours, Inter, the logo and the aurora.

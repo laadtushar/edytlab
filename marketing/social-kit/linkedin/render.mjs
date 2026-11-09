@@ -23,7 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { lintCanvas } from "./lint.mjs";
-import { checkInputPath } from "../artifact/paths.mjs";
+import { checkInputPath, checkOutputPath } from "../artifact/paths.mjs";
 import { appVersion, logoSvg, toolCount, tokensCss } from "./tokens.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +46,16 @@ const SQUARES = [
 const CAROUSEL = { id: "post-3-carousel", pages: { w: 1080, h: 1350 }, minPages: 6, maxPages: 8 };
 
 const MIN_FONT = { square: 24, page: 28 };
+
+// Every destination must resolve inside marketing/social-kit/. They are checked
+// here, before any input is read, the screenshots run or a file is written.
+for (const dir of [join(HERE, ".build"), join(HERE, ".build", "pages"), join(HERE, "out")]) checkOutputPath(dir);
+for (const { id } of [...SQUARES, CAROUSEL]) {
+  if (only && only !== id) continue;
+  checkOutputPath(join(HERE, ".build", `${id}.html`));
+  checkOutputPath(join(HERE, "out", `${id}.${id === CAROUSEL.id ? "pdf" : "png"}`));
+}
+for (let i = 0; i < CAROUSEL.maxPages; i++) checkOutputPath(join(HERE, ".build", "pages", `page-${i + 1}.png`));
 
 // Every outside input is read here, before the screenshots or any output, and
 // checked against the fixed read-only sources in ../artifact/paths.mjs.

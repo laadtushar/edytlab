@@ -27,7 +27,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { lintCanvas } from "../linkedin/lint.mjs";
-import { checkInputPath } from "../artifact/paths.mjs";
+import { checkInputPath, checkOutputPath } from "../artifact/paths.mjs";
 import { logoSvg, toolCount, tokensCss } from "../linkedin/tokens.mjs";
 import { CANVASES, THEMES } from "./themes.mjs";
 
@@ -41,6 +41,26 @@ const only = flag("--only");
 const sheetsDir = flag("--sheets");
 
 const MIN_FONT = 24;
+
+/** The canvases this run renders, theme by theme. */
+const SELECTED = THEMES.flatMap((theme) => CANVASES
+  .filter((canvas) => !only || theme.id.startsWith(`${only}-`) || canvas.id.startsWith(only))
+  .map((canvas) => ({ theme, canvas })));
+
+// Every destination, --sheets included, must resolve inside marketing/social-kit/.
+// They are checked here, before any input is read, the browser starts or a file is written.
+for (const dir of [join(HERE, ".build"), join(HERE, "out")]) checkOutputPath(dir);
+for (const { theme, canvas } of SELECTED) {
+  checkOutputPath(join(HERE, ".build", `${theme.id}__${canvas.id}.html`));
+  checkOutputPath(join(HERE, "out", `${theme.id}__${canvas.id}.png`));
+}
+if (sheetsDir) {
+  checkOutputPath(sheetsDir);
+  for (const theme of new Set(SELECTED.map(({ theme }) => theme))) {
+    checkOutputPath(join(HERE, ".build", `sheet-${theme.id}.html`));
+    checkOutputPath(join(sheetsDir, `contact-${theme.id}.png`));
+  }
+}
 
 function loadPlaywright() {
   for (const from of [import.meta.url, pathToFileURL(join(REPO, "apps/desktop/package.json")).href]) {
@@ -191,25 +211,22 @@ async function main() {
   const written = [];
   try {
     const scratch = await (await browser.newContext()).newPage();
-    for (const theme of THEMES) {
-      for (const canvas of CANVASES) {
-        if (only && !(theme.id.startsWith(`${only}-`) || canvas.id.startsWith(only))) continue;
-        const context = await browser.newContext({ viewport: { width: canvas.w, height: canvas.h }, deviceScaleFactor: 1 });
-        const page = await context.newPage();
-        await page.goto(compose(theme, canvas));
-        await ready(page);
-        const png = await page.locator(".canvas").screenshot({ type: "png" });
-        const label = `${theme.id} ${canvas.id}`;
-        const result = await lintCanvas(page, scratch, png, { rootSelector: ".canvas", minFont: MIN_FONT, label });
-        const problems = [...result.problems, ...(await zoneProblems(page, canvas))];
-        const worst = result.worstContrast === null ? "n/a" : `${result.worstContrast.toFixed(1)}:1`;
-        console.log(`${problems.length ? "FAIL" : "ok  "} ${label}: ${result.texts} text runs, lowest contrast ${worst}`);
-        for (const p of problems) failures.push(`${label}: ${p}`);
-        const file = join(HERE, "out", `${theme.id}__${canvas.id}.png`);
-        writeFileSync(file, png);
-        written.push({ file, theme: theme.id, canvas, size: kb(file) });
-        await context.close();
-      }
+    for (const { theme, canvas } of SELECTED) {
+      const context = await browser.newContext({ viewport: { width: canvas.w, height: canvas.h }, deviceScaleFactor: 1 });
+      const page = await context.newPage();
+      await page.goto(compose(theme, canvas));
+      await ready(page);
+      const png = await page.locator(".canvas").screenshot({ type: "png" });
+      const label = `${theme.id} ${canvas.id}`;
+      const result = await lintCanvas(page, scratch, png, { rootSelector: ".canvas", minFont: MIN_FONT, label });
+      const problems = [...result.problems, ...(await zoneProblems(page, canvas))];
+      const worst = result.worstContrast === null ? "n/a" : `${result.worstContrast.toFixed(1)}:1`;
+      console.log(`${problems.length ? "FAIL" : "ok  "} ${label}: ${result.texts} text runs, lowest contrast ${worst}`);
+      for (const p of problems) failures.push(`${label}: ${p}`);
+      const file = join(HERE, "out", `${theme.id}__${canvas.id}.png`);
+      writeFileSync(file, png);
+      written.push({ file, theme: theme.id, canvas, size: kb(file) });
+      await context.close();
     }
     if (sheetsDir) await sheets(browser, written);
   } finally {

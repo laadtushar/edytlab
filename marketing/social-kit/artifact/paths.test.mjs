@@ -409,3 +409,73 @@ for (const [label, prepare, refusal] of [
     assert.deepEqual(fs.readdirSync(f.outside), ["sentinel"]);
   });
 }
+
+// ---------------------------------------------------------------- video lists
+
+test("the video lists accept no space, a tab or several spaces after a field's colon", (t) => {
+  const f = fixture(t);
+  const page = () => {
+    const hub = run(f, "launch-hub.mjs");
+    assert.equal(hub.status, 0, hub.stderr);
+    return Buffer.from(hub.effects.find((e) => e.name.endsWith("index.html")).base64, "base64").toString();
+  };
+  const expected = page();
+  const lists = ["website/lib/videos.ts", "website/lib/demos.ts"].map((name) => path.join(f.repo, name));
+  const original = lists.map((file) => fs.readFileSync(file, "utf8"));
+  for (const spacing of ["", "\t", "   ", " \t "]) {
+    lists.forEach((file, i) => fs.writeFileSync(file,
+      original[i].replace(/^(\s*(?:title|seconds|width|height)): /gm, `$1:${spacing}`)));
+    assert.notEqual(fs.readFileSync(lists[0], "utf8"), original[0]);
+    assert.equal(page(), expected, JSON.stringify(spacing));
+  }
+});
+
+// ---------------------------------------------------------------- render outputs
+
+/** A social project holding the renders and their modules, with nothing installed. */
+function renders(t) {
+  const f = fixture(t);
+  const kit = path.join(f.repo, "marketing/social-kit");
+  for (const name of ["images/render.mjs", "images/themes.mjs", "linkedin/render.mjs",
+    "linkedin/lint.mjs", "linkedin/tokens.mjs"]) {
+    fs.mkdirSync(path.dirname(path.join(kit, name)), { recursive: true });
+    fs.copyFileSync(path.join(HERE, "..", name), path.join(kit, name));
+  }
+  return { ...f, kit };
+}
+
+/** Every path below a directory, so a refused run can be shown to write nothing. */
+function tree(directory) {
+  return fs.readdirSync(directory, { recursive: true }).sort();
+}
+
+/** Run a render, which must refuse a destination before reading or writing anything. */
+function renderRefused(f, script, args, cwd = path.dirname(path.join(f.kit, script))) {
+  const before = [tree(f.repo), tree(f.outside)];
+  const result = spawnSync(process.execPath, [path.join(f.kit, script), ...args], { cwd, encoding: "utf8" });
+  assert.ifError(result.error);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Refused path .*: must resolve inside /);
+  assert.deepEqual([tree(f.repo), tree(f.outside)], before);
+  assert.equal(fs.readFileSync(path.join(f.outside, "sentinel"), "utf8"), "untouched");
+}
+
+test("images refuse --sheets outside the project", (t) => {
+  const f = renders(t);
+  renderRefused(f, "images/render.mjs", ["--sheets", "../../.."]);
+});
+
+test("images refuse --sheets through a symlinked directory", (t) => {
+  const f = renders(t);
+  fs.symlinkSync(f.outside, path.join(f.kit, "images/sheets"));
+  renderRefused(f, "images/render.mjs", ["--sheets", "sheets"]);
+});
+
+for (const [script, folder] of [["images/render.mjs", "out"], ["images/render.mjs", ".build"],
+  ["linkedin/render.mjs", "out"], ["linkedin/render.mjs", ".build"]]) {
+  test(`${script} refuses a ${folder} folder linked outside`, (t) => {
+    const f = renders(t);
+    fs.symlinkSync(f.outside, path.join(path.dirname(path.join(f.kit, script)), folder));
+    renderRefused(f, script, []);
+  });
+}
