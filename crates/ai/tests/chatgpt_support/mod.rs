@@ -43,9 +43,31 @@ pub const CODE: &str = "the-authorization-code";
 pub const FULL_SCOPE: &str =
     "chatgpt.tokens.use.direct email offline_access openid profile resource.invoke";
 
+static KEY: OnceLock<TestRsaKey> = OnceLock::new();
+
+/// The fake issuer's signing key, which [`Fake::start`] generated.
+///
+/// Generating it is a search for two random 1024-bit primes in unoptimised
+/// `num-bigint` (`oauth_support`): seconds of CPU, a different number each
+/// time, and many more under a CI runner's parallel test processes (nextest
+/// runs each test in its own process, so each generates its own). Made
+/// lazily by the first ID token or JWKS the fake served, it ran on the
+/// server's thread inside whatever the test was timing, after a
+/// [`Hold::release`] say, and a test that waited 10 s for the session could
+/// fail waiting for the fixture. So it is made before the fake answers
+/// anything, and the endpoints only read it.
 pub fn key() -> &'static TestRsaKey {
-    static KEY: OnceLock<TestRsaKey> = OnceLock::new();
-    KEY.get_or_init(TestRsaKey::generate)
+    KEY.get()
+        .expect("Fake::start generates the signing key before the fake answers")
+}
+
+/// Generates [`key`] on a blocking thread, once per process.
+async fn generate_key() {
+    tokio::task::spawn_blocking(|| {
+        KEY.get_or_init(TestRsaKey::generate);
+    })
+    .await
+    .expect("the signing key is generated");
 }
 
 // --- Holding a request in flight --------------------------------------------------
@@ -321,6 +343,8 @@ pub fn form(body: &[u8]) -> BTreeMap<String, String> {
 
 impl Fake {
     pub async fn start() -> Arc<Self> {
+        // Before any endpoint can be asked: see [`key`].
+        generate_key().await;
         let fake = Arc::new(Self {
             server: MockServer::start().await,
             clock: TestClock::new(),

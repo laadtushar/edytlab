@@ -18,7 +18,7 @@ use ai::chatgpt::{ChatGptSession, ChatGptStatus, SignInIntent};
 use ai::oauth::loopback::LoopbackError;
 use ai::oauth::oidc::OidcError;
 use chatgpt_support::{
-    Browser, CallbackClient, Fake, MemoryStore, CODE, EMAIL, ISSUED_CLIENT, SUBJECT,
+    until, Browser, CallbackClient, Fake, MemoryStore, CODE, EMAIL, ISSUED_CLIENT, SUBJECT,
 };
 use serde_json::{json, Value};
 
@@ -718,15 +718,10 @@ async fn a_sign_in_whose_caller_stops_waiting_still_finishes() {
     }
     assert!(session.is_signing_in(), "still finishing");
     hold.release();
-    // Up to 10 s: the loop leaves as soon as the sign-in is done, and a CI
-    // runner running many test processes at once can take over 2 s here.
-    for _ in 0..500 {
-        if !session.is_signing_in() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(!session.is_signing_in());
+    until("the detached sign-in to finish", || {
+        !session.is_signing_in()
+    })
+    .await;
     assert_eq!(session.status().state, SessionState::SignedIn);
     assert_eq!(store.get().as_deref(), Some("RT-1"));
     assert_eq!(
