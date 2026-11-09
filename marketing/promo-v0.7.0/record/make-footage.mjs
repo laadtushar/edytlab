@@ -29,18 +29,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { projectPath } from "./paths.mjs";
 
-if (process.argv.length === 3 && ["--help", "-h"].includes(process.argv[2])) {
-  console.log("OUT=<native-run> DEST=<footage-folder> node make-footage.mjs [story-id-substring ...]\n" +
-    "Every input and output must resolve inside marketing/promo-v0.7.0, including symlinks. " +
-    "Copy external native runs (including /tmp files) into that project before cutting.");
-  process.exit(0);
-}
-if (!process.env.OUT) throw new Error("set OUT to a native run inside marketing/promo-v0.7.0; copy external /tmp files into the project first");
-if (!process.env.DEST) throw new Error("set DEST to a footage folder inside marketing/promo-v0.7.0");
-const OUT = projectPath(process.env.OUT);
-const DEST = projectPath(process.env.DEST);
-mkdirSync(DEST, { recursive: true });
-const only = process.argv.slice(2);
 
 const CLIPS = {
   "9-promo-s1-describe-it-happens": { name: "s1-describe-it-happens", audio: true, assistant: true },
@@ -125,107 +113,121 @@ function captureLog(file) {
     drop: num(/drop=\s*([\d.]+)/), speed: num(/speed=\s*([\d.]+)/) };
 }
 
-const results = JSON.parse(readFileSync(projectPath(join(OUT, "results.json")), "utf8"));
-for (const [id, spec] of Object.entries(CLIPS)) {
-  if (only.length && !only.some((o) => id.includes(o))) continue;
-  const kept = projectPath(join(OUT, "videos", "passed", `${id}.json`));
-  const r = existsSync(kept) ? JSON.parse(readFileSync(kept, "utf8")) : results.find((x) => x.id === id);
-  if (!r) {
-    console.log(`skip ${spec.name}: not run`);
-    continue;
-  }
-  if (r.status !== "pass") {
-    console.log(`skip ${spec.name}: the story ${r.status}`);
-    continue;
-  }
-  const rec = projectPath(existsSync(kept) ? join(OUT, "videos", "passed", r.video.split("/").pop()) : join(OUT, r.video));
-  const recLog = captureLog(join(OUT, r.video));
-  const pts = framePts(rec);
-  const v0 = pts[0];
-  const vEnd = pts.at(-1);
-  const at = (c) => c.at / 1000;
-  const marks = r.captions ?? [];
-  const startMark = marks.find((m) => m.text === "start");
-  const start = startMark ? at(startMark) : v0;
-  const last = marks.length ? at(marks.at(-1)) : vEnd;
-  // The picture must reach the story's last mark; an ffmpeg that fell behind ends early.
-  if (vEnd < last + 0.5) throw new Error(`${spec.name}: the recording ends ${(last - vEnd).toFixed(1)} s before the story's last moment: ffmpeg fell behind (${JSON.stringify(recLog)}); record it again`);
-  if (recLog && (recLog.speed < 0.85 || recLog.drop > 0.15 * recLog.frames)) throw new Error(`${spec.name}: the capture fell behind (${JSON.stringify(recLog)}); record it again`);
-  const length = Math.round((vEnd - start) * 100) / 100;
+// --help prints the usage and cuts nothing; without it, check $OUT and $DEST, then cut each selected clip.
+if (process.argv.length === 3 && ["--help", "-h"].includes(process.argv[2])) {
+  console.log("OUT=<native-run> DEST=<footage-folder> node make-footage.mjs [story-id-substring ...]\n" +
+    "Every input and output must resolve inside marketing/promo-v0.7.0, including symlinks. " +
+    "Copy external native runs (including /tmp files) into that project before cutting.");
+} else {
+  if (!process.env.OUT) throw new Error("set OUT to a native run inside marketing/promo-v0.7.0; copy external /tmp files into the project first");
+  if (!process.env.DEST) throw new Error("set DEST to a footage folder inside marketing/promo-v0.7.0");
+  const OUT = projectPath(process.env.OUT);
+  const DEST = projectPath(process.env.DEST);
+  mkdirSync(DEST, { recursive: true });
+  const only = process.argv.slice(2);
 
-  // Sound: line it up with the picture by the beacon, cut it to the clip.
-  let wav = null;
-  let sync = null;
-  let spans = null;
-  if (spec.audio) {
-    const beacon = marks.find((m) => m.text === "beacon");
-    if (!beacon) throw new Error(`${spec.name}: no beacon mark`);
-    const b = brightness(rec);
-    const jump = [...b.keys()].find((i) => i > 0 && at(beacon) - 0.3 < pts[i] && pts[i] < at(beacon) + 1.5 && b[i] - b[i - 1] > 40);
-    if (jump === undefined) throw new Error(`${spec.name}: the beacon's flash is not in the picture`);
-    const { a, t0 } = readAudio(rec);
-    const from = Math.max(0, Math.round((at(beacon) - 0.5 - t0) * RATE));
-    let onset = -1;
-    for (let i = from; i < Math.min(a.length, from + 4 * RATE); i++) {
-      if (Math.abs(a[i]) > 0.1) {
-        onset = i;
-        break;
+  const results = JSON.parse(readFileSync(projectPath(join(OUT, "results.json")), "utf8"));
+  for (const [id, spec] of Object.entries(CLIPS)) {
+    if (only.length && !only.some((o) => id.includes(o))) continue;
+    const kept = projectPath(join(OUT, "videos", "passed", `${id}.json`));
+    const story = existsSync(kept) ? JSON.parse(readFileSync(kept, "utf8")) : results.find((x) => x.id === id);
+    if (!story) {
+      console.log(`skip ${spec.name}: not run`);
+      continue;
+    }
+    if (story.status !== "pass") {
+      console.log(`skip ${spec.name}: the story ${story.status}`);
+      continue;
+    }
+    const rec = projectPath(existsSync(kept) ? join(OUT, "videos", "passed", story.video.split("/").pop()) : join(OUT, story.video));
+    const recLog = captureLog(join(OUT, story.video));
+    const pts = framePts(rec);
+    const v0 = pts[0];
+    const vEnd = pts.at(-1);
+    const at = (c) => c.at / 1000;
+    const marks = story.captions ?? [];
+    const startMark = marks.find((m) => m.text === "start");
+    const start = startMark ? at(startMark) : v0;
+    const last = marks.length ? at(marks.at(-1)) : vEnd;
+    // The picture must reach the story's last mark; an ffmpeg that fell behind ends early.
+    if (vEnd < last + 0.5) throw new Error(`${spec.name}: the recording ends ${(last - vEnd).toFixed(1)} s before the story's last moment: ffmpeg fell behind (${JSON.stringify(recLog)}); record it again`);
+    if (recLog && (recLog.speed < 0.85 || recLog.drop > 0.15 * recLog.frames)) throw new Error(`${spec.name}: the capture fell behind (${JSON.stringify(recLog)}); record it again`);
+    const length = Math.round((vEnd - start) * 100) / 100;
+
+    // Sound: line it up with the picture by the beacon, cut it to the clip.
+    let wav = null;
+    let sync = null;
+    let spans = null;
+    if (spec.audio) {
+      const beacon = marks.find((m) => m.text === "beacon");
+      if (!beacon) throw new Error(`${spec.name}: no beacon mark`);
+      const levels = brightness(rec);
+      const jump = [...levels.keys()].find((i) => i > 0 && at(beacon) - 0.3 < pts[i] && pts[i] < at(beacon) + 1.5 && levels[i] - levels[i - 1] > 40);
+      if (jump === undefined) throw new Error(`${spec.name}: the beacon's flash is not in the picture`);
+      const { a: samples, t0 } = readAudio(rec);
+      const from = Math.max(0, Math.round((at(beacon) - 0.5 - t0) * RATE));
+      let onset = -1;
+      for (let i = from; i < Math.min(samples.length, from + 4 * RATE); i++) {
+        if (Math.abs(samples[i]) > 0.1) {
+          onset = i;
+          break;
+        }
       }
+      if (onset < 0) throw new Error(`${spec.name}: the beacon's tone is not in the sound`);
+      const flashAt = pts[jump];
+      const toneAt = t0 + onset / RATE;
+      const shift = flashAt - toneAt; // seconds the sound is moved later (negative: earlier)
+      sync = { flashAt: Number(flashAt.toFixed(3)), toneAt: Number(toneAt.toFixed(3)), soundIsAheadBy: Number(shift.toFixed(3)) };
+      // The clip's sample i is the recording's sample at wall time start + i/RATE - shift... i.e. the sound as it is
+      // when it is moved by `shift`.
+      const sampleCount = Math.round(length * RATE);
+      const first = Math.round((start - shift - t0) * RATE);
+      const out = new Float32Array(sampleCount);
+      let peak = 0;
+      for (let i = 0; i < sampleCount; i++) {
+        const sample = samples[first + i] ?? 0;
+        out[i] = sample;
+        peak = Math.max(peak, Math.abs(sample));
+      }
+      const gain = peak > 0 ? 0.912 / peak : 1;
+      for (let i = 0; i < sampleCount; i++) out[i] *= gain;
+      wav = `${spec.name}.wav`;
+      writeFileSync(projectPath(join(DEST, wav)), wavFile(out));
+      // Where the sound plays: stretches above -60 dBFS RMS in 50 ms windows, merged across gaps under 0.4 s.
+      const win = Math.round(RATE * 0.05);
+      const on = [];
+      for (let i = 0; i + win <= sampleCount; i += win) {
+        let sumSquares = 0;
+        for (let j = 0; j < win; j++) sumSquares += out[i + j] ** 2;
+        on.push(Math.sqrt(sumSquares / win) > 0.001);
+      }
+      spans = [];
+      on.forEach((v, i) => {
+        if (!v) return;
+        const windowStart = i * 0.05;
+        const prev = spans.at(-1);
+        if (prev && windowStart - prev.footageEnd < 0.4) prev.footageEnd = windowStart + 0.05;
+        else spans.push({ footageStart: windowStart, footageEnd: windowStart + 0.05 });
+      });
+      spans = spans.filter((s) => s.footageEnd - s.footageStart > 0.5).map((s) => ({ footageStart: Number(s.footageStart.toFixed(2)), footageEnd: Number(s.footageEnd.toFixed(2)) }));
     }
-    if (onset < 0) throw new Error(`${spec.name}: the beacon's tone is not in the sound`);
-    const flashAt = pts[jump];
-    const toneAt = t0 + onset / RATE;
-    const shift = flashAt - toneAt; // seconds the sound is moved later (negative: earlier)
-    sync = { flashAt: +flashAt.toFixed(3), toneAt: +toneAt.toFixed(3), soundIsAheadBy: +shift.toFixed(3) };
-    // The clip's sample i is the recording's sample at wall time start + i/RATE - shift... i.e. the sound as it is
-    // when it is moved by `shift`.
-    const n = Math.round(length * RATE);
-    const first = Math.round((start - shift - t0) * RATE);
-    const out = new Float32Array(n);
-    let peak = 0;
-    for (let i = 0; i < n; i++) {
-      const v = a[first + i] ?? 0;
-      out[i] = v;
-      peak = Math.max(peak, Math.abs(v));
-    }
-    const k = peak > 0 ? 0.912 / peak : 1;
-    for (let i = 0; i < n; i++) out[i] *= k;
-    wav = `${spec.name}.wav`;
-    writeFileSync(projectPath(join(DEST, wav)), wavFile(out));
-    // Where the sound plays: stretches above -60 dBFS RMS in 50 ms windows, merged across gaps under 0.4 s.
-    const win = Math.round(RATE * 0.05);
-    const on = [];
-    for (let i = 0; i + win <= n; i += win) {
-      let s = 0;
-      for (let j = 0; j < win; j++) s += out[i + j] ** 2;
-      on.push(Math.sqrt(s / win) > 0.001);
-    }
-    spans = [];
-    on.forEach((v, i) => {
-      if (!v) return;
-      const t = i * 0.05;
-      const prev = spans.at(-1);
-      if (prev && t - prev.footageEnd < 0.4) prev.footageEnd = t + 0.05;
-      else spans.push({ footageStart: t, footageEnd: t + 0.05 });
-    });
-    spans = spans.filter((s) => s.footageEnd - s.footageStart > 0.5).map((s) => ({ footageStart: +s.footageStart.toFixed(2), footageEnd: +s.footageEnd.toFixed(2) }));
+
+    // The picture: from the start mark, at a constant 15 fps.
+    const mp4 = projectPath(join(DEST, `${spec.name}.mp4`));
+    if (!existsSync(mp4) || process.env.REENCODE) run("ffmpeg", ["-nostdin", "-y", "-v", "error", "-ss", (start - v0).toFixed(3), "-i", rec, "-t", length.toFixed(3), "-an", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-profile:v", "high", "-r", String(FPS), "-fps_mode", "cfr", "-movflags", "+faststart", mp4]);
+    const secs = Number(probe(mp4, "v:0", "format=duration"));
+    const frames = Number(probe(mp4, "v:0", "stream=nb_frames"));
+
+    const clipMarks = marks.filter((m) => at(m) >= start - 0.001).map((m) => ({ label: m.text, t: Number((at(m) - start).toFixed(2)) }));
+    writeFileSync(projectPath(join(DEST, `${spec.name}.marks.json`)), `${JSON.stringify(clipMarks, null, 2)}\n`);
+    const notesFile = projectPath(join(OUT, "promo", `${id.split("-").slice(2, 3)[0]}.notes.json`));
+    const storyNotes = existsSync(notesFile) ? JSON.parse(readFileSync(notesFile, "utf8")) : {};
+    const toolCallsFile = projectPath(join(OUT, "shots", `${id}-tool-calls.json`));
+    const toolCalls = existsSync(toolCallsFile) ? JSON.parse(readFileSync(toolCallsFile, "utf8")) : null;
+    writeFileSync(
+      projectPath(join(DEST, `${spec.name}.notes.json`)),
+      `${JSON.stringify({ ...storyNotes, ...(spec.assistant ? {} : { live: true, model: null, effort: null, assistant: "none in this shot" }), file: `${spec.name}.mp4`, seconds: Number(secs.toFixed(2)), frames, fps: FPS, size: "3200x2000", marks: clipMarks, wav, spans, sync, capture: recLog, toolCalls }, null, 2)}\n`,
+    );
+    console.log(`${spec.name}: ${secs.toFixed(1)} s, ${frames} frames${wav ? `, sound ran ${sync.soundIsAheadBy} s ahead of the picture, moved` : ""}, capture ${recLog ? `${recLog.frames} frames, ${recLog.drop} dropped, ${recLog.speed}x` : "(no log)"}`);
   }
-
-  // The picture: from the start mark, at a constant 15 fps.
-  const mp4 = projectPath(join(DEST, `${spec.name}.mp4`));
-  if (!existsSync(mp4) || process.env.REENCODE) run("ffmpeg", ["-nostdin", "-y", "-v", "error", "-ss", (start - v0).toFixed(3), "-i", rec, "-t", length.toFixed(3), "-an", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-profile:v", "high", "-r", String(FPS), "-fps_mode", "cfr", "-movflags", "+faststart", mp4]);
-  const secs = Number(probe(mp4, "v:0", "format=duration"));
-  const frames = Number(probe(mp4, "v:0", "stream=nb_frames"));
-
-  const clipMarks = marks.filter((m) => at(m) >= start - 0.001).map((m) => ({ label: m.text, t: +(at(m) - start).toFixed(2) }));
-  writeFileSync(projectPath(join(DEST, `${spec.name}.marks.json`)), `${JSON.stringify(clipMarks, null, 2)}\n`);
-  const notesFile = projectPath(join(OUT, "promo", `${id.split("-").slice(2, 3)[0]}.notes.json`));
-  const storyNotes = existsSync(notesFile) ? JSON.parse(readFileSync(notesFile, "utf8")) : {};
-  const toolCallsFile = projectPath(join(OUT, "shots", `${id}-tool-calls.json`));
-  const toolCalls = existsSync(toolCallsFile) ? JSON.parse(readFileSync(toolCallsFile, "utf8")) : null;
-  writeFileSync(
-    projectPath(join(DEST, `${spec.name}.notes.json`)),
-    `${JSON.stringify({ ...storyNotes, ...(spec.assistant ? {} : { live: true, model: null, effort: null, assistant: "none in this shot" }), file: `${spec.name}.mp4`, seconds: +secs.toFixed(2), frames, fps: FPS, size: "3200x2000", marks: clipMarks, wav, spans, sync, capture: recLog, toolCalls }, null, 2)}\n`,
-  );
-  console.log(`${spec.name}: ${secs.toFixed(1)} s, ${frames} frames${wav ? `, sound ran ${sync.soundIsAheadBy} s ahead of the picture, moved` : ""}, capture ${recLog ? `${recLog.frames} frames, ${recLog.drop} dropped, ${recLog.speed}x` : "(no log)"}`);
 }

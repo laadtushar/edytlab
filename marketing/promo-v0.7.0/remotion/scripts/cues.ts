@@ -13,20 +13,6 @@ import {CLIPS, joined, ringSpan, shown, srcToOut, type Cut, type Shot, type Seg}
 import {PUBLIC_DIR, ROOT, WORK} from './common.ts';
 import {projectPath} from './paths.ts';
 
-if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('usage: node scripts/cues.ts [outDir]\nPaths must resolve inside marketing/promo-v0.7.0. Copy external /tmp inputs into the project first.');
-  process.exit(0);
-}
-const outDir = projectPath(process.argv[2] ?? resolve(ROOT, '../out'));
-const cueDir = projectPath(resolve(WORK, 'cues'));
-// Validate every destination before creating directories or writing any cut.
-for (const cut of CUTS) {
-  projectPath(resolve(cueDir, `${cut.id}.json`));
-  projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`));
-}
-mkdirSync(cueDir, {recursive: true});
-mkdirSync(outDir, {recursive: true});
-
 /** Peak (0..1) of a stretch of a wav, decoded by ffmpeg. */
 function peak(file: string, a: number, b: number): number {
   const r = spawnSync('ffmpeg', ['-nostdin', '-v', 'error', '-ss', String(a), '-t', String(b - a), '-i', file, '-ac', '1', '-f', 's16le', '-'], {maxBuffer: 1 << 28});
@@ -98,9 +84,28 @@ function build(cut: Cut): CueFile {
   return {id: cut.id, slug: cut.slug, title: cut.title, platform: cut.platform, total: last.start + last.dur, clips, sfx: kept};
 }
 
-for (const cut of CUTS) {
-  const c = build(cut);
-  writeFileSync(projectPath(resolve(cueDir, `${cut.id}.json`)), JSON.stringify(c, null, 1));
-  writeFileSync(projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`)), srt(cut));
-  console.log(`${cut.id}: ${c.total.toFixed(2)} s, ${c.clips.length} app-audio stretch(es), ${c.sfx.length} UI sounds`);
+/** Write every cut's cue file and .srt, after checking all their destinations. */
+function main(): void {
+  const outDir = projectPath(process.argv[2] ?? resolve(ROOT, '../out'));
+  const cueDir = projectPath(resolve(WORK, 'cues'));
+  // Validate every destination before creating directories or writing any cut.
+  for (const cut of CUTS) {
+    projectPath(resolve(cueDir, `${cut.id}.json`));
+    projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`));
+  }
+  mkdirSync(cueDir, {recursive: true});
+  mkdirSync(outDir, {recursive: true});
+
+  for (const cut of CUTS) {
+    const cueFile = build(cut);
+    writeFileSync(projectPath(resolve(cueDir, `${cut.id}.json`)), JSON.stringify(cueFile, null, 1));
+    writeFileSync(projectPath(resolve(outDir, `edytlab-v0.7.0-${cut.slug}.srt`)), srt(cut));
+    console.log(`${cut.id}: ${cueFile.total.toFixed(2)} s, ${cueFile.clips.length} app-audio stretch(es), ${cueFile.sfx.length} UI sounds`);
+  }
+}
+
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log('usage: node scripts/cues.ts [outDir]\nPaths must resolve inside marketing/promo-v0.7.0. Copy external /tmp inputs into the project first.');
+} else {
+  main();
 }

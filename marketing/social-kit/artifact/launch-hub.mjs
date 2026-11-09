@@ -15,11 +15,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkInputPath, checkOutputPath } from "./paths.mjs";
 
-if (process.argv.includes("--help")) {
-  console.log("Usage: node marketing/social-kit/artifact/launch-hub.mjs\nBuild the launch hub into artifact/out/launch-hub/, copying existing assets without publishing.");
-  process.exit(0);
-}
-
+/**
+ * Read the copy and build the hub. --help, checked at the end of this file, skips it, so
+ * nothing is read or written then. The body keeps the indentation it had at the top level.
+ */
+function main() {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MK = path.resolve(HERE, "../.."); // marketing/
 const REPO = path.resolve(MK, "..");
@@ -778,3 +778,10 @@ ${js}</script>
   console.log(`wrote ${path.relative(REPO, path.join(OUT, "index.html"))}: ${html.length} bytes, ${cardN} copy cards, ${CHECK_ITEMS.length} checklist items, ${Object.keys(files).length} files to publish, ${existing.length} existing theme images`);
 }
 build();
+}
+
+if (process.argv.includes("--help")) {
+  console.log("Usage: node marketing/social-kit/artifact/launch-hub.mjs\nBuild the launch hub into artifact/out/launch-hub/, copying existing assets without publishing.");
+} else {
+  main();
+}
