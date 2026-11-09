@@ -39,7 +39,7 @@ A PR or a main commit is **green** when every required check on its head commit 
 | Bot | What it is | Its status |
 |---|---|---|
 | SonarCloud | Static analysis with a new-code quality gate | Its new-code duplication counts edited lines inside the boilerplate every tool shares, so a tool PR can fail it while adding no real duplication |
-| DeepSource | Static analysis (Rust, JavaScript) | Per-finding |
+| DeepSource | Static analysis (Rust, JavaScript, Python, shell, secrets) | Per-finding. It analyses with the config stored in its dashboard, not `.deepsource.toml`: change both together (the DeepSource connector's `save_repository_config` writes the stored one) |
 | FOSSA | Licence and vulnerability scan | A repo-wide baseline, red on every PR: 38 quality, 27 licence (6 until #953 re-keyed `next`'s lockfile entries), 1 vulnerability. Causes: the Remotion project under `marketing/` (FOSSA's GitHub import scans it despite `.fossa.yml`), ESLint 9's minimatch 3.x, and the licence classifications of gsap, next and tailwindcss-animate. Only a change in those counts is news |
 | Gitar, CodeRabbit (and Gemini) | AI reviewers | Per-comment |
 
