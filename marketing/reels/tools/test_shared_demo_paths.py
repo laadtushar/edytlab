@@ -131,6 +131,48 @@ class SharedDemoPathsTests(unittest.TestCase):
                 render.render_video(tl)
             run.assert_not_called()
 
+    def test_ffmpeg_writes_the_destination_that_was_checked(self):
+        """ffmpeg reads each file it is given as a URL, so every writer hands it
+        the resolved path the check approved. `pipe:1` resolves to a file in the
+        project, but given to ffmpeg as it is, the media would go to stdout; a
+        relative work folder is checked as an absolute path too. Each writer
+        must call ffmpeg once, so no earlier call escapes the check.
+        """
+        tl = {"name": "highlights", "file": "test", "duration": 1, "pills": False,
+              "cues": [{"kind": "step", "start": 0, "end": 1,
+                        "source": {"demo": self.slug, "start": 0, "code": "MM"}}]}
+        audio_tl = {"file": "test", "cues": [{"kind": "hook", "start": 0, "end": 1}]}
+        frame = self.root / "frame.png"
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        self.addCleanup(os.chdir, cwd)
+        with mock.patch.object(render, "WORK", "work"), \
+                mock.patch.object(render, "DEMO_DIR", str(self.demos)), \
+                mock.patch.object(render, "background"), \
+                mock.patch.object(render, "bar_image"), \
+                mock.patch.object(render, "group_layer"), \
+                mock.patch.object(render, "caption_timeline", return_value=[(str(frame), 30)]), \
+                mock.patch.object(render, "run") as run:
+            def only_call(write):
+                run.reset_mock()
+                result = write()
+                self.assertEqual(run.call_count, 1)
+                return result, run.call_args.args[0]
+            video, video_argv = only_call(lambda: render.render_video(tl, out_path="pipe:1"))
+            audio, audio_argv = only_call(lambda: render.render_app_audio(audio_tl, "pipe:2"))
+            wav, wav_argv = only_call(lambda: render.demo_wav(self.slug))
+        written = {"video": (video, video_argv, self.root / "pipe:1"),
+                   "app audio": (audio, audio_argv, self.root / "pipe:2"),
+                   "demo audio": (wav, wav_argv, self.work / "audio" / f"{self.slug}.wav")}
+        for name, (result, argv, expected) in written.items():
+            with self.subTest(writer=name):
+                self.assertEqual(argv[-1], str(expected))
+                self.assertEqual(result, str(expected))
+        for name, argv, graph in (("video", video_argv, self.work / "test-plain" / "graph.txt"),
+                                  ("app audio", audio_argv, self.work / "test-audio-graph.txt")):
+            with self.subTest(graph=name):
+                self.assertEqual(argv[argv.index("-filter_complex_script") + 1], str(graph))
+
     def test_narration_invocation_checks_video(self):
         with tempfile.TemporaryDirectory() as external, \
                 mock.patch.object(build.subprocess, "run") as run:
