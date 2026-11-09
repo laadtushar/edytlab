@@ -580,11 +580,12 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     f = _demo_cut_filters(segs, sidx)
     f += _layer_filters(groups, gidx, bgidx, cidx, baridx, demo_dur, demo_frames)
     f += _card_concat_filters(hook, hidx, end, eidx)
-    script = f"{work}/graph.txt"
-    with open(checked_reel_path(script), "w") as graph_file:
+    script = checked_reel_path(f"{work}/graph.txt")
+    with open(script, "w") as graph_file:
         graph_file.write(";\n".join(f))
-    out_path = out_path or f"{work}/video.mp4"
-    checked_reel_path(out_path)
+    # ffmpeg reads its file names as URLs (`pipe:1` is stdout), so it gets the
+    # resolved path the check approved, not the spelling it was given.
+    out_path = checked_reel_path(out_path or f"{work}/video.mp4")
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[outv]", "-an",
            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
            "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS, "-movflags", "+faststart", out_path]
@@ -597,8 +598,7 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
 # ----------------------------------------------------------------- app audio
 def demo_wav(slug):
     """Whole-file 48 kHz stereo decode with gaps filled, so absolute times line up with the picture."""
-    p = f"{WORK}/audio/{slug}.wav"
-    checked_reel_path(p)
+    p = checked_reel_path(f"{WORK}/audio/{slug}.wav")
     if not os.path.exists(p):
         demo = checked_demo_input(f"{DEMO_DIR}/{slug}.mp4")
         os.makedirs(checked_reel_path(f"{WORK}/audio"), exist_ok=True)
@@ -610,7 +610,7 @@ def demo_wav(slug):
 
 def render_app_audio(tl, out_wav):
     """Concatenate the demo audio of every cut (silence under the cards) to 48 kHz stereo wav."""
-    checked_reel_path(out_wav)
+    out_wav = checked_reel_path(out_wav)
     name = tl["file"]
     inputs, f, labels = [], [], []
     for k, c in enumerate(tl["cues"]):
@@ -626,8 +626,8 @@ def render_app_audio(tl, out_wav):
                      f"atrim=end={d:.4f},afade=t=in:d=0.04,afade=t=out:st={d-fo:.4f}:d={fo}[a{k}]")
         labels.append(f"[a{k}]")
     f.append("".join(labels) + f"concat=n={len(labels)}:v=0:a=1[aout]")
-    script = f"{WORK}/{name}-audio-graph.txt"
-    with open(checked_reel_path(script), "w") as graph_file:
+    script = checked_reel_path(f"{WORK}/{name}-audio-graph.txt")
+    with open(script, "w") as graph_file:
         graph_file.write(";\n".join(f))
     run(["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[aout]",
         "-c:a", "pcm_s16le", "-ar", "48000", out_wav])
