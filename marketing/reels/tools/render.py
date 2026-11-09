@@ -608,7 +608,8 @@ def demo_wav(slug):
         os.makedirs(checked_reel_path(f"{WORK}/audio"), exist_ok=True)
         checked_demo_input(demo)
         run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", demo, "-vn", "-af",
-             "aresample=48000:async=1:first_pts=0", "-ac", "2", "-c:a", "pcm_s16le", "-f", "wav", p])
+             "aresample=48000:async=1:first_pts=0", "-ac", "2", "-c:a", "pcm_s16le",
+             "-f", "wav", p])
     return p
 
 
