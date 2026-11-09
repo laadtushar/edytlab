@@ -32,7 +32,7 @@ Project-level instructions for Claude Code sessions in this repository. These pe
 
 ## Green
 
-A PR or a main commit is **green** when every required check on its head commit succeeded: `build (linux-x86_64)`, `build (macos-arm64)`, `build (windows-x86_64)`, `frontend (test)`, `e2e (chromium)` and `website (test)` (all from `ci.yml`). On a PR that touches only docs, site or marketing files the macOS and Windows legs skip their steps and report Success; that counts. The separate workflows (`Audit`, `Notices`, `Docs`, `ML`) are not part of green, but a red `Notices` or `Docs` run caused by your PR is yours to fix (`docs/agents/ci-release.md`). The bots below are advisory: they never block green.
+A PR or a main commit is **green** when every required check on its head commit succeeded: `build (linux-x86_64)`, `build (macos-arm64)`, `build (windows-x86_64)`, `frontend (test)`, `e2e (chromium)` and `website (test)` (all from `ci.yml`). On a PR that touches only docs, site or marketing files the macOS and Windows legs skip their steps and report Success; that counts. The separate workflows (`Audit`, `Notices`, `Docs`, `ML`, `Coverage`) are not part of green, but a red `Notices`, `Docs` or `Coverage` run caused by your PR is yours to fix (`docs/agents/ci-release.md`). The bots below are advisory: they never block green.
 
 ## Advisory bots
 
