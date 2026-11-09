@@ -18,6 +18,12 @@ inputs:
       checked-out HEAD.
     required: false
     default: ''
+  allow-none:
+    description: >-
+      'true': finding neither report is a notice and the step passes (the
+      tests that write them may all have failed). Otherwise it fails.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -50,6 +56,7 @@ runs:
       env:
         REPORTS: ${{ inputs.reports }}
         COMMIT: ${{ inputs.commit }}
+        ALLOW_NONE: ${{ inputs.allow-none }}
       run: |
         commit_args=()
         if [ -n "$COMMIT" ]; then
@@ -74,4 +81,8 @@ runs:
             failed=$((failed + 1))
           fi
         done
+        if [ "$failed" -eq 0 ] && [ "$sent" -eq 0 ] && [ "$ALLOW_NONE" = "true" ]; then
+          echo "::notice::no coverage report to send"
+          exit 0
+        fi
         [ "$failed" -eq 0 ] && [ "$sent" -gt 0 ]

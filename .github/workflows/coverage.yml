@@ -210,15 +210,16 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # For the commit's identity and the report action below. The action is
-      # this checkout's, so a same-repo PR runs its own copy, as it already
-      # runs its own copy of this workflow; fork and Dependabot PRs never
-      # reach this job.
-      - name: Checkout
+      # For the report action only, from the commit this workflow file comes
+      # from (on a pull request, the merge commit), so the action and its CLI
+      # pin always match the workflow, main's later bumps included. Fork and
+      # Dependabot PRs never reach this job. The report names the PR's head
+      # commit with `commit:` below, the commit DeepSource analyses.
+      - name: Checkout the report action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          sparse-checkout: .github/actions
 
       # merge-multiple keeps the layout the same whether one artifact or two
       # exist: without it, a lone matching artifact is extracted straight into
@@ -238,3 +239,4 @@ jobs:
         uses: ./.github/actions/deepsource-coverage
         with:
           reports: ${{ runner.temp }}/coverage
+          commit: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -23,10 +23,15 @@ name: Coverage report
 # PRs stay unreported: their artifacts are a stranger's files, and handling
 # them in a job that can mint this repository's OIDC tokens is not worth a
 # coverage figure for the rare fork PR.
+# `branches:` only keeps this workflow from starting for every other PR's
+# Coverage run (each start would add a skipped run to main's latest commit).
+# It is not a boundary: it matches the triggering run's head branch, which a
+# fork names as it likes. The boundary is the job's `if:`.
 on:
   workflow_run:
     workflows: [Coverage]
     types: [completed]
+    branches: ['dependabot/**']
 
 permissions: {}
 
@@ -35,9 +40,13 @@ jobs:
     name: coverage report (Dependabot)
     # Dependabot's pull request runs in this repository: the runs coverage.yml's
     # own `report` job skips that are not from a fork. Push and other same-repo
-    # runs report there.
+    # runs report there. `actor` is the run's original actor, as `github.actor`
+    # is in coverage.yml's test, so a re-run by a person is still Dependabot's.
+    # A cancelled (superseded) run is left alone, as coverage.yml's
+    # `!cancelled()` leaves it.
     if: >-
       ${{ github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.conclusion != 'cancelled'
       && github.event.workflow_run.head_repository.full_name == github.repository
       && github.event.workflow_run.actor.login == 'dependabot[bot]' }}
     runs-on: ubuntu-22.04
@@ -64,20 +73,11 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/coverage
 
-      # As coverage.yml's report job, which needs either test job to have
-      # produced a report: a run whose tests produced none has nothing to send.
-      - name: Find the reports
-        id: found
-        run: |
-          if [ -f "$RUNNER_TEMP/coverage/coverage-rust.lcov" ] || [ -f "$RUNNER_TEMP/coverage/lcov.info" ]; then
-            echo "any=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::the Coverage run left no report to send"
-          fi
-
+      # A run whose tests left no report has nothing to send (coverage.yml's
+      # report job does not run then either), so none found is a notice here.
       - name: Report to DeepSource
-        if: steps.found.outputs.any == 'true'
         uses: ./.github/actions/deepsource-coverage
         with:
           reports: ${{ runner.temp }}/coverage
           commit: ${{ github.event.workflow_run.head_sha }}
+          allow-none: 'true'
