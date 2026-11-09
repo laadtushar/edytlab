@@ -584,11 +584,15 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     with open(script, "w") as graph_file:
         graph_file.write(";\n".join(f))
     # ffmpeg reads its file names as URLs (`pipe:1` is stdout), so it gets the
-    # resolved path the check approved, not the spelling it was given.
+    # resolved path the check approved, not the spelling it was given. That
+    # path may have no extension (a symlink's target, or `pipe:1` itself), and
+    # ffmpeg then cannot pick a muxer, so every writer names its format with
+    # `-f`: the one ffmpeg picks for the usual extension (mp4, wav, ipod for .m4a).
     out_path = checked_reel_path(out_path or f"{work}/video.mp4")
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[outv]", "-an",
            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
-           "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS, "-movflags", "+faststart", out_path]
+           "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS,
+           "-movflags", "+faststart", "-f", "mp4", out_path]
     for demo in demo_inputs:
         checked_demo_input(demo)
     run(cmd)
@@ -604,7 +608,8 @@ def demo_wav(slug):
         os.makedirs(checked_reel_path(f"{WORK}/audio"), exist_ok=True)
         checked_demo_input(demo)
         run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", demo, "-vn", "-af",
-             "aresample=48000:async=1:first_pts=0", "-ac", "2", "-c:a", "pcm_s16le", p])
+             "aresample=48000:async=1:first_pts=0", "-ac", "2", "-c:a", "pcm_s16le",
+             "-f", "wav", p])
     return p
 
 
@@ -630,7 +635,7 @@ def render_app_audio(tl, out_wav):
     with open(script, "w") as graph_file:
         graph_file.write(";\n".join(f))
     run(["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[aout]",
-        "-c:a", "pcm_s16le", "-ar", "48000", out_wav])
+        "-c:a", "pcm_s16le", "-ar", "48000", "-f", "wav", out_wav])
     return out_wav
 
 
@@ -659,7 +664,9 @@ def loudnorm_two_pass(in_wav, out_m4a, target=-14.0, tp=-1.0, lra=11, max_peak=-
     for _ in range(8):
         lim = 10 ** (ceil_db / 20)
         flt = f"volume={gain:.3f}dB,alimiter=limit={lim:.4f}:attack=4:release=60:level=0,aresample=48000"
-        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", in_wav, "-af", flt, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", out_m4a])
+        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", in_wav, "-af", flt,
+             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+             "-f", "ipod", out_m4a])
         res = measure_loudness(out_m4a)
         ok_i = abs(res["integrated_lufs"] - target) <= tol
         ok_p = res["true_peak_dbtp"] <= max_peak
@@ -676,7 +683,7 @@ def mux(video, audio, out):
     """Copy project video and audio streams into a project output."""
     video, audio, out = map(checked_reel_path, (video, audio, out))
     run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", video, "-i", audio, "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
-         "-movflags", "+faststart", "-shortest", out])
+         "-movflags", "+faststart", "-shortest", "-f", "mp4", out])
 
 
 def contact_sheet(video, tl, out_png, cols=4, rows=3, tw=270):
