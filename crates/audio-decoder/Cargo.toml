@@ -10,16 +10,36 @@ publish = false
 workspace = true
 
 [dependencies]
-# Importable formats (#764): MP3, WAV, FLAC, Ogg Vorbis, Opus and AIFF. `ogg`
-# and `vorbis` are in symphonia's default features already; they are named here
-# so that the list says what the app opens and a change to the defaults cannot
-# drop them. `aac` and `isomp4` (M4A/AAC) are left out on purpose: AAC decoders
-# need a patent licence from Via LA. symphonia 0.5.5 and 0.6.1 have no Opus
-# codec, so `src/opus.rs` registers one next to symphonia's: it reads the Ogg
-# Opus packets symphonia's demuxer yields and decodes them with `opus-decoder`
-# (pure Rust, no unsafe, MIT OR Apache-2.0, RFC 8251 conformant).
+# Importable formats (#764): MP3, WAV, FLAC, Ogg Vorbis, Opus and AIFF.
+# symphonia's default features are off and every feature the app uses is named,
+# so that the list says what the app opens and a change to the defaults can
+# neither drop a format nor change how one decodes. The list is what 0.5.5
+# decoded with: its defaults (`adpcm`, `flac`, `mkv`, `ogg`, `pcm`, `vorbis`,
+# `wav`; `pcm` and `adpcm` are the WAV and AIFF codecs), `mp3` and `aiff`, and
+# `id3v2`, the only tag reader 0.5.5 ran before a format. 0.6 added `opt-simd`
+# to its defaults, rustfft's SIMD FFT, which picks its code by CPU at run time
+# and moves most Vorbis samples by up to 3e-7 from 0.5.5's (measured on x86-64);
+# and `ape` and `id3v1`, readers of tags at a file's end that 0.5.5 did not run.
+# They are left out so that every file decodes to the samples it did
+# (`tests/pinned_output.rs`).
+# `aac` and `isomp4` (M4A/AAC) are left out on purpose: AAC decoders need a
+# patent licence from Via LA. symphonia 0.5.5 and 0.6.1 have no Opus codec, so
+# `src/opus.rs` registers one next to symphonia's: it reads the Ogg Opus packets
+# symphonia's demuxer yields and decodes them with `opus-decoder` (pure Rust, no
+# unsafe, MIT OR Apache-2.0, RFC 8251 conformant).
 # M4A/AAC is decoded by the operating system instead (`src/os_aac/`, below).
-symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "vorbis", "aiff"] }
+symphonia = { version = "0.6.1", default-features = false, features = [
+    "adpcm",
+    "aiff",
+    "flac",
+    "id3v2",
+    "mkv",
+    "mp3",
+    "ogg",
+    "pcm",
+    "vorbis",
+    "wav",
+] }
 # `hound` powers the streaming WAV reader added in Phase 2 M22 (constant-memory
 # multi-track render). The buffered `decode_file` path still uses symphonia for
 # multi-format support; only WAV needs the chunked path because the M22 render

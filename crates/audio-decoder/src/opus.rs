@@ -1,6 +1,6 @@
-//! Opus (RFC 6716) in Ogg (RFC 7845), as a symphonia [`Decoder`].
+//! Opus (RFC 6716) in Ogg (RFC 7845), as a symphonia [`AudioDecoder`].
 //!
-//! symphonia 0.5 reads Ogg Opus and hands over its packets, and has no Opus
+//! symphonia 0.6 reads Ogg Opus and hands over its packets, and has no Opus
 //! codec (https://github.com/pdeljanov/Symphonia/issues/8). This module is that
 //! codec: [`OpusPacketDecoder`] wraps the pure-Rust `opus-decoder` crate
 //! (MIT OR Apache-2.0, `#![forbid(unsafe_code)]`, 12 of 12 RFC 8251
@@ -15,7 +15,10 @@
 //! - **Pre-skip** (§4.2) frames are decoded and dropped by the decoder, from
 //!   the `OpusHead` symphonia passes on as `extra_data`. symphonia's own delay
 //!   bookkeeping for Opus is not used: its start-page guess takes the end
-//!   trim of a one-page file for a start delay.
+//!   trim of a one-page file for a start delay. The trims symphonia 0.6 puts
+//!   on each packet (`trim_start`, `trim_end`) are ignored, as its own
+//!   decoders ignore them with gapless playback off (`decoder_options()` in
+//!   `lib.rs`).
 //! - **Output gain** (§5.1, Q7.8 dB) is applied by the decoder.
 //! - **End trimming** (§4.4): the last page's granule position says how many
 //!   frames the stream really holds, `granule - pre_skip`. [`last_granule`]
@@ -33,7 +36,6 @@
 //! The decoder is also a young crate, so each packet is decoded behind
 //! `catch_unwind`: a panic on a hostile packet is an error for that packet.
 
-use std::borrow::Cow;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 // The guard above is the reason this decoder is safe to ship: built with
@@ -44,12 +46,18 @@ const _: () = assert!(
 );
 
 use opus_decoder::OpusDecoder;
-use symphonia::core::audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec};
-use symphonia::core::codecs::{
-    CodecDescriptor, CodecParameters, Decoder, DecoderOptions, FinalizeResult, CODEC_TYPE_OPUS,
+use symphonia::core::audio::{
+    AsGenericAudioBufferRef, AudioBuffer, AudioMut, AudioSpec, Channels, GenericAudioBufferRef,
+    Position,
 };
+use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
+use symphonia::core::codecs::audio::{
+    AudioCodecParameters, AudioDecoder, AudioDecoderOptions, FinalizeResult,
+};
+use symphonia::core::codecs::registry::{RegisterableAudioDecoder, SupportedAudioCodec};
+use symphonia::core::codecs::CodecInfo;
 use symphonia::core::errors::{decode_error, unsupported_error, Result as SymResult};
-use symphonia::core::formats::Packet;
+use symphonia::core::packet::PacketRef;
 
 use crate::DecodeError;
 
@@ -205,7 +213,7 @@ pub(crate) fn last_granule(bytes: &[u8]) -> Option<u64> {
 
 /// An Opus packet decoder for symphonia.
 pub(crate) struct OpusPacketDecoder {
-    params: CodecParameters,
+    params: AudioCodecParameters,
     inner: OpusDecoder,
     channels: usize,
     /// Decoded frames of the current packet, planar.
@@ -218,36 +226,38 @@ pub(crate) struct OpusPacketDecoder {
 }
 
 impl OpusPacketDecoder {
-    fn make(head: &OpusHead, params: &CodecParameters) -> SymResult<Self> {
+    fn make(head: &OpusHead, params: &AudioCodecParameters) -> SymResult<Self> {
         let channels = usize::from(head.channels);
         let inner = OpusDecoder::new(OUTPUT_RATE, channels)
             .map_err(|_| symphonia::core::errors::Error::Unsupported("opus: decoder"))?;
-        let layout = if channels == 1 {
-            symphonia::core::audio::Channels::FRONT_LEFT
+        let layout = Channels::Positioned(if channels == 1 {
+            Position::FRONT_LEFT
         } else {
-            symphonia::core::audio::Channels::FRONT_LEFT
-                | symphonia::core::audio::Channels::FRONT_RIGHT
-        };
-        let spec = SignalSpec::new(OUTPUT_RATE, layout);
+            Position::FRONT_LEFT | Position::FRONT_RIGHT
+        });
+        let spec = AudioSpec::new(OUTPUT_RATE, layout.clone());
         let mut params = params.clone();
         params
-            .for_codec(CODEC_TYPE_OPUS)
+            .for_codec(CODEC_ID_OPUS)
             .with_sample_rate(OUTPUT_RATE)
             .with_channels(layout);
         Ok(Self {
             params,
             inner,
             channels,
-            buf: AudioBuffer::new(MAX_PACKET_FRAMES as u64, spec),
+            buf: AudioBuffer::new(spec, MAX_PACKET_FRAMES),
             pcm: vec![0.0; MAX_PACKET_FRAMES * channels],
             skip: usize::from(head.pre_skip),
             gain: head.gain_factor(),
         })
     }
-}
 
-impl Decoder for OpusPacketDecoder {
-    fn try_new(params: &CodecParameters, _options: &DecoderOptions) -> SymResult<Self> {
+    /// A decoder for the stream `params` describe: its `extra_data` is the
+    /// `OpusHead`, and a layout this decoder does not open is unsupported.
+    pub(crate) fn try_new(
+        params: &AudioCodecParameters,
+        _options: &AudioDecoderOptions,
+    ) -> SymResult<Self> {
         let extra = match params.extra_data.as_deref() {
             Some(extra) => extra,
             None => return unsupported_error("opus: no OpusHead"),
@@ -261,16 +271,29 @@ impl Decoder for OpusPacketDecoder {
         };
         Self::make(&head, params)
     }
+}
 
-    fn supported_codecs() -> &'static [CodecDescriptor] {
-        &[CodecDescriptor {
-            codec: CODEC_TYPE_OPUS,
-            short_name: "opus",
-            long_name: "Opus (pure-Rust opus-decoder)",
-            inst_func: |params, options| Ok(Box::new(OpusPacketDecoder::try_new(params, options)?)),
-        }]
+impl RegisterableAudioDecoder for OpusPacketDecoder {
+    fn try_registry_new(
+        params: &AudioCodecParameters,
+        options: &AudioDecoderOptions,
+    ) -> SymResult<Box<dyn AudioDecoder>> {
+        Ok(Box::new(OpusPacketDecoder::try_new(params, options)?))
     }
 
+    fn supported_codecs() -> &'static [SupportedAudioCodec] {
+        &[SupportedAudioCodec {
+            id: CODEC_ID_OPUS,
+            info: CodecInfo {
+                short_name: "opus",
+                long_name: "Opus (pure-Rust opus-decoder)",
+                profiles: &[],
+            },
+        }]
+    }
+}
+
+impl AudioDecoder for OpusPacketDecoder {
     fn reset(&mut self) {
         // A seek or a gap: the decoder's memory belongs to audio that is not
         // before the next packet, and the pre-skip belongs to the stream start.
@@ -279,13 +302,17 @@ impl Decoder for OpusPacketDecoder {
         self.buf.clear();
     }
 
-    fn codec_params(&self) -> &CodecParameters {
+    fn codec_info(&self) -> &CodecInfo {
+        &Self::supported_codecs()[0].info
+    }
+
+    fn codec_params(&self) -> &AudioCodecParameters {
         &self.params
     }
 
-    fn decode(&mut self, packet: &Packet) -> SymResult<AudioBufferRef<'_>> {
+    fn decode_ref(&mut self, packet: &PacketRef<'_>) -> SymResult<GenericAudioBufferRef<'_>> {
         self.buf.clear();
-        let data = packet.buf();
+        let data = packet.data;
         // An empty packet would make the decoder conceal a loss; a file that
         // holds one is damaged, and inventing audio for it is not decoding.
         if data.is_empty() {
@@ -311,29 +338,41 @@ impl Decoder for OpusPacketDecoder {
         let dropped = self.skip.min(frames);
         self.skip -= dropped;
         let kept = frames - dropped;
-        self.buf.render_reserved(Some(kept));
+        // Every sample of the `kept` frames is written just below.
+        self.buf.render_uninit(Some(kept));
         for c in 0..self.channels {
-            let plane = self.buf.chan_mut(c);
+            let plane = self
+                .buf
+                .plane_mut(c)
+                .expect("the buffer has one plane per channel");
             for (i, out) in plane.iter_mut().enumerate() {
                 *out = self.pcm[(dropped + i) * self.channels + c] * self.gain;
             }
         }
-        Ok(AudioBufferRef::F32(Cow::Borrowed(&self.buf)))
+        Ok(self.buf.as_generic_audio_buffer_ref())
     }
 
     fn finalize(&mut self) -> FinalizeResult {
         FinalizeResult::default()
     }
 
-    fn last_decoded(&self) -> AudioBufferRef<'_> {
-        self.buf.as_audio_buffer_ref()
+    fn last_decoded(&self) -> GenericAudioBufferRef<'_> {
+        self.buf.as_generic_audio_buffer_ref()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use symphonia::core::audio::Audio;
     use symphonia::core::io::MediaSourceStreamOptions;
+    use symphonia::core::packet::Packet;
+    use symphonia::core::units::{Duration, Timestamp};
+
+    /// A packet of `data` that says it lasts 960 frames (20 ms).
+    fn packet(data: &[u8]) -> Packet {
+        Packet::new(0, Timestamp::new(0), Duration::new(960), data.to_vec())
+    }
 
     fn head(channels: u8, pre_skip: u16, gain: i16, family: u8, table: &[u8]) -> Vec<u8> {
         let mut v = b"OpusHead".to_vec();
@@ -435,27 +474,19 @@ mod tests {
 
     #[test]
     fn invalid_and_empty_packets_are_errors_and_never_panic() {
-        let params = {
-            let mut p = CodecParameters::new();
-            p.for_codec(CODEC_TYPE_OPUS)
-                .with_extra_data(head(2, 0, 0, 0, &[]).into_boxed_slice());
-            p
-        };
-        let mut d = OpusPacketDecoder::try_new(&params, &DecoderOptions::default()).unwrap();
+        let params = params_for(&head(2, 0, 0, 0, &[]));
+        let mut d = OpusPacketDecoder::try_new(&params, &AudioDecoderOptions::default()).unwrap();
         // Empty.
-        let p = Packet::new_from_slice(0, 0, 960, &[]);
-        assert!(d.decode(&p).is_err());
+        assert!(d.decode(&packet(&[])).is_err());
         assert_eq!(d.last_decoded().frames(), 0);
         // A code 3 packet that claims zero frames (RFC 6716 §3.2.5: M >= 1).
-        let p = Packet::new_from_slice(0, 0, 960, &[0xFB, 0x00, 0x00]);
-        assert!(d.decode(&p).is_err());
+        assert!(d.decode(&packet(&[0xFB, 0x00, 0x00])).is_err());
         // Every first byte, and short or ragged bodies, with the decoder kept.
         for toc in 0..=255u8 {
             for len in [1usize, 2, 3, 7, 40, 200] {
                 let mut data = vec![toc];
                 data.extend((0..len - 1).map(|i| (i as u8).wrapping_mul(37).wrapping_add(toc)));
-                let p = Packet::new_from_slice(0, 0, 960, &data);
-                let _ = d.decode(&p);
+                let _ = d.decode(&packet(&data));
             }
         }
         // And it still decodes a good packet afterwards.
@@ -467,56 +498,61 @@ mod tests {
         let (_, packets) = fixture_packets(&fixture);
         let mut mono = OpusPacketDecoder::try_new(
             &params_for(&head(1, 0, 0, 0, &[])),
-            &DecoderOptions::default(),
+            &AudioDecoderOptions::default(),
         )
         .unwrap();
         assert!(mono.decode(&packets[0]).is_ok());
     }
 
-    fn params_for(head: &[u8]) -> CodecParameters {
-        let mut p = CodecParameters::new();
-        p.for_codec(CODEC_TYPE_OPUS)
+    fn params_for(head: &[u8]) -> AudioCodecParameters {
+        let mut p = AudioCodecParameters::new();
+        p.for_codec(CODEC_ID_OPUS)
             .with_extra_data(head.to_vec().into_boxed_slice());
         p
     }
 
     /// The audio packets of an Ogg Opus file, read by symphonia's demuxer.
-    fn fixture_packets(bytes: &[u8]) -> (CodecParameters, Vec<Packet>) {
+    fn fixture_packets(bytes: &[u8]) -> (AudioCodecParameters, Vec<Packet>) {
+        use symphonia::core::formats::probe::Hint;
         use symphonia::core::formats::FormatOptions;
         use symphonia::core::io::MediaSourceStream;
         use symphonia::core::meta::MetadataOptions;
-        use symphonia::core::probe::Hint;
         let mss = MediaSourceStream::new(
             Box::new(std::io::Cursor::new(bytes.to_vec())),
             MediaSourceStreamOptions::default(),
         );
         let mut format = symphonia::default::get_probe()
-            .format(
+            .probe(
                 &Hint::new(),
                 mss,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
+                FormatOptions::default(),
+                MetadataOptions::default(),
             )
+            .unwrap();
+        let params = format.tracks()[0]
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
             .unwrap()
-            .format;
-        let params = format.tracks()[0].codec_params.clone();
+            .clone();
         let mut packets = Vec::new();
-        while let Ok(p) = format.next_packet() {
+        while let Ok(Some(p)) = format.next_packet() {
             packets.push(p);
         }
         (params, packets)
     }
 
     fn decode_all(head_bytes: &[u8], packets: &[Packet]) -> Vec<f32> {
-        let mut d = OpusPacketDecoder::try_new(&params_for(head_bytes), &DecoderOptions::default())
-            .unwrap();
+        let mut d =
+            OpusPacketDecoder::try_new(&params_for(head_bytes), &AudioDecoderOptions::default())
+                .unwrap();
         let mut out = Vec::new();
         for p in packets {
             let b = d.decode(p).unwrap();
-            let AudioBufferRef::F32(buf) = b else {
+            let GenericAudioBufferRef::F32(buf) = b else {
                 panic!("expected f32")
             };
-            out.extend_from_slice(buf.chan(0));
+            out.extend_from_slice(buf.plane(0).unwrap());
         }
         out
     }

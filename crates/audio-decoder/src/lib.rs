@@ -9,6 +9,7 @@
 //! buffered API is unchanged — callers that already use [`decode_file`] do
 //! NOT need to migrate.
 
+mod compat;
 mod opus;
 mod os_aac;
 mod stream;
@@ -20,15 +21,16 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::OnceLock;
 
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CodecRegistry, DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS};
+use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
+use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
+use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::{
     MediaSource, MediaSourceStream, MediaSourceStreamOptions, ReadOnlySource,
 };
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 /// The file extensions the app imports on every platform, lower case and
 /// without the dot.
@@ -116,16 +118,33 @@ pub enum DecodeError {
 
 pub type Result<T> = std::result::Result<T, DecodeError>;
 
-/// symphonia's codecs for the enabled features, and Opus (symphonia 0.5 has
+/// symphonia's codecs for the enabled features, and Opus (symphonia 0.6 has
 /// no Opus codec; see [`opus`]).
 fn codecs() -> &'static CodecRegistry {
     static REGISTRY: OnceLock<CodecRegistry> = OnceLock::new();
     REGISTRY.get_or_init(|| {
         let mut registry = CodecRegistry::new();
         symphonia::default::register_enabled_codecs(&mut registry);
-        registry.register_all::<opus::OpusPacketDecoder>();
+        registry.register_audio_decoder::<opus::OpusPacketDecoder>();
         registry
     })
+}
+
+/// How every file is decoded. Gapless playback is off: symphonia 0.6 turns it
+/// on by default and then trims the encoder delay and padding a container
+/// declares (an MP3's LAME tag, an Ogg stream's granule positions), while 0.5
+/// kept every decoded frame. Off, a file decodes to the frames it always did,
+/// and Opus is trimmed by `opus.rs` and [`decode_inner`] (RFC 7845), as before.
+fn decoder_options() -> AudioDecoderOptions {
+    AudioDecoderOptions::default().gapless(false)
+}
+
+/// The container's first audio track whose codec is known, as symphonia 0.5's
+/// "first track whose codec is not null" picked it.
+fn first_audio_track(format: &dyn FormatReader) -> Option<(u32, &AudioCodecParameters)> {
+    let track = format.first_track_known_codec(TrackType::Audio)?;
+    let params = track.codec_params.as_ref()?.audio()?;
+    Some((track.id, params))
 }
 
 /// Decode a full audio file from disk.
@@ -193,7 +212,8 @@ pub fn probe_sample_rate(path: &Path) -> Result<u32> {
         return decoded.map(|d| d.sample_rate);
     }
     let source: Box<dyn MediaSource> = match file.seek(SeekFrom::Start(0)) {
-        Ok(_) => Box::new(file),
+        Ok(_) if !compat::read_forward_only(&head) => Box::new(file),
+        Ok(_) => Box::new(ReadOnlySource::new(file)),
         Err(_) => Box::new(ReadOnlySource::new(Cursor::new(head.clone()).chain(file))),
     };
     probe_sample_rate_inner(path, source).map_err(|e| match e {
@@ -210,21 +230,17 @@ fn probe_sample_rate_inner(path: &Path, source: Box<dyn MediaSource>) -> Result<
         hint.with_extension(ext);
     }
     let mss = MediaSourceStream::new(source, MediaSourceStreamOptions::default());
-    let probed = symphonia::default::get_probe()
-        .format(
+    let format = symphonia::default::get_probe()
+        .probe(
             &hint,
             mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .map_err(map_probe_err)?;
 
-    probed
-        .format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        .and_then(|t| t.codec_params.sample_rate)
+    first_audio_track(format.as_ref())
+        .and_then(|(_, params)| params.sample_rate)
         .ok_or(DecodeError::NoAudioTrack)
 }
 
@@ -237,31 +253,28 @@ fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
 fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
     // An Ogg Opus file says how long it is in its last page (RFC 7845 §4.4).
     let opus_end = opus::head_in_ogg(&bytes).and_then(|_| opus::last_granule(&bytes));
-    let cursor = Cursor::new(bytes);
-    let mss = MediaSourceStream::new(Box::new(cursor), MediaSourceStreamOptions::default());
+    let source: Box<dyn MediaSource> = if compat::read_forward_only(&bytes) {
+        Box::new(ReadOnlySource::new(Cursor::new(bytes)))
+    } else {
+        Box::new(Cursor::new(bytes))
+    };
+    let mss = MediaSourceStream::new(source, MediaSourceStreamOptions::default());
 
-    let probed = symphonia::default::get_probe()
-        .format(
+    let mut format = symphonia::default::get_probe()
+        .probe(
             &hint,
             mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .map_err(map_probe_err)?;
 
-    let mut format = probed.format;
-
-    let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+    let (track_id, codec_params) = first_audio_track(format.as_ref())
+        .map(|(id, params)| (id, params.clone()))
         .ok_or(DecodeError::NoAudioTrack)?;
 
-    let track_id = track.id;
-    let codec_params = track.codec_params.clone();
-
     // Opus: say why a layout is refused, which the codec registry cannot.
-    let opus_head = if codec_params.codec == CODEC_TYPE_OPUS {
+    let opus_head = if codec_params.codec == CODEC_ID_OPUS {
         let extra = codec_params.extra_data.as_deref().unwrap_or_default();
         Some(opus::parse_head(extra)?)
     } else {
@@ -269,21 +282,26 @@ fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
     };
 
     let mut decoder = codecs()
-        .make(&codec_params, &DecoderOptions::default())
+        .make_audio_decoder(&codec_params, &decoder_options())
         .map_err(|e| match e {
             SymphoniaError::Unsupported(_) => DecodeError::UnsupportedCodec,
             other => map_runtime_err(other),
         })?;
 
+    let mut output = compat::Output::for_codec(codec_params.codec);
     let mut samples_out: Vec<f32> = Vec::new();
     let mut sample_rate: u32 = 0;
     let mut channels: u16 = 0;
-    let mut sample_buf: Option<SampleBuffer<f32>> = None;
+    let mut have_spec = false;
 
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
-            // Symphonia signals end-of-stream as UnexpectedEof.
+            Ok(Some(p)) => p,
+            // The end of the stream.
+            Ok(None) => break,
+            // A file cut short in the middle of a packet: keep what decoded
+            // before it, as symphonia 0.5 did (it signalled the end of every
+            // stream this way, and 0.6 only a truncated one).
             Err(SymphoniaError::IoError(ref e))
                 if e.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
@@ -293,35 +311,39 @@ fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
             Err(e) => return Err(map_runtime_err(e)),
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
-                if sample_buf.is_none() {
+                if !have_spec {
                     // First-packet spec is held for the entire decode; mid-stream
                     // changes surface as ResetRequired and we break out of the loop.
-                    let spec = *audio_buf.spec();
-                    sample_rate = spec.rate;
-                    channels = spec.channels.count() as u16;
-                    let capacity = audio_buf.capacity() as u64;
-                    sample_buf = Some(SampleBuffer::<f32>::new(capacity, spec));
+                    let spec = audio_buf.spec();
+                    sample_rate = spec.rate();
+                    channels = spec.channels().count() as u16;
+                    have_spec = true;
                 }
-                if let Some(buf) = sample_buf.as_mut() {
-                    // `copy_interleaved_ref` converts planar -> interleaved and
-                    // any native sample format -> f32 in one call.
-                    buf.copy_interleaved_ref(audio_buf);
-                    samples_out.extend_from_slice(buf.samples());
+                if !output.keep() {
+                    continue;
                 }
+                // Planar -> interleaved and any native sample format -> f32
+                // in one call, appended after what is already decoded.
+                let start = samples_out.len();
+                samples_out.resize(start + audio_buf.samples_interleaved(), 0.0);
+                audio_buf.copy_to_slice_interleaved(&mut samples_out[start..]);
+                output.shape(&mut samples_out[start..]);
             }
             // Per symphonia docs, decode errors on a single packet are
             // recoverable; skip the packet and continue. An Opus packet that
             // does not decode keeps its place as silence instead, so the
-            // packets after it stay where the file put them.
+            // packets after it stay where the file put them. `block_dur` is
+            // the packet's whole length: 0.6's `dur` leaves out any frames a
+            // gapless decoder would trim, and 0.5's (gapless off) did not.
             Err(SymphoniaError::DecodeError(_)) => {
                 if opus_head.is_some() && channels > 0 {
-                    let frames = (packet.dur() as usize).min(5_760);
+                    let frames = (packet.block_dur().get() as usize).min(5_760);
                     samples_out.resize(samples_out.len() + frames * channels as usize, 0.0);
                 }
                 continue;

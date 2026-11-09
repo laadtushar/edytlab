@@ -526,7 +526,7 @@ function providerCommands(): Backend {
         "SOURCE AVAILABILITY (MPL-2.0)",
         "=============================",
         "",
-        "  * symphonia 0.5.5",
+        "  * symphonia 0.6.1",
       ].join("\n"),
     ),
     // `get_crash_reports` (`commands.rs`): `CrashReporter::status()`, read
