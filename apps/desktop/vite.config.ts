@@ -34,7 +34,7 @@ const appVersion: string = JSON.parse(
 const noticesJson = process.env.EDYTLAB_NOTICES_JSON;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(() => ({
   plugins: [
     react(),
     tailwindcss(),

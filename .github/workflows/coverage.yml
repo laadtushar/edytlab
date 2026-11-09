@@ -5,8 +5,8 @@ name: Coverage
 #
 # What is measured, and how:
 #   - Rust: every workspace test under nextest's `ci` profile, the same set
-#     ci.yml runs, instrumented by cargo-llvm-cov -> LCOV, DeepSource key
-#     `rust`.
+#     ci.yml runs, instrumented by cargo-llvm-cov -> LCOV with
+#     repository-relative paths, DeepSource key `rust`.
 #   - Frontend (apps/desktop): vitest with the V8 provider -> LCOV, key
 #     `javascript`. The coverage settings live in vite.config.ts.
 # DeepSource merges reports sent under the same key, so the two jobs report
@@ -42,6 +42,8 @@ concurrency:
 permissions:
   contents: read
 
+# Every action is pinned to a commit SHA, first-party ones too, because the
+# two jobs hold `id-token: write`.
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -70,7 +72,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -129,6 +131,21 @@ jobs:
       - name: cargo llvm-cov nextest
         run: cargo llvm-cov nextest --workspace --profile ci --lcov --output-path coverage-rust.lcov
 
+      # llvm-cov writes absolute source paths. Make them relative to the
+      # repository, as the frontend report is, so each one names a file in the
+      # checkout whatever directory the runner cloned into; then refuse a
+      # report with no file or with a path the rewrite missed.
+      - name: Make the Rust report's paths repository-relative
+        run: |
+          sed -i "s|^SF:${GITHUB_WORKSPACE}/|SF:|" coverage-rust.lcov
+          files=$(grep -c '^SF:' coverage-rust.lcov || true)
+          absolute=$(grep -c '^SF:/' coverage-rust.lcov || true)
+          echo "coverage-rust.lcov: ${files} files, ${absolute} absolute paths"
+          if [ "$files" -eq 0 ] || [ "$absolute" -ne 0 ]; then
+            echo "::error::coverage-rust.lcov has no files or paths outside the checkout"
+            exit 1
+          fi
+
       - name: Install the DeepSource CLI
         if: env.CAN_REPORT == 'true'
         run: |
@@ -153,7 +170,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -161,7 +178,7 @@ jobs:
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Install Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm

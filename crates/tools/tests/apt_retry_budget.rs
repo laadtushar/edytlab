@@ -29,7 +29,12 @@
 use std::path::PathBuf;
 
 /// Every workflow carrying the Linux build-deps step.
-const WORKFLOWS: [&str; 4] = ["ci.yml", "release-dev.yml", "release-signed.yml", "coverage.yml"];
+const WORKFLOWS: [&str; 4] = [
+    "ci.yml",
+    "release-dev.yml",
+    "release-signed.yml",
+    "coverage.yml",
+];
 
 /// Seconds of pause between the two attempts, from `sleep 10`.
 const RETRY_PAUSE_SECS: u64 = 10;
@@ -58,8 +63,7 @@ fn parse_apt_step(yaml: &str) -> AptStep {
     let rest = &yaml[start..];
     let end = rest[1..]
         .find("\n      - name:")
-        .map(|i| i + 1)
-        .unwrap_or(rest.len());
+        .map_or(rest.len(), |i| i + 1);
     let step = &rest[..end];
 
     let cap_minutes: u64 = step
