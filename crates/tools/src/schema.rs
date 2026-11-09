@@ -120,6 +120,101 @@ mod tests {
         assert!(validate(&schema, &json!({ "track": 1, "gain": 2.0 })).is_ok());
     }
 
+    /// What [`schema_for`] derives, byte for byte, as schemars 0.8.22 wrote
+    /// it: an `input_schema` is what every provider is sent, and some
+    /// refuse shapes they do not know, so a schemars upgrade must not
+    /// change it. The type covers the shapes a tool's arguments use:
+    /// integers of each width (with their `format` and an unsigned
+    /// `minimum`), floats, options, lists, a fixed-size array, a tuple, a
+    /// map, a nested struct (a `$ref`), plain and documented enums, a
+    /// default, a rename and doc comments of several lines and paragraphs.
+    ///
+    /// There are no `definitions`: 0.8's `schema_for!` returned them beside
+    /// the schema, so this function has never written them, and a nested
+    /// type's `$ref` does not resolve. No tool calls `schema_for` (each
+    /// writes its `input_schema` by hand), so that is kept as it was.
+    #[test]
+    fn schema_for_writes_what_schemars_0_8_wrote() {
+        use std::collections::BTreeMap;
+
+        /// A nested part.
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[allow(dead_code)]
+        struct Point {
+            x: f32,
+            y: f32,
+        }
+
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[serde(rename_all = "snake_case")]
+        #[allow(dead_code)]
+        enum Plain {
+            First,
+            SecondOne,
+        }
+
+        /// How a change is made.
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[serde(rename_all = "snake_case")]
+        #[allow(dead_code)]
+        enum Documented {
+            /// Once only.
+            Once,
+            /// Over and over.
+            Repeat,
+        }
+
+        /// Arguments of a tool, as a tool would derive them.
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[serde(deny_unknown_fields)]
+        #[allow(dead_code)]
+        struct Args {
+            /// The track, from 0.
+            track: u32,
+            /// Samples from the start
+            /// of the track.
+            offset: i64,
+            gain: f32,
+            ratio: f64,
+            enabled: bool,
+            label: String,
+            /// Optional gain in dB.
+            gain_db: Option<f64>,
+            limit: Option<u16>,
+            name: Option<String>,
+            tracks: Vec<usize>,
+            pan: [f32; 2],
+            levels: BTreeMap<String, f32>,
+            /// Where it lands.
+            at: Point,
+            plain: Plain,
+            mode: Documented,
+            maybe_mode: Option<Documented>,
+            #[serde(default)]
+            loud: bool,
+            #[serde(rename = "type")]
+            kind: String,
+            small: i8,
+            byte: u8,
+            count: Option<u64>,
+            pair: (f32, String),
+            ///
+            ///   Indented, with a blank line before.
+            ///
+            /// A second paragraph.
+            notes: Vec<Option<i16>>,
+        }
+
+        let got = serde_json::to_string(&schema_for::<Args>()).unwrap();
+        assert_eq!(
+            got, PINNED_SCHEMA_FOR_ARGS,
+            "schema_for changed what it writes"
+        );
+    }
+
+    /// Measured with schemars 0.8.22 (`serde_json` sorts the keys).
+    const PINNED_SCHEMA_FOR_ARGS: &str = r##"{"additionalProperties":false,"description":"Arguments of a tool, as a tool would derive them.","properties":{"at":{"allOf":[{"$ref":"#/definitions/Point"}],"description":"Where it lands."},"byte":{"format":"uint8","minimum":0.0,"type":"integer"},"count":{"format":"uint64","minimum":0.0,"type":["integer","null"]},"enabled":{"type":"boolean"},"gain":{"format":"float","type":"number"},"gain_db":{"description":"Optional gain in dB.","format":"double","type":["number","null"]},"label":{"type":"string"},"levels":{"additionalProperties":{"format":"float","type":"number"},"type":"object"},"limit":{"format":"uint16","minimum":0.0,"type":["integer","null"]},"loud":{"default":false,"type":"boolean"},"maybe_mode":{"anyOf":[{"$ref":"#/definitions/Documented"},{"type":"null"}]},"mode":{"$ref":"#/definitions/Documented"},"name":{"type":["string","null"]},"notes":{"description":"Indented, with a blank line before.\n\nA second paragraph.","items":{"format":"int16","type":["integer","null"]},"type":"array"},"offset":{"description":"Samples from the start of the track.","format":"int64","type":"integer"},"pair":{"items":[{"format":"float","type":"number"},{"type":"string"}],"maxItems":2,"minItems":2,"type":"array"},"pan":{"items":{"format":"float","type":"number"},"maxItems":2,"minItems":2,"type":"array"},"plain":{"$ref":"#/definitions/Plain"},"ratio":{"format":"double","type":"number"},"small":{"format":"int8","type":"integer"},"track":{"description":"The track, from 0.","format":"uint32","minimum":0.0,"type":"integer"},"tracks":{"items":{"format":"uint","minimum":0.0,"type":"integer"},"type":"array"},"type":{"type":"string"}},"required":["at","byte","enabled","gain","label","levels","mode","notes","offset","pair","pan","plain","ratio","small","track","tracks","type"],"type":"object"}"##;
+
     /// Draft 7 is pinned (0.25 made 2020-12 the default): `definitions`
     /// and a `$ref` into them, which schemars emits, must still resolve.
     #[test]
