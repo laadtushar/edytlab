@@ -536,26 +536,29 @@ def _overlay_inputs(tl, work, mode, words, groups, demo_dur, idx):
 def _layer_filters(groups, gidx, bgidx, cidx, baridx, demo_dur, demo_frames):
     """Filter lines that lay the joined cuts ([vc]) on the background, then the caption, group and
     progress-bar layers, trimmed to the demo's frame count as [demo]."""
-    f = [f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]"]
-    f.append(f"[bg][vc]overlay=0:{FRAME_Y}:format=auto[b1]")
-    f.append(f"[{cidx}:v]fps={FPS},format=rgba,setsar=1[cap]")
-    f.append(f"[b1][cap]overlay=0:{CAP_Y}:format=auto:eof_action=pass[b2]")
+    f = [
+        f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]",
+        f"[bg][vc]overlay=0:{FRAME_Y}:format=auto[b1]",
+        f"[{cidx}:v]fps={FPS},format=rgba,setsar=1[cap]",
+        f"[b1][cap]overlay=0:{CAP_Y}:format=auto:eof_action=pass[b2]",
+    ]
     cur = "b2"
     for gi, ((a, b, _pill), i) in enumerate(zip(groups, gidx)):
         f.append(f"[{i}:v]format=rgba,setsar=1[gl{gi}]")
         f.append(f"[{cur}][gl{gi}]overlay=0:0:format=auto:enable='between(t,{a:.3f},{b:.3f})':eof_action=pass[g{gi}]")
         cur = f"g{gi}"
-    f.append(f"[{baridx}:v]format=rgba,setsar=1[bar]")
-    f.append(f"color=c=0x00000000:s={SAFE_R-SAFE_L}x6:r={FPS},format=rgba[bcan]")
-    f.append(f"[bcan][bar]overlay=x='-w+w*t/{demo_dur:.3f}':y=0:eval=frame:format=auto:shortest=1[bfill]")
-    f.append(f"[{cur}][bfill]overlay={SAFE_L}:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]")
-    return f
+    return f + [
+        f"[{baridx}:v]format=rgba,setsar=1[bar]",
+        f"color=c=0x00000000:s={SAFE_R-SAFE_L}x6:r={FPS},format=rgba[bcan]",
+        f"[bcan][bar]overlay=x='-w+w*t/{demo_dur:.3f}':y=0:eval=frame:format=auto:shortest=1[bfill]",
+        f"[{cur}][bfill]overlay={SAFE_L}:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]",
+    ]
 
 
 def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     """Compose a reel using validated project work and output paths."""
-    name = tl["name"]
-    r = REELS[name]
+    if tl["name"] not in REELS:   # only a reel's timeline renders here
+        raise KeyError(tl["name"])
     work = f"{WORK}/{tl['file']}-{mode}"
     checked_reel_path(out_path or f"{work}/video.mp4")
     cues = tl["cues"]
