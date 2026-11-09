@@ -26,6 +26,19 @@ def checked_system_font():
     return str(SYSTEM_FONT)
 
 
+def _repository_spelling(path, repo):
+    """Spell a path's checkout prefix as `repo`, keeping its components inside the repository.
+
+    A checkout reached through a linked parent (or the abspath-built default demo
+    folder) then compares equal to the resolved repository paths, while links
+    inside the repository are still seen and checked.
+    """
+    for ancestor in reversed(path.parents):
+        if ancestor.resolve() == repo:
+            return repo / path.relative_to(ancestor)
+    return path
+
+
 def checked_demo_path(path):
     """Validate an FFmpeg demo input, keeping its original argument spelling."""
     raw = os.fspath(path)
@@ -35,12 +48,13 @@ def checked_demo_path(path):
                       (protocol or (raw.startswith('subfile,') and ':' in raw[8:]))):
         raise SystemExit(f'Refused demo path {raw!r}: must name a local file inside {ROOT}')
     actual = raw.removeprefix('file:')
-    demo_dir = REPO_ROOT / 'website' / 'public' / 'demos'
-    candidate = Path(actual).absolute()
-    resolved_dir = demo_dir.resolve()
     repo = REPO_ROOT.resolve()
-    if demo_dir in candidate.parents and repo not in resolved_dir.parents:
-        raise SystemExit(f'Refused demo path {raw!r}: repository demo directory escapes {repo}')
+    demo_dir = repo / 'website' / 'public' / 'demos'
+    candidate = _repository_spelling(Path(actual).absolute(), repo)
+    resolved_dir = demo_dir.resolve()
+    # The demo folder itself must not be a link, inside the repository or out of it.
+    if demo_dir in candidate.parents and resolved_dir != demo_dir:
+        raise SystemExit(f'Refused demo path {raw!r}: repository demo directory is redirected from {demo_dir}')
     try:
         checked_path(actual)
         return raw
@@ -49,8 +63,7 @@ def checked_demo_path(path):
 
     resolved = candidate.resolve()
     if (candidate.parent == demo_dir and candidate.name in DEMO_NAMES
-            and repo in resolved_dir.parents
-            and resolved == resolved_dir / candidate.name
+            and resolved == demo_dir / candidate.name
             and resolved.is_file()):
         return raw
     raise SystemExit(f'Refused demo path {raw!r}: must resolve inside {ROOT} or be an approved repository demo')

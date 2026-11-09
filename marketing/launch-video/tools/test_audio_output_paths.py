@@ -48,10 +48,11 @@ class AudioOutputPaths(unittest.TestCase):
         """Create only isolated synthetic inputs and use the real path validator."""
         self.temporary = tempfile.TemporaryDirectory(prefix='launch writer [fixture] ')
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # Resolved: a symlinked TMPDIR (macOS /var) must not look like an escape.
+        self.root = Path(self.temporary.name).resolve()
         self.external = tempfile.TemporaryDirectory()
         self.addCleanup(self.external.cleanup)
-        self.outside = Path(self.external.name)
+        self.outside = Path(self.external.name).resolve()
         self.audio = load_audio()
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)

@@ -37,7 +37,8 @@ FMT = "aformat=sample_rates=48000:channel_layouts=stereo"
 
 def run(cmd, **kw):
     """Run one ffmpeg command and surface its bounded diagnostic tail."""
-    p = subprocess.run(["nice", "-n", "10"] + cmd, capture_output=True, text=True, check=False, **kw)
+    p = subprocess.run(["nice", "-n", "10"] + cmd, capture_output=True, text=True,
+                       check=False, **kw)
     if p.returncode:
         raise SystemExit("ffmpeg failed:\n" + p.stderr[-3000:])
     return p

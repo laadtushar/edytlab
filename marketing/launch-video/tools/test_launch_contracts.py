@@ -26,7 +26,7 @@ class AssemblySoundEffects(unittest.TestCase):
             with self.subTest(target=target, dangling=dangling), \
                     tempfile.TemporaryDirectory(prefix='launch paths [fixture] ') as folder, \
                     tempfile.TemporaryDirectory() as external:
-                root = Path(folder)
+                root = Path(folder).resolve()
                 tools, binaries = root / 'tools', root / 'bin'
                 tools.mkdir()
                 binaries.mkdir()
@@ -60,7 +60,7 @@ class AssemblySoundEffects(unittest.TestCase):
         """Exercise every existence branch with recorded commands and no media tools."""
         for missing in (None, *SOUNDS):
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as folder:
-                root = Path(folder)
+                root = Path(folder).resolve()
                 tools, binaries = root / 'tools', root / 'bin'
                 sounds = root / 'work' / 'sfx'
                 tools.mkdir()

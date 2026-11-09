@@ -25,7 +25,7 @@ class StandaloneDemoPathsTests(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         nice = self.bin / "nice"
-        nice.write_text('#!/usr/bin/python3\n'
+        nice.write_text(f'#!{sys.executable}\n'
                         'import json, os, pathlib, sys\n'
                         'with open(os.environ["MEDIA_MARKER"], "a") as f: f.write(json.dumps(sys.argv[1:]) + "\\n")\n'
                         'if "image2pipe" in sys.argv: sys.stdout.buffer.write(pathlib.Path(os.environ["TEST_PNG"]).read_bytes())\n')
@@ -113,7 +113,7 @@ class StandaloneDemoPathsTests(unittest.TestCase):
     def test_failed_decode_stops_instead_of_reporting_empty_media(self):
         """A failing decoder fails the utility; empty output is not read as silence."""
         nice = self.bin / "nice"
-        nice.write_text(nice.read_text() + 'sys.exit(1)\n')
+        nice.write_text(nice.read_text() + 'sys.stderr.write("decoder exploded\\n"); sys.exit(1)\n')
         output = self.root / "out.png"
         for script, args in (("detect_captions.py", ["dj-mini-mix"]),
                              ("rms_listen_regions.py", []),
@@ -121,8 +121,18 @@ class StandaloneDemoPathsTests(unittest.TestCase):
             with self.subTest(script=script):
                 result = self.run_tool(script, args)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("CalledProcessError", result.stderr)
+                self.assertIn("ffmpeg failed on", result.stderr)
+                self.assertIn("decoder exploded", result.stderr)
         self.assertFalse(output.exists())
+
+    def test_sheet_help_prints_usage_without_media(self):
+        """Help exits cleanly before reading arguments or opening media."""
+        for flag in ("-h", "--help"):
+            with self.subTest(flag=flag):
+                result = self.run_tool("sheet.py", [flag])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("contact sheet", result.stdout)
+                self.assertFalse(self.marker.exists())
 
 
 if __name__ == "__main__":

@@ -125,7 +125,7 @@ class BrandInputTests(unittest.TestCase):
     @unittest.skipUnless(SYSTEM_FONT.is_file(), "DejaVu Sans fixture is not installed")
     def test_system_font_location_rejects_symlinked_font_and_directory(self):
         with tempfile.TemporaryDirectory() as temp:
-            base = Path(temp)
+            base = Path(temp).resolve()
             fonts = base / "inter"
             fonts.mkdir()
             font = fonts / "Inter-Medium.otf"

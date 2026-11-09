@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { SHARED_SOURCES } from "./paths.mjs";
 
@@ -56,9 +56,10 @@ try {
 }
 `;
 
-/** Give each actual CLI run its own social project and output link fixtures. */
+/** Give each actual CLI run its own social project and output link fixtures.
+ * The space, # and ? in its path catch URL-pathname and raw file-URL mistakes. */
 function fixture(t) {
-  const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "social-artifact-paths-")));
+  const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "social artifact #paths?-")));
   t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
   const repo = path.join(scratch, "repo");
   const artifact = path.join(repo, "marketing/social-kit/artifact");
@@ -239,7 +240,7 @@ function refusedInput(f, name, source) {
 
 /** Load the fixture's own copy of paths.mjs, so its roots are the fixture's. */
 async function fixturePaths(f) {
-  return import(`${new URL(`file://${path.join(f.artifact, "paths.mjs")}`).href}?${Math.random()}`);
+  return import(`${pathToFileURL(path.join(f.artifact, "paths.mjs")).href}?${Math.random()}`);
 }
 
 test("the launch hub reads the allowlisted shared sources at their own paths", (t) => {

@@ -8,9 +8,17 @@ from demo_paths import checked_demo_input, checked_reel_path
 DEMOS = os.environ.get("EDYTLAB_DEMO_DIR") or str(Path(__file__).resolve().parents[3] / "website" / "public" / "demos")
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 def frame(src, t):
-    p = subprocess.run(["nice","-n","10","ffmpeg","-nostdin","-v","error","-ss",f"{t:.3f}","-i",checked_demo_input(src),"-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True,check=True)
+    p = subprocess.run(
+        ["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}", "-i", checked_demo_input(src),
+         "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+        capture_output=True, check=False)
+    if p.returncode:
+        raise SystemExit(f"ffmpeg failed on {src}:\n" + p.stderr.decode(errors="replace")[-2000:])
     return Image.open(io.BytesIO(p.stdout)).convert("RGB")
 def main():
+    if sys.argv[1:] in (["-h"], ["--help"]):
+        print(__doc__)
+        raise SystemExit(0)
     out, cols, w = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
     checked_reel_path(out)
     items = sys.argv[4:]

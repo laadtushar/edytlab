@@ -1,6 +1,6 @@
 # tools
 
-Python 3 scripts that built everything in this folder. A plain build needs `ffmpeg`/`ffprobe` and Pillow (with its raqm support, which the wheels have, so Inter is kerned); no API key. `narrate.py` needs `requests` and `ELEVENLABS_API_KEY`.
+Python 3 scripts that built everything in this folder. A plain build needs `ffmpeg`/`ffprobe` and Pillow with the system FriBiDi library (Pillow's wheels bundle raqm but load FriBiDi at run time, `libfribidi0` on Debian/Ubuntu; without it Pillow falls back to basic layout and Inter is not kerned); no API key. `narrate.py` needs `requests` and `ELEVENLABS_API_KEY`.
 
 - `spec.py`: the single source of truth: caption start times and the audible "Listen" windows on the final demo videos (measured on the videos re-filmed in the app's violet look, #581), the edit lists of the reels (where each cut starts on a demo video and how long it runs) and the narration lines, which were written for the earlier takes and need checking against the new footage before they are used.
 - `cues.py`: edit list to cue timeline. Every cut is asserted to lie inside its caption's window on the demo video, and a Listen cut to start at most 0.3 s before the app's sound and end inside it. `python3 cues.py` prints each reel's cuts with their source times and where the sound plays, then the demo narration lines that no longer fit their window.

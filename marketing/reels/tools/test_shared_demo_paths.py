@@ -21,7 +21,8 @@ class SharedDemoPathsTests(unittest.TestCase):
         self.root = Path(self.fixture.name)
         self.repo_fixture = tempfile.TemporaryDirectory()
         self.addCleanup(self.repo_fixture.cleanup)
-        self.repo = Path(self.repo_fixture.name)
+        # Resolved: a symlinked TMPDIR (macOS /var) must not look like an escape.
+        self.repo = Path(self.repo_fixture.name).resolve()
         self.demos = self.repo / "website/public/demos"
         self.demos.mkdir(parents=True)
         self.work = self.root / "work"

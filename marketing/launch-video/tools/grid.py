@@ -10,7 +10,12 @@ D = os.environ.get("EDYTLAB_DEMO_DIR") or os.path.join(os.path.dirname(os.path.d
 DEMOS = {"BT":"dj-beatmatched-transition","EI":"dj-extended-club-intro","MM":"dj-mini-mix"}
 def frame(demo, t):
     path = checked_demo_path(f"{D}/{demo}.mp4")
-    p = subprocess.run(["nice","-n","10","ffmpeg","-nostdin","-v","error","-ss",f"{t:.3f}","-i",path,"-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True,check=True)
+    p = subprocess.run(
+        ["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}", "-i", path,
+         "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+        capture_output=True, check=False)
+    if p.returncode:
+        raise SystemExit(f"ffmpeg failed on {path}:\n" + p.stderr.decode(errors="replace")[-2000:])
     return Image.open(io.BytesIO(p.stdout)).convert("RGB")
 out = sys.argv[1]; items = sys.argv[2:]
 checked_path(out)

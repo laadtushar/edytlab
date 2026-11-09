@@ -42,7 +42,8 @@ class SharedDemoPaths(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='launch-demo-fixture-')
         self.addCleanup(self.tmp.cleanup)
-        self.repo = Path(self.tmp.name) / 'repo'
+        # Resolved: a symlinked TMPDIR (macOS /var) must not look like an escape.
+        self.repo = Path(self.tmp.name).resolve() / 'repo'
         self.root = self.repo / 'marketing' / 'launch-video'
         self.root.mkdir(parents=True)
         self.demos = self.repo / 'website' / 'public' / 'demos'
@@ -281,6 +282,31 @@ class SharedDemoPaths(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     engine.Decoder(raw, 0, 1)
                 popen.assert_not_called()
+
+    def test_approved_demo_is_allowed_through_a_linked_checkout_parent(self):
+        """The default folder is built with abspath, so a linked checkout spelling must pass."""
+        alias = Path(self.tmp.name) / 'checkout-alias'
+        alias.symlink_to(self.repo, target_is_directory=True)
+        for name in NAMES:
+            with self.subTest(name=name):
+                raw = str(alias / 'website' / 'public' / 'demos' / f'{name}.mp4')
+                self.assertEqual(launch_paths.checked_demo_path(raw), raw)
+        leaf = self.demos / f'{NAMES[0]}.mp4'
+        leaf.unlink()
+        leaf.symlink_to(self.outside / 'stolen.mp4')
+        (self.outside / 'stolen.mp4').write_bytes(b'outside')
+        with self.assertRaises(SystemExit):
+            launch_paths.checked_demo_path(str(alias / 'website' / 'public' / 'demos' / leaf.name))
+
+    def test_demo_root_redirected_inside_the_repository_is_refused(self):
+        """A linked demo folder cannot swap in other repository footage with approved names."""
+        archive = self.repo / 'marketing' / 'archive' / 'demos'
+        archive.parent.mkdir(parents=True)
+        self.demos.rename(archive)
+        self.demos.symlink_to(archive, target_is_directory=True)
+        for name in NAMES:
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                launch_paths.checked_demo_path(str(self.demos / f'{name}.mp4'))
 
     def test_demo_root_cannot_resolve_outside_even_if_leaf_points_back_inside(self):
         for name in NAMES:
