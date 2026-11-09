@@ -31,7 +31,7 @@ description: "Dev setup for macOS, Windows and Linux, daily workflow, testing, d
 |------|---------|---------|
 | Rust | 1.90 (auto via `rust-toolchain.toml`) | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | Node.js | 22.22.2+ (CI uses 24) | [nodejs.org](https://nodejs.org) or `nvm install 24` |
-| pnpm | 9.15+ | `npm install -g pnpm` |
+| pnpm | 10.34+ | `npm install -g pnpm` |
 | Git | Any recent | |
 
 ### macOS

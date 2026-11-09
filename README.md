@@ -47,7 +47,7 @@ The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails
 Prerequisites:
 
 - Rust toolchain pinned by `rust-toolchain.toml` (currently 1.90, installs automatically via `rustup`)
-- Node 22.22.2+ (CI uses 24) and `pnpm` 9.15+
+- Node 22.22.2+ (CI uses 24) and `pnpm` 10.34.9 (the `packageManager` pin; Corepack or `pnpm` 10 self-manage it)
 - Platform Tauri prerequisites: see <https://tauri.app/start/prerequisites/> (Xcode CLT on macOS, MSVC build tools + WebView2 on Windows, the WebKitGTK / GTK / ALSA dev packages on Linux — the exact `apt` list is in [`docs/development-guide.md`](docs/development-guide.md#linux-ubuntu-2204))
 
 ```bash
