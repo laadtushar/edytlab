@@ -73,10 +73,17 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      # The same step as ci.yml's Linux leg (apt_retry_budget.rs checks both).
+      # The same step as ci.yml's Linux leg, where its budget and the Azure
+      # mirror stalls are explained (apt_retry_budget.rs checks both copies).
       - name: Install Linux build deps
         timeout-minutes: 18
         run: |
+          # http:// is deliberate here (SonarCloud S5332 reviewed, safe, as in
+          # ci.yml): apt does not trust the transport, it verifies every package
+          # index and .deb against the distribution's signing keys
+          # (Release.gpg / InRelease), so a tampered mirror response fails the
+          # install instead of being used. The Azure mirror is the one that
+          # stalls (#660, #661, #669).
           sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
             /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
             /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
