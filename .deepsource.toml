@@ -2,7 +2,9 @@
 # file (its "use .deepsource.toml" preference is off). This file is the
 # reviewed record of that config: change both together, so the two stay
 # identical (the DeepSource connector's save_repository_config writes the
-# stored one).
+# stored one). Its repository setting "analyze only the changeset" is on, so a
+# pull request is gated on the issues its own diff introduces; the issues
+# already on main stay listed on the dashboard.
 # https://docs.deepsource.com/docs/platform/getting-started/configure-analyzers
 # Options: https://docs.deepsource.com/docs/platform/reference/core-analyzers
 version = 1
@@ -36,6 +38,8 @@ test_patterns = [
   "**/*.test.ts",
   "**/*.test.tsx",
   "**/*.test.mjs",
+  # Python unittest files.
+  "**/test_*.py",
 ]
 
 [[analyzers]]
