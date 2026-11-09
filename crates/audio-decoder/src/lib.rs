@@ -24,7 +24,9 @@ use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CodecRegistry, DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::{MediaSource, MediaSourceStream, ReadOnlySource};
+use symphonia::core::io::{
+    MediaSource, MediaSourceStream, MediaSourceStreamOptions, ReadOnlySource,
+};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
@@ -207,7 +209,7 @@ fn probe_sample_rate_inner(path: &Path, source: Box<dyn MediaSource>) -> Result<
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
-    let mss = MediaSourceStream::new(source, Default::default());
+    let mss = MediaSourceStream::new(source, MediaSourceStreamOptions::default());
     let probed = symphonia::default::get_probe()
         .format(
             &hint,
@@ -236,7 +238,7 @@ fn decode_inner(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
     // An Ogg Opus file says how long it is in its last page (RFC 7845 §4.4).
     let opus_end = opus::head_in_ogg(&bytes).and_then(|_| opus::last_granule(&bytes));
     let cursor = Cursor::new(bytes);
-    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+    let mss = MediaSourceStream::new(Box::new(cursor), MediaSourceStreamOptions::default());
 
     let probed = symphonia::default::get_probe()
         .format(

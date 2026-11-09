@@ -1490,6 +1490,7 @@ mod tests {
             ("the s sounds are sibilant", "de_esser"),
             ("export each track separately", "export_multiple"),
             ("save every track as its own file", "export_multiple"),
+            ("export each region as its own file", "export_multiple"),
             ("save captions as SRT", "export_transcript"),
             ("save subtitles as VTT", "export_transcript"),
             ("save it as TXT", "export_transcript"),

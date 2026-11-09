@@ -50,8 +50,8 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`echo`](#echo) — Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).
 - [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
 - [`eq`](#eq) — EQ a track with biquad bands.
-- [`export_labels`](#export_labels) — Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line).
-- [`export_multiple`](#export_multiple) — Export selected tracks as individual WAV files to a directory.
+- [`export_labels`](#export_labels) — Export markers and regions as Audacity label text, Podlove chapters JSON or a CUE sheet (at most 99 tracks).
+- [`export_multiple`](#export_multiple) — Export selected tracks (or regions) as individual WAV files to a directory.
 - [`export_recipe`](#export_recipe) — Export this session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it.
 - [`export_transcript`](#export_transcript) — Export the stored transcript as SRT, WebVTT, or plain text.
 - [`fade`](#fade) — Apply a fade-in or fade-out to a time range of a track.
@@ -495,32 +495,37 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `eq`
 
-EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Appends a new session node.
+EQ a track with biquad bands. Each band: freq_hz, gain_db, optional Q (default 1.0; 0.707 for shelves), optional type peak (default), low_shelf or high_shelf. Or graphic instead: 10 gains (dB) for octaves 31.5 Hz-16 kHz. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `bands` | array of object | yes |  |
+| `bands` | array of object | no |  |
+| `graphic` | array of number | no |  |
 | `track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `export_labels`
 
-Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line). Does not modify audio. Returns the label text.
+Export markers and regions as Audacity label text, Podlove chapters JSON or a CUE sheet (at most 99 tracks). Chapters are sorted, a region at its start. Writes no file; returns the text.
 
 _Read-only — never held for approval._
 
-Takes no parameters.
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `file_name` | string | no | cue only: the audio file it names |
+| `format` | one of `audacity`, `podlove_json`, `cue` | no |  |
 
 ## `export_multiple`
 
-Export selected tracks as individual WAV files to a directory. Does not modify the session. Returns list of exported file paths.
+Export selected tracks (or regions) as individual WAV files to a directory. Does not modify the session. Returns list of exported file paths.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `format` | one of `wav` | no |  |
 | `output_dir` | string | yes | Directory to write exported files into |
-| `track_indices` | array of integer | yes | Indices of tracks to export |
+| `regions` | boolean | no | Instead of track_indices: one file per region marker, each its span of the full mix |
+| `track_indices` | array of integer | no | Indices of tracks to export |
 
 ## `export_recipe`
 
@@ -667,7 +672,7 @@ Apply a Butterworth high-pass filter to a track, removing frequencies below cuto
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `cutoff_hz` | number | yes | Cutoff frequency in Hz |
+| `cutoff_hz` | number | yes |  |
 | `end_sec` | number | no |  |
 | `start_sec` | number | no |  |
 | `track` | integer | yes |  |

@@ -18,10 +18,11 @@ use edytlab_desktop_lib::commands;
 use edytlab_desktop_lib::state::AppState;
 use serde_json::{json, Value};
 use session::NodeId;
+use tauri::http::HeaderMap;
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{MockRuntime, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
-use tauri::{WebviewWindow, WebviewWindowBuilder};
+use tauri::{WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// An invoke request for `cmd`, as the webview sends one.
 pub fn make_request(cmd: &str, body: Value) -> InvokeRequest {
@@ -37,14 +38,14 @@ pub fn make_request(cmd: &str, body: Value) -> InvokeRequest {
         .parse()
         .unwrap(),
         body: InvokeBody::Json(body),
-        headers: Default::default(),
+        headers: HeaderMap::default(),
         invoke_key: INVOKE_KEY.to_string(),
     }
 }
 
 /// The window of `app`, the one the commands are called through.
 pub fn open_window(app: &tauri::App<MockRuntime>) -> WebviewWindow<MockRuntime> {
-    WebviewWindowBuilder::new(app, "main", Default::default())
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .build()
         .expect("webview")
 }

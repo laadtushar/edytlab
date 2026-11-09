@@ -1191,7 +1191,7 @@ impl Studio {
         }
 
         let script = Arc::new(Script {
-            edits: Mutex::new(Default::default()),
+            edits: Mutex::new(std::collections::VecDeque::default()),
             heads: Mutex::new(Vec::new()),
         });
         let mut dispatcher = ToolDispatcher::new();

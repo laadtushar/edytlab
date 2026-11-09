@@ -19,115 +19,28 @@
 //! - the interval form of `add_markers` places `from + i * every`, never a
 //!   running sum, and refuses a count no one asked for.
 
+#[path = "support/harness.rs"]
+mod harness;
+
+use harness::{marker, region, Session};
 use serde_json::{json, Value};
-use session::{
-    Annotation, AnnotationId, AnnotationKind, BusGraph, NodeId, SessionNode, SessionState, Store,
-    TempoMap,
-};
-use tempfile::TempDir;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use session::{Annotation, AnnotationId, AnnotationKind};
+use tools::ToolDispatcher;
 
-struct Fixture {
-    _dir: TempDir,
-    store: Store,
-    engine: audio_engine::Engine,
-    clipboard: Option<tools::Clipboard>,
-    dispatcher: ToolDispatcher,
-}
+type Fixture = Session;
 
-fn state(annotations: Vec<Annotation>, length_samples: u64) -> SessionState {
-    SessionState {
-        tracks: Vec::new(),
-        bus_routing: BusGraph::default(),
-        master_chain: Vec::new(),
-        tempo_map: TempoMap::default(),
-        key_map: None,
-        transcript: None,
-        sample_rate: 1_000,
-        length_samples,
-        annotations,
-        sync_lock: false,
-    }
-}
-
-fn marker(name: &str, t: f64) -> Annotation {
-    Annotation {
-        id: AnnotationId::new(),
-        name: name.into(),
-        kind: AnnotationKind::Marker { time_sec: t },
-    }
-}
-
-fn region(name: &str, s: f64, e: f64) -> Annotation {
-    Annotation {
-        id: AnnotationId::new(),
-        name: name.into(),
-        kind: AnnotationKind::Region {
-            start_sec: s,
-            end_sec: e,
-        },
-    }
-}
-
-impl Fixture {
+impl Session {
     fn with(annotations: Vec<Annotation>) -> Self {
-        Self::with_length(annotations, 0)
+        Self::with_annotations(annotations, 0)
     }
 
     fn with_length(annotations: Vec<Annotation>, length_samples: u64) -> Self {
-        let dir = TempDir::new().expect("tempdir");
-        let store = Store::open(dir.path()).expect("open store");
-        let mut f = Self {
-            _dir: dir,
-            store,
-            engine: audio_engine::Engine::new(),
-            clipboard: None,
-            dispatcher: ToolDispatcher::default_dispatcher(),
-        };
-        f.store
-            .append(SessionNode {
-                id: NodeId([0u8; 32]),
-                parent: None,
-                created_at: chrono::Utc::now(),
-                label: Some("fixture".into()),
-                reasoning: None,
-                state: state(annotations, length_samples),
-                op: None,
-            })
-            .expect("append the head");
-        f
-    }
-
-    fn call(&mut self, tool: &str, args: Value) -> ToolResult {
-        let mut ctx = ToolContext {
-            store: &mut self.store,
-            engine: &mut self.engine,
-            user_message: "",
-            clipboard: &mut self.clipboard,
-            allowed_tools: None,
-        };
-        self.dispatcher
-            .invoke(tool, args, &mut ctx)
-            .unwrap_or_else(|e| panic!("{tool} was refused by the dispatcher: {e}"))
-    }
-
-    fn ok(&mut self, tool: &str, args: Value) -> Value {
-        match self.call(tool, args.clone()) {
-            ToolResult::Ok(v) => v,
-            ToolResult::Error(e) => panic!("{tool} {args} failed: {e}"),
-        }
+        Self::with_annotations(annotations, length_samples)
     }
 
     /// The error text of a call that must be refused.
     fn refused(&mut self, tool: &str, args: Value) -> String {
-        match self.call(tool, args.clone()) {
-            ToolResult::Error(e) => e,
-            ToolResult::Ok(v) => panic!("{tool} {args} was accepted: {v}"),
-        }
-    }
-
-    fn head(&self) -> NodeId {
-        self.store.head().expect("a head")
+        self.err(tool, args)
     }
 
     fn annotations(&self) -> Vec<Annotation> {

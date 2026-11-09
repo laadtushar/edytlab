@@ -10,8 +10,8 @@ use std::path::PathBuf;
 
 use chrono::TimeZone;
 use session::{
-    Bus, BusGraph, Clip, EffectInstance, KeyMap, KeySegment, NodeId, Send, SessionNode,
-    SessionState, TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
+    Bus, BusGraph, Clip, EffectInstance, EnvelopeFrames, KeyMap, KeySegment, NodeId, Send,
+    SessionNode, SessionState, TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
 };
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ fn fixture() -> SessionNode {
                 pitch_shift_semitones: None,
                 beat_grid: None,
                 volume_envelope: Vec::new(),
-                volume_envelope_frames: Default::default(),
+                volume_envelope_frames: EnvelopeFrames::default(),
             }],
             gain_db: -3.0,
             pan: 0.25,

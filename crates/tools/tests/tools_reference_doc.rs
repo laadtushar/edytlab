@@ -289,7 +289,7 @@ fn section_of<'a>(doc: &'a str, name: &str) -> &'a str {
     };
     let section = &doc[start..];
     match section[1..].find("\n## ") {
-        Some(end) => &section[..end + 1],
+        Some(end) => &section[..=end],
         None => section,
     }
 }

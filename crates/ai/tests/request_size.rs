@@ -207,7 +207,10 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // #846's wah_wah adds 663 B on top.
 // #768's crossfade adds 735 B on top.
 // #769's declip and repair_span add 1,209 B on top.
-const FULL_TOOLS_MAX_BYTES: usize = 78_713; // main ratchet 77,504 + 1,209 B of #769's declip and repair_span
+// #766's chapter formats on export_labels add 225 B on top (78,679 B to 78,904 B).
+// #766's per-region export (export_multiple `regions`) adds 126 B on top (78,904 B to 79,030 B).
+// #765's graphic EQ (`graphic` on `eq`, less high_pass_filter's cutoff_hz description) adds 68 B on top (79,030 B to 79,098 B).
+const FULL_TOOLS_MAX_BYTES: usize = 79_132; // main ratchet 79,064 + 68 B of #765's graphic EQ
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -811,7 +814,10 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #846's wah_wah adds 694 B on top.
 // #768's crossfade adds 766 B on top.
 // #769's declip and repair_span add 1,271 B on top.
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 82_277; // main ratchet 81,006 + 1,271 B of #769's declip and repair_span
+// #766's chapter formats on export_labels add the same 225 B (82,243 B to 82,468 B).
+// #766's per-region export adds the same 126 B (82,468 B to 82,594 B).
+// #765's graphic EQ adds the same 68 B (82,594 B to 82,662 B).
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 82_696; // main ratchet 82,628 + 68 B of #765's graphic EQ
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {
@@ -1352,7 +1358,7 @@ fn huge_state() -> session::SessionState {
                     pitch_shift_semitones: None,
                     beat_grid: None,
                     volume_envelope: Vec::new(),
-                    volume_envelope_frames: Default::default(),
+                    volume_envelope_frames: session::EnvelopeFrames::default(),
                 }],
                 gain_db: -2.5,
                 pan: 0.0,

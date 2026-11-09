@@ -28,7 +28,7 @@ pub(crate) fn split_at(clip: &Clip, at_frames: u64) -> Result<(Clip, Clip), Stri
         pitch_shift_semitones: clip.pitch_shift_semitones,
         beat_grid: clip.beat_grid.clone(),
         volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
+        volume_envelope_frames: session::EnvelopeFrames::default(),
     };
     left.set_envelope(slice_envelope(&clip.volume_envelope, 0, at_frames));
     let mut right = Clip {
@@ -41,7 +41,7 @@ pub(crate) fn split_at(clip: &Clip, at_frames: u64) -> Result<(Clip, Clip), Stri
         pitch_shift_semitones: clip.pitch_shift_semitones,
         beat_grid: clip.beat_grid.clone(),
         volume_envelope: Vec::new(),
-        volume_envelope_frames: Default::default(),
+        volume_envelope_frames: session::EnvelopeFrames::default(),
     };
     right.set_envelope(slice_envelope(
         &clip.volume_envelope,
@@ -174,7 +174,7 @@ mod tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: vec![],
-            volume_envelope_frames: Default::default(),
+            volume_envelope_frames: session::EnvelopeFrames::default(),
         }
     }
 
