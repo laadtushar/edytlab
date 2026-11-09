@@ -7,13 +7,16 @@
 //!   value into the canonical Anthropic shape.
 //! * [`schema_for`] — derive an `input_schema` from a `JsonSchema`
 //!   type, with the `$schema` and `title` keys stripped (Anthropic
-//!   ignores them and they only add noise to the wire format).
+//!   ignores them and they only add noise to the wire format), written
+//!   as schemars 0.8 wrote it.
 //! * [`validate`] — validate a JSON value against a tool's `input_schema`
 //!   using `jsonschema`. Returns a single combined error string so
 //!   dispatch errors stay flat.
 
 use jsonschema::Validator;
-use schemars::JsonSchema;
+use schemars::generate::SchemaSettings;
+use schemars::transform::transform_subschemas;
+use schemars::{JsonSchema, Schema};
 use serde_json::{json, Map, Value};
 
 /// Build the Anthropic-shaped tool descriptor:
@@ -33,15 +36,84 @@ pub fn anthropic_tool(name: &str, description: &str, input_schema: Value) -> Val
 /// Derive an `input_schema` JSON value from a Rust type that implements
 /// [`JsonSchema`]. Strips top-level `$schema` and `title` to keep the
 /// payload tight.
+///
+/// It writes what it wrote with schemars 0.8, byte for byte, so that the
+/// move to schemars 1 changes nothing a provider is sent (the test
+/// `schema_for_writes_what_schemars_0_8_wrote` pins it): Draft 7 settings
+/// (0.8's default; 1's is 2020-12, with `$defs`), no `definitions` (0.8's
+/// `schema_for!` returned them beside the schema, which is all this
+/// serialised), and [`as_written_by_0_8`] for what 1 writes differently.
 pub fn schema_for<T: JsonSchema>() -> Value {
-    let root = schemars::schema_for!(T);
-    let mut value =
-        serde_json::to_value(root.schema).expect("schemars schema serialization is infallible");
-    if let Value::Object(map) = &mut value {
+    let mut schema = SchemaSettings::draft07()
+        .into_generator()
+        .into_root_schema_for::<T>();
+    if let Some(map) = schema.as_object_mut() {
         map.remove("$schema");
         map.remove("title");
+        map.remove("definitions");
     }
-    value
+    as_written_by_0_8(&mut schema);
+    schema.to_value()
+}
+
+/// Writes `schema` and every subschema in it as schemars 0.8 did, where
+/// schemars 1 differs for the shapes a tool's arguments use.
+fn as_written_by_0_8(schema: &mut Schema) {
+    if let Some(obj) = schema.as_object_mut() {
+        // 0.8 kept `required` in a set: sorted, each name once. 1 keeps the
+        // fields' order.
+        if let Some(Value::Array(required)) = obj.get_mut("required") {
+            required.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+            required.dedup();
+        }
+        // 0.8 wrote no bounds for an 8- or 16-bit integer but an unsigned
+        // one's `minimum`; 1 writes the type's whole range.
+        let left_out: &[&str] = match obj.get("format").and_then(Value::as_str) {
+            Some("int8" | "int16") => &["minimum", "maximum"],
+            Some("uint8" | "uint16") => &["maximum"],
+            _ => &[],
+        };
+        for key in left_out {
+            obj.remove(*key);
+        }
+        // 0.8 held numeric bounds as `f64`, so it wrote `0` as `0.0`.
+        for key in [
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "multipleOf",
+        ] {
+            let as_float = obj
+                .get(key)
+                .and_then(Value::as_f64)
+                .and_then(serde_json::Number::from_f64);
+            if let Some(n) = as_float {
+                obj.insert(key.to_owned(), Value::Number(n));
+            }
+        }
+        // 0.8 joined a doc comment's lines into paragraphs; 1 keeps them.
+        if let Some(Value::String(description)) = obj.get_mut("description") {
+            *description = doc_paragraphs_as_0_8(description);
+        }
+    }
+    transform_subschemas(&mut as_written_by_0_8, schema);
+}
+
+/// A doc comment's text as `schemars_derive` 0.8 wrote it: every line
+/// trimmed, the lines of a paragraph joined by spaces, and paragraphs
+/// by a blank line.
+fn doc_paragraphs_as_0_8(doc: &str) -> String {
+    doc.lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .split("\n\n")
+        .map(|paragraph| paragraph.trim().replace('\n', " "))
+        .filter(|paragraph| !paragraph.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Validate `args` against `input_schema`. Returns the combined error
@@ -119,6 +191,101 @@ mod tests {
         assert!(err.contains("; "), "{err}");
         assert!(validate(&schema, &json!({ "track": 1, "gain": 2.0 })).is_ok());
     }
+
+    /// What [`schema_for`] derives, byte for byte, as schemars 0.8.22 wrote
+    /// it: an `input_schema` is what every provider is sent, and some
+    /// refuse shapes they do not know, so a schemars upgrade must not
+    /// change it. The type covers the shapes a tool's arguments use:
+    /// integers of each width (with their `format` and an unsigned
+    /// `minimum`), floats, options, lists, a fixed-size array, a tuple, a
+    /// map, a nested struct (a `$ref`), plain and documented enums, a
+    /// default, a rename and doc comments of several lines and paragraphs.
+    ///
+    /// There are no `definitions`: 0.8's `schema_for!` returned them beside
+    /// the schema, so this function has never written them, and a nested
+    /// type's `$ref` does not resolve. No tool calls `schema_for` (each
+    /// writes its `input_schema` by hand), so that is kept as it was.
+    #[test]
+    fn schema_for_writes_what_schemars_0_8_wrote() {
+        use std::collections::BTreeMap;
+
+        /// A nested part.
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[allow(dead_code)]
+        struct Point {
+            x: f32,
+            y: f32,
+        }
+
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[serde(rename_all = "snake_case")]
+        #[allow(dead_code)]
+        enum Plain {
+            First,
+            SecondOne,
+        }
+
+        /// How a change is made.
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[serde(rename_all = "snake_case")]
+        #[allow(dead_code)]
+        enum Documented {
+            /// Once only.
+            Once,
+            /// Over and over.
+            Repeat,
+        }
+
+        /// Arguments of a tool, as a tool would derive them.
+        #[derive(serde::Deserialize, JsonSchema)]
+        #[serde(deny_unknown_fields)]
+        #[allow(dead_code)]
+        struct Args {
+            /// The track, from 0.
+            track: u32,
+            /// Samples from the start
+            /// of the track.
+            offset: i64,
+            gain: f32,
+            ratio: f64,
+            enabled: bool,
+            label: String,
+            /// Optional gain in dB.
+            gain_db: Option<f64>,
+            limit: Option<u16>,
+            name: Option<String>,
+            tracks: Vec<usize>,
+            pan: [f32; 2],
+            levels: BTreeMap<String, f32>,
+            /// Where it lands.
+            at: Point,
+            plain: Plain,
+            mode: Documented,
+            maybe_mode: Option<Documented>,
+            #[serde(default)]
+            loud: bool,
+            #[serde(rename = "type")]
+            kind: String,
+            small: i8,
+            byte: u8,
+            count: Option<u64>,
+            pair: (f32, String),
+            ///
+            ///   Indented, with a blank line before.
+            ///
+            /// A second paragraph.
+            notes: Vec<Option<i16>>,
+        }
+
+        let got = serde_json::to_string(&schema_for::<Args>()).unwrap();
+        assert_eq!(
+            got, PINNED_SCHEMA_FOR_ARGS,
+            "schema_for changed what it writes"
+        );
+    }
+
+    /// Measured with schemars 0.8.22 (`serde_json` sorts the keys).
+    const PINNED_SCHEMA_FOR_ARGS: &str = r##"{"additionalProperties":false,"description":"Arguments of a tool, as a tool would derive them.","properties":{"at":{"allOf":[{"$ref":"#/definitions/Point"}],"description":"Where it lands."},"byte":{"format":"uint8","minimum":0.0,"type":"integer"},"count":{"format":"uint64","minimum":0.0,"type":["integer","null"]},"enabled":{"type":"boolean"},"gain":{"format":"float","type":"number"},"gain_db":{"description":"Optional gain in dB.","format":"double","type":["number","null"]},"label":{"type":"string"},"levels":{"additionalProperties":{"format":"float","type":"number"},"type":"object"},"limit":{"format":"uint16","minimum":0.0,"type":["integer","null"]},"loud":{"default":false,"type":"boolean"},"maybe_mode":{"anyOf":[{"$ref":"#/definitions/Documented"},{"type":"null"}]},"mode":{"$ref":"#/definitions/Documented"},"name":{"type":["string","null"]},"notes":{"description":"Indented, with a blank line before.\n\nA second paragraph.","items":{"format":"int16","type":["integer","null"]},"type":"array"},"offset":{"description":"Samples from the start of the track.","format":"int64","type":"integer"},"pair":{"items":[{"format":"float","type":"number"},{"type":"string"}],"maxItems":2,"minItems":2,"type":"array"},"pan":{"items":{"format":"float","type":"number"},"maxItems":2,"minItems":2,"type":"array"},"plain":{"$ref":"#/definitions/Plain"},"ratio":{"format":"double","type":"number"},"small":{"format":"int8","type":"integer"},"track":{"description":"The track, from 0.","format":"uint32","minimum":0.0,"type":"integer"},"tracks":{"items":{"format":"uint","minimum":0.0,"type":"integer"},"type":"array"},"type":{"type":"string"}},"required":["at","byte","enabled","gain","label","levels","mode","notes","offset","pair","pan","plain","ratio","small","track","tracks","type"],"type":"object"}"##;
 
     /// Draft 7 is pinned (0.25 made 2020-12 the default): `definitions`
     /// and a `$ref` into them, which schemars emits, must still resolve.
