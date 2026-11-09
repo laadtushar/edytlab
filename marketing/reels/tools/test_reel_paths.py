@@ -20,6 +20,7 @@ TOOLS = Path(__file__).resolve().parent
 PROJECT = TOOLS.parent
 with mock.patch.dict(os.environ, {"EDYTLAB_REEL_ROOT": str(PROJECT)}), \
         mock.patch.object(sys, "path", [str(TOOLS), *sys.path]):
+    import demo_paths
     import spec
     import narrate
     import render
@@ -38,7 +39,7 @@ class ReelPathsTests(unittest.TestCase):
     def assert_refused(self, path):
         """Require the refusal to identify both path and project root."""
         with self.assertRaises(SystemExit) as error:
-            spec.checked_reel_path(path)
+            demo_paths.checked_reel_path(path)
         self.assertIn(str(path), str(error.exception))
         self.assertIn(str(PROJECT), str(error.exception))
 
@@ -47,7 +48,7 @@ class ReelPathsTests(unittest.TestCase):
         source = self.root / "input.mp3"
         source.write_bytes(b"synthetic input")
         for path in (source, self.root / "work" / "new.mp3"):
-            self.assertEqual(spec.checked_reel_path(path), str(path.resolve()))
+            self.assertEqual(demo_paths.checked_reel_path(path), str(path.resolve()))
 
     def test_external_parent_and_symlink_escapes(self):
         """External parent and symlink escapes."""

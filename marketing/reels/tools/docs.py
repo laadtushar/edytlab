@@ -7,10 +7,9 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
     print(__doc__)
     raise SystemExit(0)
 
-from spec import *
-from demo_paths import checked_reel_path
+from spec import DEMOS, ROOT
+from demo_paths import REELS_DIR, checked_reel_path
 import cues as C
-import narrate as N
 import build as B
 
 
@@ -32,8 +31,8 @@ def timing(file):
     p = checked_reel_path(f"{OUT}/{file}-narration-timing.json")
     if not os.path.exists(p):
         return {}
-    with open(p) as source:
-        return json.load(source)
+    with open(p) as timing_file:
+        return json.load(timing_file)
 
 
 def cell(s):
@@ -81,14 +80,14 @@ def write_txt():
 
 def usage_text():
     """Summarise the narration ledger's usage."""
-    with open(checked_reel_path(f"{ROOT}/work/ledger.json")) as source:
-        d = json.load(source)
+    with open(checked_reel_path(f"{ROOT}/work/ledger.json")) as ledger_file:
+        d = json.load(ledger_file)
     tts = sum(n for t, w, n in d["entries"] if w.startswith("tts") and "speed" not in w)
     spd = sum(n for t, w, n in d["entries"] if "speed" in w)
     sfx = sum(n for t, w, n in d["entries"] if w.startswith("sfx"))
     last = ""
-    with open(checked_reel_path(f"{OUT}/usage.log")) as source:
-        for line in source:
+    with open(checked_reel_path(f"{OUT}/usage.log")) as log_file:
+        for line in log_file:
             if "status: character_count=" in line:
                 last = line.strip()
     lines = [

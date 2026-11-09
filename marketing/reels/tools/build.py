@@ -17,6 +17,7 @@ lines in spec.LINES were written for the earlier takes, see the README):
 """
 import json
 import os
+import re
 import subprocess
 import sys
 if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
@@ -25,8 +26,17 @@ if __name__ == "__main__" and len(sys.argv) == 2 and sys.argv[1] in ("-h", "--he
           "be inside the project, except the three repository website demo recordings.")
     raise SystemExit(0)
 
-from render import *
-from demo_paths import checked_demo_input, checked_reel_path
+from render import (
+    WORK,
+    contact_sheet,
+    loudnorm_two_pass,
+    measure_loudness,
+    mux,
+    render_app_audio,
+    render_video,
+)
+from spec import DEMO_DIR, DEMOS, ES_LINES, ES_TEXT, REELS, REEL_ORDER, ROOT, SITE_URL
+from demo_paths import REELS_DIR, checked_demo_input, checked_reel_path
 import cues as C
 
 OUT = f"{ROOT}/out"

@@ -7,7 +7,27 @@ re-narrating: the cut lengths follow the real speech length of each line (the li
 spec.LINES, written for the earlier takes) and a Listen cut leads in long enough for its line.
 """
 import json, math, os
-from spec import *
+from spec import (
+    BREATHING_ROOM,
+    DEMOS,
+    END_LINE,
+    END_SECONDS,
+    HOOK_SECONDS,
+    LINES,
+    LISTEN_LEAD,
+    REELS,
+    REEL_ORDER,
+    ROOT,
+    SITE_URL,
+    STEP_SECONDS,
+    WORDS_PER_SECOND,
+    caption_by_id,
+    caption_table,
+    display_text,
+    max_words,
+    spoken_text,
+    spoken_word_count,
+)
 from demo_paths import checked_reel_path
 
 FPS = 30

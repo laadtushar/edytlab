@@ -16,8 +16,7 @@ import math
 import os
 import re
 import sys
-from pathlib import Path
-from demo_paths import REELS_DIR, REPO_ROOT, checked_demo_input, checked_reel_path
+from demo_paths import REPO_ROOT
 
 def _need_env(name, what):
     value = os.environ.get(name)
