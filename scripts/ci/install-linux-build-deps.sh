@@ -44,7 +44,7 @@
 set -euo pipefail
 
 recommends=(--no-install-recommends)
-if [ "${1:-}" = "--recommends" ]; then
+if [[ "${1:-}" == "--recommends" ]]; then
   recommends=()
   shift
 fi
