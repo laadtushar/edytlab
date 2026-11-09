@@ -148,19 +148,70 @@ fn script() -> Script {
     Script { fetch, rest }
 }
 
-fn apt_commands(commands: &[String]) -> Vec<&String> {
-    commands.iter().filter(|c| c.contains("apt-get")).collect()
+/// A command with its quoted text blanked, so the `apt-get` in
+/// `echo "apt-get update failed"` is not read as a call.
+fn unquoted(command: &str) -> String {
+    let mut out = String::with_capacity(command.len());
+    let mut quote: Option<char> = None;
+    for c in command.chars() {
+        match quote {
+            Some(q) if c == q => {
+                quote = None;
+                out.push(c);
+            }
+            Some(_) => {}
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                out.push(c);
+            }
+            None => out.push(c),
+        }
+    }
+    out
+}
+
+/// Every apt-get call in these commands, one entry each: a command is split
+/// at `&&`, `||`, `;` and `|` outside quotes, so `apt-get update && apt-get
+/// install` is two calls and each must pass the checks on its own.
+fn apt_calls(commands: &[String]) -> Vec<String> {
+    commands
+        .iter()
+        .flat_map(|c| {
+            unquoted(c)
+                .split(['&', '|', ';'])
+                .map(|s| s.trim().to_string())
+                .collect::<Vec<_>>()
+        })
+        .filter(|s| s.split_whitespace().any(|t| t == "apt-get"))
+        .collect()
+}
+
+/// The apt-get subcommand of one call (`update`, `install`): the first word
+/// after `apt-get` that is neither an option nor the value of `-o`.
+fn subcommand(call: &str) -> &str {
+    let mut words = call
+        .split_whitespace()
+        .skip_while(|w| *w != "apt-get")
+        .skip(1);
+    while let Some(w) = words.next() {
+        if w == "-o" || w == "-c" {
+            words.next();
+        } else if !w.starts_with('-') {
+            return w;
+        }
+    }
+    panic!("no apt-get subcommand in `{call}`")
 }
 
 /// The single install after `fetch`: the one that runs dpkg.
-fn local_install(script: &Script) -> &String {
-    let installs = apt_commands(&script.rest);
+fn local_install(script: &Script) -> String {
+    let mut installs = apt_calls(&script.rest);
     assert_eq!(
         installs.len(),
         1,
         "{SCRIPT} should run apt-get once after `fetch`, to install: {installs:?}"
     );
-    installs[0]
+    installs.remove(0)
 }
 
 /// Seconds of pause before the retry, from `sleep N`.
@@ -199,7 +250,7 @@ fn every_workflow_runs_the_shared_script() {
 #[test]
 fn the_step_cap_holds_two_downloads_and_the_local_install() {
     let script = script();
-    let per_attempt: Vec<u64> = apt_commands(&script.fetch)
+    let per_attempt: Vec<u64> = apt_calls(&script.fetch)
         .iter()
         .map(|c| timeout_of(c).unwrap_or_else(|| panic!("no `timeout N` on `{c}` in `fetch`")))
         .collect();
@@ -210,7 +261,7 @@ fn the_step_cap_holds_two_downloads_and_the_local_install() {
         per_attempt.len()
     );
     let install = local_install(&script);
-    let install_secs = timeout_of(install)
+    let install_secs = timeout_of(&install)
         .unwrap_or_else(|| panic!("the local install has no `timeout N`: {install}"));
     assert!(
         install_secs >= 4 * MEASURED_LOCAL_INSTALL_MAX_SECS,
@@ -258,24 +309,36 @@ fn every_workflow_carrying_this_step_has_the_same_budget() {
 #[test]
 fn the_attempts_only_download() {
     let script = script();
-    for command in apt_commands(&script.fetch) {
-        assert!(
-            command.contains("--download-only") || command.contains(" update"),
-            "`fetch` runs apt-get for something other than `update` or a \
-             download: {command}"
-        );
-        if command.contains(" update") {
+    for call in apt_calls(&script.fetch) {
+        let words: Vec<&str> = call.split_whitespace().collect();
+        match subcommand(&call) {
+            "update" => {}
+            "install" => assert!(
+                words.contains(&"--download-only"),
+                "`fetch` installs without `--download-only`, so its timeout \
+                 can stop dpkg: {call}"
+            ),
+            other => panic!("`fetch` runs `apt-get {other}`: {call}"),
+        }
+    }
+    for command in &script.fetch {
+        let updates = apt_calls(std::slice::from_ref(command))
+            .iter()
+            .any(|c| subcommand(c) == "update");
+        if updates {
             assert!(
-                command.contains("|| echo"),
+                unquoted(command).contains("|| echo"),
                 "a failed `update` must not end the attempt (the retry runs \
                  under `errexit`): {command}"
             );
         }
     }
     let install = local_install(&script);
+    assert_eq!(subcommand(&install), "install", "{install}");
+    let words: Vec<&str> = install.split_whitespace().collect();
     for needed in ["--no-download", "DEBIAN_FRONTEND=noninteractive"] {
         assert!(
-            install.contains(needed),
+            words.contains(&needed),
             "the local install lacks `{needed}`: {install}"
         );
     }
@@ -293,4 +356,23 @@ fn the_attempts_only_download() {
             && script.rest.iter().filter(|l| *l == "fetch").count() == 1,
         "{SCRIPT} no longer retries `fetch` once after a failure"
     );
+}
+
+/// The checks above read each apt-get call on its own, so two calls joined
+/// on one line cannot pass as one: the install here has neither a timeout
+/// nor `--download-only`.
+#[test]
+fn joined_calls_are_read_one_by_one() {
+    let joined = [
+        "sudo timeout 150 apt-get -o Acquire::Retries=3 update && sudo apt-get \
+                   install -y pkg-config || echo \"apt-get failed; retrying\""
+            .to_string(),
+    ];
+    let calls = apt_calls(&joined);
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(subcommand(&calls[0]), "update");
+    assert_eq!(timeout_of(&calls[0]), Some(150));
+    assert_eq!(subcommand(&calls[1]), "install");
+    assert_eq!(timeout_of(&calls[1]), None);
+    assert!(!calls[1].split_whitespace().any(|w| w == "--download-only"));
 }
