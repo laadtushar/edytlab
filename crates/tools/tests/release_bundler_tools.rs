@@ -27,13 +27,43 @@ fn repo_file(rel: &str) -> String {
         .unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()))
 }
 
-/// The workflow without its comment-only lines, so an explanation does
-/// not count as the thing it explains.
+/// A YAML line up to its comment: a `#` at the start or after whitespace,
+/// outside quotes. A gate or a pin copied into a trailing comment is not one.
+fn without_comment(line: &str) -> &str {
+    let mut quote = None;
+    let mut after_space = true;
+    for (i, c) in line.char_indices() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '\'' || c == '"' => quote = Some(c),
+            None if c == '#' && after_space => return &line[..i],
+            None => {}
+        }
+        after_space = c.is_whitespace();
+    }
+    line
+}
+
+/// The workflow without its comments, whole-line or trailing, so an
+/// explanation does not count as the thing it explains.
 fn effective(yaml: &str) -> String {
     yaml.lines()
-        .filter(|l| !l.trim_start().starts_with('#'))
+        .map(|l| without_comment(l).trim_end())
+        .filter(|l| !l.trim().is_empty())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[test]
+fn a_pin_in_a_comment_is_not_code() {
+    let yaml = "      - name: Fetch\n        if: matrix.platform.runner != 'macos-15' # && x\n\
+                \x20       uses: actions/cache@abc # v6\n        # key: nope\n\
+                \x20       name: 'a # in quotes'";
+    let code = effective(yaml);
+    assert!(code.contains("uses: actions/cache@abc\n"), "{code}");
+    assert!(!code.contains("&& x") && !code.contains("v6") && !code.contains("nope"));
+    assert!(code.contains("'a # in quotes'"));
 }
 
 /// The text of the step named `name`: from its `- name:` line to the next
@@ -47,7 +77,7 @@ fn step<'a>(yaml: &'a str, name: &str) -> &'a str {
     let end = rest
         .find("\n      - name: ")
         .or_else(|| rest.find("\n  publish:"))
-        .unwrap_or(rest.len());
+        .unwrap_or_else(|| rest.len());
     &yaml[start..start + marker.len() + end]
 }
 
@@ -62,7 +92,8 @@ const WORKFLOWS: [&str; 2] = [
 ];
 
 const SCRIPT: &str = "scripts/fetch-bundler-tools.py";
-const CACHE_STEP: &str = "Cache the bundler's tool downloads";
+const ACTION: &str = ".github/actions/bundler-tools/action.yml";
+const USES: &str = "uses: ./.github/actions/bundler-tools";
 const FETCH_STEP: &str = "Fetch the bundler's tools";
 
 /// The value a `NAME = "value"` line in the script gives.
@@ -114,22 +145,122 @@ fn the_pins_belong_to_the_locked_tauri_cli() {
 /// `windows/msi/mod.rs` WIX_SHA256, `windows/nsis/mod.rs` NSIS_SHA1 and
 /// NSIS_TAURI_UTILS_SHA1), with the URLs they belong to. The bundler writes
 /// the SHA-1s in capitals.
+/// The string literals of the script's `NAME = (...)` tuple, in order, with
+/// implicit concatenation (`"a" "b"`, however it is wrapped) joined into one.
+fn tuple_literals(script: &str, name: &str) -> Vec<String> {
+    let marker = format!("\n{name} = (\n");
+    let start = script
+        .find(&marker)
+        .unwrap_or_else(|| panic!("{SCRIPT} has no {name} tuple"))
+        + marker.len();
+    let block = &script[start..start + script[start..].find("\n)\n").unwrap()];
+    let mut literals: Vec<String> = Vec::new();
+    let mut rest = block;
+    let mut joined = false; // only whitespace since the last literal closed
+    while let Some(open) = rest.find('"') {
+        let between = &rest[..open];
+        let close = rest[open + 1..].find('"').expect("unterminated string") + open + 1;
+        let text = &rest[open + 1..close];
+        match literals.last_mut() {
+            Some(last) if joined && between.trim().is_empty() => last.push_str(text),
+            _ => literals.push(text.to_string()),
+        }
+        joined = true;
+        rest = &rest[close + 1..];
+        // A `,` or `(` between literals ends the concatenation.
+        let next = rest.find('"').unwrap_or(rest.len());
+        if !rest[..next].trim().is_empty() {
+            joined = false;
+        }
+    }
+    literals
+}
+
+/// Each tool's name, URL, algorithm and digest together, so swapping two
+/// digests, or pointing a name at another tool's URL, fails. The URLs and
+/// hashes are the constants of tauri-bundler 2.10.4: `windows/msi/mod.rs`
+/// (WIX_URL, WIX_SHA256), `windows/nsis/mod.rs` (NSIS_URL, NSIS_SHA1,
+/// NSIS_TAURI_UTILS_URL, NSIS_TAURI_UTILS_SHA1; the bundler writes the SHA-1s
+/// in capitals) and `linux/appimage/linuxdeploy.rs` (the URLs; AppRun and
+/// linuxdeploy are pinned here, the bundler checks neither).
 #[test]
-fn the_script_pins_what_the_bundler_checks_and_downloads_from_its_urls() {
+fn each_tool_is_pinned_to_its_own_url_and_digest() {
     let script = repo_file(SCRIPT);
     assert_eq!(script_constant(&script, "TAURI_BUNDLER_VERSION"), "2.10.4");
-    for needle in [
-        "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip",
-        "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31",
-        "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip",
-        &"DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E".to_lowercase(),
-        "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll",
-        &"75197FEE3C6A814FE035788D1C34EAD39349B860".to_lowercase(),
-        "https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64",
-        "https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage",
-    ] {
-        assert!(script.contains(needle), "{SCRIPT} should pin {needle}");
+    let gh = "https://github.com/";
+    let tauri = format!("{gh}tauri-apps/binary-releases/releases/download/");
+    let expected: [(&str, Vec<String>); 6] = [
+        (
+            "LINUX_APPRUN",
+            vec![
+                "AppRun-x86_64".into(),
+                format!("{tauri}apprun-old/AppRun-x86_64"),
+                "sha256".into(),
+                "f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f".into(),
+            ],
+        ),
+        (
+            "LINUX_LINUXDEPLOY",
+            vec![
+                "linuxdeploy-07333c6-x86_64.AppImage".into(),
+                format!("{tauri}linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage"),
+                "sha256".into(),
+                "36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62".into(),
+            ],
+        ),
+        (
+            "LINUX_APPIMAGE_PLUGIN",
+            vec![
+                "linuxdeploy-plugin-appimage.AppImage".into(),
+                format!(
+                    "{gh}linuxdeploy/linuxdeploy-plugin-appimage/releases/download/\
+                     continuous/linuxdeploy-plugin-appimage-x86_64.AppImage"
+                ),
+            ],
+        ),
+        (
+            "WIX",
+            vec![
+                "wix314-binaries.zip".into(),
+                format!("{gh}wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"),
+                "sha256".into(),
+                "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31".into(),
+            ],
+        ),
+        (
+            "NSIS",
+            vec![
+                "nsis-3.13.zip".into(),
+                format!("{tauri}nsis-3.13/nsis-3.13.zip"),
+                "sha1".into(),
+                "DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E".to_lowercase(),
+            ],
+        ),
+        (
+            "NSIS_TAURI_UTILS",
+            vec![
+                "nsis_tauri_utils.dll".into(),
+                format!(
+                    "{gh}tauri-apps/nsis-tauri-utils/releases/download/\
+                     nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll"
+                ),
+                "sha1".into(),
+                "75197FEE3C6A814FE035788D1C34EAD39349B860".to_lowercase(),
+            ],
+        ),
+    ];
+    for (name, fields) in expected {
+        assert_eq!(tuple_literals(&script, name), fields, "{SCRIPT}: {name}");
     }
+}
+
+#[test]
+fn the_tuple_reader_joins_wrapped_literals_and_keeps_fields_apart() {
+    let script = "\nX = (\n    \"a\",\n    (\n        \"http://h/\"\n        \"p\"\n    ),\n    (\"sha1\", \"d\"),\n)\n";
+    assert_eq!(
+        tuple_literals(script, "X"),
+        ["a", "http://h/p", "sha1", "d"]
+    );
 }
 
 /// The bundler looks in `<cache dir>/tauri` unless `bundle.useLocalToolsDir`
@@ -147,7 +278,7 @@ fn the_bundler_keeps_its_tools_where_the_script_puts_them() {
 /// A pinned digest that is not checked, or a download that skips TLS
 /// verification, would make the pins decoration.
 #[test]
-fn the_script_never_skips_a_check() {
+fn the_script_never_weakens_tls() {
     let script = repo_file(SCRIPT);
     for weakened in [
         "CERT_NONE",
@@ -159,74 +290,205 @@ fn the_script_never_skips_a_check() {
             "{SCRIPT} must not weaken TLS verification ({weakened})"
         );
     }
+}
+
+/// Runs the script's own functions under `python3 -I` with the network
+/// stubbed, so what is asserted is what the code does, not what its text
+/// says. Python is on every runner that runs these tests (the release
+/// workflows run their scripts with it too); it is looked for as `python3`,
+/// then `python` (the Windows runner has no `python3`), and the test fails,
+/// not skips, if neither starts.
+fn run_python(code: &str) -> String {
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(SCRIPT);
+    for py in ["python3", "python"] {
+        let out = std::process::Command::new(py)
+            .args(["-I", "-c", code])
+            .arg(&script)
+            .output();
+        if let Ok(out) = out {
+            assert!(
+                out.status.success(),
+                "{py} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            return String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n");
+        }
+    }
+    panic!("neither python3 nor python starts, so the script cannot be run");
+}
+
+const PY_STUBS: &str = r#"
+import importlib.util, io, os, sys, tempfile, urllib.error
+spec = importlib.util.spec_from_file_location("fbt", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+class R(io.BytesIO):
+    def __init__(self, data, length=None):
+        super().__init__(data)
+        self.headers = {} if length is None else {"Content-Length": str(length)}
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+def no_sleep(seconds):
+    pass
+"#;
+
+/// A download whose bytes are not the pinned digest fails the step and leaves
+/// nothing behind; a cut-off body is retried, not accepted.
+#[test]
+fn a_digest_mismatch_fails_and_a_short_body_is_retried() {
+    let code = format!(
+        "{PY_STUBS}{}",
+        r#"
+with tempfile.TemporaryDirectory() as d:
+    m.urllib.request.urlopen = lambda req, timeout=None: R(b"not the tool")
+    try:
+        m.verified(d, m.LINUX_APPRUN, no_sleep)
+        print("mismatch: no error")
+    except m.IntegrityError:
+        print("mismatch: IntegrityError")
+    print("left:", sorted(os.listdir(d)))
+
+    calls = []
+    def cut_then_whole(req, timeout=None):
+        calls.append(1)
+        return R(b"abc", 10) if len(calls) == 1 else R(b"0123456789", 10)
+    m.urllib.request.urlopen = cut_then_whole
+    dest = os.path.join(d, "out")
+    err = m.download("https://example.invalid/x", dest, no_sleep)
+    print("short:", err, len(calls), open(dest, "rb").read())
+
+    m.urllib.request.urlopen = lambda req, timeout=None: R(b"abc", 10)
+    err = m.download("https://example.invalid/y", os.path.join(d, "z"), no_sleep)
+    print("always short:", type(err).__name__, m.retryable(err))
+    try:
+        m.download("http://example.invalid/x", dest, no_sleep)
+    except ValueError:
+        print("http: refused")
+"#
+    );
+    let out = run_python(&code);
+    for line in [
+        "mismatch: IntegrityError",
+        "left: []",
+        "short: None 2 b'0123456789'",
+        "always short: ShortBodyError True",
+        "http: refused",
+    ] {
+        assert!(
+            out.lines().any(|l| l == line),
+            "missing {line:?} in:\n{out}"
+        );
+    }
+}
+
+/// The NSIS folder and its plugin are installed independently: a folder
+/// without the plugin still gets it.
+#[test]
+fn the_nsis_plugin_is_installed_into_an_existing_folder() {
+    let code = format!(
+        "{PY_STUBS}{}",
+        r#"
+import zipfile
+with tempfile.TemporaryDirectory() as d:
+    tools = os.path.join(d, "tools")
+    os.makedirs(os.path.join(tools, "NSIS"))
+    dll = os.path.join(d, "u.dll")
+    open(dll, "wb").write(b"dll")
+    zp = os.path.join(d, "n.zip")
+    zipfile.ZipFile(zp, "w").close()
+    m.verified = lambda cache, entry, sleep=None: dll if entry is m.NSIS_TAURI_UTILS else zp
+    m.windows(d, tools)
+    target = os.path.join(tools, "NSIS", "Plugins", "x86-unicode", "additional", "nsis_tauri_utils.dll")
+    print("plugin:", os.path.isfile(target))
+    print("nsis kept:", sorted(os.listdir(os.path.join(tools, "NSIS"))) == ["Plugins"])
+"#
+    );
+    let out = run_python(&code);
+    assert!(out.lines().any(|l| l == "plugin: True"), "{out}");
+    assert!(out.lines().any(|l| l == "nsis kept: True"), "{out}");
+}
+
+/// The job whose steps hold tauri-action: from `  build:` to the next job.
+fn build_job(yaml: &str) -> &str {
+    let start = yaml.find("\n  build:\n").expect("a build job") + 1;
+    let rest = &yaml[start..];
+    let end = rest.find("\n  publish:").unwrap_or(rest.len());
+    &rest[..end]
+}
+
+#[test]
+fn the_action_caches_the_verified_downloads_then_fetches() {
+    let script = repo_file(SCRIPT);
+    let bundler = script_constant(&script, "TAURI_BUNDLER_VERSION");
+    let action = effective(&repo_file(ACTION));
+
+    let uses = action
+        .lines()
+        .find(|l| l.trim_start().starts_with("uses: actions/cache@"))
+        .expect("the action uses actions/cache");
+    let sha = uses
+        .trim()
+        .trim_start_matches("uses: actions/cache@")
+        .trim();
     assert!(
-        script.contains("raise IntegrityError") && script.contains("return 1"),
-        "a digest mismatch has to fail the step"
+        sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()),
+        "pin actions/cache to a commit, not {sha}"
+    );
+    assert!(
+        action.contains(&format!(
+            "key: bundler-tools-${{{{ runner.os }}}}-tauri-bundler-{bundler}-\
+             ${{{{ hashFiles('{SCRIPT}') }}}}"
+        )),
+        "the cache key names the OS, the bundler version ({bundler}) and the script that \
+         holds the pins:\n{action}"
+    );
+    assert!(action.contains("path: ${{ runner.temp }}/bundler-tool-downloads"));
+    assert!(
+        action.contains(&format!(
+            "-I {SCRIPT} \"$RUNNER_TEMP/bundler-tool-downloads\""
+        )),
+        "the fetch reads the folder the cache keeps:\n{action}"
+    );
+    assert!(
+        action.find("actions/cache@").unwrap() < action.find(SCRIPT).unwrap(),
+        "cache first, then fetch"
+    );
+    assert!(
+        !action.contains("continue-on-error"),
+        "a hash mismatch has to fail the leg"
     );
 }
 
 #[test]
-fn both_release_workflows_cache_then_fetch_the_tools_before_building() {
-    let script = repo_file(SCRIPT);
-    let bundler = script_constant(&script, "TAURI_BUNDLER_VERSION");
+fn both_release_workflows_call_it_before_tauri_action_in_the_build_job() {
     for workflow in WORKFLOWS {
         let yaml = effective(&repo_file(workflow));
+        let job = build_job(&yaml);
 
-        let cache = step(&yaml, CACHE_STEP);
-        let uses = cache
-            .lines()
-            .find(|l| l.trim_start().starts_with("uses: actions/cache@"))
-            .unwrap_or_else(|| panic!("{workflow}: the cache step uses actions/cache"));
-        let sha = uses
-            .trim()
-            .trim_start_matches("uses: actions/cache@")
-            .split_whitespace()
-            .next()
-            .unwrap();
-        assert!(
-            sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()),
-            "{workflow}: pin actions/cache to a commit, not {sha}"
-        );
-        assert!(
-            cache.contains(&format!(
-                "key: bundler-tools-${{{{ runner.os }}}}-tauri-bundler-{bundler}-\
-                 ${{{{ hashFiles('{SCRIPT}') }}}}"
-            )),
-            "{workflow}: the cache key names the OS, the bundler version ({bundler}) and the \
-             script that holds the pins:\n{cache}"
-        );
-        assert!(
-            cache.contains("path: ${{ runner.temp }}/bundler-tool-downloads"),
-            "{workflow}: cache the verified downloads:\n{cache}"
-        );
-
-        let fetch = step(&yaml, FETCH_STEP);
-        assert!(
-            fetch.contains(&format!(
-                "-I {SCRIPT} \"$RUNNER_TEMP/bundler-tool-downloads\""
-            )),
-            "{workflow}: the fetch reads the folder the cache step keeps:\n{fetch}"
-        );
-
+        let call = step(job, FETCH_STEP);
+        assert!(call.contains(USES), "{workflow}: call the action:\n{call}");
         // macOS downloads no tools, so it neither restores nor saves a cache.
-        for (name, text) in [(CACHE_STEP, cache), (FETCH_STEP, fetch)] {
-            assert!(
-                text.contains("if: matrix.platform.runner != 'macos-15'"),
-                "{workflow}: {name} runs on the Linux and Windows legs only"
-            );
-            assert!(
-                !text.contains("continue-on-error"),
-                "{workflow}: {name} must fail the leg when a hash does not match"
-            );
-        }
-
-        let build = yaml
-            .find("uses: tauri-apps/tauri-action@")
-            .unwrap_or_else(|| panic!("{workflow}: no tauri-action step"));
         assert!(
-            position(&yaml, CACHE_STEP) < position(&yaml, FETCH_STEP)
-                && position(&yaml, FETCH_STEP) < build,
-            "{workflow}: cache, then fetch, then tauri-action builds"
+            call.contains("if: matrix.platform.runner != 'macos-15'"),
+            "{workflow}: the Linux and Windows legs only:\n{call}"
+        );
+        assert!(
+            !call.contains("continue-on-error"),
+            "{workflow}: a hash mismatch has to fail the leg"
+        );
+
+        let build = job
+            .find("uses: tauri-apps/tauri-action@")
+            .unwrap_or_else(|| panic!("{workflow}: no tauri-action in the build job"));
+        assert!(
+            position(job, FETCH_STEP) < build,
+            "{workflow}: fetch the tools before tauri-action builds"
         );
     }
 }

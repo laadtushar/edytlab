@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put the Tauri bundler's build tools where it looks for them, before it runs.
+r"""Put the Tauri bundler's build tools where it looks for them, before it runs.
 
     python3 -I scripts/fetch-bundler-tools.py <downloads-dir>
 
@@ -8,7 +8,7 @@ them (WiX and NSIS on Windows, AppRun and linuxdeploy on Linux) and does not
 retry: one 504 from GitHub ends the bundle step and so the release leg
 (dev.677 on Windows, dev.688 on Linux and Windows). It skips a download when the
 file is already in its tool folder, `<cache dir>/tauri` (`~/.cache/tauri` on
-Linux, `%LOCALAPPDATA%\\tauri` on Windows; `bundle.useLocalToolsDir` is unset).
+Linux, `%LOCALAPPDATA%\tauri` on Windows; `bundle.useLocalToolsDir` is unset).
 This script downloads the same files from the same URLs with retries, checks
 each against a SHA-256 or SHA-1 written below, and lays them out the way the
 bundler would, so it finds them and downloads nothing.
@@ -57,32 +57,50 @@ TAURI_BUNDLER_VERSION = "2.10.4"
 # name, url, (algorithm, hex digest)
 LINUX_APPRUN = (
     "AppRun-x86_64",
-    "https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64",
+    (
+        "https://github.com/tauri-apps/binary-releases/releases/download/"
+        "apprun-old/AppRun-x86_64"
+    ),
     ("sha256", "f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f"),
 )
 LINUX_LINUXDEPLOY = (
     "linuxdeploy-07333c6-x86_64.AppImage",
-    "https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage",
+    (
+        "https://github.com/tauri-apps/binary-releases/releases/download/"
+        "linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage"
+    ),
     ("sha256", "36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62"),
 )
 # Moving target: no digest, never cached.
 LINUX_APPIMAGE_PLUGIN = (
     "linuxdeploy-plugin-appimage.AppImage",
-    "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage",
+    (
+        "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/"
+        "download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage"
+    ),
 )
 WIX = (
     "wix314-binaries.zip",
-    "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip",
+    (
+        "https://github.com/wixtoolset/wix3/releases/download/"
+        "wix3141rtm/wix314-binaries.zip"
+    ),
     ("sha256", "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31"),
 )
 NSIS = (
     "nsis-3.13.zip",
-    "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip",
+    (
+        "https://github.com/tauri-apps/binary-releases/releases/download/"
+        "nsis-3.13/nsis-3.13.zip"
+    ),
     ("sha1", "db14f8af2ea346b786c6ae19343f61aaf5e09b8e"),
 )
 NSIS_TAURI_UTILS = (
     "nsis_tauri_utils.dll",
-    "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll",
+    (
+        "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/"
+        "nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll"
+    ),
     ("sha1", "75197fee3c6a814fe035788d1c34ead39349b860"),
 )
 
@@ -94,19 +112,27 @@ TIMEOUT = 120
 
 
 class IntegrityError(Exception):
-    pass
+    """A download or archive is not the one the pins describe."""
+
+
+class ShortBodyError(OSError):
+    """The body ended before Content-Length; an OSError, so it is retried."""
 
 
 def log(message):
-    print("fetch-bundler-tools: " + message, flush=True)
+    """Print a progress line."""
+    print(f"fetch-bundler-tools: {message}", flush=True)
 
 
 def warn(message):
-    print("::warning::fetch-bundler-tools: " + message, flush=True)
+    """Print a GitHub Actions warning annotation."""
+    print(f"::warning::fetch-bundler-tools: {message}", flush=True)
 
 
 def digest_of(path, algorithm):
+    """Return the hex digest of the file at `path`."""
     h = hashlib.new(algorithm)
+    # skipcq: PTC-W6004 - paths are built here under our own cache and tool folders
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
@@ -114,6 +140,7 @@ def digest_of(path, algorithm):
 
 
 def retryable(error):
+    """Whether another attempt could fix `error`."""
     if isinstance(error, urllib.error.HTTPError):
         return error.code >= 500 or error.code in (408, 425, 429)
     # URLError (DNS, refused, reset), timeouts, and a body cut short.
@@ -128,19 +155,32 @@ def download(url, dest, sleep=time.sleep):
     Returns None on success, or the last error. `dest` is written whole or not
     at all.
     """
+    if not url.startswith("https://"):
+        raise ValueError(f"refusing a non-https URL: {url}")
     last = None
     for attempt in range(1, ATTEMPTS + 1):
         if attempt > 1:
             delay = DELAYS[min(attempt - 2, len(DELAYS) - 1)]
-            log("retrying in %d s (attempt %d of %d): %s" % (delay, attempt, ATTEMPTS, last))
+            log(f"retrying in {delay} s (attempt {attempt} of {ATTEMPTS}): {last}")
             sleep(delay)
         part = dest + ".part"
         try:
             request = urllib.request.Request(
                 url, headers={"User-Agent": "edytlab-fetch-bundler-tools"}
             )
-            with urllib.request.urlopen(request, timeout=TIMEOUT) as response, open(part, "wb") as out:
-                shutil.copyfileobj(response, out)
+            # Safe: every URL is a module constant, and https:// is checked above.
+            # skipcq: BAN-B310
+            with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+                with open(part, "wb") as out:
+                    shutil.copyfileobj(response, out)
+                    written = out.tell()
+                # http.client does not raise when a body ends before its
+                # Content-Length, so a cut-off download is caught here.
+                expected = response.headers.get("Content-Length")
+                if expected is not None and written != int(expected):
+                    raise ShortBodyError(
+                        f"got {written} of {expected} bytes from {url}"
+                    )
             os.replace(part, dest)
             return None
         except Exception as error:  # noqa: BLE001 - classified just below
@@ -162,23 +202,26 @@ def verified(cache, entry, sleep=time.sleep):
     path = os.path.join(cache, name)
     if os.path.isfile(path):
         if digest_of(path, algorithm) == expected:
-            log("%s: in the download cache, %s matches" % (name, algorithm))
+            log(f"{name}: in the download cache, {algorithm} matches")
             return path
-        log("%s: in the download cache but its %s is not the pinned one; downloading again" % (name, algorithm))
+        log(
+            f"{name}: in the download cache but its {algorithm} is not the "
+            "pinned one; downloading again"
+        )
         os.remove(path)
-    log("downloading " + url)
+    log(f"downloading {url}")
     error = download(url, path, sleep)
     if error is not None:
-        warn("%s could not be downloaded (%s); the bundler will try itself" % (url, error))
+        warn(f"{url} could not be downloaded ({error}); the bundler will try itself")
         return None
     actual = digest_of(path, algorithm)
     if actual != expected:
         os.remove(path)
         raise IntegrityError(
-            "%s %s mismatch for %s: got %s, pinned %s. Nothing was installed from it."
-            % (name, algorithm, url, actual, expected)
+            f"{name} {algorithm} mismatch for {url}: got {actual}, "
+            f"pinned {expected}. Nothing was installed from it."
         )
-    log("%s: %s verified" % (name, algorithm))
+    log(f"{name}: {algorithm} verified")
     return path
 
 
@@ -192,22 +235,29 @@ def tools_dir():
             home = os.environ.get("HOME")
             base = os.path.join(home, ".cache") if home else None
     if not base:
-        raise SystemExit("fetch-bundler-tools: cannot tell where the bundler keeps its tools")
+        raise SystemExit(
+            "fetch-bundler-tools: cannot tell where the bundler keeps its tools"
+        )
     return os.path.join(base, "tauri")
+
+
+# The bundler's write_and_make_executable (bundle/linux/appimage/mod.rs) sets 0o770;
+# the runner user both writes and runs these files, so owner-only is enough.
+EXECUTABLE = 0o700
 
 
 def install_file(source, dest, executable):
     """Copy `source` to `dest` unless the bundler already has one there."""
     if os.path.exists(dest):
-        log("%s is already there" % dest)
+        log(f"{dest} is already there")
         return
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tmp = dest + ".part"
     shutil.copyfile(source, tmp)
     if executable:
-        os.chmod(tmp, 0o755)
+        os.chmod(tmp, EXECUTABLE)
     os.replace(tmp, dest)
-    log("installed " + dest)
+    log(f"installed {dest}")
 
 
 def unpack_zip(archive, dest, root=None):
@@ -224,14 +274,15 @@ def unpack_zip(archive, dest, root=None):
             z.extractall(stage)  # drops absolute and ".." parts of member names
         source = os.path.join(stage, root) if root else stage
         if not os.path.isdir(source):
-            raise IntegrityError("%s has no %s/ folder" % (archive, root))
+            raise IntegrityError(f"{archive} has no {root}/ folder")
         os.replace(source, dest)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
-    log("unpacked %s into %s" % (os.path.basename(archive), dest))
+    log(f"unpacked {os.path.basename(archive)} into {dest}")
 
 
 def linux(cache, tools):
+    """Install AppRun, linuxdeploy and the AppImage plugin."""
     for entry in (LINUX_APPRUN, LINUX_LINUXDEPLOY):
         path = verified(cache, entry)
         if path:
@@ -240,15 +291,19 @@ def linux(cache, tools):
     plugin = os.path.join(tools, LINUX_APPIMAGE_PLUGIN[0])
     if not os.path.exists(plugin):
         os.makedirs(tools, exist_ok=True)
-        log("downloading " + LINUX_APPIMAGE_PLUGIN[1])
+        log(f"downloading {LINUX_APPIMAGE_PLUGIN[1]}")
         error = download(LINUX_APPIMAGE_PLUGIN[1], plugin)
         if error is None:
-            os.chmod(plugin, 0o755)
+            os.chmod(plugin, EXECUTABLE)
         else:
-            warn("the AppImage plugin could not be downloaded (%s); linuxdeploy uses its built-in one" % error)
+            warn(
+                f"the AppImage plugin could not be downloaded ({error}); "
+                "linuxdeploy uses its built-in one"
+            )
 
 
 def windows(cache, tools):
+    """Install WiX and NSIS (with its Tauri plugin)."""
     wix = verified(cache, WIX)
     wix_dir = os.path.join(tools, "WixTools314")
     if wix and not os.path.exists(wix_dir):
@@ -257,29 +312,32 @@ def windows(cache, tools):
     nsis = verified(cache, NSIS)
     utils = verified(cache, NSIS_TAURI_UTILS)
     nsis_dir = os.path.join(tools, "NSIS")
-    if nsis and utils and not os.path.exists(nsis_dir):
+    if nsis and not os.path.exists(nsis_dir):
         unpack_zip(nsis, nsis_dir, root="nsis-3.13")
+    # Separate from the unpack: an NSIS folder the bundler or an earlier run
+    # left without the plugin still gets it (install_file skips an existing one).
+    if utils and os.path.isdir(nsis_dir):
+        plugin_dir = os.path.join(nsis_dir, "Plugins", "x86-unicode", "additional")
         install_file(
-            utils,
-            os.path.join(nsis_dir, "Plugins", "x86-unicode", "additional", "nsis_tauri_utils.dll"),
-            executable=False,
+            utils, os.path.join(plugin_dir, "nsis_tauri_utils.dll"), executable=False
         )
 
 
 def main(argv):
+    """Entry point; returns the process exit status."""
     if len(argv) != 2:
-        raise SystemExit("usage: %s <downloads-dir>" % argv[0])
+        raise SystemExit(f"usage: {argv[0]} <downloads-dir>")
     cache = os.path.abspath(argv[1])
     if sys.platform not in ("win32", "linux"):
-        log("nothing to fetch on %s: the app and dmg bundlers download no tools" % sys.platform)
+        log(f"nothing to fetch on {sys.platform}: the bundlers there download no tools")
         return 0
     os.makedirs(cache, exist_ok=True)
     tools = tools_dir()
-    log("bundler %s tools go in %s" % (TAURI_BUNDLER_VERSION, tools))
+    log(f"bundler {TAURI_BUNDLER_VERSION} tools go in {tools}")
     try:
         (windows if sys.platform == "win32" else linux)(cache, tools)
     except IntegrityError as error:
-        print("fetch-bundler-tools: " + str(error), file=sys.stderr)
+        print(f"fetch-bundler-tools: {error}", file=sys.stderr)
         return 1
     return 0
 
