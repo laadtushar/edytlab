@@ -90,7 +90,7 @@ export function GoogleAnalyticsConsent({
   }
 
   const button =
-    "inline-flex h-9 flex-1 items-center justify-center rounded-md border border-border bg-secondary px-4 text-sm font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+    "inline-flex h-9 flex-1 items-center justify-center rounded-md border border-border bg-secondary px-4 text-sm font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
     <>
@@ -106,7 +106,7 @@ export function GoogleAnalyticsConsent({
           role="region"
           aria-label="Cookie settings"
           data-cookie-banner
-          className="fixed inset-x-4 bottom-4 z-50 rounded-lg border border-border bg-card p-4 text-sm text-card-foreground shadow-lg outline-none sm:left-auto sm:max-w-sm"
+          className="fixed inset-x-4 bottom-4 z-50 rounded-lg border border-border bg-card p-4 text-sm text-card-foreground shadow-lg outline-hidden sm:left-auto sm:max-w-sm"
         >
           <p className="font-medium">Analytics cookies</p>
           <p className="mt-1 text-muted-foreground">

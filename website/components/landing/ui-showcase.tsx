@@ -314,7 +314,7 @@ function ClipStripPanel() {
   );
 
   return (
-    <div ref={ref} className="relative space-y-2 overflow-hidden">
+    <div ref={ref} className="relative overflow-hidden [&>*+*]:mt-2">
       {/* The playhead, parked at 0:00 in the markup. */}
       <div data-playhead aria-hidden className="pointer-events-none absolute inset-0 z-10">
         <div className="h-full w-px bg-foreground/60 shadow-[0_0_8px_hsl(var(--primary))]" />

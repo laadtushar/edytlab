@@ -85,7 +85,7 @@ export function MobileMenu() {
       aria-hidden
       data-menu=""
       onClick={() => close(true)}
-      className={`absolute left-1/2 top-full h-[100dvh] w-screen -translate-x-1/2 bg-black/50 backdrop-blur-sm md:hidden motion-safe:transition-[opacity,visibility] motion-safe:duration-200 ${
+      className={`absolute left-1/2 top-full h-[100dvh] w-screen -translate-x-1/2 bg-black/50 backdrop-blur-xs md:hidden motion-safe:transition-[opacity,visibility] motion-safe:duration-200 ${
         open ? "visible opacity-100" : "invisible opacity-0"
       }`}
     />
@@ -100,7 +100,7 @@ export function MobileMenu() {
         aria-label="Menu"
         aria-expanded={open}
         aria-controls={panelId}
-        className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-md border border-input bg-background ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
+        className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-md border border-input bg-background ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
       >
         <Menu aria-hidden className="size-4 group-open:hidden" />
         <X aria-hidden className="hidden size-4 group-open:block" />
@@ -123,7 +123,7 @@ export function MobileMenu() {
                 href={l.href}
                 aria-current={current}
                 onClick={() => close(false)}
-                className="-mx-2 rounded-md px-2 py-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[current]:font-medium aria-[current]:text-foreground"
+                className="-mx-2 rounded-md px-2 py-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring aria-[current]:font-medium aria-[current]:text-foreground"
               >
                 {l.label}
               </Link>
@@ -134,7 +134,7 @@ export function MobileMenu() {
           <Link
             href={siteConfig.releases}
             onClick={() => close(false)}
-            className="btn-motion btn-lift inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="btn-motion btn-lift inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Download aria-hidden className="size-4" />
             Download
@@ -144,7 +144,7 @@ export function MobileMenu() {
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => close(false)}
-            className="btn-motion btn-lift inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="btn-motion btn-lift inline-flex h-10 shrink-0 items-center sm:flex-1 justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Github aria-hidden className="size-4" />
             GitHub

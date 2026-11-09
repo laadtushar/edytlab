@@ -110,10 +110,15 @@ export function SiteHeader() {
         aria-hidden
         className="absolute inset-0 border-b border-border/40 bg-background/70"
       />
+      {/* The gradient is written out rather than built from `from-`,
+          `via-` and `to-`: Tailwind 4 passes those stops through
+          `<color>`-typed custom properties, which round them to whole RGB
+          values before the blend. Written out, `hsl(var(--primary))` stays
+          exact. */}
       <div
         data-header-line
         aria-hidden
-        className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent"
+        className="absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(to_right,transparent,hsl(var(--primary)/0.6),transparent)]"
       />
       <div className="container relative flex h-14 items-center justify-between">
         <Link href="/" className="flex items-center gap-2 font-semibold">

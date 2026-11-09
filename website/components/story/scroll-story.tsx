@@ -316,7 +316,7 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             data-bubble
             className="mx-auto mt-4 max-w-2xl md:mt-6 rounded-2xl rounded-br-sm border border-primary/30 bg-primary/10 px-6 py-5 text-left"
           >
-            <p data-ask-text className="text-lg leading-relaxed text-foreground sm:text-xl">
+            <p data-ask-text className="text-lg leading-relaxed text-foreground sm:text-xl/7">
               Cut the dead air, duck the music under my voice, and render it.
             </p>
           </div>

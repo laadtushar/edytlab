@@ -6,7 +6,7 @@ pnpm workspace on purpose so Vercel can build it without monorepo gymnastics.
 ## Stack
 
 - Next.js 16 (App Router) · React 18 · TypeScript 5
-- Tailwind CSS 3 · shadcn/ui (locally vendored primitives)
+- Tailwind CSS 4 (configured in `app/globals.css`) · shadcn/ui (locally vendored primitives)
 - GSAP (`gsap` + `@gsap/react`) for entrance and scroll animations, wrapped in `components/motion/`
 - lucide-react icons
 

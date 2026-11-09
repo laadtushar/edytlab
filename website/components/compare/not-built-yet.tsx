@@ -11,7 +11,7 @@
  */
 export function NotBuiltYet() {
   return (
-    <div role="note" aria-labelledby="not-built-yet" className="my-8 rounded-xl border border-primary/30 bg-primary/5 p-5 text-sm">
+    <div role="note" aria-labelledby="not-built-yet" className="mt-8 mb-8 rounded-xl border border-primary/30 bg-primary/5 p-5 text-sm">
       <div id="not-built-yet" className="font-semibold">
         Not built yet
       </div>

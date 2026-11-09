@@ -149,7 +149,7 @@ export function VideoLinkCard({
           aria-hidden
           className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/0"
         >
-          <span className="flex size-12 items-center justify-center rounded-full bg-background/80 text-foreground ring-1 ring-border/60 backdrop-blur transition-transform group-hover:scale-110">
+          <span className="flex size-12 items-center justify-center rounded-full bg-background/80 text-foreground ring-1 ring-border/60 backdrop-blur-sm transition-transform group-hover:scale-110">
             <Play className="size-5 translate-x-px" />
           </span>
         </span>
@@ -159,10 +159,10 @@ export function VideoLinkCard({
         </span>
       </div>
       <div className={cn("flex flex-1 flex-col gap-2 p-4 sm:p-5", row && "md:justify-center md:p-8")}>
-        <h3 className={cn("text-balance text-base font-semibold leading-snug sm:text-lg", row && "md:text-2xl")}>
+        <h3 className={cn("text-balance text-base font-semibold leading-snug sm:text-lg/7", row && "md:text-2xl/8")}>
           <Link
             href={videoPath(video.slug)}
-            className="outline-none after:absolute after:inset-0 after:content-[''] group-hover:text-primary"
+            className="outline-hidden after:absolute after:inset-0 after:content-[''] group-hover:text-primary"
           >
             {cardTitle(video)}
           </Link>

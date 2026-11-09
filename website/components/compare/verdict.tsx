@@ -19,8 +19,8 @@ export function Verdict({
   closing?: ReactNode;
 }) {
   const card = "rounded-xl border border-border/60 bg-card p-5";
-  const heading = "!mt-0 text-base font-semibold";
-  const list = "!mt-3 space-y-2 text-sm";
+  const heading = "mt-0! text-base font-semibold";
+  const list = "mt-3! text-sm [&>li+li]:mt-2";
   return (
     <section aria-labelledby="verdict">
       <h2 id="verdict">Verdict</h2>
