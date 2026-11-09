@@ -144,6 +144,49 @@ def build_reel(name, lines=None, speech=None, narrated=False):
                 label=r["label"])
 
 
+def _narrated_card(it, kind, cid, t, lines, speech):
+    """A narrated hook or end card and its length: the speech's, clamped, when the clip exists."""
+    line = lines.get(cid, it.get("line", END_LINE) if kind == "end" else it["line"])
+    sp = speech.get(spoken_text(line))
+    default = it.get("seconds", HOOK_SECONDS if kind == "hook" else END_SECONDS)
+    dur = snap(clamp(math.ceil((sp + 0.45) * 10) / 10, 2.0, 3.0)) if sp else snap(default)
+    if kind == "hook":
+        onscreen = " ".join(it["title"])
+        cue = _cue_common(cid, t, t + dur, onscreen, line, kind="hook")
+        cue.update(title=it["title"], sub=it.get("sub", ""))
+    else:
+        cue = _cue_common(cid, t, t + dur, f"edytlab · Free, open source · {SITE_URL} · macOS · Windows · Linux", line, kind="end")
+    if sp:
+        cue["speech_seconds"] = sp
+    return cue, dur
+
+
+def _narrated_step_window(it, line, sp, words, ce):
+    """A narrated step cut: (src, dur, src_end, voice_end), never past its caption's window (ending at ce)."""
+    est = (sp + 0.6) if sp else words / WORDS_PER_SECOND + 0.7
+    src = snap_src(it["src"])
+    if "seconds" in it and line:
+        dur = snap(clamp(math.ceil((sp + 0.5) * 10) / 10, 2.2, 3.2)) if sp else snap(it["seconds"])
+    else:
+        dur = snap(math.ceil(max(it.get("seconds", it.get("floor", NARRATED_STEP_FLOOR)), est) * 10) / 10)
+    avail = math.floor((ce - src) * FPS) / FPS     # never run past the caption's own window
+    dur = min(dur, avail)
+    return src, dur, src + dur, None
+
+
+def _narrated_listen_window(it, aud, line, sp, words):
+    """A narrated Listen cut: (src, dur, src_end, voice_end). The line is a lead-in before the sound's onset."""
+    onset, _ = aud
+    if "src" in it:
+        src = it["src"]; dur = snap(it["seconds"])
+        return src, dur, src + dur, (max(0.0, onset - src) if line else None)
+    lead = max(NARRATED_LISTEN_LEAD, (sp + 0.5) if sp else words / WORDS_PER_SECOND + 0.6) if line else 1.0
+    lead = math.ceil(lead * 10) / 10
+    src = onset - lead
+    dur = snap(lead + it["music"])
+    return src, dur, src + dur, (lead if line else None)
+
+
 def _build_narrated(r, name, lines, speech):
     """The earlier build: cut lengths follow the real speech length when the clip exists
     (words / 2.4 is only the fallback), so every line ends 0.3 s or more before its cue does."""
@@ -157,18 +200,7 @@ def _build_narrated(r, name, lines, speech):
         n += 1
         cid = f"{r['prefix']}{n:02d}"
         if kind in ("hook", "end"):
-            line = lines.get(cid, it.get("line", END_LINE) if kind == "end" else it["line"])
-            sp = speech.get(spoken_text(line))
-            default = it.get("seconds", HOOK_SECONDS if kind == "hook" else END_SECONDS)
-            dur = snap(clamp(math.ceil((sp + 0.45) * 10) / 10, 2.0, 3.0)) if sp else snap(default)
-            if kind == "hook":
-                onscreen = " ".join(it["title"])
-                cue = _cue_common(cid, t, t + dur, onscreen, line, kind="hook")
-                cue.update(title=it["title"], sub=it.get("sub", ""))
-            else:
-                cue = _cue_common(cid, t, t + dur, f"edytlab · Free, open source · {SITE_URL} · macOS · Windows · Linux", line, kind="end")
-            if sp:
-                cue["speech_seconds"] = sp
+            cue, dur = _narrated_card(it, kind, cid, t, lines, speech)
             segs.append(cue); t += dur
             continue
         code, (capid, cs, ce, text, aud) = caption_by_id(it["cap"])
@@ -177,28 +209,10 @@ def _build_narrated(r, name, lines, speech):
             line = ""
         sp = speech.get(spoken_text(line)) if line else None
         words = spoken_word_count(line) if line else 0
-        est = (sp + 0.6) if sp else words / WORDS_PER_SECOND + 0.7
         if kind == "step":
-            src = snap_src(it["src"])
-            if "seconds" in it and line:
-                dur = snap(clamp(math.ceil((sp + 0.5) * 10) / 10, 2.2, 3.2)) if sp else snap(it["seconds"])
-            else:
-                dur = snap(math.ceil(max(it.get("seconds", it.get("floor", NARRATED_STEP_FLOOR)), est) * 10) / 10)
-            avail = math.floor((ce - src) * FPS) / FPS     # never run past the caption's own window
-            dur = min(dur, avail)
-            src_end = src + dur
-            voice_end = None
+            src, dur, src_end, voice_end = _narrated_step_window(it, line, sp, words, ce)
         else:  # listen
-            onset, offset = aud
-            if "src" in it:
-                src = it["src"]; dur = snap(it["seconds"]); src_end = src + dur
-                voice_end = max(0.0, onset - src) if line else None
-            else:
-                lead = max(NARRATED_LISTEN_LEAD, (sp + 0.5) if sp else words / WORDS_PER_SECOND + 0.6) if line else 1.0
-                lead = math.ceil(lead * 10) / 10
-                src = onset - lead
-                dur = snap(lead + it["music"]); src_end = src + dur
-                voice_end = lead if line else None
+            src, dur, src_end, voice_end = _narrated_listen_window(it, aud, line, sp, words)
         if not (src >= cs - 1e-6 and src_end <= ce + 0.05):
             raise AssertionError((name, capid, src, src_end, cs, ce))
         cue = _cue_common(cid, t, t + dur, text, line, voice_end=(t + voice_end) if voice_end is not None else None, kind=kind,

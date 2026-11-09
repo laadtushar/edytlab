@@ -422,6 +422,51 @@ def write_concat(path, items):
         f.write(f"file '{escaped}'\n")
 
 
+def _pill_groups(tl, segs, t0):
+    """Merge consecutive demo cuts that show the same pill: [start, end, pill] on the demo timeline."""
+    groups = []  # (start, end, pill)
+    for c in segs:
+        code = c["source"]["code"]
+        pill = (ES_TEXT["pill"][code] if tl.get("lang") == "es" else DEMOS[code]["title"]) if tl["pills"] else ""
+        a, b = c["start"] - t0, c["end"] - t0
+        if groups and groups[-1][2] == pill:
+            groups[-1][1] = b
+        else:
+            groups.append([a, b, pill])
+    return groups
+
+
+def _demo_cut_filters(segs, sidx):
+    """Filter lines that trim each demo cut (input sidx[k]) to its exact frame count and join them as [vc]."""
+    f = []
+    labels = []
+    for k, (c, i) in enumerate(zip(segs, sidx)):
+        nf = fr(c["end"] - c["start"])
+        f.append(f"[{i}:v]fps={FPS}:round=near,scale={FRAME_W}:{FRAME_H}:flags=lanczos,setsar=1,format=yuv420p,"
+                 f"tpad=stop_mode=clone:stop=4,trim=end_frame={nf},setpts=N/({FPS}*TB)[v{k}]")
+        labels.append(f"[v{k}]")
+    f.append("".join(labels) + f"concat=n={len(labels)}:v=1:a=0[vc]")
+    return f
+
+
+def _card_concat_filters(hook, hidx, end, eidx):
+    """Filter lines that put the hook card (input hidx) before [demo] and the end card (input eidx) after it."""
+    f = []
+    parts = []
+    if hook:   # no fade in: the first frame is the card, which is what a feed shows before it plays
+        hf = fr(hook["end"] - hook["start"])
+        f.append(f"[{hidx}:v]fps={FPS},scale={W}:{H},setsar=1,format=yuv420p,trim=end_frame={hf},setpts=N/({FPS}*TB)[hk]")
+        parts.append("[hk]")
+    parts.append("[demo]")
+    if end:
+        ef = fr(end["end"] - end["start"])
+        f.append(f"[{eidx}:v]fps={FPS},scale={W}:{H},setsar=1,format=yuv420p,"
+                 f"fade=t=out:st={ef/FPS-0.25:.3f}:d=0.25,trim=end_frame={ef},setpts=N/({FPS}*TB),setsar=1,format=yuv420p[ed]")
+        parts.append("[ed]")
+    f.append("".join(parts) + f"concat=n={len(parts)}:v=1:a=0[outv]")
+    return f
+
+
 def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     """Compose a reel using validated project work and output paths."""
     name = tl["name"]
@@ -440,6 +485,7 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     demo_frames = fr(demo_dur)
 
     inputs, idx = [], 0
+    hidx = eidx = None   # the card inputs, when the reel has the card
     if hook:
         hp = f"{work}/hook.png"
         hook_card(hp, hook["title"], hook.get("sub", ""))
@@ -470,15 +516,7 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     inputs += ["-f", "concat", "-safe", "0", "-i", cl]
     cidx = idx; idx += 1
     # group layers (pill per demo run, note everywhere)
-    groups = []  # (start, end, pill)
-    for c in segs:
-        code = c["source"]["code"]
-        pill = (ES_TEXT["pill"][code] if tl.get("lang") == "es" else DEMOS[code]["title"]) if tl["pills"] else ""
-        a, b = c["start"] - t0, c["end"] - t0
-        if groups and groups[-1][2] == pill:
-            groups[-1][1] = b
-        else:
-            groups.append([a, b, pill])
+    groups = _pill_groups(tl, segs, t0)
     gidx = []
     for gi, (a, b, pill) in enumerate(groups):
         gp = f"{work}/group{gi}.png"
@@ -488,15 +526,7 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bar]
     baridx = idx; idx += 1
 
-    f = []
-    # demo cuts -> exact frame counts
-    labels = []
-    for k, (c, i) in enumerate(zip(segs, sidx)):
-        nf = fr(c["end"] - c["start"])
-        f.append(f"[{i}:v]fps={FPS}:round=near,scale={FRAME_W}:{FRAME_H}:flags=lanczos,setsar=1,format=yuv420p,"
-                 f"tpad=stop_mode=clone:stop=4,trim=end_frame={nf},setpts=N/({FPS}*TB)[v{k}]")
-        labels.append(f"[v{k}]")
-    f.append("".join(labels) + f"concat=n={len(labels)}:v=1:a=0[vc]")
+    f = _demo_cut_filters(segs, sidx)
     f.append(f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]")
     f.append(f"[bg][vc]overlay=0:{FRAME_Y}:format=auto[b1]")
     f.append(f"[{cidx}:v]fps={FPS},format=rgba,setsar=1[cap]")
@@ -510,18 +540,7 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     f.append(f"color=c=0x00000000:s={SAFE_R-SAFE_L}x6:r={FPS},format=rgba[bcan]")
     f.append(f"[bcan][bar]overlay=x='-w+w*t/{demo_dur:.3f}':y=0:eval=frame:format=auto:shortest=1[bfill]")
     f.append(f"[{cur}][bfill]overlay={SAFE_L}:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]")
-    parts = []
-    if hook:   # no fade in: the first frame is the card, which is what a feed shows before it plays
-        hf = fr(hook["end"] - hook["start"])
-        f.append(f"[{hidx}:v]fps={FPS},scale={W}:{H},setsar=1,format=yuv420p,trim=end_frame={hf},setpts=N/({FPS}*TB)[hk]")
-        parts.append("[hk]")
-    parts.append("[demo]")
-    if end:
-        ef = fr(end["end"] - end["start"])
-        f.append(f"[{eidx}:v]fps={FPS},scale={W}:{H},setsar=1,format=yuv420p,"
-                 f"fade=t=out:st={ef/FPS-0.25:.3f}:d=0.25,trim=end_frame={ef},setpts=N/({FPS}*TB),setsar=1,format=yuv420p[ed]")
-        parts.append("[ed]")
-    f.append("".join(parts) + f"concat=n={len(parts)}:v=1:a=0[outv]")
+    f += _card_concat_filters(hook, hidx, end, eidx)
     script = f"{work}/graph.txt"
     with open(checked_reel_path(script), "w") as graph_file:
         graph_file.write(";\n".join(f))
