@@ -1,0 +1,88 @@
+name: Coverage report
+
+# Sends the coverage of Dependabot's pull requests, whose Coverage run skips
+# its own `report` job: GitHub runs them with a read-only token, as if from a
+# fork, and documents no OIDC token for them, so DeepSource's Test coverage
+# check waited 30 minutes on every Dependabot PR and failed with "Timed out:
+# Artifact was never reported".
+#
+# This is the two-step pattern GitHub documents for such runs. The
+# unprivileged run (coverage.yml) builds and tests with `contents: read` and
+# leaves its LCOV files as artifacts. This workflow starts when that run
+# completes and runs from the default branch, where "the workflow started by
+# the workflow_run event is able to access secrets and write tokens, even if
+# the previous workflow was not"
+# (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+# It checks out only the default branch, for the report action, and runs
+# nothing from the pull request: the LCOV files are passed to the pinned
+# DeepSource CLI as data, against the run's head commit (`--commit`, so the
+# CLI needs no checkout of it).
+#
+# Like auto-release.yml, the only other `workflow_run` consumer, it acts only
+# on runs from this repository (`release_gating.rs` holds both gates). Fork
+# PRs stay unreported: their artifacts are a stranger's files, and handling
+# them in a job that can mint this repository's OIDC tokens is not worth a
+# coverage figure for the rare fork PR.
+# `branches:` only keeps this workflow from starting for every other PR's
+# Coverage run (each start would add a skipped run to main's latest commit).
+# It is not a boundary: it matches the triggering run's head branch, which a
+# fork names as it likes. The boundary is the job's `if:`.
+on:
+  workflow_run:
+    workflows: [Coverage]
+    types: [completed]
+    branches: ['dependabot/**']
+
+permissions: {}
+
+jobs:
+  report:
+    name: coverage report (Dependabot)
+    # Dependabot's pull request runs in this repository: the runs coverage.yml's
+    # own `report` job skips that are not from a fork. Push and other same-repo
+    # runs report there. `actor` is the run's original actor, as `github.actor`
+    # is in coverage.yml's test, so a re-run by a person is still Dependabot's.
+    # A cancelled (superseded) run is left alone, as coverage.yml's
+    # `!cancelled()` leaves it. The actor only picks Dependabot's runs out of
+    # this repository's; it is not the boundary, because Dependabot can be
+    # made to push to an attacker's fork PR, which then runs with
+    # `dependabot[bot]` as its actor
+    # (https://labs.boostsecurity.io/articles/weaponizing-dependabot-pwn-request-at-its-finest/).
+    # The boundary is `head_repository`: a fork's run never matches it.
+    if: >-
+      ${{ github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.conclusion != 'cancelled'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.actor.login == 'dependabot[bot]' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      actions: read # the triggering run's artifacts
+      contents: read # the default branch, for the report action
+      id-token: write # OIDC for the DeepSource CLI
+    steps:
+      # The default branch (this event's ref), never the pull request.
+      - name: Checkout the report action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions
+
+      # merge-multiple: the same flat layout coverage.yml's report job reads.
+      - name: Download the reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          pattern: coverage-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/coverage
+
+      # A run whose tests left no report has nothing to send (coverage.yml's
+      # report job does not run then either), so none found is a notice here.
+      - name: Report to DeepSource
+        uses: ./.github/actions/deepsource-coverage
+        with:
+          reports: ${{ runner.temp }}/coverage
+          commit: ${{ github.event.workflow_run.head_sha }}
+          allow-none: 'true'

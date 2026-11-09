@@ -19,12 +19,16 @@ name: Coverage
 #
 # Least privilege: the two jobs that build and run the PR's code hold only
 # `contents: read` and hand their LCOV files on as artifacts. A third job,
-# `report`, which runs no code from the PR (it checks the commit out only so
-# the CLI can read its identity), is the only one with `id-token: write`. It
-# authenticates by OIDC, DeepSource's recommended method: the CLI exchanges
-# the job's short-lived GitHub OIDC token for a temporary DSN, so no
-# DeepSource secret exists. GitHub issues no OIDC token to fork PRs or
-# Dependabot runs, so for those the tests still run and `report` is skipped.
+# `report`, which runs neither the tests nor the build, is the only one with
+# `id-token: write`. It authenticates by OIDC, DeepSource's recommended
+# method: the CLI exchanges the job's short-lived GitHub OIDC token for a
+# temporary DSN, so no DeepSource secret exists.
+#
+# GitHub runs fork and Dependabot PRs with a read-only token, as if from a
+# fork, and documents no OIDC token for them, so `report` is skipped there.
+# coverage-report.yml sends Dependabot's instead: a `workflow_run` workflow
+# runs from the default branch with the permissions this run lacks. Fork PRs
+# go unreported (that file says why).
 #
 # Coverage must be attributed to the commit DeepSource analyses: the PR's head
 # commit, not the merge commit actions/checkout makes by default.
@@ -51,12 +55,6 @@ env:
   RUST_BACKTRACE: short
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
-  # The DeepSource CLI, pinned by version and SHA-256 instead of the
-  # `curl https://cli.deepsource.com/install | sh` installer, which always
-  # takes the latest version. To bump: read https://cli.deepsource.com/manifest.json
-  # and copy the `linux_amd64` archive name and sha256 here.
-  DEEPSOURCE_CLI_ARCHIVE: deepsource_2.0.57_linux_amd64.tar.gz
-  DEEPSOURCE_CLI_SHA256: 7a22daa62328fde38e275674ed0b52b780b2ac48f4af8f1b92eff0a347b81ab0
 
 jobs:
   rust:
@@ -212,12 +210,16 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # For the commit's identity only: nothing from the checkout is run.
-      - name: Checkout
+      # For the report action only, from the commit this workflow file comes
+      # from (on a pull request, the merge commit), so the action and its CLI
+      # pin always match the workflow, main's later bumps included. Fork and
+      # Dependabot PRs never reach this job. The report names the PR's head
+      # commit with `commit:` below, the commit DeepSource analyses.
+      - name: Checkout the report action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          sparse-checkout: .github/actions
 
       # merge-multiple keeps the layout the same whether one artifact or two
       # exist: without it, a lone matching artifact is extracted straight into
@@ -231,40 +233,10 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/coverage
 
-      - name: Install the DeepSource CLI
-        run: |
-          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
-            -o "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" \
-            "https://cli.deepsource.com/build/$DEEPSOURCE_CLI_ARCHIVE"
-          echo "$DEEPSOURCE_CLI_SHA256  $RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" | sha256sum --check --strict
-          mkdir -p "$RUNNER_TEMP/deepsource"
-          tar -xzf "$RUNNER_TEMP/$DEEPSOURCE_CLI_ARCHIVE" -C "$RUNNER_TEMP/deepsource" deepsource
-
-      # One report per key that has a file; DeepSource merges by key. The keys
-      # are independent: a missing artifact (its job failed) or a refused
-      # upload for one must not stop the other, so each is attempted and the
-      # step fails afterwards if any upload failed or none was sent. Each key
-      # is found by the file name its job uploads (coverage-rust.lcov,
-      # lcov.info), which the merged download keeps at the top of the folder.
+      # The pinned CLI and the per-key report loop, shared with
+      # coverage-report.yml. Local, so it comes from the checkout above.
       - name: Report to DeepSource
-        run: |
-          sent=0
-          failed=0
-          for key in rust javascript; do
-            case "$key" in
-              rust) file="$RUNNER_TEMP/coverage/coverage-rust.lcov" ;;
-              javascript) file="$RUNNER_TEMP/coverage/lcov.info" ;;
-            esac
-            if [ ! -f "$file" ]; then
-              echo "::warning::no $key coverage report to send"
-              continue
-            fi
-            if "$RUNNER_TEMP/deepsource/deepsource" report --analyzer test-coverage --key "$key" \
-              --value-file "$file" --use-oidc --host https://app.deepsource.com; then
-              sent=$((sent + 1))
-            else
-              echo "::error::the $key coverage report was not accepted"
-              failed=$((failed + 1))
-            fi
-          done
-          [ "$failed" -eq 0 ] && [ "$sent" -gt 0 ]
+        uses: ./.github/actions/deepsource-coverage
+        with:
+          reports: ${{ runner.temp }}/coverage
+          commit: ${{ github.event.pull_request.head.sha || github.sha }}
