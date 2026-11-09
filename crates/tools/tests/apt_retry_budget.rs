@@ -134,8 +134,8 @@ fn the_step_cap_fits_two_full_attempts() {
     }
 }
 
-/// The three copies are the same step; a fix applied to one is a bug
-/// left in the other two.
+/// The copies (one per workflow in `WORKFLOWS`) are the same step; a fix applied to one
+/// is a bug left in the others.
 #[test]
 fn every_workflow_carrying_this_step_has_the_same_budget() {
     let caps: Vec<(&str, u64)> = WORKFLOWS
@@ -148,7 +148,7 @@ fn every_workflow_carrying_this_step_has_the_same_budget() {
         assert_eq!(
             *cap, first,
             "{name} caps the apt step at {cap} s while {} uses {first} s — \
-             the step is duplicated across all three and a budget fixed in \
+             the step is duplicated across every workflow in WORKFLOWS and a budget fixed in \
              one is a budget still broken in the others",
             caps[0].0
         );
