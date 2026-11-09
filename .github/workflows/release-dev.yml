@@ -484,6 +484,11 @@ jobs:
           for py in python3 python; do "$py" -I -c 'import sys' 2>/dev/null && break; done
           "$py" -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64
 
+      # Before tauri-action, on the legs that download tools (see the action).
+      - name: Fetch the bundler's tools
+        if: matrix.platform.runner != 'macos-15'
+        uses: ./.github/actions/bundler-tools
+
       # Build only: no `releaseId` and no `tagName`, so tauri-action
       # uploads nothing. The files are checked first, and the upload step
       # below sends exactly what was checked (see the header).

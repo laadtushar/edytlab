@@ -1,0 +1,30 @@
+name: Fetch the Tauri bundler's tools
+description: >-
+  Puts the tools `tauri build` would download from GitHub (WiX and NSIS on
+  Windows, AppRun and linuxdeploy on Linux) where the bundler looks, so it
+  downloads nothing. Used by release-dev.yml and release-signed.yml, before
+  tauri-action, on the Linux and Windows legs (macOS downloads no tools; the
+  caller says so with `if:`). Needs the repository checked out.
+
+runs:
+  using: composite
+  steps:
+    # `tauri build` downloads these from GitHub with no retry, so a 504 ended a
+    # leg: dev.677 on Windows, dev.688 on Linux and Windows. The script
+    # downloads the same files from the same URLs with retries, checks each
+    # against a pinned hash (the bundler's own where it has one) and puts them
+    # where the bundler looks. The cache holds the verified downloads, keyed on
+    # the OS, the bundler version (tauri-cli 2.12.4 pins tauri-bundler =2.10.4)
+    # and the script, which holds the pins; the script checks them again on a
+    # hit. `release_bundler_tools.rs` pins all of this.
+    - name: Cache the bundler's tool downloads
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/bundler-tool-downloads
+        key: bundler-tools-${{ runner.os }}-tauri-bundler-2.10.4-${{ hashFiles('scripts/fetch-bundler-tools.py') }}
+
+    - name: Fetch the bundler's tools
+      shell: bash
+      run: |
+        for py in python3 python; do "$py" -I -c 'import sys' 2>/dev/null && break; done
+        "$py" -I scripts/fetch-bundler-tools.py "$RUNNER_TEMP/bundler-tool-downloads"
