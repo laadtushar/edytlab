@@ -251,7 +251,7 @@ export default function ComparePage() {
       />
 
       <div className="prose prose-invert mt-10 max-w-3xl text-foreground/90 [&_a]:text-primary [&_h2]:mt-12 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mt-8 [&_p]:mt-4 [&_p]:leading-relaxed [&_ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:mt-1">
-        <h2 id="how-to-read" className="!mt-0">
+        <h2 id="how-to-read" className="mt-0!">
           How to read the table
         </h2>
         <p>

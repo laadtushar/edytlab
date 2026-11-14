@@ -1,6 +1,163 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/*
+ * Tailwind CSS 4, configured here rather than in a `tailwind.config.ts`.
+ * The blocks marked "As in v3" keep defaults that v4 changed, so the site
+ * renders as it did on Tailwind 3.
+ */
+@import "tailwindcss" source(none);
+/* `animate-in`, `fade-in-*` and `slide-in-from-*` (the mobile menu's
+   panel), in place of the v3 plugin `tailwindcss-animate`. */
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+/* Classes are read from these folders only, as v3's `content` globs had
+   it; on its own v4 would scan the whole project, `lib/`, tests and
+   Markdown included. */
+@source "../app";
+@source "../components";
+
+/* As in v3 (`darkMode: ["class"]`): `dark:` follows the class on <html>,
+   not the system setting. */
+@custom-variant dark (&:is(.dark *));
+
+/* As in v3: `hover:` also answers a tap on a touch screen. v4 puts it
+   behind `@media (hover: hover)`. */
+@custom-variant hover (&:hover);
+
+/* `inline`: utilities carry `hsl(var(--border))` itself rather than a
+   variable resolved once on :root, so a colour token redefined lower in
+   the tree is seen where it is used, as on v3. */
+@theme inline {
+  /* `app/layout.tsx` loads Inter with `next/font` and declares it as
+     `--font-inter` on <html>. That only defines the variable: unless
+     `font-sans` names it, <body> renders the default
+     `ui-sans-serif, system-ui` stack and Inter is downloaded for nothing.
+     The default stack stays behind it for the swap period and for any
+     glyph Inter lacks. `lib/fonts.test.ts` pins this. */
+  --font-sans:
+    var(--font-inter), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  /* The house curve (GSAP's `power3.out`) as a cubic-bezier, so the
+     accordion's CSS height animation eases like everything else. */
+  --animate-accordion-down: accordion-down 0.35s cubic-bezier(0.215, 0.61, 0.355, 1);
+  --animate-accordion-up: accordion-up 0.25s cubic-bezier(0.215, 0.61, 0.355, 1);
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+/* As in v3: the few palette colours the site names, at their v3 values.
+   v4 redrew its palette in oklch, and these come out visibly different
+   (amber-500 is rgb(254 154 0) rather than rgb(245 158 11)). */
+@theme {
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-fuchsia-300: #f0abfc;
+  --color-fuchsia-400: #e879f9;
+  --color-neutral-900: #171717;
+
+  /* As in v3: a font size's line height is a length, so text inside it
+     at another size (`text-[11px]`, a `<code>`) inherits the same line
+     height. v4's are ratios, which rescale with every font size below. */
+  --text-xs--line-height: 1rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+}
+
+/* The container: centred, 1.5rem of side padding and one step, 1280px.
+   v4's own `container` (which this adds to) caps the width at every
+   breakpoint; `none` from the first one up clears those caps. */
+@utility container {
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+  @media (width >= 40rem) {
+    max-width: none;
+  }
+  @media (width >= 1280px) {
+    max-width: 1280px;
+  }
+}
+
+/* As in v3: `transition` and `transition-colors` leave the outline colour
+   alone, so a keyboard focus ring appears at once rather than fading in
+   from the text colour. v4 added `outline-color` (and its gradient stops)
+   to both. `transition` keeps `translate`, `scale` and `rotate`, which v4's
+   transform utilities set where v3's set `transform`. */
+@utility transition {
+  transition-property:
+    color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow,
+    transform, translate, scale, rotate, filter, -webkit-backdrop-filter, backdrop-filter;
+}
+@utility transition-colors {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+}
+
+@layer base {
+  /* As in v3: a border with no colour of its own is gray-200, not
+     `currentcolor`. Every element gets the site's border colour below;
+     this is what pseudo-elements keep. */
+  *,
+  ::before,
+  ::after {
+    border-color: #e5e7eb;
+  }
+
+  /* As in v3: table cells keep the browser's 1px of padding, which v4's
+     reset of every element's padding takes away (2px off each row). */
+  th,
+  td {
+    padding: 1px;
+  }
+
+  /* As in v3: buttons show the pointer. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
 
 @layer base {
   :root {
@@ -92,57 +249,61 @@
   }
 }
 
-@layer utilities {
-  .gradient-text {
-    background: linear-gradient(135deg, hsl(270 95% 75%) 0%, hsl(290 90% 60%) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    padding: 0 0.08em 0.05em;
-  }
-  /* `gradient-text` pads its sides so `background-clip: text` does not
-     shave the edge glyphs. On a headline split into per-word spans that
-     padding lands between every word and the line reads loose-set, so
-     the split variant keeps the descender room and drops the sides. */
-  .gradient-text-split {
-    background: linear-gradient(135deg, hsl(270 95% 75%) 0%, hsl(290 90% 60%) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    padding: 0 0 0.05em;
-  }
-  .glow {
-    box-shadow:
-      0 0 80px -20px hsl(270 95% 60% / 0.4),
-      0 0 30px -10px hsl(270 95% 60% / 0.3);
-  }
 
-  /* A hairline that fades out at both ends. A section divider drawn as a
-     full-width solid rule cuts the page in half; this suggests the break
-     without claiming the whole width. */
-  .rule-fade {
-    height: 1px;
-    background: linear-gradient(
-      to right,
-      transparent,
-      hsl(var(--border)) 20%,
-      hsl(var(--border)) 80%,
-      transparent
-    );
-  }
+/* The site's own utilities. As classes they sort among Tailwind's: after
+   the plain utilities, before any with a variant (`hover:`, `sm:`), as
+   they did in v3's utilities layer. */
+@utility gradient-text {
+  background: linear-gradient(135deg, hsl(270 95% 75%) 0%, hsl(290 90% 60%) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  padding: 0 0.08em 0.05em;
+}
+/* `gradient-text` pads its sides so `background-clip: text` does not
+   shave the edge glyphs. On a headline split into per-word spans that
+   padding lands between every word and the line reads loose-set, so
+   the split variant keeps the descender room and drops the sides. */
+@utility gradient-text-split {
+  background: linear-gradient(135deg, hsl(270 95% 75%) 0%, hsl(290 90% 60%) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  padding: 0 0 0.05em;
+}
+@utility glow {
+  box-shadow:
+    0 0 80px -20px hsl(270 95% 60% / 0.4),
+    0 0 30px -10px hsl(270 95% 60% / 0.3);
+}
 
-  /* Card surface used across the site: a very slight vertical lift so a
-     card reads as raised rather than as a flat outlined box. */
-  .surface {
-    background:
-      linear-gradient(to bottom, hsl(var(--foreground) / 0.035), transparent 60%),
-      hsl(var(--card));
-  }
+/* A hairline that fades out at both ends. A section divider drawn as a
+   full-width solid rule cuts the page in half; this suggests the break
+   without claiming the whole width. */
+@utility rule-fade {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    hsl(var(--border)) 20%,
+    hsl(var(--border)) 80%,
+    transparent
+  );
+}
 
-  /* The highlight that follows the cursor on a tilt card. The gradient
-     lives here so only two numbers cross the JS boundary; --gx/--gy are
-     set by `TiltCard`. */
-  .tilt-card::before {
+/* Card surface used across the site: a very slight vertical lift so a
+   card reads as raised rather than as a flat outlined box. */
+@utility surface {
+  background:
+    linear-gradient(to bottom, hsl(var(--foreground) / 0.035), transparent 60%),
+    hsl(var(--card));
+}
+
+/* The highlight that follows the cursor on a tilt card. The gradient
+   lives here so only two numbers cross the JS boundary; --gx/--gy are
+   set by `TiltCard`. */
+@utility tilt-card {
+  &::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -157,24 +318,158 @@
     pointer-events: none;
     z-index: 1;
   }
-  .tilt-card:hover::before {
+  &:hover::before {
     opacity: 1;
   }
+}
 
-  /* A ring that brightens on hover, for cards that are links. The lift
-     that goes with it is GSAP's (`data-lift`), so it can stay off for
-     touch and reduced motion while the ring still answers the pointer. */
-  .ring-hover {
-    transition:
-      border-color 0.3s ease,
-      box-shadow 0.3s ease,
-      background-color 0.3s ease;
-  }
-  .ring-hover:hover {
+/* A ring that brightens on hover, for cards that are links. The lift
+   that goes with it is GSAP's (`data-lift`), so it can stay off for
+   touch and reduced motion while the ring still answers the pointer. */
+@utility ring-hover {
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    background-color 0.3s ease;
+  &:hover {
     border-color: hsl(var(--primary) / 0.45);
     box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 18px 40px -24px hsl(270 95% 50% / 0.5);
   }
+  @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+    &:hover [data-poster] {
+      scale: 1.02;
+    }
+  }
+}
 
+/* Very fine film grain over the whole page. Flat dark backgrounds band
+   visibly on wide-gamut displays; a little noise breaks the bands up
+   and costs one repeated 120px tile. */
+@utility grain {
+  &::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* Slow-drifting colour wash behind a section. Two blurred blobs at
+   opposite corners, which is enough to keep a long dark page from
+   reading as one flat sheet. */
+@utility aurora {
+  position: absolute;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    width: 46rem;
+    height: 46rem;
+    border-radius: 9999px;
+    filter: blur(120px);
+    opacity: 0.16;
+  }
+  &::before {
+    top: -18rem;
+    left: -12rem;
+    background: hsl(270 95% 60%);
+  }
+  &::after {
+    right: -14rem;
+    bottom: -20rem;
+    background: hsl(300 85% 55%);
+  }
+}
+
+/* Hover and press polish. Everything here is `translate`, `scale`,
+   opacity or a colour: the individual transform properties compose
+   with GSAP's own `transform` (reveals, the press dip), so neither
+   overwrites the other, and none of it moves layout. Off for reduced
+   motion; hover lifts are also off for touch. */
+@utility btn-motion {
+  transition:
+    color 0.15s ease-out,
+    background-color 0.15s ease-out,
+    border-color 0.15s ease-out,
+    box-shadow 0.15s ease-out,
+    translate 0.15s ease-out;
+  @media (prefers-reduced-motion: no-preference) {
+    &:active:not(:disabled):not([data-press]) {
+      scale: 0.98;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+@utility btn-lift {
+  @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+    &:hover:not(:disabled) {
+      translate: 0 -1px;
+      box-shadow: 0 2px 8px -2px hsl(var(--foreground) / 0.25);
+    }
+  }
+}
+@utility card-hover {
+  transition:
+    border-color 0.2s ease-out,
+    box-shadow 0.2s ease-out,
+    translate 0.2s ease-out;
+  @media (prefers-reduced-motion: no-preference) {
+    &:focus-within {
+      translate: 0 -2px;
+    }
+    &:focus-within [data-poster] {
+      scale: 1.02;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+    &:hover {
+      translate: 0 -2px;
+    }
+    &:hover [data-poster] {
+      scale: 1.02;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+  &:hover,
+  &:focus-within {
+    border-color: hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.12), 0 14px 32px -22px hsl(270 95% 50% / 0.5);
+  }
+}
+
+/* As in v3: `prose-invert`'s grays. The typography plugin takes them
+   from `tailwindcss/colors`, which on v4 is the oklch palette, a shade
+   off v3's in the list markers, rules and table borders. Every `prose`
+   on the site is also `prose-invert`. */
+@layer utilities {
+  .prose {
+    --tw-prose-invert-body: #d1d5db;
+    --tw-prose-invert-lead: #9ca3af;
+    --tw-prose-invert-counters: #9ca3af;
+    --tw-prose-invert-bullets: #4b5563;
+    --tw-prose-invert-hr: #374151;
+    --tw-prose-invert-quotes: #f3f4f6;
+    --tw-prose-invert-quote-borders: #374151;
+    --tw-prose-invert-captions: #9ca3af;
+    --tw-prose-invert-pre-code: #d1d5db;
+    --tw-prose-invert-th-borders: #4b5563;
+    --tw-prose-invert-td-borders: #374151;
+  }
+}
+
+/* Rules on attributes and elements rather than a class of their own. */
+@layer utilities {
   /* A link underline that sweeps: drawn in from the left on hover and
      out to the right on leave. The line lives here; `MicroInteractions`
      tweens `--sweep` (0 → 1) and flips `--sweep-origin`, so only a number
@@ -204,69 +499,9 @@
     }
   }
 
-  /* Very fine film grain over the whole page. Flat dark backgrounds band
-     visibly on wide-gamut displays; a little noise breaks the bands up
-     and costs one repeated 120px tile. */
-  .grain::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    pointer-events: none;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-
-  /* Slow-drifting colour wash behind a section. Two blurred blobs at
-     opposite corners, which is enough to keep a long dark page from
-     reading as one flat sheet. */
-  .aurora {
-    position: absolute;
-    inset: 0;
-    z-index: -10;
-    overflow: hidden;
-    pointer-events: none;
-  }
-  .aurora::before,
-  .aurora::after {
-    content: "";
-    position: absolute;
-    width: 46rem;
-    height: 46rem;
-    border-radius: 9999px;
-    filter: blur(120px);
-    opacity: 0.16;
-  }
-  .aurora::before {
-    top: -18rem;
-    left: -12rem;
-    background: hsl(270 95% 60%);
-  }
-  .aurora::after {
-    right: -14rem;
-    bottom: -20rem;
-    background: hsl(300 85% 55%);
-  }
-
-  /* Hover and press polish. Everything here is `translate`, `scale`,
-     opacity or a colour: the individual transform properties compose
-     with GSAP's own `transform` (reveals, the press dip), so neither
-     overwrites the other, and none of it moves layout. Off for reduced
-     motion; hover lifts are also off for touch. */
-  .btn-motion {
-    transition:
-      color 0.15s ease-out,
-      background-color 0.15s ease-out,
-      border-color 0.15s ease-out,
-      box-shadow 0.15s ease-out,
-      translate 0.15s ease-out;
-  }
-  .card-hover {
-    transition:
-      border-color 0.2s ease-out,
-      box-shadow 0.2s ease-out,
-      translate 0.2s ease-out;
-  }
+  /* The rest of the hover and press polish (see `btn-motion` above): a
+     poster scales and an arrow in a link nudges on hover and focus,
+     unless the link animates the arrow itself (`group-hover:`). */
   [data-poster] {
     transition: scale 0.2s ease-out;
   }
@@ -276,26 +511,13 @@
     transition: translate 0.2s ease-out;
   }
   @media (prefers-reduced-motion: no-preference) {
-    .btn-motion:active:not(:disabled):not([data-press]) {
-      scale: 0.98;
-    }
     a:focus-visible svg.lucide-arrow-right:not([class*="group-hover"]),
     a:focus-visible [data-arrow],
     a:focus-visible svg.lucide-arrow-up-right:not([class*="group-hover"]) {
       translate: 3px 0;
     }
-    .card-hover:focus-within {
-      translate: 0 -2px;
-    }
-    .card-hover:focus-within [data-poster] {
-      scale: 1.02;
-    }
   }
   @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
-    .btn-lift:hover:not(:disabled) {
-      translate: 0 -1px;
-      box-shadow: 0 2px 8px -2px hsl(var(--foreground) / 0.25);
-    }
     a:hover svg.lucide-arrow-right:not([class*="group-hover"]),
     a:hover [data-arrow] {
       translate: 3px 0;
@@ -303,17 +525,8 @@
     a:hover svg.lucide-arrow-up-right:not([class*="group-hover"]) {
       translate: 2px -2px;
     }
-    .card-hover:hover {
-      translate: 0 -2px;
-    }
-    .card-hover:hover [data-poster],
-    .ring-hover:hover [data-poster] {
-      scale: 1.02;
-    }
   }
   @media (prefers-reduced-motion: reduce) {
-    .btn-motion,
-    .card-hover,
     [data-poster],
     a svg.lucide-arrow-right:not([class*="group-hover"]),
     a svg.lucide-arrow-up-right:not([class*="group-hover"]),
@@ -321,9 +534,13 @@
       transition: none;
     }
   }
-  .card-hover:hover,
-  .card-hover:focus-within {
-    border-color: hsl(var(--primary) / 0.5);
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.12), 0 14px 32px -22px hsl(270 95% 50% / 0.5);
-  }
+}
+
+/* As in v3: Next's built-in 404 page (the site has no `not-found.tsx`)
+   brings a <style> of its own with `body { background: #fff }`. That
+   style is in no cascade layer, so in v4 it outranks every layered rule
+   here, where in v3 the body's `bg-background` class won on specificity.
+   This one rule stays outside the layers to keep that page dark. */
+body.bg-background {
+  background-color: hsl(var(--background));
 }

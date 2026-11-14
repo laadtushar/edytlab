@@ -37,10 +37,12 @@ export function ScrollProgress() {
     return () => mm.revert();
   });
 
+  // The gradient is written out for the reason given at `data-header-line`
+  // in `site-header.tsx`.
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-[2px] origin-left scale-x-0 bg-gradient-to-r from-primary via-fuchsia-400 to-primary"
+      className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-[2px] origin-left scale-x-0 bg-[linear-gradient(to_right,hsl(var(--primary)),var(--color-fuchsia-400),hsl(var(--primary)))]"
       ref={ref}
     />
   );

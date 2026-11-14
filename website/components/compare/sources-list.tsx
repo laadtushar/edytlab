@@ -25,7 +25,7 @@ export function SourcesList({
   return (
     <section aria-labelledby="sources">
       <h2 id="sources">{heading}</h2>
-      <ol className="!mt-4 list-decimal space-y-2 pl-6 text-sm">
+      <ol className="mt-4! list-decimal pl-6 text-sm [&>li+li]:mt-2">
         {sources.map((s) => (
           <li key={s.href}>
             <a href={s.href} target="_blank" rel="noopener noreferrer">
