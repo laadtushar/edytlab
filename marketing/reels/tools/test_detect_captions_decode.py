@@ -15,7 +15,10 @@ SLUG = "dj-beatmatched-transition"
 
 
 class ChangesDecodeTests(unittest.TestCase):
+    """changes() against a stubbed FFmpeg run."""
+
     def setUp(self):
+        """Import detect_captions with a temporary demo folder holding the slug's file."""
         self.fixture = tempfile.TemporaryDirectory(dir=PROJECT)
         self.addCleanup(self.fixture.cleanup)
         demos = Path(self.fixture.name)
@@ -27,17 +30,19 @@ class ChangesDecodeTests(unittest.TestCase):
         self.mod = detect_captions
 
     def stub(self, returncode, stdout, stderr=b""):
+        """Patch subprocess.run in detect_captions to return the given result."""
         return mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], returncode, stdout, stderr))
 
     def test_failed_decode_raises_with_ffmpeg_stderr(self):
-        with self.stub(1, b"", b"Invalid data found when processing input\n"):
-            with self.assertRaises(SystemExit) as caught:
-                self.mod.changes(SLUG)
+        """A nonzero FFmpeg exit stops with the slug and FFmpeg's stderr, not an empty result."""
+        with self.stub(1, b"", b"Invalid data found when processing input\n"), self.assertRaises(SystemExit) as caught:
+            self.mod.changes(SLUG)
         message = str(caught.exception.code)
         self.assertIn(f"ffmpeg failed on {SLUG}", message)
         self.assertIn("Invalid data found when processing input", message)
 
     def test_successful_decode_lists_the_changes(self):
+        """A good decode still returns the duration and the frame where the caption changes."""
         fs = self.mod.W * self.mod.H
         frames = [bytes([0]) * fs] * 3 + [bytes([255]) * fs] * 3   # one caption change at frame 3
         with self.stub(0, b"".join(frames)):
