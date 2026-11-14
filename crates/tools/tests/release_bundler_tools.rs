@@ -17,7 +17,11 @@
 //!
 //! Same reason as `release_ml_runtime.rs`: no GitHub Actions step runs here.
 
+#[path = "support/yaml_text.rs"]
+mod yaml_text;
+
 use std::path::PathBuf;
+use yaml_text::without_comment;
 
 /// The file's text with LF line ends. A Windows checkout writes CRLF
 /// (`* text=auto`), and the tuple and step markers below match on `\n`.
@@ -28,24 +32,6 @@ fn repo_file(rel: &str) -> String {
     std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()))
         .replace("\r\n", "\n")
-}
-
-/// A YAML line up to its comment: a `#` at the start or after whitespace,
-/// outside quotes. A gate or a pin copied into a trailing comment is not one.
-fn without_comment(line: &str) -> &str {
-    let mut quote = None;
-    let mut after_space = true;
-    for (i, c) in line.char_indices() {
-        match quote {
-            Some(q) if c == q => quote = None,
-            Some(_) => {}
-            None if c == '\'' || c == '"' => quote = Some(c),
-            None if c == '#' && after_space => return &line[..i],
-            None => {}
-        }
-        after_space = c.is_whitespace();
-    }
-    line
 }
 
 /// The workflow without its comments, whole-line or trailing, so an

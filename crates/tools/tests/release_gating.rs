@@ -27,7 +27,11 @@
 //! Deliberately crude, in the same spirit as `website_tool_docs.rs`:
 //! read the workflow as text and insist the conditions appear.
 
+#[path = "support/yaml_text.rs"]
+mod yaml_text;
+
 use std::path::PathBuf;
+use yaml_text::without_comment;
 
 fn read_workflow(name: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -137,24 +141,6 @@ fn code_lines(yaml: &str) -> Vec<String> {
         .filter(|l| !l.is_empty())
         .map(str::to_string)
         .collect()
-}
-
-/// A YAML line up to its comment: a `#` at the start or after whitespace,
-/// outside quotes. A gate copied into a trailing comment is not a gate.
-fn without_comment(line: &str) -> &str {
-    let mut quote = None;
-    let mut after_space = true;
-    for (i, c) in line.char_indices() {
-        match quote {
-            Some(q) if c == q => quote = None,
-            Some(_) => {}
-            None if c == '\'' || c == '"' => quote = Some(c),
-            None if c == '#' && after_space => return &line[..i],
-            None => {}
-        }
-        after_space = c.is_whitespace();
-    }
-    line
 }
 
 #[test]
