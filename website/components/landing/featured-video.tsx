@@ -88,7 +88,7 @@ export function FeaturedVideo({
       href={href}
       onClick={press}
       aria-label={`Play the video: ${title}`}
-      className={`${box} group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+      className={`${box} group focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
       style={ratio}
     >
       {/* On the hub, the first thing in view, so it is fetched at once;
@@ -107,7 +107,7 @@ export function FeaturedVideo({
         className="block h-full w-full object-cover"
       />
       <span aria-hidden className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/10">
-        <span className="flex size-16 items-center justify-center rounded-full bg-background/85 text-foreground shadow-lg ring-1 ring-border/60 backdrop-blur transition-transform group-hover:scale-110 sm:size-20">
+        <span className="flex size-16 items-center justify-center rounded-full bg-background/85 text-foreground shadow-lg ring-1 ring-border/60 backdrop-blur-sm transition-transform group-hover:scale-110 sm:size-20">
           <Play className="size-7 translate-x-0.5 sm:size-8" />
         </span>
       </span>

@@ -91,7 +91,7 @@ export function FeatureGrid() {
                     <CardTitle>{f.title}</CardTitle>
                   </CardHeader>
                   <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
-                    <CardDescription className="text-xs leading-relaxed sm:text-sm">{f.body}</CardDescription>
+                    <CardDescription className="text-xs leading-relaxed sm:text-sm/5">{f.body}</CardDescription>
                   </CardContent>
                 </Card>
               </div>

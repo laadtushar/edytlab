@@ -36,7 +36,7 @@ export function ChatGptPlan() {
           <Link
             href="/docs/user-guide/chatgpt-plan"
             data-press=""
-            className="btn-motion btn-lift inline-flex items-center gap-2.5 rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 ring-offset-background hover:bg-neutral-900 hover:ring-white/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="btn-motion btn-lift inline-flex items-center gap-2.5 rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 ring-offset-background hover:bg-neutral-900 hover:ring-white/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

@@ -20,7 +20,7 @@ export function CookieSettingsLink({ id = GA_MEASUREMENT_ID }: { id?: string }) 
     <button
       type="button"
       onClick={() => window.dispatchEvent(new Event(OPEN_SETTINGS_EVENT))}
-      className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
       Cookie settings
     </button>

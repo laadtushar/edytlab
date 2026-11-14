@@ -226,7 +226,7 @@ export default async function BlogPostPage({ params }: Props) {
                     as="h1"
                     text={post.title}
                     delay={0.1}
-                    className="text-3xl font-bold tracking-tight leading-snug sm:text-4xl"
+                    className="text-3xl font-bold tracking-tight leading-snug sm:text-4xl/10"
                   />
 
                   <div className="mt-4 flex items-center gap-5 text-sm text-muted-foreground">

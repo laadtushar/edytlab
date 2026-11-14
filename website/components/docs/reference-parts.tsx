@@ -255,7 +255,7 @@ export function ToolSection({
 // table): the name as a monospace heading, what it returns under it, then the
 // description as a paragraph. From sm up this is the ordinary table.
 const stackedBase = [
-  "max-sm:!block max-sm:!overflow-visible",
+  "max-sm:block! max-sm:overflow-visible!",
   "max-sm:[&_thead]:hidden max-sm:[&_tbody]:block max-sm:[&_tr]:block",
   "max-sm:[&_tr]:border-b max-sm:[&_tr]:border-border/50 max-sm:[&_tr]:py-3",
   "max-sm:[&_td]:block max-sm:[&_td]:border-0 max-sm:[&_td]:px-0 max-sm:[&_td]:py-0.5",
