@@ -966,3 +966,33 @@ fn a_locked_cut_on_a_track_that_mixes_rates_is_refused() {
     assert!(!m.is_empty());
     assert_eq!(s.node_count(), nodes);
 }
+
+#[test]
+fn a_locked_cut_is_refused_when_another_track_mixes_rates() {
+    // Track 0 mixes rates; the edited track 1 does not, so the refusal is
+    // sync-lock's own: it cannot carry a time to a track of two rates.
+    let mut s = session_with(json!([{ "name": "um", "start": 2.0, "end": 3.0 }]));
+    with_a_16k_clip_after_the_first(&mut s);
+    s.ok("set_sync_lock", json!({ "enabled": true }));
+    let nodes = s.node_count();
+    let args = json!({ "track": 1, "start_sample": 0, "end_sample": 48_000 });
+    let m = s.err("cut_range", args);
+    assert!(m.contains("rate"), "{m}");
+    assert_eq!(s.node_count(), nodes, "a refusal appended a node");
+    for action in ["cut", "delete"] {
+        let m = s.refused_at_markers(json!({ "action": action, "track": 1, "markers": ["um"] }));
+        assert!(m.contains("rate"), "{action}: {m}");
+    }
+}
+
+#[test]
+fn a_silence_on_a_track_that_does_not_exist_is_refused() {
+    let mut s = session_with(json!([{ "name": "um", "start": 2.0, "end": 3.0 }]));
+    let nodes = s.node_count();
+    let m = s.err(
+        "silence_region",
+        json!({ "track": 99, "start_sec": 0.0, "end_sec": 1.0 }),
+    );
+    assert!(m.contains("99"), "{m}");
+    assert_eq!(s.node_count(), nodes, "a refusal appended a node");
+}
