@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use serde_json::Value;
 use session::audio_store::{AudioFolder, AudioName, AudioStore};
 use session::{Clip, EnvelopePoint, NodeId, SessionNode, SessionState, Track};
@@ -1563,6 +1564,136 @@ pub(crate) fn check_sample_range(
     Ok((start, end))
 }
 
+// ---------------------------------------------------------------------------
+// The shape `high_pass_filter` and `low_pass_filter` share.
+//
+// The two tools take the same arguments, refuse the same bad cutoff, name the
+// node the same way and differ only in their name, their description and the
+// filter they run. A [`CutoffFilter`] is those three things; the schema, the
+// argument check and the edit are written once, here, next to [`EffectEdit`].
+// ---------------------------------------------------------------------------
+
+/// A filter's `(samples, sample_rate, channels, cutoff_hz, start_sec, end_sec)`.
+type ApplyFilter = fn(&mut [f32], u32, usize, f32, Option<f64>, Option<f64>);
+
+#[derive(Debug, Deserialize)]
+struct CutoffArgs {
+    track: usize,
+    cutoff_hz: f32,
+    start_sec: Option<f64>,
+    end_sec: Option<f64>,
+}
+
+/// One cutoff filter tool: what differs between `high_pass_filter` and
+/// `low_pass_filter`.
+pub(crate) struct CutoffFilter {
+    /// The tool's name, also the first word of the node's label.
+    pub name: &'static str,
+    /// The description the model reads.
+    pub description: &'static str,
+    /// The filter to run over the track.
+    pub apply: ApplyFilter,
+}
+
+impl CutoffFilter {
+    /// The tool's schema: `track` and `cutoff_hz` are required, the window
+    /// (`start_sec`, `end_sec`) is not.
+    pub(crate) fn schema(&self) -> Value {
+        crate::schema::anthropic_tool(
+            self.name,
+            self.description,
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "track": { "type": "integer" },
+                    "cutoff_hz": { "type": "number" },
+                    "start_sec": { "type": "number" },
+                    "end_sec": { "type": "number" }
+                },
+                "required": ["track", "cutoff_hz"]
+            }),
+        )
+    }
+
+    /// Parse the call, refuse a cutoff that is not positive and filter the
+    /// track.
+    pub(crate) fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
+        let args: CutoffArgs = match parse_args(args) {
+            Ok(a) => a,
+            Err(r) => return Ok(r),
+        };
+        if args.cutoff_hz <= 0.0 {
+            return Ok(ToolResult::Error("cutoff_hz must be positive".into()));
+        }
+        let (cutoff, s, e, apply) = (args.cutoff_hz, args.start_sec, args.end_sec, self.apply);
+        Ok(EffectEdit::on(args.track).run(
+            ctx,
+            format!("{} track {} cutoff={:.0}Hz", self.name, args.track, cutoff),
+            move |samples, sr, channels| apply(samples, sr, channels, cutoff, s, e),
+        ))
+    }
+}
+
+/// The sample window a `cut_range` or `trim` call names on a track's
+/// timeline, after the range check and the optional zero-crossing snap.
+#[derive(Debug, PartialEq)]
+pub(crate) struct SampleWindow {
+    /// First frame of the window.
+    pub start: u64,
+    /// One past the last frame of the window.
+    pub end: u64,
+    /// The timeline's end: the furthest any clip on the track reaches.
+    pub track_len: u64,
+    /// What the snap did, when it moved or declined an edge.
+    pub snap_note: Option<&'static str>,
+}
+
+/// The arguments `cut_range` and `trim` share: a track and the sample range
+/// `[start_sample, end_sample)` on its timeline.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SampleRangeArgs {
+    /// Index of the track.
+    pub track: usize,
+    /// First frame of the range.
+    pub start_sample: u64,
+    /// One past the last frame of the range.
+    pub end_sample: u64,
+    /// Move both edges to the nearest zero crossing.
+    #[serde(default)]
+    pub snap_to_zero_crossing: bool,
+}
+
+impl SampleRangeArgs {
+    /// Resolve the range against `track`'s timeline (`verb` is "cut" or
+    /// "trim", for the refusal of a track with no clips).
+    ///
+    /// The timeline's end is measured over every clip, not the longest one,
+    /// which differ on a track an earlier cut has split. The range is checked
+    /// by [`check_sample_range`] and, when `snap_to_zero_crossing` is set,
+    /// moved onto zero crossings by [`snap_range`]. A track with no clips has
+    /// a timeline of length 0, so the range check refuses it first; a
+    /// `debug_assert` holds that.
+    pub(crate) fn window(&self, track: &Track, verb: &str) -> Result<SampleWindow, String> {
+        let track_len = timeline_end(&track.clips);
+        let (start, end) = check_sample_range(self.start_sample, self.end_sample, track_len)?;
+        debug_assert!(
+            !track.clips.is_empty(),
+            "track has no clips; nothing to {verb}: the range check refuses it first"
+        );
+        let (start, end, snap_note) = if self.snap_to_zero_crossing {
+            snap_range(&track.clips, start, end, track_len)
+        } else {
+            (start, end, None)
+        };
+        Ok(SampleWindow {
+            start,
+            end,
+            track_len,
+            snap_note,
+        })
+    }
+}
+
 // Biquad filtering lives in the `audio-dsp` crate.
 //
 // It used to be defined here and shared by four tools. Those tools'
@@ -2342,5 +2473,152 @@ mod effect_edit_order_tests {
             assert!(a <= b && b <= len);
             let _ = &buf[a..b];
         }
+    }
+}
+
+#[cfg(test)]
+mod sample_window_tests {
+    //! `resolve_sample_window`: the range a `cut_range` or `trim` call names,
+    //! checked and (optionally) snapped, with the refusals both tools share.
+
+    use std::path::Path;
+
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use session::{Clip, Track, TrackId};
+
+    use super::{SampleRangeArgs, SampleWindow};
+
+    fn clip(source: &Path, start_in_track: u64, length: u64) -> Clip {
+        Clip {
+            source_path: source.to_path_buf(),
+            start_in_track,
+            source_offset: 0,
+            length,
+            content_hash: None,
+            time_stretch_factor: None,
+            pitch_shift_semitones: None,
+            beat_grid: None,
+            volume_envelope: Vec::new(),
+            volume_envelope_frames: session::EnvelopeFrames::default(),
+        }
+    }
+
+    fn track_of(clips: Vec<Clip>) -> Track {
+        Track {
+            id: TrackId::new(),
+            name: "t".into(),
+            clips,
+            gain_db: 0.0,
+            pan: 0.0,
+            muted: false,
+            soloed: false,
+            sends: Vec::new(),
+            effects: Vec::new(),
+        }
+    }
+
+    fn resolve_sample_window(
+        track: &Track,
+        start_sample: u64,
+        end_sample: u64,
+        snap: bool,
+        verb: &str,
+    ) -> Result<SampleWindow, String> {
+        SampleRangeArgs {
+            track: 0,
+            start_sample,
+            end_sample,
+            snap_to_zero_crossing: snap,
+        }
+        .window(track, verb)
+    }
+
+    #[test]
+    fn parses_the_arguments_of_both_tools() {
+        let a: SampleRangeArgs = serde_json::from_value(
+            serde_json::json!({"track": 2, "start_sample": 5, "end_sample": 9}),
+        )
+        .unwrap();
+        assert_eq!((a.track, a.start_sample, a.end_sample), (2, 5, 9));
+        assert!(!a.snap_to_zero_crossing);
+        let err = serde_json::from_value::<SampleRangeArgs>(serde_json::json!({"track": 2}))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("start_sample"), "{err}");
+    }
+
+    fn sine_wav(dir: &Path) -> std::path::PathBuf {
+        let path = dir.join("sine.wav");
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 8_000,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&path, spec).unwrap();
+        for n in 0..8_000u32 {
+            let s = (n as f32 * 440.0 * std::f32::consts::TAU / 8_000.0).sin();
+            w.write_sample((s * 10_000.0) as i16).unwrap();
+        }
+        w.finalize().unwrap();
+        path
+    }
+
+    #[test]
+    fn measures_the_timeline_over_every_clip_not_the_longest() {
+        let src = Path::new("unused.wav");
+        // Two clips with a gap: the timeline ends at 300, though no clip is
+        // longer than 100.
+        let track = track_of(vec![clip(src, 0, 100), clip(src, 200, 100)]);
+        let w = resolve_sample_window(&track, 50, 250, false, "cut").unwrap();
+        assert_eq!(
+            w,
+            SampleWindow {
+                start: 50,
+                end: 250,
+                track_len: 300,
+                snap_note: None,
+            }
+        );
+    }
+
+    #[test]
+    fn refuses_a_reversed_or_overlong_range_in_the_range_checks_words() {
+        let track = track_of(vec![clip(Path::new("unused.wav"), 0, 100)]);
+        assert_eq!(
+            resolve_sample_window(&track, 60, 60, false, "cut").unwrap_err(),
+            "invalid range: start_sample (60) must be < end_sample (60)"
+        );
+        assert_eq!(
+            resolve_sample_window(&track, 0, 101, false, "trim").unwrap_err(),
+            "end_sample (101) exceeds track length (100)"
+        );
+    }
+
+    #[test]
+    fn a_track_with_no_clips_is_refused_by_the_range_check() {
+        // Its timeline has length 0, so no range fits; the window's
+        // debug_assert on clips is never reached.
+        let track = track_of(Vec::new());
+        assert_eq!(
+            resolve_sample_window(&track, 0, 1, false, "trim").unwrap_err(),
+            "end_sample (1) exceeds track length (0)"
+        );
+    }
+
+    #[test]
+    fn snapping_keeps_the_window_inside_the_timeline() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = sine_wav(tmp.path());
+        let track = track_of(vec![clip(&src, 0, 8_000)]);
+        let w = resolve_sample_window(&track, 1_001, 5_003, true, "cut").unwrap();
+        assert!(w.start < w.end && w.end <= w.track_len, "{w:?}");
+        assert_eq!(w.track_len, 8_000);
+        // Without the snap the window is exactly what was asked for.
+        let plain = resolve_sample_window(&track, 1_001, 5_003, false, "cut").unwrap();
+        assert_eq!(
+            (plain.start, plain.end, plain.snap_note),
+            (1_001, 5_003, None)
+        );
     }
 }

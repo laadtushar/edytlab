@@ -7,25 +7,14 @@
 //! it contributes whichever of its two ends survive — which is how an
 //! interior cut comes to leave two clips behind in the first place.
 
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::time_edit::{apply, Clips, Scope, SyncLock, TimeEdit, Words};
 use crate::tool::util::{
-    append_state, check_sample_range, load_track_state_and_rate, parse_args, set_session_length,
-    snap_range, timeline_end,
+    append_state, load_track_state_and_rate, parse_args, set_session_length, SampleRangeArgs,
 };
 use crate::{Tool, ToolContext, ToolResult};
-
-#[derive(Debug, Deserialize)]
-struct Args {
-    track: usize,
-    start_sample: u64,
-    end_sample: u64,
-    #[serde(default)]
-    snap_to_zero_crossing: bool,
-}
 
 /// The scope of a cut: it slides the track's clips, carries the same seconds to
 /// the other tracks under sync-lock (#170 §3) and moves the labels and words
@@ -78,7 +67,7 @@ impl Tool for CutRangeTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match parse_args(args) {
+        let args: SampleRangeArgs = match parse_args(args) {
             Ok(a) => a,
             Err(r) => return Ok(r),
         };
@@ -98,24 +87,12 @@ impl Tool for CutRangeTool {
         // already split by an earlier cut those differ, and measuring by
         // the longest clip rejected ranges that are squarely inside the
         // track.
-        let track_len = timeline_end(&track.clips);
-        let (start, end) = match check_sample_range(args.start_sample, args.end_sample, track_len) {
-            Ok(p) => p,
+        let window = match args.window(track, "cut") {
+            Ok(w) => w,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-
-        let (start, end, snap_note) = if args.snap_to_zero_crossing {
-            snap_range(&track.clips, start, end, track_len)
-        } else {
-            (start, end, None)
-        };
+        let (start, end, snap_note) = (window.start, window.end, window.snap_note);
         let cut_len = end - start;
-
-        if track.clips.is_empty() {
-            return Ok(ToolResult::Error(
-                "track has no clips; nothing to cut".into(),
-            ));
-        }
 
         let report = cut_span(&mut state, &scope, &rates, rate, start, end);
         let (synced, dropped) = (report.synced_tracks, report.dropped_labels);
