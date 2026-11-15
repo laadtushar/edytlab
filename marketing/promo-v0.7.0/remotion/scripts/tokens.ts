@@ -1,6 +1,8 @@
 // Writes src/tokens.generated.ts from the website's own files, the way marketing/reels/tools/brand.py reads them,
 // so the edit's colours are never typed in by eye:
-//   website/app/globals.css   the `.dark` token block (the site is dark by default), --radius, `.gradient-text`, `.aurora`
+//   website/app/globals.css   the `.dark` token block (the site is dark by default), --radius, and the
+//                             `gradient-text` and `aurora` utilities (Tailwind 4 `@utility` blocks; the
+//                             aurora's washes are its nested `&::before` and `&::after`)
 //   website/public/logo.svg   the mark's two fills
 // `node scripts/tokens.ts`          rewrite the file
 // `node scripts/tokens.ts --check`  fail if the file on disk is not what the site's files give now (a palette change on
@@ -34,16 +36,16 @@ function hsl(h: number, s: number, l: number): RGB {
 
 const hex = (c: RGB) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
 
-/** The body of the first `selector { ... }` rule, braces matched. */
-function rule(selector: string): string {
-  const start = CSS.indexOf(selector + ' {');
+/** The body of the first `selector { ... }` rule of `css` (globals.css by default), braces matched. */
+function rule(selector: string, css: string = CSS): string {
+  const start = css.indexOf(selector + ' {');
   if (start < 0) throw new Error(`${selector} not found in globals.css`);
-  const open = CSS.indexOf('{', start);
+  const open = css.indexOf('{', start);
   let depth = 0;
-  for (let i = open; i < CSS.length; i++) {
-    if (CSS[i] === '{') depth++;
-    if (CSS[i] === '}') depth--;
-    if (depth === 0) return CSS.slice(open + 1, i);
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === '{') depth++;
+    if (css[i] === '}') depth--;
+    if (depth === 0) return css.slice(open + 1, i);
   }
   throw new Error(`unbalanced braces after ${selector}`);
 }
@@ -72,9 +74,10 @@ function cssNumber(pattern: RegExp, text: string): number {
   return Number.parseFloat(match[1]);
 }
 const radiusPx = Math.round(cssNumber(/--radius:\s*([\d.]+)rem/, CSS) * 16);
-const gradient = hsls(rule('.gradient-text')).slice(0, 2);
-const aurora = hsls(CSS.slice(CSS.indexOf('.aurora::before {'))).slice(0, 2);
-const auroraOpacity = cssNumber(/opacity:\s*([\d.]+)/, rule('.aurora::before,\n  .aurora::after'));
+const gradient = hsls(rule('@utility gradient-text')).slice(0, 2);
+const auroraBlock = rule('@utility aurora');
+const aurora = hsls(auroraBlock.slice(auroraBlock.indexOf('&::before {'))).slice(0, 2);
+const auroraOpacity = cssNumber(/opacity:\s*([\d.]+)/, rule('&::before,\n  &::after', auroraBlock));
 const fills = [...new Set([...LOGO.matchAll(/(?:fill|stroke)="#([0-9A-Fa-f]{6})"/g)].map((m) => `#${m[1].toUpperCase()}`))];
 if (fills.length !== 2) throw new Error(`expected two colours in website/public/logo.svg, found ${fills}`);
 

@@ -12,6 +12,10 @@ on:
       - marketing/promo-v0.7.0/**
       - marketing/reels/**
       - marketing/social-kit/**
+      # The shared site files the reels, launch video and promo read their look
+      # from (marketing/reels/tools/brand.py, promo-v0.7.0/remotion/scripts/tokens.ts).
+      - website/app/globals.css
+      - website/public/logo.svg
       - .github/workflows/marketing.yml
   pull_request:
     paths:
@@ -19,6 +23,10 @@ on:
       - marketing/promo-v0.7.0/**
       - marketing/reels/**
       - marketing/social-kit/**
+      # The shared site files the reels, launch video and promo read their look
+      # from (marketing/reels/tools/brand.py, promo-v0.7.0/remotion/scripts/tokens.ts).
+      - website/app/globals.css
+      - website/public/logo.svg
       - .github/workflows/marketing.yml
 
 permissions:

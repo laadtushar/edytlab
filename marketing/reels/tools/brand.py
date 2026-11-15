@@ -1,7 +1,8 @@
 """The reels' look: the website's, read from its own files, never typed in by eye.
 
   website/app/globals.css     the `.dark` token block (the site is dark by default: `<html class="dark">`),
-                              `--radius`, and the `.gradient-text` and `.aurora` rules
+                              `--radius`, and the `gradient-text` and `aurora` utilities (Tailwind 4
+                              `@utility` blocks; the aurora's washes are its nested `&::before` and `&::after`)
   website/public/logo.svg     the mark's two fills (its shapes are drawn in `render.py`)
   Inter                       the site's font (`app/layout.tsx`, next/font). ffmpeg and Pillow need a TTF/OTF,
                               so the files are Debian/Ubuntu's `fonts-inter` 4.0+ds-1 (SIL OFL, the licence text is
@@ -46,15 +47,18 @@ def hsl(h, s, l):
     return tuple(int((v + m) * 255 + 0.5) for v in (r, g, b))
 
 
-def _rule(selector):
-    """The body of the first `selector { ... }` rule of globals.css, braces matched."""
-    start = _CSS.index(selector + " {")
-    open_ = _CSS.index("{", start)
+def _rule(selector, css=None):
+    """The body of the first `selector { ... }` rule of `css` (globals.css by default), braces matched."""
+    css = _CSS if css is None else css
+    start = css.find(selector + " {")
+    if start < 0:
+        raise ValueError(f"{selector!r} not found in website/app/globals.css")
+    open_ = css.index("{", start)
     depth = 0
-    for i in range(open_, len(_CSS)):
-        depth += {"{": 1, "}": -1}.get(_CSS[i], 0)
+    for i in range(open_, len(css)):
+        depth += {"{": 1, "}": -1}.get(css[i], 0)
         if depth == 0:
-            return _CSS[open_ + 1:i]
+            return css[open_ + 1:i]
     raise ValueError(f"unbalanced braces after {selector}")
 
 
@@ -81,10 +85,10 @@ PRIMARY = _token(_DARK, "primary")                # the violet accent
 MUTED_FG = _token(_DARK, "muted-foreground")      # secondary text
 BORDER = _token(_DARK, "border")
 RADIUS_PX = round(float(re.search(r"--radius:\s*([\d.]+)rem", _CSS).group(1)) * 16)   # the site's --radius, in px at 1x
-GRADIENT = _hsls(_rule(".gradient-text"))[:2]     # the headline gradient, light violet to magenta-violet
-_aurora = _CSS[_CSS.index(".aurora::before {"):]
-AURORA = _hsls(_aurora)[:2]                       # the two washes behind a section (violet, magenta)
-AURORA_OPACITY = float(re.search(r"opacity:\s*([\d.]+)", _rule(".aurora::before,\n  .aurora::after")).group(1))
+GRADIENT = _hsls(_rule("@utility gradient-text"))[:2]   # the headline gradient, light violet to magenta-violet
+_AURORA = _rule("@utility aurora")
+AURORA = _hsls(_AURORA[_AURORA.index("&::before {"):])[:2]   # the two washes behind a section (violet, magenta)
+AURORA_OPACITY = float(re.search(r"opacity:\s*([\d.]+)", _rule("&::before,\n  &::after", _AURORA)).group(1))
 
 def _logo_colours():
     fills = re.findall(r'(?:fill|stroke)="#([0-9A-Fa-f]{6})"', _LOGO)
