@@ -109,14 +109,16 @@
 
 /* The container: centred, 1.5rem of side padding and one step, 1280px.
    v4's own `container` (which this adds to) caps the width at every
-   breakpoint; `none` from the first one up clears those caps. */
+   breakpoint; `none` from the first one up clears those caps. The
+   second step is 1280px, not `xl` (80rem): the same on a default root
+   font size, but `xl` would follow a reader's own font setting. */
 @utility container {
   margin-inline: auto;
   padding-inline: 1.5rem;
-  @media (width >= 40rem) {
+  @variant sm {
     max-width: none;
   }
-  @media (width >= 1280px) {
+  @variant min-[1280px] {
     max-width: 1280px;
   }
 }
@@ -405,7 +407,7 @@
       scale: 0.98;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
+  @variant motion-reduce {
     transition: none;
   }
 }
@@ -438,7 +440,7 @@
       scale: 1.02;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
+  @variant motion-reduce {
     transition: none;
   }
   &:hover,
