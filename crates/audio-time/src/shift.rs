@@ -7,7 +7,9 @@
 //! See the crate-level docs for the Phase-2 stub status.
 
 use crate::formant::reapply_envelope;
-use crate::vocoder::{deinterleave, interleave, resample_mono, stretch_mono};
+use crate::vocoder::{
+    deinterleave, interleave, resample_mono, resample_varying, stretch_mono, stretch_varying,
+};
 use crate::{check_channels, Error, Result};
 
 /// Maximum allowed |semitones|. Rubber Band degrades severely outside
@@ -76,6 +78,96 @@ pub fn pitch_shift(
             if preserve_formants {
                 // Both signals are now the same length and the same
                 // moments in time, which is what the correction needs.
+                reapply_envelope(p, &shifted)
+            } else {
+                shifted
+            }
+        })
+        .collect();
+    Ok(interleave(&planes))
+}
+
+/// The read position, in input samples, of the pitch-ramped stretch at
+/// input position `input_pos`, for an input `input_len` long whose pitch
+/// ramps linearly in semitones from `start` to `end`.
+///
+/// It is the integral of the pitch ratio `2^(s/12)`, which is how long
+/// the stretched signal is up to that point, and so where the read-back
+/// has to be to land each moment at its own time. At the full length it
+/// is the length of the intermediate stretch.
+pub fn pitch_ramp_output_position(input_pos: f64, input_len: f64, start: f64, end: f64) -> f64 {
+    let p = input_pos.clamp(0.0, input_len);
+    let r0 = (start / 12.0).exp2();
+    let delta = end - start;
+    if delta.abs() < 1e-9 {
+        return p * r0;
+    }
+    let r_here = ((start + delta * p / input_len) / 12.0).exp2();
+    input_len * (r_here - r0) * 12.0 / (delta * std::f64::consts::LN_2)
+}
+
+/// Pitch-shift interleaved f32 samples by an amount that ramps linearly
+/// in semitones, along the input, from `start_semitones` to
+/// `end_semitones`.
+///
+/// Linear in semitones is linear in the logarithm of frequency, so equal
+/// steps of time are equal musical intervals, which is how a pitch glide
+/// sounds even; a ramp linear in hertz would rush through the low
+/// notes. Duration is preserved.
+///
+/// It is [`pitch_shift`]'s composition with a ratio that changes: stretch
+/// by the local ratio in one vocoder pass, then read the result back at
+/// that same local speed. Equal values are an ordinary [`pitch_shift`]
+/// and give the same samples.
+///
+/// # Errors
+///
+/// * [`Error::InvalidSemitones`] — either value is non-finite or beyond
+///   [`MAX_SEMITONES`].
+/// * [`Error::ChannelMismatch`] — as for [`pitch_shift`].
+pub fn pitch_shift_ramp(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u16,
+    start_semitones: f32,
+    end_semitones: f32,
+    preserve_formants: bool,
+) -> Result<Vec<f32>> {
+    for s in [start_semitones, end_semitones] {
+        if !s.is_finite() || s.abs() > MAX_SEMITONES {
+            return Err(Error::InvalidSemitones(s));
+        }
+    }
+    check_channels(samples.len(), channels)?;
+    if start_semitones == end_semitones {
+        return pitch_shift(
+            samples,
+            sample_rate,
+            channels,
+            start_semitones,
+            preserve_formants,
+        );
+    }
+    if samples.is_empty() {
+        return Ok(Vec::new());
+    }
+    let frames = samples.len() / channels as usize;
+    let (s0, s1) = (start_semitones as f64, end_semitones as f64);
+    let len = frames as f64;
+    let stretched_len = (pitch_ramp_output_position(len, len, s0, s1).round() as usize).max(1);
+    let ratio_at = |pos: usize| {
+        let s = s0 + (s1 - s0) * (pos.min(frames) as f64 / len);
+        (s / 12.0).exp2() as f32
+    };
+    let planes: Vec<Vec<f32>> = deinterleave(samples, channels as usize)
+        .iter()
+        .map(|p| {
+            let stretched = stretch_varying(p, &ratio_at, stretched_len, true);
+            let mut shifted = resample_varying(&stretched, frames, &|i| {
+                pitch_ramp_output_position(i as f64, len, s0, s1)
+            });
+            shifted.resize(frames, 0.0);
+            if preserve_formants {
                 reapply_envelope(p, &shifted)
             } else {
                 shifted

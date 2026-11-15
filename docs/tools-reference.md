@@ -90,7 +90,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`paste_region`](#paste_region) — Paste the clipboard audio (set by copy_region) into a track at a given offset.
 - [`paulstretch`](#paulstretch) — Paulstretch: stretch a track or `range` to `factor` times its length as a smooth ambient pad.
 - [`phaser`](#phaser) — Apply a phaser effect using an all-pass filter chain with LFO sweep.
-- [`pitch_shift`](#pitch_shift) — Shift a track's pitch in semitones without changing its duration.
+- [`pitch_shift`](#pitch_shift) — Shift a track's pitch in semitones keeping its duration.
 - [`plot_spectrum`](#plot_spectrum) — Compute the frequency spectrum of a track region and show the user a chart of it.
 - [`punch_in`](#punch_in) — Replace a region of a track with audio from a file, in place.
 - [`remove_clip`](#remove_clip) — Remove one clip from a track, leaving the other clips where they are.
@@ -127,7 +127,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`stereo_widener`](#stereo_widener) — Widen or narrow the stereo field using M/S processing.
 - [`storage_report`](#storage_report) — Report what this session is costing on disk.
 - [`time_shift`](#time_shift) — Move a track's clips forward or backward in time.
-- [`time_stretch`](#time_stretch) — Stretch or compress a track in time without changing its pitch.
+- [`time_stretch`](#time_stretch) — Stretch or compress a track in time, keeping its pitch.
 - [`transcribe`](#transcribe) — Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript that cut_words, remove_fillers and select_region's `text` work from.
 - [`transcript_to_markers`](#transcript_to_markers) — Add point markers at the stored transcript's segment or sentence starts, at the stored times (they follow edits that move, cut or stretch the track; align_to_beat leaves them stale).
 - [`tremolo`](#tremolo) — Apply tremolo (LFO amplitude modulation).
@@ -977,11 +977,13 @@ Apply a phaser effect using an all-pass filter chain with LFO sweep. rate_hz con
 
 ## `pitch_shift`
 
-Shift a track's pitch in semitones without changing its duration. +12 is one octave up, -12 one octave down; the range is +/-48. Set `preserve_formants` for voices: it holds the resonances of the vocal tract where they were while the harmonics move, so a shifted voice sounds like the same person singing higher rather than the classic chipmunk or giant. Leave it off for instruments and for material where the character should move with the pitch. It is most reliable within about a fifth; larger shifts are limited by the vocoder rather than by the correction. Quality is a phase vocoder's: sustained material is clean and attacks are preserved by onset-triggered phase resets, though dense material can sound slightly phasey. Appends a new session node.
+Shift a track's pitch in semitones keeping its duration. +12 is one octave up, -12 one octave down; the range is +/-48. Set `preserve_formants` for voices: the vocal tract's resonances stay put while the harmonics move, so it sounds like the same person singing higher, not a chipmunk or giant. Leave it off for instruments. Most reliable within about a fifth. Phase vocoder: attacks are kept, dense material can sound slightly phasey. `end_semitones` ramps the shift linearly in semitones along the input from `semitones` to it, for a glide; `range` limits the edit to a span. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `end_semitones` | number | no |  |
 | `preserve_formants` | boolean | no |  |
+| `range` | object | no |  |
 | `semitones` | number | yes |  |
 | `track` | integer | yes |  |
 
@@ -1394,12 +1396,14 @@ Move a track's clips forward or backward in time. Positive offset_sec moves late
 
 ## `time_stretch`
 
-Stretch or compress a track in time without changing its pitch. factor=0.5 is 2x slower (twice as long), factor=2.0 is 2x faster (half as long). `preserve_formants` does nothing here and is accepted only because the two tools share a shape: a time stretch moves no frequency, so there are no formants to hold in place. Use it on `pitch_shift`, which does move them. Quality is a phase vocoder's: sustained material is clean and attacks are preserved by onset-triggered phase resets, but dense material can sound slightly phasey and factors far from 1.0 make that worse. Use `change_speed` instead when the pitch should move with the speed. Appends a new session node.
+Stretch or compress a track in time, keeping its pitch. factor=0.5 is 2x slower (twice as long), factor=2.0 is 2x faster (half as long). `preserve_formants` does nothing here (no frequency moves); it is accepted only to match `pitch_shift`. Phase vocoder: attacks are kept, dense material can sound slightly phasey, more so far from 1.0. Use `change_speed` when the pitch should move with the speed. `end_factor` ramps the factor linearly along the input from `factor` to it (both 0.1 to 10), for a tape-stop or a closing slow-down; `range` limits the edit to a span. What follows moves by the length gained or lost, on every track with sync-lock. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `end_factor` | number | no |  |
 | `factor` | number | yes |  |
 | `preserve_formants` | boolean | no |  |
+| `range` | object | no |  |
 | `track` | integer | yes |  |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.

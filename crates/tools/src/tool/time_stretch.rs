@@ -20,10 +20,12 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::schema::{anthropic_tool, object_schema};
+use crate::schema::anthropic_tool;
 
+use crate::tool::ramp::{self, Ramp};
 use crate::tool::util::{destructive_edit_then, parse_args, remap_after_scale, Moved};
-use crate::{Tool, ToolContext, ToolResult};
+use crate::util::range_resolver::resolve as resolve_range;
+use crate::{Range, Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -31,6 +33,8 @@ struct Args {
     factor: f32,
     #[serde(default)]
     preserve_formants: bool,
+    end_factor: Option<f32>,
+    range: Option<Range>,
 }
 
 pub struct TimeStretchTool;
@@ -43,12 +47,25 @@ impl Tool for TimeStretchTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "time_stretch",
-            "Stretch or compress a track in time without changing its pitch. factor=0.5 is 2x slower (twice as long), factor=2.0 is 2x faster (half as long). `preserve_formants` does nothing here and is accepted only because the two tools share a shape: a time stretch moves no frequency, so there are no formants to hold in place. Use it on `pitch_shift`, which does move them. Quality is a phase vocoder's: sustained material is clean and attacks are preserved by onset-triggered phase resets, but dense material can sound slightly phasey and factors far from 1.0 make that worse. Use `change_speed` instead when the pitch should move with the speed. Appends a new session node.",
-            object_schema(&[
-                ("track", "integer", true),
-                ("factor", "number", true),
-                ("preserve_formants", "boolean", false),
-            ]),
+            "Stretch or compress a track in time, keeping its pitch. factor=0.5 is 2x slower (twice as long), factor=2.0 is 2x faster (half as long). `preserve_formants` does nothing here (no frequency moves); it is accepted only to match `pitch_shift`. Phase vocoder: attacks are kept, dense material can sound slightly phasey, more so far from 1.0. Use `change_speed` when the pitch should move with the speed. `end_factor` ramps the factor linearly along the input from `factor` to it (both 0.1 to 10), for a tape-stop or a closing slow-down; `range` limits the edit to a span. What follows moves by the length gained or lost, on every track with sync-lock. Appends a new session node.",
+            serde_json::json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "track": { "type": "integer" },
+                    "factor": { "type": "number" },
+                    "preserve_formants": { "type": "boolean" },
+                    "end_factor": { "type": "number" },
+                    "range": {
+                        "type": "object",
+                        "properties": {
+                            "start_sec": { "type": "number" },
+                            "end_sec": { "type": "number" }
+                        }
+                    }
+                },
+                "required": ["track", "factor"]
+            }),
         )
     }
 
@@ -63,6 +80,53 @@ impl Tool for TimeStretchTool {
             Ok(a) => a,
             Err(r) => return Ok(r),
         };
+
+        let range = match resolve_range(args.range, "", false) {
+            Ok(r) => r,
+            Err(e) => return Ok(ToolResult::Error(e.to_string())),
+        };
+        // A ramp, or a span, is the sliding stretch. Bounds are checked
+        // before any arithmetic on them.
+        if args.end_factor.is_some() || range.is_some() {
+            let bounds = audio_time::MIN_RAMP_FACTOR..=audio_time::MAX_RAMP_FACTOR;
+            for (name, v) in [
+                ("factor", Some(args.factor)),
+                ("end_factor", args.end_factor),
+            ] {
+                if let Some(v) = v.filter(|v| !bounds.contains(v)) {
+                    return Ok(ToolResult::Error(format!(
+                        "invalid {name}: {v} (must be finite and within {} to {})",
+                        audio_time::MIN_RAMP_FACTOR,
+                        audio_time::MAX_RAMP_FACTOR
+                    )));
+                }
+            }
+            let end = args.end_factor.unwrap_or(args.factor);
+            // The same value at both ends of the whole track is the plain
+            // stretch below, byte for byte.
+            if range.is_some() || end != args.factor {
+                let span = match range {
+                    Some(r) => format!(" {:.2}s\u{2013}{:.2}s", r.start_sec, r.end_sec),
+                    None => String::new(),
+                };
+                let label = format!(
+                    "time_stretch track {} factor {:.4} to {end:.4}{span} \
+                     (preserve_formants={})",
+                    args.track, args.factor, args.preserve_formants
+                );
+                return Ok(ramp::run(
+                    ctx,
+                    args.track,
+                    range,
+                    Ramp::Stretch {
+                        start: args.factor,
+                        end,
+                    },
+                    args.preserve_formants,
+                    label,
+                ));
+            }
+        }
 
         // Argument validation goes through the same path as the
         // eventual DSP call so the error surface is consistent.

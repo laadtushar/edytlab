@@ -288,6 +288,8 @@ const FORBIDDEN: &[(&str, &str)] = &[
 /// a reviewed decision like widening `OFF_LOCK`: read the module first.
 const REACHABLE: &[&str] = &[
     "tool::util",
+    // Sliding stretch: only `destructive_edit_then` and the sync-lock helpers.
+    "tool::ramp",
     "tool::speech_detect",
     "tool::local_model",
     "tool::ducking",

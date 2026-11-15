@@ -33,8 +33,10 @@ pub use paulstretch::{
     paulstretch, MAX_PAULSTRETCH_FACTOR, MAX_PAULSTRETCH_WINDOW_SEC, MIN_PAULSTRETCH_FACTOR,
     MIN_PAULSTRETCH_WINDOW_SEC,
 };
-pub use shift::pitch_shift;
-pub use stretch::time_stretch;
+pub use shift::{pitch_ramp_output_position, pitch_shift, pitch_shift_ramp};
+pub use stretch::{
+    ramp_output_position, time_stretch, time_stretch_ramp, MAX_RAMP_FACTOR, MIN_RAMP_FACTOR,
+};
 pub use warp::warp_to_grid;
 
 mod formant;
@@ -53,6 +55,12 @@ pub enum Error {
     /// duration equals `input_duration / factor`.
     #[error("invalid factor: {0} (must be finite and > 0)")]
     InvalidFactor(f32),
+
+    /// A ramped stretch's start and end factors must be finite and within
+    /// 0.1..=10: a ramp can pass through every value between them, and a
+    /// factor near zero would ask for an unbounded length.
+    #[error("invalid ramp factor: {0} (must be finite and within 0.1 to 10)")]
+    InvalidRampFactor(f32),
 
     /// Pitch shift in semitones must be finite and within ±48. Outside
     /// that range Rubber Band's quality degrades severely; the limit is
