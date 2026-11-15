@@ -75,6 +75,7 @@ pub mod phaser;
 pub mod pitch_shift;
 pub mod plot_spectrum;
 pub mod punch_in;
+pub(crate) mod ramp;
 pub mod recipe_tools;
 pub mod remove_clip;
 pub mod remove_track;

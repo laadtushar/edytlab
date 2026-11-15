@@ -62,7 +62,7 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/tools/volume-and-dynamics": "2026-11-02",
   "/docs/tools/effects": "2026-11-02",
   "/docs/tools/effect-chains": "2026-10-26",
-  "/docs/tools/time-and-pitch": "2026-10-26",
+  "/docs/tools/time-and-pitch": "2026-11-15",
   "/docs/tools/analysis": "2026-10-26",
   "/docs/tools/speech": "2026-11-02",
   "/docs/tools/stems": "2026-11-02",

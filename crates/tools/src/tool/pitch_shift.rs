@@ -15,9 +15,11 @@ use serde_json::Value;
 
 use audio_time::shift::MAX_SEMITONES;
 
-use crate::schema::{anthropic_tool, object_schema};
+use crate::schema::anthropic_tool;
+use crate::tool::ramp::{self, Ramp};
 use crate::tool::util::{destructive_edit_rechannel, parse_args};
-use crate::{Tool, ToolContext, ToolResult};
+use crate::util::range_resolver::resolve as resolve_range;
+use crate::{Range, Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -25,6 +27,8 @@ struct Args {
     semitones: f32,
     #[serde(default)]
     preserve_formants: bool,
+    end_semitones: Option<f32>,
+    range: Option<Range>,
 }
 
 pub struct PitchShiftTool;
@@ -37,12 +41,25 @@ impl Tool for PitchShiftTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "pitch_shift",
-            "Shift a track's pitch in semitones without changing its duration. +12 is one octave up, -12 one octave down; the range is +/-48. Set `preserve_formants` for voices: it holds the resonances of the vocal tract where they were while the harmonics move, so a shifted voice sounds like the same person singing higher rather than the classic chipmunk or giant. Leave it off for instruments and for material where the character should move with the pitch. It is most reliable within about a fifth; larger shifts are limited by the vocoder rather than by the correction. Quality is a phase vocoder's: sustained material is clean and attacks are preserved by onset-triggered phase resets, though dense material can sound slightly phasey. Appends a new session node.",
-            object_schema(&[
-                ("track", "integer", true),
-                ("semitones", "number", true),
-                ("preserve_formants", "boolean", false),
-            ]),
+            "Shift a track's pitch in semitones keeping its duration. +12 is one octave up, -12 one octave down; the range is +/-48. Set `preserve_formants` for voices: the vocal tract's resonances stay put while the harmonics move, so it sounds like the same person singing higher, not a chipmunk or giant. Leave it off for instruments. Most reliable within about a fifth. Phase vocoder: attacks are kept, dense material can sound slightly phasey. `end_semitones` ramps the shift linearly in semitones along the input from `semitones` to it, for a glide; `range` limits the edit to a span. Appends a new session node.",
+            serde_json::json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "track": { "type": "integer" },
+                    "semitones": { "type": "number" },
+                    "preserve_formants": { "type": "boolean" },
+                    "end_semitones": { "type": "number" },
+                    "range": {
+                        "type": "object",
+                        "properties": {
+                            "start_sec": { "type": "number" },
+                            "end_sec": { "type": "number" }
+                        }
+                    }
+                },
+                "required": ["track", "semitones"]
+            }),
         )
     }
 
@@ -63,6 +80,43 @@ impl Tool for PitchShiftTool {
                 "invalid semitones: {} (must be finite and within ±{MAX_SEMITONES})",
                 args.semitones
             )));
+        }
+
+        if let Some(end) = args.end_semitones {
+            if !end.is_finite() || end.abs() > MAX_SEMITONES {
+                return Ok(ToolResult::Error(format!(
+                    "invalid end_semitones: {end} (must be finite and within ±{MAX_SEMITONES})"
+                )));
+            }
+        }
+        let range = match resolve_range(args.range, "", false) {
+            Ok(r) => r,
+            Err(e) => return Ok(ToolResult::Error(e.to_string())),
+        };
+        let end = args.end_semitones.unwrap_or(args.semitones);
+        // The same value at both ends of the whole track is the plain
+        // shift below, byte for byte.
+        if range.is_some() || end != args.semitones {
+            let span = match range {
+                Some(r) => format!(" {:.2}s\u{2013}{:.2}s", r.start_sec, r.end_sec),
+                None => String::new(),
+            };
+            let label = format!(
+                "pitch_shift track {} {:+} to {end:+} semitones{span} \
+                 (preserve_formants={})",
+                args.track, args.semitones, args.preserve_formants
+            );
+            return Ok(ramp::run(
+                ctx,
+                args.track,
+                range,
+                Ramp::Pitch {
+                    start: args.semitones,
+                    end,
+                },
+                args.preserve_formants,
+                label,
+            ));
         }
 
         let (semitones, preserve_formants, track) =

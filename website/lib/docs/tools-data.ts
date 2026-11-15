@@ -559,7 +559,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "time_stretch",
             prompt: 'stretch track 1 to 4 minutes',
-            what: "Change the duration without changing the pitch.",
+            what: "Change the duration without changing the pitch. Give end_factor (and optionally a range) for a sliding stretch: the factor ramps linearly along the input from factor to end_factor (both 0.1 to 10), for a tape-stop or a slow-down at a track's end. What follows the range moves by the length gained or lost, on every track with sync-lock.",
             output: "node_id, new_duration_sec",
           },
           {
@@ -571,7 +571,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "pitch_shift",
             prompt: 'shift the vocals up 2 semitones',
-            what: "Change the pitch without changing the duration. Set preserve_formants on voices so a shift sounds like the same person singing higher, not a chipmunk. Range: −12 to +12 semitones.",
+            what: "Change the pitch without changing the duration. Set preserve_formants on voices so a shift sounds like the same person singing higher, not a chipmunk. Range: −12 to +12 semitones. Give end_semitones (and optionally a range) to glide the pitch linearly in semitones from semitones to end_semitones; the duration is unchanged.",
             output: "node_id",
           },
           {

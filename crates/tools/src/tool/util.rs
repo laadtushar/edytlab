@@ -2165,6 +2165,35 @@ pub(crate) fn remap_after_scale(state: &mut SessionState, moved: Moved, factor: 
     }
 }
 
+/// Remap the records through `map`, a non-decreasing function from old
+/// seconds to new: the edit re-timed a stretch of the recording by a
+/// varying amount (a ramped `time_stretch`), so a mark inside it moves in
+/// proportion to where it sat, one before it stays, and one after it moves
+/// by what the stretch gained or lost. Nothing is dropped.
+pub(crate) fn remap_after_warp(state: &mut SessionState, moved: Moved, map: &dyn Fn(f64) -> f64) {
+    use session::AnnotationKind::{Marker, Region};
+    let words_move = moved.moves_transcript(state);
+    for a in &mut state.annotations {
+        a.kind = match a.kind {
+            Marker { time_sec } => Marker {
+                time_sec: map(time_sec),
+            },
+            Region { start_sec, end_sec } => Region {
+                start_sec: map(start_sec),
+                end_sec: map(end_sec),
+            },
+        };
+    }
+    if words_move {
+        if let Some(t) = state.transcript.as_mut() {
+            for w in &mut t.words {
+                w.start_s = map(w.start_s as f64) as f32;
+                w.end_s = map(w.end_s as f64) as f32;
+            }
+        }
+    }
+}
+
 /// Report helper: the `dropped_labels` field, for a hook that has one to
 /// report. Empty when nothing was dropped, so a tool that removed
 /// nothing does not grow a noisy zero.

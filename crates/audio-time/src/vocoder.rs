@@ -818,6 +818,30 @@ pub(crate) fn resample_mono(input: &[f32], rate: f32) -> Vec<f32> {
         .collect()
 }
 
+/// Read `input` back at a position that varies with the output sample:
+/// output sample `i` is the input interpolated at `pos_at(i)`.
+///
+/// This is [`resample_mono`] with a read speed that changes along the
+/// signal, which is what lets a pitch ramp undo the length a varying
+/// stretch added while multiplying each moment's frequency by its own
+/// ratio (the speed is the derivative of `pos_at`).
+pub(crate) fn resample_varying(
+    input: &[f32],
+    out_len: usize,
+    pos_at: &dyn Fn(usize) -> f64,
+) -> Vec<f32> {
+    (0..out_len)
+        .map(|i| {
+            let pos = pos_at(i).max(0.0);
+            let idx = pos.floor() as usize;
+            let frac = (pos - idx as f64) as f32;
+            let a = input.get(idx).copied().unwrap_or(0.0);
+            let b = input.get(idx + 1).copied().unwrap_or(a);
+            a + (b - a) * frac
+        })
+        .collect()
+}
+
 /// Split interleaved samples into per-channel planes.
 pub(crate) fn deinterleave(samples: &[f32], channels: usize) -> Vec<Vec<f32>> {
     let frames = samples.len() / channels;
