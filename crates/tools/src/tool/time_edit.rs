@@ -1074,6 +1074,13 @@ mod tests {
     // ---- Cut ---------------------------------------------------------------
 
     #[test]
+    fn a_cut_with_no_transcript_has_no_words_to_move() {
+        // A session that was never transcribed: nothing to remap, nothing
+        // dropped, and no transcript appears from nowhere.
+        assert_eq!(cut_transcript(&None, 1.0, 2.0), (None, 0));
+    }
+
+    #[test]
     fn a_cut_slides_the_edited_tracks_clips() {
         let rig = Rig::new();
         let mut s = bed_and_voice(&rig, false);
