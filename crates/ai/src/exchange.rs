@@ -439,9 +439,10 @@ impl ModelExchange for HttpExchange<'_> {
                 Error::PlanUsage(e) => e.code(),
                 _ => "-",
             };
+            let request_id = refusal.request_id.as_deref().unwrap_or("-");
             tracing::warn!(
                 status = refusal.status,
-                request_id = refusal.request_id.as_deref().unwrap_or("-"),
+                request_id = request_id,
                 code = %code,
                 "the provider refused the request"
             );
@@ -814,5 +815,22 @@ mod tests {
             matches!(&error, Error::Api { status: 418, message } if message == "named by the provider"),
             "{error:?}"
         );
+    }
+
+    #[test]
+    fn the_naming_provider_is_anthropic_in_every_other_respect() {
+        let p = NamesItsFailures;
+        assert_eq!(p.id(), "names-its-failures");
+        assert_eq!(p.base_url(), AnthropicProvider.base_url());
+        assert_eq!(p.default_model(), AnthropicProvider.default_model());
+        assert_eq!(p.classifier_model(), AnthropicProvider.classifier_model());
+        assert_eq!(p.translate_model("m-1"), "m-1");
+        let http = reqwest::Client::new();
+        let before = http.post("https://example.invalid/").build().unwrap();
+        let after = p
+            .apply_auth(http.post("https://example.invalid/"), "key")
+            .build()
+            .unwrap();
+        assert_eq!(after.headers(), before.headers());
     }
 }

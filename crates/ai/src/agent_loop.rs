@@ -1138,9 +1138,10 @@ where
                             // Formatted here, not in the macro, which skips
                             // its fields when nothing listens.
                             let adaptation_name = format!("{adaptation:?}");
+                            let request_id = refusal.request_id.as_deref().unwrap_or("-");
                             tracing::warn!(
                                 status = refusal.status,
-                                request_id = refusal.request_id.as_deref().unwrap_or("-"),
+                                request_id = request_id,
                                 adaptation = %adaptation_name,
                                 "the provider refused the request; sending a different one"
                             );
