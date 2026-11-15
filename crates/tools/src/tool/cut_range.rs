@@ -11,10 +11,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
+use crate::tool::time_edit::{apply, Clips, Scope, SyncLock, TimeEdit, Words};
 use crate::tool::util::{
-    append_state, check_sample_range, cut_timeline, load_track_state_and_rate, parse_args,
-    remap_after_cut, seconds_to_frames, set_session_length, snap_range, sync_other_tracks,
-    timeline_end, track_clip_rates, Moved,
+    append_state, check_sample_range, load_track_state_and_rate, parse_args, set_session_length,
+    snap_range, timeline_end,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -27,65 +27,34 @@ struct Args {
     snap_to_zero_crossing: bool,
 }
 
-/// The rate of each track's clips, when sync-lock will carry an edit to them;
-/// nothing when it is off, so a session that mixes rates on a track the edit
-/// never reaches is not refused for it.
-pub(crate) fn sync_rates(state: &session::SessionState) -> Result<Vec<f64>, String> {
-    if state.sync_lock {
-        track_clip_rates(state)
-    } else {
-        Ok(Vec::new())
-    }
+/// The scope of a cut: it slides the track's clips, carries the same seconds to
+/// the other tracks under sync-lock (#170 §3) and moves the labels and words
+/// with the audio. Shared by `cut_range` and `edit_at_markers`, so the two
+/// cannot differ.
+pub(crate) fn cut_scope(track: usize) -> Scope {
+    Scope::new(track, SyncLock::Follows, Clips::Slide, Words::Follow)
 }
 
-/// Remove the frames `[start, end)` of `track` and close the gap, in `state`.
-/// Returns how many other tracks sync-lock carried the cut to and how many
-/// labels the cut dropped.
+/// Remove the frames `[start, end)` of `track` from `state` at `rate`, the
+/// edited track's clip rate (see `Scope::rates`). Returns the
+/// [`TimeEditReport`](crate::tool::time_edit::TimeEditReport): how many other tracks
+/// sync-lock carried the cut to and how many labels it dropped.
 ///
-/// The one place a cut is made, for `cut_range` and for `edit_at_markers`, so
-/// the two cannot differ: `rate` is the edited track's clip rate and `rates`
-/// each track's (see [`sync_rates`]). Does not set the session length; the
-/// caller does that once, after its last cut.
+/// Does not set the session length; the caller does that once, after its last
+/// cut.
 pub(crate) fn cut_span(
     state: &mut session::SessionState,
-    track: usize,
-    rates: &[f64],
+    scope: &Scope,
+    rates: &crate::tool::time_edit::Rates,
     rate: f64,
     start: u64,
     end: u64,
-) -> (usize, usize) {
-    state.tracks[track].clips = cut_timeline(&state.tracks[track].clips, start, end);
-
-    // Sync-lock (#170 §3): an interview is one track per speaker,
-    // and cutting a sentence out of one of them desynchronises the
-    // conversation unless the others lose the same span. One node,
-    // not one per track — undo has to put the whole edit back.
-    let (start_sec, end_sec) = (start as f64 / rate, end as f64 / rate);
-    let synced = if state.sync_lock {
-        sync_other_tracks(state, track, rates, |clips, clip_rate| {
-            cut_timeline(
-                clips,
-                seconds_to_frames(start_sec, clip_rate),
-                seconds_to_frames(end_sec, clip_rate),
-            )
-        })
-    } else {
-        0
+) -> crate::tool::time_edit::TimeEditReport {
+    let edit = TimeEdit::Cut {
+        start: start as f64 / rate,
+        end: end as f64 / rate,
     };
-
-    // Labels name moments in the recording, not offsets in a file
-    // (#203). Leaving them put would rename every chapter after the
-    // cut to something `cut_len` seconds off.
-    //
-    // The transcript is the same kind of record and was the half
-    // nobody moved (#231): `cut_words` turns a word's `start_s` into
-    // a sample offset, so a stale transcript makes the *next* text
-    // edit delete audio elsewhere while naming the right word. Its
-    // words are seconds of one track, so they move only if that track
-    // did: this one, or every one under sync-lock (#925).
-    let moved = Moved::sync_locked(state, track);
-    let dropped = remap_after_cut(state, moved, start_sec, end_sec);
-    (synced, dropped)
+    apply(state, edit, scope, rates)
 }
 
 pub struct CutRangeTool;
@@ -119,7 +88,8 @@ impl Tool for CutRangeTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
         // A sync-locked track gets the same seconds in its own frames.
-        let rates = match sync_rates(&state) {
+        let scope = cut_scope(args.track);
+        let rates = match scope.rates(&state) {
             Ok(r) => r,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
@@ -147,7 +117,8 @@ impl Tool for CutRangeTool {
             ));
         }
 
-        let (synced, dropped) = cut_span(&mut state, args.track, &rates, rate, start, end);
+        let report = cut_span(&mut state, &scope, &rates, rate, start, end);
+        let (synced, dropped) = (report.synced_tracks, report.dropped_labels);
 
         set_session_length(&mut state);
 

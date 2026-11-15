@@ -32,10 +32,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{
-    append_state, args_and_head, cut_annotations, cut_timeline, set_session_length,
-    track_clip_rate, transcript_edit_track,
-};
+use crate::tool::time_edit::{apply, Clips, Scope, SyncLock, TimeEdit, Words};
+use crate::tool::util::{append_state, args_and_head, set_session_length, transcript_edit_track};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -132,27 +130,24 @@ impl Tool for CutWordsTool {
         // file's rate and not the session's (#234): a 16 kHz voice under a
         // 48 kHz bed is cut at 16 000 frames a second. The session's length is
         // worked out from the clips afterwards (#678).
-        let clip_rate = match track_clip_rate(&state.tracks[track_index], state.sample_rate) {
+        //
+        // `apply` closes the gap in the clips, which is the same operation
+        // `cut_range` performs, and moves the labels: cutting words is
+        // cutting audio, so a chapter mark after the removed span is now
+        // earlier by the same amount (#203). The words are this tool's own,
+        // below.
+        let scope = Scope::new(track_index, SyncLock::Ignores, Clips::Slide, Words::Caller);
+        let rates = match scope.rates(&state) {
             Ok(r) => r,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-        let start_frame = (start_s * clip_rate).round() as u64;
-        let end_frame = (end_s * clip_rate).round() as u64;
-
-        // The audio. `cut_timeline` closes the gap by sliding
-        // everything after the cut leftwards, which is the same
-        // operation `cut_range` performs.
-        let track = &mut state.tracks[track_index];
-        track.clips = cut_timeline(&track.clips, start_frame, end_frame);
+        let edit = TimeEdit::Cut {
+            start: start_s,
+            end: end_s,
+        };
+        let dropped_labels = apply(&mut state, edit, &scope, &rates).dropped_labels;
 
         let removed_s = end_s - start_s;
-
-        // The labels. Cutting words is cutting audio, so a chapter mark
-        // after the removed span is now earlier by the same amount
-        // (#203) — the transcript below already gets this treatment and
-        // the annotations deserve the same.
-        let (kept_labels, dropped_labels) = cut_annotations(&state.annotations, start_s, end_s);
-        state.annotations = kept_labels;
 
         // The words. Everything after the cut is now earlier by exactly
         // the removed duration; everything inside it is gone.

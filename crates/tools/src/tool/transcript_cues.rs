@@ -226,7 +226,7 @@ pub(crate) fn cues(
 }
 
 /// Said in both tools' results: which edits keep the words in step (the ones
-/// that call `util::remap_after_*` or `shift_track_transcript`) and which do not.
+/// that call `time_edit::apply`) and which do not.
 pub(crate) const TIME_NOTE: &str = "Times are the transcript's own (session seconds when it was \
      made from a track, file seconds otherwise). A track's words follow edits that move, cut or \
      stretch it; align_to_beat leaves them stale. Run transcribe again to refresh them.";

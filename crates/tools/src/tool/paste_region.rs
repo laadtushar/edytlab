@@ -4,9 +4,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
+use crate::tool::time_edit::{self, Clips, Scope, SyncLock, TimeEdit, Words};
 use crate::tool::util::{
-    destructive_edit_then, insert_gap_timeline, load_head_state, parse_args, remap_after_insert,
-    seconds_to_frames, sync_other_tracks, timeline_end, track_channels, track_clip_rates, Moved,
+    destructive_edit_then, load_head_state, parse_args, timeline_end, track_channels,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -220,12 +220,9 @@ impl Tool for PasteRegionTool {
         // Each other track's own rate, for sync-lock below (#234, #673), asked
         // before anything is edited so a track with no single rate refuses
         // the whole paste.
-        let rates = match load_head_state(ctx) {
-            Ok(state) if state.sync_lock => match track_clip_rates(&state) {
-                Ok(r) => r,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            },
-            Ok(_) => Vec::new(),
+        let scope = Scope::new(track, SyncLock::Follows, Clips::Rewritten, Words::Follow);
+        let rates = match load_head_state(ctx).and_then(|state| scope.rates(&state)) {
+            Ok(r) => r,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
 
@@ -258,7 +255,6 @@ impl Tool for PasteRegionTool {
                 let at_frames = ((at.max(0.0) * rate) as u64).min(old_end);
                 let at_sec = at_frames as f64 / rate;
                 let len_sec = clip_frames as f64 / rate;
-                remap_after_insert(state, Moved::sync_locked(state, edited), at_sec, len_sec);
 
                 // Sync-lock (#170 §3, #572): the track the paste names got
                 // longer by the clipboard, and every other track has to open
@@ -274,24 +270,22 @@ impl Tool for PasteRegionTool {
                 // clipboard is at the *pasted track's* rate, and the others
                 // may be at that rate, at the session's, or at a third, so
                 // neither the clipboard's frame count nor the session's rate
-                // is their unit. Labels and words are not touched again
-                // here; they are the session's, not a track's, and moved once
-                // above (the words only if their track moved, #925).
+                // is their unit. The labels and the words (only if their
+                // track moved, #925) move in the same call.
+                let report = time_edit::apply(
+                    state,
+                    TimeEdit::Gap {
+                        at: at_sec,
+                        len: len_sec,
+                    },
+                    &scope,
+                    &rates,
+                );
                 let mut extras = serde_json::Map::new();
                 if !state.sync_lock {
                     return extras;
                 }
-                let synced = if len_sec <= 0.0 {
-                    0
-                } else {
-                    sync_other_tracks(state, edited, &rates, |clips, rate| {
-                        let gap_len = seconds_to_frames(len_sec, rate);
-                        if gap_len == 0 {
-                            return clips.to_vec();
-                        }
-                        insert_gap_timeline(clips, seconds_to_frames(at_sec, rate), gap_len)
-                    })
-                };
+                let synced = report.synced_tracks;
                 extras.insert("synced_tracks".into(), json!(synced));
                 if synced > 0 {
                     // The node keeps the plain label; the answer says what

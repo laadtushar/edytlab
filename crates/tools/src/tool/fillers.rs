@@ -39,9 +39,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
+use crate::tool::time_edit::{apply, Clips, Scope, SyncLock, TimeEdit, Words};
 use crate::tool::util::{
-    append_state, cut_annotations, cut_timeline, load_head_state, parse_args, set_session_length,
-    track_clip_rate, transcript_edit_track,
+    append_state, load_head_state, parse_args, set_session_length, transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -186,8 +186,11 @@ impl Tool for RemoveFillersTool {
         // would need every remaining span adjusted by what came before,
         // which is the same arithmetic done more often and wrong more
         // easily.
-        // Clip frames are the source file's, not the session's (#234).
-        let clip_rate = match track_clip_rate(&state.tracks[track_index], state.sample_rate) {
+        // Clip frames are the source file's, not the session's (#234). The
+        // words are this tool's own: it removes the filler and shifts what
+        // follows, where a cut would leave the pause it keeps as a word.
+        let scope = Scope::new(track_index, SyncLock::Ignores, Clips::Slide, Words::Caller);
+        let rates = match scope.rates(&state) {
             Ok(r) => r,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
@@ -204,22 +207,18 @@ impl Tool for RemoveFillersTool {
                 continue;
             }
 
-            let start_frame = (cut_start as f64 * clip_rate).round() as u64;
-            let end_frame = (cut_end as f64 * clip_rate).round() as u64;
-            let track = &mut state.tracks[track_index];
-            track.clips = cut_timeline(&track.clips, start_frame, end_frame);
+            let edit = TimeEdit::Cut {
+                start: f64::from(cut_start),
+                end: f64::from(cut_end),
+            };
+            // The clips close up and the labels move with the audio (#231).
+            // `words` below is shifted per iteration, so these coordinates
+            // are the *current* timeline's: the cuts are made in the same
+            // evolving space, one span at a time.
+            dropped_labels += apply(&mut state, edit, &scope, &rates).dropped_labels;
 
             let span = cut_end - cut_start;
             total_removed_s += span;
-
-            // The labels move with the audio (#231). `words` below is
-            // shifted per iteration, so these coordinates are the
-            // *current* timeline's — and the annotations have to be cut
-            // in the same evolving space, one span at a time.
-            let (kept, dropped) =
-                cut_annotations(&state.annotations, cut_start as f64, cut_end as f64);
-            state.annotations = kept;
-            dropped_labels += dropped;
 
             words.remove(filler.index);
             for w in words.iter_mut().skip(filler.index) {

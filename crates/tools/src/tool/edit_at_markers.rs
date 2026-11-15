@@ -52,15 +52,16 @@ use session::{Annotation, AnnotationId, AnnotationKind, SessionState};
 use uuid::Uuid;
 
 use crate::schema::anthropic_tool;
-use crate::tool::cut_range::{cut_span, sync_rates};
+use crate::tool::cut_range::{cut_scope, cut_span};
 use crate::tool::join_clips::join_run;
 use crate::tool::markers::{echo, names_text, MAX_BATCH};
 use crate::tool::silence_region::silence_spans;
 use crate::tool::split_clip::{split_track_at, SplitOutcome};
+use crate::tool::time_edit::{apply, Rates, Scope, TimeEdit};
 use crate::tool::util::{
-    append_state, check_sample_range, check_seconds_order, check_track_index, cut_timeline,
-    insert_gap_timeline, load_head_state, parse_args, seconds_to_clip_frames, seconds_to_frames,
-    set_session_length, sync_other_tracks, timeline_end, track_clip_rate,
+    append_state, check_sample_range, check_seconds_order, check_track_index, load_head_state,
+    parse_args, seconds_to_clip_frames, seconds_to_frames, set_session_length, timeline_end,
+    track_clip_rate,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -257,31 +258,22 @@ fn frames_of(span: &Span, rate: f64, track_len: u64) -> Result<(u64, u64), Strin
     check_sample_range(start, end, track_len).map_err(|e| format!("{}: {e}", span.describe()))
 }
 
-/// Remove `[start, end)` of `track` and leave a gap of that length where it
-/// was, in `state`; sync-lock does the same to the other tracks, by seconds.
-/// Returns how many other tracks it reached.
+/// Remove `[start, end)` of `track`, in its own frames at `rate`, and leave a
+/// gap of that length where it was, in `state`; sync-lock does the same to the
+/// other tracks, by seconds. Returns how many other tracks it reached. No label
+/// or word moves: nothing after the span did.
 fn delete_span(
     state: &mut SessionState,
-    track: usize,
-    rates: &[f64],
+    scope: &Scope,
+    rates: &Rates,
     rate: f64,
     (start, end): (u64, u64),
 ) -> usize {
-    let hollow = |clips: &[session::Clip], start: u64, end: u64| {
-        insert_gap_timeline(&cut_timeline(clips, start, end), start, end - start)
+    let edit = TimeEdit::Hollow {
+        start: start as f64 / rate,
+        end: end as f64 / rate,
     };
-    state.tracks[track].clips = hollow(&state.tracks[track].clips, start, end);
-    if !state.sync_lock {
-        return 0;
-    }
-    let (start_sec, end_sec) = (start as f64 / rate, end as f64 / rate);
-    sync_other_tracks(state, track, rates, |clips, clip_rate| {
-        hollow(
-            clips,
-            seconds_to_frames(start_sec, clip_rate),
-            seconds_to_frames(end_sec, clip_rate),
-        )
-    })
+    apply(state, edit, scope, rates).synced_tracks
 }
 
 /// The run of clips of `track` lying wholly under `span`, as indices, in the
@@ -406,7 +398,8 @@ fn remove(
     label: String,
 ) -> Result<ToolResult, String> {
     let rate = track_clip_rate(&state.tracks[args.track], state.sample_rate)?;
-    let rates = sync_rates(&state)?;
+    let scope = cut_scope(args.track);
+    let rates = scope.rates(&state)?;
     let track_len = timeline_end(&state.tracks[args.track].clips);
     if state.tracks[args.track].clips.is_empty() {
         return Err(format!(
@@ -426,16 +419,11 @@ fn remove(
     for &(start, end) in frames.iter().rev() {
         removed += end - start;
         if args.action == Action::Cut {
-            let (s, d) = cut_span(&mut state, args.track, &rates, rate, start, end);
-            (synced, dropped) = (synced.max(s), dropped + d);
+            let report = cut_span(&mut state, &scope, &rates, rate, start, end);
+            synced = synced.max(report.synced_tracks);
+            dropped += report.dropped_labels;
         } else {
-            synced = synced.max(delete_span(
-                &mut state,
-                args.track,
-                &rates,
-                rate,
-                (start, end),
-            ));
+            synced = synced.max(delete_span(&mut state, &scope, &rates, rate, (start, end)));
         }
     }
     set_session_length(&mut state);

@@ -15,7 +15,7 @@
 //! recorded arguments (`rederive`) writes the same audio.
 //!
 //! With sync-lock on, a range stretch opens the gained time on every other
-//! track, as `insert_silence` does (one node, `sync_other_tracks`); a
+//! track, as `insert_silence` does (one node, `time_edit::apply`); a
 //! whole-track stretch re-times one recording and, like `time_stretch`, moves
 //! no other track.
 //!
@@ -32,10 +32,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{
-    destructive_edit_then, insert_gap_timeline, load_head_state, parse_args, remap_after_insert,
-    remap_after_scale, seconds_to_frames, sync_other_tracks, track_clip_rates, Moved,
-};
+use crate::tool::time_edit::{apply, Clips, Scope, SyncLock, TimeEdit, Words};
+use crate::tool::util::{destructive_edit_then, load_head_state, parse_args};
 use crate::util::range_resolver::resolve as resolve_range;
 use crate::{Range, Tool, ToolContext, ToolResult};
 
@@ -143,14 +141,21 @@ impl Tool for PaulstretchTool {
 
         // Sync-lock needs each other track's own rate (#234, #673), asked before
         // anything is edited so a track with no single rate refuses the call.
-        let rates = match load_head_state(ctx) {
-            Ok(state) if state.sync_lock => match track_clip_rates(&state) {
-                Ok(r) => r,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            },
-            Ok(_) => Vec::new(),
+        // Asked as a tool that follows sync-lock would, whether or not this
+        // stretch carries anything to the other tracks: a track with no
+        // single rate refuses a whole-track stretch too, as it always did.
+        // Only a range carries (below).
+        let asked = Scope::new(track, SyncLock::Follows, Clips::Rewritten, Words::Follow);
+        let rates = match load_head_state(ctx).and_then(|state| asked.rates(&state)) {
+            Ok(r) => r,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
+        let sync_lock = if range.is_some() {
+            SyncLock::Follows
+        } else {
+            SyncLock::Ignores
+        };
+        let scope = Scope::new(track, sync_lock, Clips::Rewritten, Words::Follow);
 
         let done = Rc::new(Cell::new(Done::default()));
         let edit_done = Rc::clone(&done);
@@ -218,27 +223,22 @@ impl Tool for PaulstretchTool {
                 });
                 Ok((sample_rate, channels))
             },
-            move |state, edited| {
+            move |state, _edited| {
                 let d = after_done.get();
-                if range.is_none() {
-                    remap_after_scale(state, Moved::track(edited), factor as f64);
+                let edit = if range.is_none() {
+                    TimeEdit::Scale {
+                        factor: factor as f64,
+                    }
                 } else {
                     // The range lengthens the recording where it ends, which is
                     // what inserting that much time there does: marks, words
                     // and (with sync-lock) every other track follow.
-                    let gained = (d.end_sec - d.start_sec) * (factor as f64 - 1.0);
-                    let at = d.end_sec;
-                    remap_after_insert(state, Moved::sync_locked(state, edited), at, gained);
-                    if state.sync_lock {
-                        sync_other_tracks(state, edited, &rates, |clips, rate| {
-                            let len_frames = seconds_to_frames(gained, rate);
-                            if len_frames == 0 {
-                                return clips.to_vec();
-                            }
-                            insert_gap_timeline(clips, seconds_to_frames(at, rate), len_frames)
-                        });
+                    TimeEdit::Gap {
+                        at: d.end_sec,
+                        len: (d.end_sec - d.start_sec) * (factor as f64 - 1.0),
                     }
-                }
+                };
+                apply(state, edit, &scope, &rates);
                 let mut out = serde_json::Map::new();
                 out.insert("factor".into(), Value::from(factor));
                 out.insert("window_sec".into(), Value::from(d.window_sec));

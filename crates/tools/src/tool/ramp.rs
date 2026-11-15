@@ -18,10 +18,8 @@ use std::rc::Rc;
 
 use serde_json::Value;
 
-use crate::tool::util::{
-    cut_timeline, destructive_edit_then, insert_gap_timeline, load_head_state, remap_after_warp,
-    seconds_to_frames, sync_other_tracks, track_clip_rates, Moved,
-};
+use crate::tool::time_edit::{apply, Clips, Scope, SyncLock, TimeEdit, Words};
+use crate::tool::util::{destructive_edit_then, load_head_state};
 use crate::{Range, ToolContext, ToolResult};
 
 /// The longest result of a ramped stretch, in seconds (as `paulstretch`).
@@ -55,15 +53,20 @@ pub(crate) fn run(
     label: String,
 ) -> ToolResult {
     // Sync-lock needs each other track's own rate, asked before anything is
-    // edited so a track with no single rate refuses the call.
-    let rates = match load_head_state(ctx) {
-        Ok(state) if state.sync_lock => match track_clip_rates(&state) {
-            Ok(r) => r,
-            Err(e) => return ToolResult::Error(e),
-        },
-        Ok(_) => Vec::new(),
+    // edited so a track with no single rate refuses the call. Asked as a tool
+    // that follows sync-lock would, whether or not this ramp carries anything
+    // to the other tracks, as `paulstretch` does; only a range carries.
+    let asked = Scope::new(track, SyncLock::Follows, Clips::Rewritten, Words::Follow);
+    let rates = match load_head_state(ctx).and_then(|state| asked.rates(&state)) {
+        Ok(r) => r,
         Err(e) => return ToolResult::Error(e),
     };
+    let sync_lock = if range.is_some() {
+        SyncLock::Follows
+    } else {
+        SyncLock::Ignores
+    };
+    let scope = Scope::new(track, sync_lock, Clips::Rewritten, Words::Follow);
     let done = Rc::new(Cell::new(Done::default()));
     let edit_done = Rc::clone(&done);
     let after_done = Rc::clone(&done);
@@ -134,23 +137,18 @@ pub(crate) fn run(
             });
             Ok((sample_rate, channels))
         },
-        move |state, edited| {
+        move |state, _edited| {
             let d = after_done.get();
             let span_sec = d.end_sec - d.start_sec;
-            let delta = d.out_span_sec - span_sec;
             if let Ramp::Stretch { start: f0, end: f1 } = ramp {
-                let moved = if range.is_some() {
-                    Moved::sync_locked(state, edited)
-                } else {
-                    Moved::track(edited)
-                };
                 // The ideal integral and the frames actually written differ by
                 // under a frame; scale so the span's end lands on the audio's.
                 let ideal =
                     audio_time::ramp_output_position(span_sec, span_sec, f0 as f64, f1 as f64);
                 let fit = d.out_span_sec / ideal;
                 let (s, e) = (d.start_sec, d.end_sec);
-                remap_after_warp(state, moved, &|t| {
+                let delta = d.out_span_sec - span_sec;
+                let map = |t: f64| {
                     if t <= s {
                         t
                     } else if t < e {
@@ -159,28 +157,14 @@ pub(crate) fn run(
                     } else {
                         t + delta
                     }
-                });
-                if range.is_some() && state.sync_lock {
-                    let (at, new_end) = (d.end_sec, d.start_sec + d.out_span_sec);
-                    sync_other_tracks(state, edited, &rates, |clips, rate| {
-                        if delta >= 0.0 {
-                            let len = seconds_to_frames(delta, rate);
-                            if len == 0 {
-                                return clips.to_vec();
-                            }
-                            insert_gap_timeline(clips, seconds_to_frames(at, rate), len)
-                        } else {
-                            let (from, to) = (
-                                seconds_to_frames(new_end, rate),
-                                seconds_to_frames(at, rate),
-                            );
-                            if from >= to {
-                                return clips.to_vec();
-                            }
-                            cut_timeline(clips, from, to)
-                        }
-                    });
-                }
+                };
+                let edit = TimeEdit::Warp {
+                    start: s,
+                    end: e,
+                    out_len: d.out_span_sec,
+                    map: &map,
+                };
+                apply(state, edit, &scope, &rates);
             }
             let mut out = serde_json::Map::new();
             let (a, b) = match ramp {
