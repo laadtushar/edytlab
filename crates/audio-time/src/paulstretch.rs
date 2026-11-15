@@ -154,6 +154,13 @@ fn window(n: usize) -> Vec<f32> {
         .collect()
 }
 
+/// The least summed squared window weight a sample is divided by. Every
+/// output sample is under at least one frame's window, whose weight is never
+/// zero (`window` keeps its ends above zero), so this only keeps a sample at
+/// a frame's extreme edge, where the weight is tiny, from being amplified
+/// into noise.
+const MIN_WEIGHT: f32 = 1e-6;
+
 fn stretch_plane(input: &[f32], stretch: f64, n: usize, seed: u64) -> Vec<f32> {
     // `paulstretch` sends only non-empty planes and a stretch of at least 1,
     // so the output has at least one frame.
@@ -225,7 +232,7 @@ fn stretch_plane(input: &[f32], stretch: f64, n: usize, seed: u64) -> Vec<f32> {
     (0..out_len)
         .map(|t| {
             let idx = t + hop;
-            acc[idx] / (mean_w2 * weight[idx].max(1e-6)).sqrt()
+            acc[idx] / (mean_w2 * weight[idx].max(MIN_WEIGHT)).sqrt()
         })
         .collect()
 }

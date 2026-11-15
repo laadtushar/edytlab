@@ -362,7 +362,7 @@ fn clip_start_sec(s: &Session, track: usize) -> f64 {
 #[test]
 fn a_range_stretch_with_sync_lock_opens_the_gap_on_the_other_tracks() {
     let mut s = synced_session(true);
-    let head = s.head();
+    let (head, nodes) = (s.head(), s.node_count());
     s.ok(
         "paulstretch",
         json!({"track": 0, "factor": 3.0, "range": {"start_sec": 1.0, "end_sec": 2.0}}),
@@ -375,7 +375,9 @@ fn a_range_stretch_with_sync_lock_opens_the_gap_on_the_other_tracks() {
     );
     assert!(clip_start_sec(&s, 2).abs() < 1e-6, "before the range");
     assert!((mark_at(&s.state(), "late") - 5.5).abs() < 1e-3);
-    // One node covers every track it moved.
+    // One node covers every track it moved, and the moved track's clip is
+    // shifted, not split.
+    assert_eq!(s.node_count(), nodes + 1);
     assert_eq!(s.state().tracks[1].clips.len(), 1);
 }
 
