@@ -23,7 +23,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use session::audio_store::{AudioFolder, AudioName, AudioStore};
-use session::{Clip, EnvelopePoint};
+use session::{Clip, EnvelopePoint, SessionState};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
@@ -106,6 +106,154 @@ fn joined_envelope(group: &[Clip], origin: u64, total: u64) -> Vec<EnvelopePoint
     merge_clip_envelopes(&closed, total, total)
 }
 
+/// What [`join_run`] did.
+pub(crate) struct Joined {
+    /// The clips were back to back in one source, so nothing was rendered.
+    pub merged: bool,
+    /// The joined clip's length, in seconds of its own rate.
+    pub seconds: f64,
+    /// How many clips became one.
+    pub clips: usize,
+}
+
+/// Join clips `first..=last` of `track` into one, in `state`.
+///
+/// The one place a join is made, for `join_clips` and for `edit_at_markers`.
+/// A render of a join that is not a plain merge is written under the
+/// project's `derived/` folder. Refuses, with `state` untouched, a track with
+/// fewer than two clips, an index past the end or a run of one clip.
+pub(crate) fn join_run(
+    ctx: &ToolContext,
+    state: &mut SessionState,
+    track: usize,
+    first: usize,
+    last: usize,
+) -> Result<Joined, String> {
+    check_track_index(&state.tracks, track)?;
+    let clips = state.tracks[track].clips.clone();
+    if clips.len() < 2 {
+        return Err(format!(
+            "track {} has {} clip{}; a join needs at least two",
+            track,
+            clips.len(),
+            if clips.len() == 1 { "" } else { "s" },
+        ));
+    }
+    for idx in [first, last] {
+        if idx >= clips.len() {
+            return Err(format!(
+                "clip index {idx} out of range; track {} has {} clips",
+                track,
+                clips.len()
+            ));
+        }
+    }
+    if last <= first {
+        return Err(format!(
+            "last_clip ({last}) must come after first_clip ({first}); a join needs at least \
+             two clips"
+        ));
+    }
+
+    let group = &clips[first..=last];
+    let origin = group.iter().map(|c| c.start_in_track).min().unwrap_or(0);
+    let end = group
+        .iter()
+        .map(|c| c.start_in_track.saturating_add(c.length))
+        .max()
+        .unwrap_or(origin);
+    let total = end - origin;
+    let merge = group.windows(2).all(|w| continues(&w[0], &w[1]));
+    // A merge keeps the clips' curves as one. A render has them applied
+    // to the audio already, so its clip has none.
+    let envelope = if merge {
+        joined_envelope(group, origin, total)
+    } else {
+        Vec::new()
+    };
+
+    let mut joined = if merge {
+        let mut clip = group[0].clone();
+        clip.length = total;
+        clip
+    } else {
+        // Laid out from the joined clip's start, so the render has no
+        // lead-in before it.
+        let rebased: Vec<Clip> = group
+            .iter()
+            .map(|c| {
+                let mut c = c.clone();
+                c.start_in_track -= origin;
+                c
+            })
+            .collect();
+        let audio = flatten_clips(&rebased, true, &|m| {
+            format!(
+                "join_clips needs clips of one sample rate and channel count; these differ \
+                 ({} Hz / {} ch and {} Hz / {} ch in {}). Bring the clips to one format \
+                 first, or leave them as separate clips",
+                m.first.0,
+                m.first.1,
+                m.found.0,
+                m.found.1,
+                m.path.file_name().map_or_else(
+                    || m.path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned()
+                ),
+            )
+        })?;
+        // Named for the samples and their layout (#620); the clip's
+        // `content_hash` stays the hash of the samples alone, as every
+        // edit's does. The audio store writes it (#719).
+        let name = AudioName::of_samples(&audio.window, audio.sample_rate, audio.channels);
+        let audio_store = AudioStore::new(ctx.store.project_dir());
+        let path = write_cas_wav(
+            &audio_store,
+            AudioFolder::Derived,
+            &name,
+            &audio.window,
+            audio.sample_rate,
+            audio.channels,
+        )
+        .map_err(|e| {
+            format!(
+                "failed to write {}: {e}",
+                audio_store.path_of(AudioFolder::Derived, &name)
+            )
+        })?;
+        let frames = (audio.window.len() / audio.channels.max(1) as usize) as u64;
+        Clip {
+            source_path: path,
+            start_in_track: origin,
+            source_offset: 0,
+            length: frames,
+            content_hash: Some(crate::provenance::legacy_sample_hash(&audio.window)),
+            // The file is the audio as the renderer plays it. It applies
+            // no stretch, pitch or grid itself, so these are recorded
+            // requests, and a copy of the first clip's would be a request
+            // the new audio never had.
+            time_stretch_factor: None,
+            pitch_shift_semitones: None,
+            beat_grid: None,
+            volume_envelope: Vec::new(),
+            volume_envelope_frames: session::EnvelopeFrames::default(),
+        }
+    };
+    joined.set_envelope(envelope);
+    let seconds = clip_frames_to_seconds(&joined, joined.length).unwrap_or(0.0);
+
+    let n = last - first + 1;
+    state.tracks[track]
+        .clips
+        .splice(first..=last, std::iter::once(joined));
+    set_session_length(state);
+    Ok(Joined {
+        merged: merge,
+        seconds,
+        clips: n,
+    })
+}
+
 pub struct JoinClipsTool;
 
 impl Tool for JoinClipsTool {
@@ -141,133 +289,13 @@ impl Tool for JoinClipsTool {
             Ok(v) => v,
             Err(r) => return Ok(r),
         };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let clips = state.tracks[args.track].clips.clone();
-        if clips.len() < 2 {
-            return Ok(ToolResult::Error(format!(
-                "track {} has {} clip{}; a join needs at least two",
-                args.track,
-                clips.len(),
-                if clips.len() == 1 { "" } else { "s" },
-            )));
-        }
         let first = args.first_clip;
         let last = args.last_clip.unwrap_or(first.saturating_add(1));
-        for idx in [first, last] {
-            if idx >= clips.len() {
-                return Ok(ToolResult::Error(format!(
-                    "clip index {idx} out of range; track {} has {} clips",
-                    args.track,
-                    clips.len()
-                )));
-            }
-        }
-        if last <= first {
-            return Ok(ToolResult::Error(format!(
-                "last_clip ({last}) must come after first_clip ({first}); a join needs at least \
-                 two clips"
-            )));
-        }
-
-        let group = &clips[first..=last];
-        let origin = group.iter().map(|c| c.start_in_track).min().unwrap_or(0);
-        let end = group
-            .iter()
-            .map(|c| c.start_in_track.saturating_add(c.length))
-            .max()
-            .unwrap_or(origin);
-        let total = end - origin;
-        let merge = group.windows(2).all(|w| continues(&w[0], &w[1]));
-        // A merge keeps the clips' curves as one. A render has them applied
-        // to the audio already, so its clip has none.
-        let envelope = if merge {
-            joined_envelope(group, origin, total)
-        } else {
-            Vec::new()
+        let joined = match join_run(ctx, &mut state, args.track, first, last) {
+            Ok(j) => j,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-
-        let mut joined = if merge {
-            let mut clip = group[0].clone();
-            clip.length = total;
-            clip
-        } else {
-            // Laid out from the joined clip's start, so the render has no
-            // lead-in before it.
-            let rebased: Vec<Clip> = group
-                .iter()
-                .map(|c| {
-                    let mut c = c.clone();
-                    c.start_in_track -= origin;
-                    c
-                })
-                .collect();
-            let audio = match flatten_clips(&rebased, true, &|m| {
-                format!(
-                    "join_clips needs clips of one sample rate and channel count; these differ \
-                     ({} Hz / {} ch and {} Hz / {} ch in {}). Bring the clips to one format \
-                     first, or leave them as separate clips",
-                    m.first.0,
-                    m.first.1,
-                    m.found.0,
-                    m.found.1,
-                    m.path.file_name().map_or_else(
-                        || m.path.display().to_string(),
-                        |n| n.to_string_lossy().into_owned()
-                    ),
-                )
-            }) {
-                Ok(a) => a,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            };
-            // Named for the samples and their layout (#620); the clip's
-            // `content_hash` stays the hash of the samples alone, as every
-            // edit's does. The audio store writes it (#719).
-            let name = AudioName::of_samples(&audio.window, audio.sample_rate, audio.channels);
-            let audio_store = AudioStore::new(ctx.store.project_dir());
-            let path = match write_cas_wav(
-                &audio_store,
-                AudioFolder::Derived,
-                &name,
-                &audio.window,
-                audio.sample_rate,
-                audio.channels,
-            ) {
-                Ok(p) => p,
-                Err(e) => {
-                    return Ok(ToolResult::Error(format!(
-                        "failed to write {}: {e}",
-                        audio_store.path_of(AudioFolder::Derived, &name)
-                    )))
-                }
-            };
-            let frames = (audio.window.len() / audio.channels.max(1) as usize) as u64;
-            Clip {
-                source_path: path,
-                start_in_track: origin,
-                source_offset: 0,
-                length: frames,
-                content_hash: Some(crate::provenance::legacy_sample_hash(&audio.window)),
-                // The file is the audio as the renderer plays it. It applies
-                // no stretch, pitch or grid itself, so these are recorded
-                // requests, and a copy of the first clip's would be a request
-                // the new audio never had.
-                time_stretch_factor: None,
-                pitch_shift_semitones: None,
-                beat_grid: None,
-                volume_envelope: Vec::new(),
-                volume_envelope_frames: session::EnvelopeFrames::default(),
-            }
-        };
-        joined.set_envelope(envelope);
-        let seconds = clip_frames_to_seconds(&joined, joined.length).unwrap_or(0.0);
-
-        let n = last - first + 1;
-        state.tracks[args.track]
-            .clips
-            .splice(first..=last, std::iter::once(joined));
-        set_session_length(&mut state);
+        let (merge, seconds, n) = (joined.merged, joined.seconds, joined.clips);
 
         let how = if merge {
             "they were contiguous in the same source, so they are one clip over it and nothing \

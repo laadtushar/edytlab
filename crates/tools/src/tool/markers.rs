@@ -62,7 +62,7 @@ const NAMES_SHOWN: usize = 10;
 const ECHO_CHARS: usize = 60;
 
 /// `text` cut to [`ECHO_CHARS`] characters, with an ellipsis if it was cut.
-fn echo(text: &str) -> String {
+pub(crate) fn echo(text: &str) -> String {
     let mut chars = text.chars();
     let head: String = chars.by_ref().take(ECHO_CHARS).collect();
     if chars.next().is_some() {
@@ -185,7 +185,7 @@ fn check_name(name: &str) -> Result<(), String> {
 
 /// Up to [`NAMES_SHOWN`] names, each cut to [`ECHO_CHARS`], quoted, and how
 /// many more there were.
-fn names_text<'a>(names: impl ExactSizeIterator<Item = &'a str>) -> String {
+pub(crate) fn names_text<'a>(names: impl ExactSizeIterator<Item = &'a str>) -> String {
     let total = names.len();
     let shown: Vec<String> = names
         .take(NAMES_SHOWN)

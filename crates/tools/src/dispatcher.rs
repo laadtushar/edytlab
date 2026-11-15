@@ -250,17 +250,17 @@ impl ToolDispatcher {
             ChangeSpeedTool, ClickRemovalTool, CompactSessionTool, CompareNodesTool,
             CompressorTool, CopyRegionTool, CreateBusTool, CrossfadeTool, CutRangeTool,
             CutWordsTool, DeEsserTool, DeclipTool, DeleteMarkersTool, DiarizeTool, DistortionTool,
-            DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EditMarkersTool, EqTool,
-            ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool, FadeTool,
-            FindMarkersTool, ForkNodeTool, GainTool, GenerateChirpTool, GenerateClickTrackTool,
-            GenerateDtmfTool, GenerateNoiseTool, GenerateToneTool, HighPassFilterTool,
-            ImportLabelsTool, InsertSilenceTool, InvertTool, JoinClipsTool, LabelTool, LevelerTool,
-            LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool,
-            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteAllTracksTool, MuteTrackTool,
-            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
-            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
-            PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
-            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            DuckUnderSpeechTool, DuplicateTrackTool, EchoTool, EditAtMarkersTool, EditMarkersTool,
+            EqTool, ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, ExportTranscriptTool,
+            FadeTool, FindMarkersTool, ForkNodeTool, GainTool, GenerateChirpTool,
+            GenerateClickTrackTool, GenerateDtmfTool, GenerateNoiseTool, GenerateToneTool,
+            HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool, JoinClipsTool,
+            LabelTool, LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool,
+            MeasureTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteAllTracksTool,
+            MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool,
+            NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
+            PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool,
+            RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
             ReorderEffectsTool, ReorderTracksTool, RepairSpanTool, RepeatSelectionTool,
             ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SelectRegionTool,
             SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
@@ -422,6 +422,7 @@ impl ToolDispatcher {
         d.register(Box::new(FindMarkersTool));
         d.register(Box::new(AddMarkersTool));
         d.register(Box::new(EditMarkersTool));
+        d.register(Box::new(EditAtMarkersTool));
         d.register(Box::new(DeleteMarkersTool));
         // #763: loudness, peaks, noise floor, clipping and the ACX check.
         d.register(Box::new(MeasureTool));

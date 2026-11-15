@@ -6,7 +6,7 @@ use crate::tool::util::{
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use session::Clip;
+use session::{Clip, SessionState};
 
 /// Split `clip` into two clips at `at_frames` frames from the clip's start_in_track.
 /// `at_frames` is relative to the clip's start (i.e. within [1, length-1]).
@@ -49,6 +49,50 @@ pub(crate) fn split_at(clip: &Clip, at_frames: u64) -> Result<(Clip, Clip), Stri
         clip.length - at_frames,
     ));
     Ok((left, right))
+}
+
+/// What [`split_track_at`] found at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SplitOutcome {
+    /// A clip held the time strictly inside it and is now two.
+    Split,
+    /// The time is already the edge of a clip: there is nothing to split.
+    Edge,
+    /// No clip of the track plays at that time (a gap, or past the end).
+    Gap,
+}
+
+/// Split the clip of `track` that plays at `at_sec` (seconds from the
+/// track's start) into two, in `state`.
+///
+/// The marker-driven form of `split_clip`: the clip is found by the time
+/// instead of by its index, then cut by the same [`split_at`] in the clip's
+/// own frames (#234). A time that is already a clip's edge, or that no clip
+/// plays at, splits nothing and says which.
+pub(crate) fn split_track_at(
+    state: &mut SessionState,
+    track: usize,
+    at_sec: f64,
+) -> Result<SplitOutcome, String> {
+    let mut edge = false;
+    for idx in 0..state.tracks[track].clips.len() {
+        let clip = state.tracks[track].clips[idx].clone();
+        let at = seconds_to_clip_frames(&clip, at_sec)?;
+        let end = clip.start_in_track.saturating_add(clip.length);
+        if at > clip.start_in_track && at < end {
+            let (left, right) = split_at(&clip, at - clip.start_in_track)?;
+            let clips = &mut state.tracks[track].clips;
+            clips[idx] = right;
+            clips.insert(idx, left);
+            return Ok(SplitOutcome::Split);
+        }
+        edge |= at == clip.start_in_track || at == end;
+    }
+    Ok(if edge {
+        SplitOutcome::Edge
+    } else {
+        SplitOutcome::Gap
+    })
 }
 
 #[derive(Debug, Deserialize)]

@@ -906,6 +906,13 @@ export const toolAreas: ToolArea[] = [
             note: "A name is part of a name, any case (\"intro\" also takes \"Introduction\"). Unlike find_markers, a from/to range takes only labels wholly inside it, so a region that merely overlaps or spans the range stays. One undoable step; undo brings them back.",
           },
           {
+            name: "edit_at_markers",
+            prompt: "cut out the markers I named um on track 1",
+            what: "Edit the audio under markers or regions, named or by id: cut (remove and close the gap, as cut_range), delete (remove and leave a gap), silence (zero it, as silence_region), split (cut clips at its edges) or join (make the clips under it one, as join_clips). A region is its own span; a point marker needs width seconds, except for split.",
+            output: "node_id, action, spans, synced_tracks, dropped_labels, summary",
+            note: "Several markers are one undoable step, worked latest first. All or nothing: an unknown or ambiguous name, a point without a width, a span past the track's end and overlapping spans change nothing. A cut follows sync-lock and moves later markers and a locked track's transcript as cut_range does; a cut region is dropped with its audio (dropped_labels), a point at the cut's start stays at the seam. delete moves nothing. silence, like silence_region, ignores sync-lock.",
+          },
+          {
             name: "transcript_to_markers",
             prompt: "add a marker at each transcript sentence",
             what: "Add point markers at the starts of the stored transcript's segments (default) or sentences (mode). A file or unknown-source transcript needs an explicit offset_sec, even 0. Each label is the first six words, at most 80 characters.",

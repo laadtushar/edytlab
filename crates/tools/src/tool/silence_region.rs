@@ -87,46 +87,61 @@ impl Tool for SilenceRegionTool {
             )));
         }
 
-        // Pre-read channel count so the closure (which only receives sr)
-        // can compute the correct interleaved byte range.
-        let channels = {
-            let state = match load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = match state.tracks[args.track].clips.first().cloned() {
-                Some(c) => c,
-                None => {
-                    return Ok(ToolResult::Error(format!(
-                        "track {} has no clips",
-                        args.track
-                    )))
-                }
-            };
-            match audio_decoder::decode_file(&clip.source_path) {
-                Ok(d) => d.channels as usize,
-                Err(_) => 1,
-            }
-        };
-
-        let start_sec = args.start_sec;
-        let end_sec = args.end_sec;
-
-        Ok(destructive_edit(
+        Ok(silence_spans(
             ctx,
             args.track,
-            move |samples, sr| {
-                apply_silence(samples, sr, channels, start_sec, end_sec);
-            },
+            vec![(args.start_sec, args.end_sec)],
             format!(
                 "silence_region track {} {:.3}s..{:.3}s",
                 args.track, args.start_sec, args.end_sec
             ),
         ))
     }
+}
+
+/// Zero every `(start_sec, end_sec)` span of `track` and append one node
+/// labelled `label`.
+///
+/// The one place a silence is made, for `silence_region` and for
+/// `edit_at_markers`: the track's channel count is read from its first clip
+/// (mono when the file cannot be read), the spans are zeroed in one pass over
+/// the flattened audio, and one node results however many spans there are.
+pub(crate) fn silence_spans(
+    ctx: &mut ToolContext,
+    track: usize,
+    spans: Vec<(f64, f64)>,
+    label: String,
+) -> ToolResult {
+    // Pre-read channel count so the closure (which only receives sr)
+    // can compute the correct interleaved byte range.
+    let channels = {
+        let state = match load_head_state(ctx) {
+            Ok(s) => s,
+            Err(e) => return ToolResult::Error(e),
+        };
+        if let Err(e) = check_track_index(&state.tracks, track) {
+            return ToolResult::Error(e);
+        }
+        let clip = match state.tracks[track].clips.first().cloned() {
+            Some(c) => c,
+            None => return ToolResult::Error(format!("track {track} has no clips")),
+        };
+        match audio_decoder::decode_file(&clip.source_path) {
+            Ok(d) => d.channels as usize,
+            Err(_) => 1,
+        }
+    };
+
+    destructive_edit(
+        ctx,
+        track,
+        move |samples, sr| {
+            for (start_sec, end_sec) in spans {
+                apply_silence(samples, sr, channels, start_sec, end_sec);
+            }
+        },
+        label,
+    )
 }
 
 // ---------------------------------------------------------------------------
