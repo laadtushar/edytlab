@@ -156,14 +156,11 @@ pub trait ModelExchange: Send + Sync {
     /// that a refused request was really changed.
     fn request_body(&self, request: &MessagesRequest<'_>) -> Value;
 
-    /// Send `request` and read the reply, sending `events` for the text and
+    /// Send `body`, a request as [`Self::request_body`] serialised it (once,
+    /// by the caller), and read the reply, sending `events` for the text and
     /// tool calls as they arrive, in order. Use [`step_streaming`] to call it
     /// with a plain callback.
-    fn step<'a>(
-        &'a self,
-        request: &'a MessagesRequest<'_>,
-        events: EventSink,
-    ) -> ExchangeFuture<'a>;
+    fn step<'a>(&'a self, body: &'a Value, events: EventSink) -> ExchangeFuture<'a>;
 
     /// Whether the exchange can ask for something else after `refusal`
     /// (the ChatGPT plan's ladder of tool layouts). If it answers, the same
@@ -186,11 +183,11 @@ pub trait ModelExchange: Send + Sync {
 /// order, before the step's result is returned.
 pub(crate) async fn step_streaming(
     exchange: &dyn ModelExchange,
-    request: &MessagesRequest<'_>,
+    body: &Value,
     on_event: &mut impl FnMut(AgentEvent),
 ) -> Result<Exchanged> {
     let (sink, mut events) = tokio::sync::mpsc::unbounded_channel();
-    let mut step = exchange.step(request, sink);
+    let mut step = exchange.step(body, sink);
     let exchanged = loop {
         tokio::select! {
             biased;
@@ -232,14 +229,9 @@ impl<'a> HttpExchange<'a> {
         Self { cfg, http }
     }
 
-    async fn exchange(
-        &self,
-        request: &MessagesRequest<'_>,
-        events: EventSink,
-    ) -> Result<Exchanged> {
+    async fn exchange(&self, body: &Value, events: EventSink) -> Result<Exchanged> {
         let cfg = self.cfg;
-        let request_body = self.request_body(request);
-        let resp = cfg.post_json(self.http, &request_body).await?;
+        let resp = cfg.post_json(self.http, body).await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -427,12 +419,8 @@ impl ModelExchange for HttpExchange<'_> {
         self.cfg.provider.serialize_request(request)
     }
 
-    fn step<'a>(
-        &'a self,
-        request: &'a MessagesRequest<'_>,
-        events: EventSink,
-    ) -> ExchangeFuture<'a> {
-        Box::pin(self.exchange(request, events))
+    fn step<'a>(&'a self, body: &'a Value, events: EventSink) -> ExchangeFuture<'a> {
+        Box::pin(self.exchange(body, events))
     }
 
     fn adapt(&self, refusal: &Refusal) -> Option<Adaptation> {
@@ -445,13 +433,16 @@ impl ModelExchange for HttpExchange<'_> {
         // ChatGPT plan's usage limit, an account that cannot use it, a
         // session that ended). Nothing is retried on another provider.
         if let Some(error) = cfg.provider.classify_failure(&refusal.as_failure()) {
+            // Worked out here, not in the macro, which skips its fields when
+            // nothing listens.
+            let code = match &error {
+                Error::PlanUsage(e) => e.code(),
+                _ => "-",
+            };
             tracing::warn!(
                 status = refusal.status,
                 request_id = refusal.request_id.as_deref().unwrap_or("-"),
-                code = %match &error {
-                    Error::PlanUsage(e) => e.code(),
-                    _ => "-",
-                },
+                code = %code,
                 "the provider refused the request"
             );
             return error;
@@ -518,6 +509,7 @@ impl From<Step> for Scripted {
 pub struct ScriptedExchange {
     script: Mutex<VecDeque<Scripted>>,
     requests: Mutex<Vec<Value>>,
+    adaptations: Mutex<VecDeque<Adaptation>>,
     replays_thinking: bool,
 }
 
@@ -526,6 +518,7 @@ impl ScriptedExchange {
         Self {
             script: Mutex::new(script.into_iter().collect()),
             requests: Mutex::new(Vec::new()),
+            adaptations: Mutex::new(VecDeque::new()),
             replays_thinking: false,
         }
     }
@@ -539,6 +532,15 @@ impl ScriptedExchange {
     /// is no, like a provider that does not issue thinking).
     pub fn replaying_thinking(mut self) -> Self {
         self.replays_thinking = true;
+        self
+    }
+
+    /// The answers [`ModelExchange::adapt`] gives to refusals, one per call,
+    /// in order; once they are spent it answers `None` (the default: a model
+    /// that never adapts).
+    pub fn adapting(self, adaptations: impl IntoIterator<Item = Adaptation>) -> Self {
+        *self.adaptations.lock().expect("script mutex poisoned") =
+            adaptations.into_iter().collect();
         self
     }
 
@@ -558,15 +560,11 @@ impl ModelExchange for ScriptedExchange {
         serde_json::to_value(request).expect("MessagesRequest serialisation must not fail")
     }
 
-    fn step<'a>(
-        &'a self,
-        request: &'a MessagesRequest<'_>,
-        events: EventSink,
-    ) -> ExchangeFuture<'a> {
+    fn step<'a>(&'a self, body: &'a Value, events: EventSink) -> ExchangeFuture<'a> {
         self.requests
             .lock()
             .expect("script mutex poisoned")
-            .push(self.request_body(request));
+            .push(body.clone());
         let next = self
             .script
             .lock()
@@ -603,7 +601,10 @@ impl ModelExchange for ScriptedExchange {
     }
 
     fn adapt(&self, _refusal: &Refusal) -> Option<Adaptation> {
-        None
+        self.adaptations
+            .lock()
+            .expect("script mutex poisoned")
+            .pop_front()
     }
 
     fn refusal_error(&self, refusal: &Refusal) -> Error {
@@ -616,5 +617,202 @@ impl ModelExchange for ScriptedExchange {
 
     fn retry_delay(&self) -> Duration {
         Duration::ZERO
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+    use crate::provider::{AnthropicProvider, LlmProvider};
+
+    fn sse(events: &[(&str, Value)]) -> String {
+        events
+            .iter()
+            .map(|(name, data)| format!("event: {name}\ndata: {data}\n\n"))
+            .collect()
+    }
+
+    fn message_start() -> (&'static str, Value) {
+        (
+            "message_start",
+            json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_test", "type": "message", "role": "assistant",
+                    "content": [], "model": "m", "stop_reason": null,
+                    "stop_sequence": null,
+                    "usage": { "input_tokens": 1, "output_tokens": 0 }
+                }
+            }),
+        )
+    }
+
+    fn message_stop() -> (&'static str, Value) {
+        ("message_stop", json!({ "type": "message_stop" }))
+    }
+
+    /// Run one HTTP step against a server that answers with `stream`.
+    async fn step_over(stream: String) -> (Result<Exchanged>, Vec<AgentEvent>) {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(stream),
+            )
+            .mount(&server)
+            .await;
+        let cfg = LlmConfig::new_anthropic("key").with_base_url(server.uri());
+        let http = reqwest::Client::new();
+        let exchange = HttpExchange::new(&cfg, &http);
+        let mut events = Vec::new();
+        let result = step_streaming(&exchange, &json!({}), &mut |e| events.push(e)).await;
+        (result, events)
+    }
+
+    #[test]
+    fn a_block_index_past_the_limit_is_refused_before_anything_is_allocated() {
+        let mut blocks = Vec::new();
+        let err = grow_to(&mut blocks, MAX_CONTENT_BLOCKS).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds MAX_CONTENT_BLOCKS"),
+            "{err}"
+        );
+        assert!(blocks.is_empty());
+        grow_to(&mut blocks, MAX_CONTENT_BLOCKS - 1).expect("the last index fits");
+        assert_eq!(blocks.len(), MAX_CONTENT_BLOCKS);
+    }
+
+    #[tokio::test]
+    async fn a_stream_opening_a_block_past_the_limit_is_an_error() {
+        let (result, _) = step_over(sse(&[
+            message_start(),
+            (
+                "content_block_start",
+                json!({
+                    "type": "content_block_start",
+                    "index": MAX_CONTENT_BLOCKS,
+                    "content_block": { "type": "text", "text": "" }
+                }),
+            ),
+        ]))
+        .await;
+        assert!(
+            matches!(&result, Err(Error::Protocol(m)) if m.contains("MAX_CONTENT_BLOCKS")),
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_delta_for_a_block_never_opened_is_an_error() {
+        let (result, events) = step_over(sse(&[
+            message_start(),
+            (
+                "content_block_delta",
+                json!({
+                    "type": "content_block_delta",
+                    "index": 3,
+                    "delta": { "type": "text_delta", "text": "stray" }
+                }),
+            ),
+        ]))
+        .await;
+        assert!(
+            matches!(&result, Err(Error::Protocol(m)) if m.contains("unknown block index")),
+            "{result:?}"
+        );
+        assert!(events.is_empty(), "{events:?}");
+    }
+
+    #[tokio::test]
+    async fn a_ping_in_the_stream_changes_nothing() {
+        let (result, events) = step_over(sse(&[
+            message_start(),
+            ("ping", json!({ "type": "ping" })),
+            (
+                "content_block_start",
+                json!({
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": { "type": "text", "text": "" }
+                }),
+            ),
+            ("ping", json!({ "type": "ping" })),
+            (
+                "content_block_delta",
+                json!({
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": "Hi." }
+                }),
+            ),
+            message_stop(),
+        ]))
+        .await;
+        match result {
+            Ok(Exchanged::Step(step)) => {
+                assert_eq!(step.text, "Hi.");
+                assert_eq!(step.blocks, [StepBlock::Text("Hi.".into())]);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            matches!(events.as_slice(), [AgentEvent::TextDelta(t)] if t == "Hi."),
+            "{events:?}"
+        );
+    }
+
+    /// Anthropic's endpoint, with a provider's own name for every refusal
+    /// that is not a ChatGPT plan error.
+    #[derive(Debug)]
+    struct NamesItsFailures;
+
+    impl LlmProvider for NamesItsFailures {
+        fn id(&self) -> &'static str {
+            "names-its-failures"
+        }
+        fn base_url(&self) -> &str {
+            AnthropicProvider.base_url()
+        }
+        fn default_model(&self) -> &str {
+            AnthropicProvider.default_model()
+        }
+        fn classifier_model(&self) -> &str {
+            AnthropicProvider.classifier_model()
+        }
+        fn translate_model(&self, model: &str) -> String {
+            model.to_string()
+        }
+        fn apply_auth(&self, req: reqwest::RequestBuilder, _: &str) -> reqwest::RequestBuilder {
+            req
+        }
+        fn classify_failure(&self, _: &ProviderFailure<'_>) -> Option<Error> {
+            Some(Error::Api {
+                status: 418,
+                message: "named by the provider".into(),
+            })
+        }
+    }
+
+    #[test]
+    fn a_refusal_the_provider_names_is_its_error() {
+        let cfg = LlmConfig::new(Arc::new(NamesItsFailures), "key");
+        let http = reqwest::Client::new();
+        let refusal = Refusal {
+            status: 500,
+            body: "boom".into(),
+            request_id: Some("req_1".into()),
+        };
+        let error = HttpExchange::new(&cfg, &http).refusal_error(&refusal);
+        assert!(
+            matches!(&error, Error::Api { status: 418, message } if message == "named by the provider"),
+            "{error:?}"
+        );
     }
 }

@@ -13,6 +13,7 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use ai::exchange::{Refusal, Scripted, ScriptedExchange, Step, StepBlock};
+use ai::provider::Adaptation;
 use ai::{Agent, AgentEvent, LlmConfig, MAX_TOOL_CALLS_PER_TURN as CAP};
 use serde_json::{json, Value};
 
@@ -249,4 +250,117 @@ async fn an_unanswered_call_is_answered_before_the_next_message() {
 
     let (second, _) = fx.turn("second").await;
     assert_eq!(second.expect("the next message works").text, "Next.");
+}
+
+#[tokio::test]
+async fn a_failed_exchange_is_the_turns_error() {
+    let mut fx = Fixture::new(ScriptedExchange::new([Scripted::Fail(
+        ai::Error::Protocol("the line dropped".into()),
+    )]));
+    let (result, events) = fx.turn("hi").await;
+    assert!(
+        matches!(&result, Err(ai::Error::Protocol(m)) if m == "the line dropped"),
+        "{result:?}"
+    );
+    assert!(events.is_empty(), "{events:?}");
+    assert!(fx.agent.conversation().is_empty());
+}
+
+#[tokio::test]
+async fn a_script_that_runs_out_is_a_protocol_error() {
+    let mut fx = Fixture::new(ScriptedExchange::new([edit("e0", 1).into()]));
+    let (result, _) = fx.turn("edit").await;
+    assert!(
+        matches!(&result, Err(ai::Error::Protocol(m)) if m.contains("ran out of steps")),
+        "{result:?}"
+    );
+    assert_eq!(fx.model.requests().len(), 2);
+}
+
+fn refused() -> Scripted {
+    Scripted::Refused(Refusal {
+        status: 400,
+        body: "the tools are refused".into(),
+        request_id: Some("req_1".into()),
+    })
+}
+
+fn has_thinking(request: &Value) -> bool {
+    request["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["content"].as_array())
+        .flatten()
+        .any(|b| b["type"] == "thinking")
+}
+
+#[tokio::test]
+async fn a_refusal_that_adapts_sends_the_changed_request_and_the_turn_goes_on() {
+    // The step that follows a thinking step is refused. Adapting drops the
+    // thinking (the rule in `tauri-conventions.md`), so the request built
+    // again differs and is sent.
+    let thinking_call = Step {
+        blocks: vec![
+            StepBlock::Thinking {
+                thinking: "hmm".into(),
+                signature: "SIG".into(),
+            },
+            StepBlock::ToolUse {
+                id: "t0".into(),
+                name: "edit".into(),
+                args_json: json!({ "track": 1 }).to_string(),
+            },
+        ],
+        stop_reason: Some("tool_use".into()),
+        text: String::new(),
+    };
+    let mut fx = Fixture::new(
+        ScriptedExchange::new([thinking_call.into(), refused(), Step::say("Done.").into()])
+            .replaying_thinking()
+            .adapting([Adaptation::ToolLayout]),
+    );
+
+    let (result, _) = fx.turn("go").await;
+
+    assert_eq!(result.expect("turn").text, "Done.");
+    let requests = fx.model.requests();
+    assert_eq!(requests.len(), 3);
+    assert!(has_thinking(&requests[1]), "the refused request");
+    assert!(!has_thinking(&requests[2]), "the adapted request");
+    assert_eq!(requests[1]["tools"], requests[2]["tools"]);
+    common::assert_history_is_valid(fx.agent.conversation(), false);
+}
+
+#[tokio::test]
+async fn an_adaptation_that_leaves_the_request_unchanged_is_not_sent_again() {
+    // Nothing the adaptations change shows in this request, so each one
+    // builds the body that was refused: it is asked for the next, and when
+    // it has none the refusal is the turn's error.
+    let mut fx = Fixture::new(
+        ScriptedExchange::new([refused()])
+            .adapting([Adaptation::ToolLayout, Adaptation::Reasoning]),
+    );
+    let (result, _) = fx.turn("hi").await;
+    assert!(
+        matches!(result, Err(ai::Error::Api { status: 400, .. })),
+        "{result:?}"
+    );
+    assert_eq!(
+        fx.model.requests().len(),
+        1,
+        "the refused body went out again"
+    );
+}
+
+#[tokio::test]
+async fn a_model_that_keeps_adapting_to_the_same_request_is_stopped() {
+    let mut fx =
+        Fixture::new(ScriptedExchange::new([refused()]).adapting([Adaptation::ToolLayout; 12]));
+    let (result, _) = fx.turn("hi").await;
+    assert!(
+        matches!(result, Err(ai::Error::Api { status: 400, .. })),
+        "{result:?}"
+    );
+    assert_eq!(fx.model.requests().len(), 1);
 }

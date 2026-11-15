@@ -1113,7 +1113,7 @@ where
         // pass `MessagesRequest` through verbatim; OpenAI translates to
         // chat-completions JSON.
         let request_body = exchange.request_body(&request_struct);
-        let step = match step_streaming(exchange, &request_struct, &mut on_event).await? {
+        let step = match step_streaming(exchange, &request_body, &mut on_event).await? {
             Exchanged::Step(step) => step,
             Exchanged::Refused(refusal) => {
                 // A provider that can ask for something else (the ChatGPT
@@ -1135,10 +1135,13 @@ where
                         // left.
                         let different = loop {
                             adaptations += 1;
+                            // Formatted here, not in the macro, which skips
+                            // its fields when nothing listens.
+                            let adaptation_name = format!("{adaptation:?}");
                             tracing::warn!(
                                 status = refusal.status,
                                 request_id = refusal.request_id.as_deref().unwrap_or("-"),
-                                ?adaptation,
+                                adaptation = %adaptation_name,
                                 "the provider refused the request; sending a different one"
                             );
                             conversation.invalidate_thinking();
