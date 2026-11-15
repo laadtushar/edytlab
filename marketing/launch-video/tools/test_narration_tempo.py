@@ -18,7 +18,10 @@ def load_audio():
 
 
 class NarrationTempo(unittest.TestCase):
-    def filters(self, narration):
+    """mix_pcm and the exact 1.0 tempo sentinel."""
+
+    @staticmethod
+    def filters(narration):
         """Mix with no clips or sounds and return the filter given for each narration item."""
         audio = load_audio()
         seen = []
@@ -30,11 +33,16 @@ class NarrationTempo(unittest.TestCase):
         return seen
 
     def test_exact_one_or_missing_tempo_adds_no_filter(self):
+        """Tempo 1.0, or none, decodes without atempo."""
         seen = self.filters([{'t': 0, 'file': 'a.mp3', 'tempo': 1.0}, {'t': 0, 'file': 'b.mp3'}])
         self.assertEqual([f.startswith('atempo=') for f in seen], [False, False])
 
     def test_any_other_tempo_adds_the_filter(self):
-        seen = self.filters([{'t': 0, 'file': 'a.mp3', 'tempo': 1.25}, {'t': 0, 'file': 'b.mp3', 'tempo': 1.0001}])
+        """Any other tempo, even 1.0001, decodes through atempo."""
+        seen = self.filters([
+            {'t': 0, 'file': 'a.mp3', 'tempo': 1.25},
+            {'t': 0, 'file': 'b.mp3', 'tempo': 1.0001},
+        ])
         self.assertTrue(seen[0].startswith('atempo=1.25,'))
         self.assertTrue(seen[1].startswith('atempo=1.0001,'))
 

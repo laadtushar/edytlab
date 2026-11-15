@@ -16,12 +16,16 @@ with mock.patch.dict(os.environ, {"EDYTLAB_REEL_ROOT": str(PROJECT)}), \
 
 
 def cue(cue_id):
+    """A minimal step cue with the fields write_cues reads."""
     return {"id": cue_id, "start": 0.0, "end": 2.0, "kind": "step", "onscreen": "On screen",
             "narration": "Say it", "narration_spoken": "Say it", "words": 2, "max_words": 5}
 
 
 class TempoSentinelTests(unittest.TestCase):
+    """write_cues and the exact 1.0 tempo sentinel."""
+
     def test_cue_file_records_clip_tempo_only_off_one(self):
+        """1.0 is a plain copy (no clip_tempo); any other tempo, even 1.0001, is written."""
         timing = {c: {"clip": f"{c}.wav", "speech_end": 1.0, "tempo": t}
                   for c, t in (("a", 1.0), ("b", 1.25), ("c", 1.0001))}
         tl = {"file": "reel", "duration": 4.0, "cues": [cue("a"), cue("b"), cue("c")]}
