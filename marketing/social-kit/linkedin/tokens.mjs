@@ -7,9 +7,11 @@
  * a change that breaks the parse fails the render instead of drifting.
  *
  *   website/app/globals.css          the `:root` and `.dark` token blocks
- *                                    (colours, `--radius`), and the rules
- *                                    `.gradient-text`, `.glow`, `.aurora`,
- *                                    `.surface`
+ *                                    (colours, `--radius`), and the
+ *                                    Tailwind 4 utilities `gradient-text`,
+ *                                    `glow`, `aurora` (its washes are the
+ *                                    nested `&::before` / `&::after`) and
+ *                                    `surface`
  *   website/components/motion/logo.tsx   the logo's viewBox
  *   website/public/logo.svg          the logo's shapes and fills
  *   fonts/inter-latin-variable.woff2 the file the live site serves for
@@ -121,16 +123,17 @@ export function tokensCss() {
   const dark = declarations(ruleBody(css, ".dark"));
   const blocks = (sel, decls) => `${sel} {\n${decls.map(([k, v]) => `  ${k}: ${v};`).join("\n")}\n}`;
 
-  const gradientText = property(ruleBody(css, ".gradient-text"), "background", ".gradient-text");
-  const glow = property(ruleBody(css, ".glow"), "box-shadow", ".glow");
-  const surface = property(ruleBody(css, ".surface"), "background", ".surface");
+  const gradientText = property(ruleBody(css, "@utility gradient-text"), "background", "gradient-text");
+  const glow = property(ruleBody(css, "@utility glow"), "box-shadow", "glow");
+  const surface = property(ruleBody(css, "@utility surface"), "background", "surface");
 
-  // `.aurora::before` / `::after`: two blurred discs. The shared size,
-  // blur and opacity are in the combined rule; the colours and corners in
+  // `aurora`'s `&::before` / `&::after`: two blurred discs. The shared size,
+  // blur and opacity are in the combined block; the colours and corners in
   // the two that follow.
-  const auroraShared = ruleBody(css, ".aurora::before,\n  .aurora::after");
-  const auroraA = ruleBody(css, ".aurora::before");
-  const auroraB = ruleBody(css, ".aurora::after");
+  const auroraRule = ruleBody(css, "@utility aurora");
+  const auroraShared = ruleBody(auroraRule, "&::before,\n  &::after");
+  const auroraA = ruleBody(auroraRule, "&::before");
+  const auroraB = ruleBody(auroraRule, "&::after");
   const aurora = {
     size: property(auroraShared, "width", ".aurora"),
     opacity: property(auroraShared, "opacity", ".aurora"),
