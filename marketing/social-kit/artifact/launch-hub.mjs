@@ -770,7 +770,7 @@ ${js}</script>
     fs.copyFileSync(src, dst);
   }
   // Binary path order is part of files.json output; locale collation would change its bytes.
-  const map = Object.fromEntries(Object.keys(files).sort().map((p) => [p, path.join(OUT, p)]));
+  const map = Object.fromEntries(Object.keys(files).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).map((p) => [p, path.join(OUT, p)]));
   fs.writeFileSync(path.join(OUT, "files.json"), JSON.stringify(map, null, 2) + "\n");
   fs.writeFileSync(path.join(OUT, "existing-files.txt"), existing.join("\n") + "\n");
   fs.writeFileSync(path.join(OUT, "checklist-ids.txt"), CHECK_ITEMS.join("\n") + "\n");
