@@ -854,3 +854,115 @@ fn the_summary_names_what_was_done() {
     assert!(text.contains("Cut"), "{text}");
     assert!(text.contains("track 0"), "{text}");
 }
+
+// ---------------------------------------------------------------------
+// The refusals of the bodies `edit_at_markers` shares with the range tools
+// ---------------------------------------------------------------------
+
+/// A 16 kHz file's clip laid on track 0 after its 48 kHz one, gap and all, so
+/// the track mixes rates and its clips are not back to back.
+fn with_a_16k_clip_after_the_first(s: &mut Session) {
+    let odd = write_frames(&s.dir.path().join("odd.wav"), 16_000, 1, 16_000, |n| {
+        (n % 50) as f32 / 200.0
+    });
+    let mut state = s.state();
+    let mut clip = harness::clip(&odd, 12 * RATE as u64, 0, 16_000);
+    clip.content_hash = None;
+    state.tracks[0].clips.push(clip);
+    s.append_state("fixture: a clip at another rate", state);
+}
+
+#[test]
+fn a_split_at_a_negative_marker_is_refused() {
+    let mut s = session_with(json!([]));
+    s.ok("label", json!({ "name": "early", "time": -2.0 }));
+    let m = s.refused_at_markers(json!({ "action": "split", "track": 0, "markers": ["early"] }));
+    assert!(m.contains("'early'"), "{m}");
+    assert!(m.contains("0 or more"), "{m}");
+}
+
+#[test]
+fn a_join_with_one_clip_under_the_marker_is_refused() {
+    let mut s = session_with(json!([{ "name": "um", "start": 2.0, "end": 3.0 }]));
+    s.at_marker_free_split(2.0);
+    s.at_marker_free_split(3.0);
+    // Clips: [0,2) [2,3) [3,10): only the middle one is wholly under `um`.
+    let m = s.refused_at_markers(json!({ "action": "join", "track": 0, "markers": ["um"] }));
+    assert!(m.contains("only one clip"), "{m}");
+}
+
+#[test]
+fn arguments_the_schema_allows_but_the_tool_cannot_read_are_refused() {
+    let mut s = session_with(json!([{ "name": "um", "start": 2.0, "end": 3.0 }]));
+    // An integer, so the schema lets it by; a track cannot be negative.
+    let m = s.refused_at_markers(json!({ "action": "cut", "track": -1, "markers": ["um"] }));
+    assert!(m.contains("invalid arguments"), "{m}");
+}
+
+#[test]
+fn a_project_with_no_session_has_nothing_to_edit() {
+    let mut s = Session::empty();
+    let args = json!({ "action": "cut", "track": 0, "markers": ["um"] });
+    assert!(matches!(
+        s.try_call("edit_at_markers", args),
+        Ok(tools::ToolResult::Error(_)) | Err(_)
+    ));
+    let m = s.err(
+        "silence_region",
+        json!({ "track": 0, "start_sec": 0.0, "end_sec": 1.0 }),
+    );
+    assert!(!m.is_empty());
+    assert_eq!(s.node_count(), 0, "a refusal appended a node");
+}
+
+#[test]
+fn a_silence_over_a_source_that_cannot_be_read_is_refused() {
+    let mut s = session_with(json!([{ "name": "um", "start": 2.0, "end": 3.0 }]));
+    std::fs::write(s.dir.path().join("host.wav"), b"not audio").unwrap();
+    let nodes = s.node_count();
+    let m = s.refused_at_markers(json!({ "action": "silence", "track": 0, "markers": ["um"] }));
+    assert!(!m.is_empty());
+    assert_eq!(s.node_count(), nodes);
+}
+
+#[test]
+fn a_join_of_clips_in_different_formats_is_refused_and_names_the_file() {
+    let mut s = session_with(json!([]));
+    with_a_16k_clip_after_the_first(&mut s);
+    let nodes = s.node_count();
+    let args = json!({ "track": 0, "first_clip": 0, "last_clip": 1 });
+    let m = s.err("join_clips", args);
+    assert!(m.contains("one sample rate"), "{m}");
+    assert!(m.contains("odd.wav"), "{m}");
+    assert_eq!(s.node_count(), nodes);
+}
+
+#[test]
+fn a_join_that_cannot_write_its_render_is_refused() {
+    let mut s = session_with(json!([]));
+    // Two clips with a gap between them, so the join is rendered; `derived`
+    // is a file, so the render has nowhere to go.
+    s.at_marker_free_split(4.0);
+    let mut state = s.state();
+    state.tracks[0].clips[1].start_in_track += 48_000;
+    s.append_state("fixture: a gap", state);
+    let derived = s.dir.path().join(".audiograph").join("derived");
+    let _ = std::fs::remove_dir_all(&derived);
+    std::fs::write(&derived, b"a file, not a folder").unwrap();
+    let nodes = s.node_count();
+    let m = s.err("join_clips", json!({ "track": 0, "first_clip": 0 }));
+    assert!(m.contains("failed to write"), "{m}");
+    assert_eq!(s.node_count(), nodes);
+}
+
+#[test]
+fn a_locked_cut_on_a_track_that_mixes_rates_is_refused() {
+    let mut s = session_with(json!([]));
+    with_a_16k_clip_after_the_first(&mut s);
+    s.ok("set_sync_lock", json!({ "enabled": true }));
+    let nodes = s.node_count();
+    let args = json!({ "track": 0, "start_sample": 0, "end_sample": 48_000 });
+    let m = s.err("cut_range", args);
+    assert!(!m.is_empty());
+    assert_eq!(s.node_count(), nodes);
+}

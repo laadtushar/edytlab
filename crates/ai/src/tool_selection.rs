@@ -1526,8 +1526,9 @@ mod tests {
     /// `find_markers`, `edit_markers` and `delete_markers` (#766) begin
     /// with verbs every message uses ("delete the first five seconds",
     /// "make an edit at 10 s", "find the loudest part"). Only the word
-    /// "marker" names them, so the verbs alone send none of the five (`edit_at_markers`,
-    /// #766 item 2, with them: its "at" is no more a name than the verbs are).
+    /// "marker" names them, so the verbs alone send none of the five
+    /// (`edit_at_markers`, #766 item 2, with them: its "at" is no more a
+    /// name than the verbs are).
     #[test]
     fn a_plain_verb_does_not_send_the_marker_tools() {
         let marker_tools = [

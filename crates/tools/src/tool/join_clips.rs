@@ -196,10 +196,10 @@ pub(crate) fn join_run(
                 m.first.1,
                 m.found.0,
                 m.found.1,
-                m.path.file_name().map_or_else(
-                    || m.path.display().to_string(),
-                    |n| n.to_string_lossy().into_owned()
-                ),
+                m.path
+                    .file_name()
+                    .unwrap_or(m.path.as_os_str())
+                    .to_string_lossy(),
             )
         })?;
         // Named for the samples and their layout (#620); the clip's
