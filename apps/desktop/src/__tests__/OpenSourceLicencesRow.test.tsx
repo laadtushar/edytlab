@@ -49,6 +49,20 @@ describe("OpenSourceLicencesRow", () => {
     expect(noticesMock).toHaveBeenCalledTimes(1);
   });
 
+  it("draws the notices as a named, keyboard-focusable region, because they scroll", async () => {
+    // The panel is a scroll container (max-h-64, overflow-auto): without a
+    // focus stop a keyboard user cannot read past the first screenful
+    // (WCAG 2.1.1, axe `scrollable-region-focusable`), and a region with a
+    // name is how that stop is announced.
+    noticesMock.mockResolvedValue("MIT License\n");
+    const user = userEvent.setup();
+    render(<OpenSourceLicencesRow />);
+    await user.click(screen.getByTestId("settings-licences-toggle"));
+    const region = await screen.findByRole("region", { name: "Third-party notices" });
+    expect(region).toBe(screen.getByTestId("settings-licences-text"));
+    expect(region).toHaveAttribute("tabindex", "0");
+  });
+
   it("says so when the build has no notices file", async () => {
     // Tauri rejects an invoke with the command's error string.
     noticesMock.mockRejectedValue("The open source licences file is not in this build.");

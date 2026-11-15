@@ -15,7 +15,9 @@ stage-vc-runtime (Windows only) copies the Visual C++ runtime DLLs that
 onnxruntime.dll imports (`vc_runtime.files` in ml-runtime.json) from the
 build machine's Visual Studio into <outdir>, which the Windows overlay bundles
 from apps/desktop/src-tauri/ml-runtime/vc-runtime-x64. It refuses a DLL older
-than `vc_runtime.min_version`.
+than `vc_runtime.min_version`. <outdir> must be inside
+apps/desktop/src-tauri/ml-runtime (a path that resolves elsewhere, by `..` or
+a symlink, is refused), and every name in `vc_runtime.files` a bare file name.
 
 check opens each installer the way a user's machine would see it, without
 installing anything, and fails unless:
@@ -66,6 +68,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SRC_TAURI = REPO / "apps" / "desktop" / "src-tauri"
 MANIFEST = SRC_TAURI / "ml-runtime.json"
+# Where the overlays bundle the runtime from: stage-vc-runtime writes only here.
+STAGING_ROOT = SRC_TAURI / "ml-runtime"
 
 OVERLAYS = {
     "linux-x64": "tauri.ml-runtime.linux.conf.json",
@@ -90,6 +94,28 @@ VC_RUNTIME_IMPORT = re.compile(r"^(msvcp|vcruntime|concrt|vccorlib|vcomp)\d.*\.d
 
 def die(message):
     sys.exit("installer-ml-runtime: " + message)
+
+
+def inside(root, path, what):
+    """`path` as an absolute, symlink-free path, which must be `root` or below it.
+
+    Resolved before the comparison, so a `..` or a symlink that leads out of
+    `root` is refused. (abspath first: Path.resolve() leaves a relative path
+    that does not exist yet relative on Windows before Python 3.10.)
+    """
+    root = Path(os.path.abspath(root)).resolve()
+    resolved = Path(os.path.abspath(path)).resolve()
+    if resolved != root and root not in resolved.parents:
+        die(f"{what} {path} is outside {root}")
+    return resolved
+
+
+def file_name(name, what):
+    """`name` if it is a bare file name, which a manifest's file list must hold."""
+    bare = isinstance(name, str) and name not in ("", ".", "..")
+    if not bare or any(c in name for c in "/\\:"):
+        die(f"{what} {name!r} is not a bare file name")
+    return name
 
 
 def load_json(path):
@@ -563,9 +589,12 @@ def stage_vc_runtime(outdir):
     floor = min_version(vc["min_version"])
     crt = visual_studio_crt_dir()
     print("installer-ml-runtime: the Visual C++ runtime from %s" % crt)
-    outdir = Path(outdir)
+    # The overlay bundles from under ml-runtime/, so that is the only place to
+    # stage into; the workflows pass apps/desktop/src-tauri/ml-runtime/vc-runtime-x64.
+    outdir = inside(STAGING_ROOT, outdir, "the output folder")
     outdir.mkdir(parents=True, exist_ok=True)
     for name in vc["files"]:
+        file_name(name, "vc_runtime.files entry in ml-runtime.json")
         src = crt / name
         if not src.is_file():
             die("%s has no %s" % (crt, name))

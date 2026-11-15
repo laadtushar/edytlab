@@ -34,6 +34,7 @@ on clean read speech.
 import array
 import hashlib
 import math
+import os
 import random
 import subprocess
 import sys
@@ -56,6 +57,21 @@ RATE = 16_000
 LEAD_IN_S = 4.0
 PAUSE_EVERY = 6
 PAUSES_S = (1.5, 3.0, 6.0)
+
+
+def child(out: Path, name: str) -> Path:
+    """`out/name` for a file this script writes: a bare name, and not a symlink.
+
+    `out` is the one place the script writes, so a name that is not directly
+    in it, or an existing link at that name that would carry the write
+    somewhere else (OUT_DIR may be a shared or reused folder), is refused.
+    """
+    if Path(name).name != name or name in ("", ".", ".."):
+        sys.exit(f"{name!r} is not a file name")
+    path = out / name
+    if path.is_symlink():
+        sys.exit(f"{path} is a symlink; remove it, or choose another OUT_DIR")
+    return path
 
 
 def sha256(path: Path) -> str:
@@ -122,9 +138,14 @@ def write_tsv(path: Path, reference) -> None:
 def main() -> None:
     import pyarrow.parquet as pq
 
-    out = Path(sys.argv[1])
+    if len(sys.argv) != 2:
+        sys.exit("usage: prepare.py OUT_DIR")
+    out = Path(os.path.abspath(sys.argv[1]))
+    if out.exists() and not out.is_dir():
+        sys.exit(f"{out} is not a directory")
     out.mkdir(parents=True, exist_ok=True)
-    parquet = out / "dev_clean.parquet"
+    out = out.resolve()
+    parquet = child(out, "dev_clean.parquet")
     fetch(parquet)
     table = pq.read_table(parquet, columns=["id", "audio", "words"]).to_pylist()
     for chapter in CHAPTERS:
@@ -141,9 +162,9 @@ def main() -> None:
             pcm = decode(row["audio"]["bytes"])
             plain += pcm
             utterances.append((pcm, row["words"]))
-        wav = out / f"{chapter}.wav"
+        wav = child(out, f"{chapter}.wav")
         write_wav(wav, bytes(plain))
-        write_tsv(out / f"{chapter}.words.tsv", reference)
+        write_tsv(child(out, f"{chapter}.words.tsv"), reference)
         print(f"{wav}  {len(plain) / 2 / RATE:.1f} s  {len(reference)} words  sha256 {sha256(wav)}")
 
         # The same speech with pauses.
@@ -158,9 +179,9 @@ def main() -> None:
             gapped += pcm
             if k % PAUSE_EVERY == PAUSE_EVERY - 1:
                 gapped += noise(next(pauses), sigma, rng)
-        wav = out / f"{chapter}-pauses.wav"
+        wav = child(out, f"{chapter}-pauses.wav")
         write_wav(wav, bytes(gapped))
-        write_tsv(out / f"{chapter}-pauses.words.tsv", reference)
+        write_tsv(child(out, f"{chapter}-pauses.words.tsv"), reference)
         print(f"{wav}  {len(gapped) / 2 / RATE:.1f} s  {len(reference)} words  sha256 {sha256(wav)}")
 
 
