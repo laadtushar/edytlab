@@ -106,14 +106,15 @@ def inside(root, path, what):
     root = Path(os.path.abspath(root)).resolve()
     resolved = Path(os.path.abspath(path)).resolve()
     if resolved != root and root not in resolved.parents:
-        die("%s %s is outside %s" % (what, path, root))
+        die(f"{what} {path} is outside {root}")
     return resolved
 
 
 def file_name(name, what):
     """`name` if it is a bare file name, which a manifest's file list must hold."""
-    if not isinstance(name, str) or name in ("", ".", "..") or any(c in name for c in "/\\:"):
-        die("%s %r is not a bare file name" % (what, name))
+    bare = isinstance(name, str) and name not in ("", ".", "..")
+    if not bare or any(c in name for c in "/\\:"):
+        die(f"{what} {name!r} is not a bare file name")
     return name
 
 

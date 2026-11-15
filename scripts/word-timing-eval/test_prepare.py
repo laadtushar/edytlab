@@ -9,20 +9,25 @@ import prepare  # noqa: E402
 
 
 class ChildTests(unittest.TestCase):
+    """child(): every output is a bare name inside the output folder."""
     def setUp(self):
+        """A temporary output folder."""
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.out = Path(self.tmp.name).resolve()
 
     def test_a_bare_name_is_in_the_folder(self):
+        """A bare name maps to a file in the folder."""
         self.assertEqual(prepare.child(self.out, "a.wav"), self.out / "a.wav")
 
     def test_a_name_that_leaves_the_folder_is_refused(self):
+        """Names with a path or a dot name are refused."""
         for name in ("../a.wav", "sub/a.wav", "", ".", ".."):
             with self.assertRaises(SystemExit, msg=name):
                 prepare.child(self.out, name)
 
     def test_a_symlink_at_the_name_is_refused(self):
+        """An existing symlink at the name is refused rather than written through."""
         target = self.out / "elsewhere.txt"
         target.write_text("keep")
         link = self.out / "a.wav"
