@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 113 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 114 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -87,6 +87,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`normalize_loudness`](#normalize_loudness) — Set a track's gain so its integrated loudness (EBU R128) reaches target_lufs.
 - [`notch_filter`](#notch_filter) — Apply a notch (band-reject) filter to a track, attenuating frequencies near center_hz.
 - [`paste_region`](#paste_region) — Paste the clipboard audio (set by copy_region) into a track at a given offset.
+- [`paulstretch`](#paulstretch) — Paulstretch: stretch a track or `range` to `factor` times its length as a smooth ambient pad.
 - [`phaser`](#phaser) — Apply a phaser effect using an all-pass filter chain with LFO sweep.
 - [`pitch_shift`](#pitch_shift) — Shift a track's pitch in semitones without changing its duration.
 - [`plot_spectrum`](#plot_spectrum) — Compute the frequency spectrum of a track region and show the user a chart of it.
@@ -937,6 +938,18 @@ Paste the clipboard audio (set by copy_region) into a track at a given offset. T
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
+## `paulstretch`
+
+Paulstretch: stretch a track or `range` to `factor` times its length as a smooth ambient pad. Keeps the pitch, drops the attacks. factor 1 to 50; window_sec 0.02 to 5 (default 0.25; longer is smoother); same seed, same sound. Result at most 1200 s. With sync-lock on, a range opens the added time on every track. Appends a new session node.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `factor` | number | yes |  |
+| `range` | object | no |  |
+| `seed` | integer | no |  |
+| `track` | integer | yes |  |
+| `window_sec` | number | no |  |
+
 ## `phaser`
 
 Apply a phaser effect using an all-pass filter chain with LFO sweep. rate_hz controls LFO speed; depth is the wet blend; stages sets the filter chain length (2-12). Appends a new session node.
@@ -1258,7 +1271,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `set_sync_lock`
 
-Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track, so a multitrack recording stays aligned — cutting a sentence from one speaker's track in an interview moves the other speaker's track by the same amount rather than desynchronising the conversation. Affects `cut_range`, `insert_silence` and `paste_region`; each is still one undoable node covering every track it moved.
+Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track, so a multitrack recording stays aligned — cutting a sentence from one speaker's track in an interview moves the other speaker's track by the same amount rather than desynchronising the conversation. Affects `cut_range`, `insert_silence`, `paste_region` and `paulstretch` with a range; each is still one undoable node covering every track it moved.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

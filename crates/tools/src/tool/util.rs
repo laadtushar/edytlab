@@ -2089,7 +2089,7 @@ impl Moved {
     }
 
     /// The edit changed `track`, and every other track too when the session
-    /// is sync-locked (the tools that call [`sync_other_tracks`]).
+    /// is sync-locked (the tools that call [`sync_other_tracks`]: `insert_silence`, `paste_region` and `paulstretch` with a range).
     pub(crate) fn sync_locked(state: &SessionState, track: usize) -> Self {
         Self {
             track,

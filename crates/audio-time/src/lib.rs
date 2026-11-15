@@ -29,11 +29,17 @@
 //!
 //! See `vocoder.rs` for how it works.
 
+pub use paulstretch::{
+    paulstretch, MAX_PAULSTRETCH_FACTOR, MAX_PAULSTRETCH_WINDOW_SEC, MIN_PAULSTRETCH_FACTOR,
+    MIN_PAULSTRETCH_WINDOW_SEC,
+};
 pub use shift::pitch_shift;
 pub use stretch::time_stretch;
 pub use warp::warp_to_grid;
 
 mod formant;
+/// Paulstretch, Paul Nasca's extreme time stretch (see the module docs).
+pub mod paulstretch;
 pub mod shift;
 pub mod stretch;
 mod vocoder;
@@ -53,6 +59,18 @@ pub enum Error {
     /// generous for any realistic mashup use.
     #[error("invalid semitones: {0} (must be finite and within ±48)")]
     InvalidSemitones(f32),
+
+    /// Paulstretch factor must be finite and within 1..=50.
+    #[error("invalid stretch: {0} (must be finite and within 1..=50)")]
+    InvalidStretch(f32),
+
+    /// Paulstretch window, in seconds, must be finite and within 0.02..=5.
+    #[error("invalid window: {0} s (must be finite and within 0.02..=5 seconds)")]
+    InvalidWindow(f32),
+
+    /// A sample rate of zero cannot size a window.
+    #[error("invalid sample rate: {0} (must be > 0)")]
+    InvalidSampleRate(u32),
 
     /// `samples.len()` is not a multiple of `channels`, or `channels`
     /// is zero.

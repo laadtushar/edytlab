@@ -258,9 +258,9 @@ impl ToolDispatcher {
             LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool, MeasureTool,
             MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteAllTracksTool, MuteTrackTool,
             NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
-            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
-            PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
-            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            NotchFilterTool, PasteRegionTool, PaulstretchTool, PhaserTool, PitchShiftTool,
+            PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool,
+            RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
             ReorderEffectsTool, ReorderTracksTool, RepairSpanTool, RepeatSelectionTool,
             ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SelectRegionTool,
             SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
@@ -410,6 +410,7 @@ impl ToolDispatcher {
         d.register(Box::new(StereoWidenerTool));
         d.register(Box::new(TremoloTool));
         d.register(Box::new(WahWahTool));
+        d.register(Box::new(PaulstretchTool));
         // A3 task 4: export_labels, import_labels (Audacity format).
         d.register(Box::new(ExportLabelsTool));
         d.register(Box::new(ImportLabelsTool));
@@ -709,7 +710,7 @@ impl ToolDispatcher {
 /// Only these: a tool that ignores the message would replay a range it
 /// never used. `tool_provenance.rs` checks that every tool reading the
 /// message is listed.
-pub const READS_RANGE_FROM_MESSAGE: &[&str] = &["copy_region", "fade", "reverse"];
+pub const READS_RANGE_FROM_MESSAGE: &[&str] = &["copy_region", "fade", "paulstretch", "reverse"];
 
 pub const READS_OUTSIDE_THE_SESSION: &[&str] =
     &["load", "paste_region", "transcribe", "separate_stems"];

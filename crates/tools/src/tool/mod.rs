@@ -68,6 +68,8 @@ pub mod normalize;
 pub mod normalize_loudness;
 pub mod notch_filter;
 pub mod paste_region;
+/// `paulstretch`: extreme stretch of a track or range for ambient textures.
+pub mod paulstretch;
 pub mod phaser;
 pub mod pitch_shift;
 pub mod plot_spectrum;
@@ -180,6 +182,7 @@ pub use normalize::NormalizeTool;
 pub use normalize_loudness::NormalizeLoudnessTool;
 pub use notch_filter::NotchFilterTool;
 pub use paste_region::PasteRegionTool;
+pub use paulstretch::PaulstretchTool;
 pub use phaser::PhaserTool;
 pub use pitch_shift::PitchShiftTool;
 pub use plot_spectrum::PlotSpectrumTool;

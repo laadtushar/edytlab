@@ -56,8 +56,13 @@ impl Session {
 /// Run `tool` with its range only in the message, make it history, sweep
 /// everything, and check its audio went and comes back byte for byte.
 fn swept_and_back(tool: &str) {
+    swept_and_back_with(tool, json!({ "track": 0 }));
+}
+
+/// [`swept_and_back`] for a tool that needs arguments besides the track.
+fn swept_and_back_with(tool: &str, args: Value) {
     let mut s = Session::new();
-    s.say(tool, json!({ "track": 0 }), &format!("{SELECTION}do it"));
+    s.say(tool, args, &format!("{SELECTION}do it"));
     let node = s.head();
     let audio = s.head_audio();
     let bytes = std::fs::read(&audio).expect("edited audio");
@@ -88,6 +93,13 @@ fn a_fade_over_the_selection_is_swept_and_comes_back() {
 #[test]
 fn a_reverse_of_the_selection_is_swept_and_comes_back() {
     swept_and_back("reverse");
+}
+
+/// `paulstretch` draws random phases, so a replay matches only because an
+/// omitted seed is a fixed one: the rebuilt file must be the swept one.
+#[test]
+fn a_paulstretch_of_the_selection_is_swept_and_comes_back() {
+    swept_and_back_with("paulstretch", json!({ "track": 0, "factor": 3.0 }));
 }
 
 #[test]
