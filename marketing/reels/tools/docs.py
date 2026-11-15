@@ -1,5 +1,6 @@
 """Writes out/transcripts.md, out/transcripts/<cue-id>.txt (plus es/) and the per-cue tables.
 The intro (ElevenLabs settings, licence terms) is a template in INTRO below."""
+import math
 import json
 import os
 import sys
@@ -53,7 +54,7 @@ def table(tl):
             sp = f"{tm['speech_end']:.2f} s" if tm else "-"
             note = {"hook": "title card", "end": "end card", "listen": "lead-in only, silent over the music"}.get(c["kind"], "")
             # prepare() uses exact 1.0 to mark a copy without tempo processing.
-            if tm.get("tempo", 1.0) != 1.0:
+            if not math.isclose(tm.get("tempo", 1.0), 1.0, rel_tol=0.0, abs_tol=0.0):
                 note = (note + "; " if note else "") + f"clip sped up {tm['tempo']:.2f}x to keep 0.3 s of room"
             rows.append(f"| {c['id']} | {win} | {cell(c['onscreen'])} | {cell(c['narration_spoken'])} | {c['words']} / {c['max_words']} | {sp} | {note} |")
         else:

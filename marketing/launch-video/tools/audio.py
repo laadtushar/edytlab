@@ -15,6 +15,7 @@ limiter iterate until -14 LUFS with a true peak below -1 dBTP. AAC uses 48 kHz s
 the video stream is copied. Local file: URLs retain FFmpeg's one-prefix filename semantics;
 other protocols and virtual streams are refused.
 """
+import math
 import audioop  # skipcq: PYL-W0402 -- the mixer is built on audioop (docstring above)
 import json
 import os
@@ -113,7 +114,8 @@ def mix_pcm(cues, narration, sfx_dir, use_sfx, music_db, sfx_db_shift):
             place(buf, cache[key], t)
     for item in narration:
         _checked_media_path(item["file"])
-        tempo = f"atempo={item['tempo']}," if item.get("tempo", 1.0) != 1.0 else ""
+        # Exact 1.0 means "no tempo filter"; zero tolerance keeps `!=` semantics (NaN included).
+        tempo = f"atempo={item['tempo']}," if not math.isclose(item.get("tempo", 1.0), 1.0, rel_tol=0.0, abs_tol=0.0) else ""
         place(buf, decode(
             ["-i", item["file"]], f"{tempo}{FMT},volume={item.get('gain_db', 0) + 3}dB",
         ), item["t"])

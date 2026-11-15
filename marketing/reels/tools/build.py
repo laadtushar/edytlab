@@ -15,6 +15,7 @@ lines in spec.LINES were written for the earlier takes, see the README):
   build.py reel <key> narrated|both     (highlights-es for the Spanish reel)
   build.py demo <BT|EI|MM>              narrated version of a full website demo (+ srt)
 """
+import math
 import json
 import os
 import re
@@ -165,7 +166,7 @@ def write_cues(tl, timing, path, sfx=None, audio_rel=None, video_name=None):
             c["clip_speech_seconds"] = t["speech_end"]
             # Exact identity sentinel, not an approximate measurement: prepare()
             # writes 1.0 when it copies a clip without applying a tempo filter.
-            if t["tempo"] != 1.0:
+            if not math.isclose(t["tempo"], 1.0, rel_tol=0.0, abs_tol=0.0):
                 c["clip_tempo"] = t["tempo"]
         cues.append(c)
     doc = dict(video=video_name or f"{tl['file']}.mp4", duration=tl["duration"], audio_dir=audio_rel or f"audio/{tl['file']}",
