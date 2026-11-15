@@ -563,6 +563,12 @@ export const toolAreas: ToolArea[] = [
             output: "node_id, new_duration_sec",
           },
           {
+            name: "paulstretch",
+            prompt: "turn this chord into a 20x ambient pad",
+            what: "Extreme stretch for ambient textures: keeps each window's pitch content, randomises its phases and overlaps the frames, so the sound becomes a smooth pad with no attacks. Works on a track or a range. factor 1 to 50, window_sec 0.02 to 5 (longer is smoother), a seed for repeatable output; the result is at most 1200 s.",
+            output: "node_id, output_seconds",
+          },
+          {
             name: "pitch_shift",
             prompt: 'shift the vocals up 2 semitones',
             what: "Change the pitch without changing the duration. Set preserve_formants on voices so a shift sounds like the same person singing higher, not a chipmunk. Range: −12 to +12 semitones.",

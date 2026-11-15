@@ -152,6 +152,7 @@ const TOOL_LABELS: Record<string, string> = {
 
   // Time and pitch
   time_stretch: "Time stretch",
+  paulstretch: "Paulstretch",
   pitch_shift: "Pitch shift",
   change_speed: "Change speed",
 
