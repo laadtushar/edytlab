@@ -68,6 +68,7 @@ pub mod normalize;
 pub mod normalize_loudness;
 pub mod notch_filter;
 pub mod paste_region;
+/// `paulstretch`: extreme stretch of a track or range for ambient textures.
 pub mod paulstretch;
 pub mod phaser;
 pub mod pitch_shift;

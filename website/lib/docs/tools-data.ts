@@ -193,7 +193,7 @@ export const toolAreas: ToolArea[] = [
           {
             name: "set_sync_lock",
             prompt: "keep the tracks in sync when you cut",
-            what: "Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track. An interview is one track per speaker, and cutting a sentence from one of them leaves every later word on that track early while the other speaker stays put — the conversation comes apart, and nothing about the edit says it will. Affects cut_range, insert_silence and paste_region.",
+            what: "Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track. An interview is one track per speaker, and cutting a sentence from one of them leaves every later word on that track early while the other speaker stays put — the conversation comes apart, and nothing about the edit says it will. Affects cut_range, insert_silence, paste_region and paulstretch with a range.",
             output: "node_id, sync_lock, changed",
             note: "Each affected edit is still one undoable node covering every track it moved, so undo restores the whole edit rather than half of it. The mode is part of the session, so it survives Save As and the agent can read it before deciding whether a cut is safe.",
           },

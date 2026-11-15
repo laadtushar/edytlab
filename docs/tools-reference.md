@@ -940,7 +940,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `paulstretch`
 
-Paulstretch: stretch a track or `range` to `factor` times its length as a smooth ambient pad. Keeps the pitch, drops the attacks. factor 1 to 50; window_sec 0.02 to 5 (default 0.25; longer is smoother); same seed, same sound. Result at most 1200 s. Appends a new session node.
+Paulstretch: stretch a track or `range` to `factor` times its length as a smooth ambient pad. Keeps the pitch, drops the attacks. factor 1 to 50; window_sec 0.02 to 5 (default 0.25; longer is smoother); same seed, same sound. Result at most 1200 s. With sync-lock on, a range opens the added time on every track. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1271,7 +1271,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `set_sync_lock`
 
-Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track, so a multitrack recording stays aligned — cutting a sentence from one speaker's track in an interview moves the other speaker's track by the same amount rather than desynchronising the conversation. Affects `cut_range`, `insert_silence` and `paste_region`; each is still one undoable node covering every track it moved.
+Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track, so a multitrack recording stays aligned — cutting a sentence from one speaker's track in an interview moves the other speaker's track by the same amount rather than desynchronising the conversation. Affects `cut_range`, `insert_silence`, `paste_region` and `paulstretch` with a range; each is still one undoable node covering every track it moved.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

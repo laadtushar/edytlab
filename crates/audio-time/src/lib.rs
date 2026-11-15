@@ -38,6 +38,7 @@ pub use stretch::time_stretch;
 pub use warp::warp_to_grid;
 
 mod formant;
+/// Paulstretch, Paul Nasca's extreme time stretch (see the module docs).
 pub mod paulstretch;
 pub mod shift;
 pub mod stretch;

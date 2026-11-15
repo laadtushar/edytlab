@@ -285,3 +285,116 @@ fn an_output_longer_than_twenty_minutes_is_refused_with_the_limit() {
     assert!(msg.contains("1200"), "{msg}");
     assert!(msg.contains("1500"), "{msg}");
 }
+
+/// What a refused call must leave behind: the head and the node count.
+fn refused_with(args: Value, wants: &[&str]) {
+    let mut s = tone_session(RATE, 1.0, 440.0);
+    let (head, nodes) = (s.head(), s.node_count());
+    let msg = match s.try_call("paulstretch", args.clone()) {
+        Ok(tools::ToolResult::Error(m)) => m,
+        Ok(tools::ToolResult::Ok(v)) => panic!("{args}: expected a refusal, got {v}"),
+        Err(e) => e.to_string(),
+    };
+    for want in wants {
+        assert!(msg.contains(want), "{args}: `{want}` not in `{msg}`");
+    }
+    assert_eq!(s.head(), head, "{args}");
+    assert_eq!(s.node_count(), nodes, "{args}");
+}
+
+#[test]
+fn a_huge_factor_is_refused_before_any_arithmetic_with_its_bounds() {
+    // 1e20 saturates `as usize`; it must be refused by name, not overflow.
+    for bad in [1e20, 1e30, 50.01] {
+        refused_with(
+            json!({"track": 0, "factor": bad, "range": {"start_sec": 0.1, "end_sec": 0.9}}),
+            &["stretch factor", "1", "50"],
+        );
+        refused_with(
+            json!({"track": 0, "factor": bad}),
+            &["stretch factor", "1", "50"],
+        );
+    }
+    // Past f32's range the argument parser refuses it; still no node.
+    refused_with(json!({"track": 0, "factor": 1e39}), &[]);
+    refused_with(
+        json!({"track": 0, "factor": 0.999}),
+        &["stretch factor", "1", "50"],
+    );
+}
+
+#[test]
+fn a_window_outside_its_bounds_is_refused_with_them() {
+    for bad in [0.0, 0.0199, 5.01, 1e20, -0.25] {
+        refused_with(
+            json!({"track": 0, "factor": 4.0, "window_sec": bad}),
+            &["window_sec", "0.02", "5"],
+        );
+    }
+}
+
+/// Three tracks: 0 is edited, 1 is a 1 s clip moved to start at 3 s (after the
+/// range), 2 is a 0.5 s clip at 0 (before it).
+fn synced_session(sync_lock: bool) -> Session {
+    let tone = |n: usize| -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / RATE as f32).sin() * 0.4)
+            .collect()
+    };
+    let mut s = Session::with_tracks(&[
+        (RATE, tone(RATE as usize * 4)),
+        (RATE, tone(RATE as usize)),
+        (RATE, tone(RATE as usize / 2)),
+    ]);
+    s.ok(
+        "move_clip",
+        json!({"track": 1, "clip_index": 0, "start_sec": 3.0}),
+    );
+    s.ok("label", json!({"name": "late", "time": 3.5}));
+    s.ok("set_sync_lock", json!({"enabled": sync_lock}));
+    s
+}
+
+fn clip_start_sec(s: &Session, track: usize) -> f64 {
+    s.state().tracks[track].clips[0].start_in_track as f64 / RATE as f64
+}
+
+#[test]
+fn a_range_stretch_with_sync_lock_opens_the_gap_on_the_other_tracks() {
+    let mut s = synced_session(true);
+    let head = s.head();
+    s.ok(
+        "paulstretch",
+        json!({"track": 0, "factor": 3.0, "range": {"start_sec": 1.0, "end_sec": 2.0}}),
+    );
+    assert_ne!(s.head(), head);
+    // The range gained 1 s x (3 - 1) = 2 s at 2 s.
+    assert!(
+        (clip_start_sec(&s, 1) - 5.0).abs() < 1e-6,
+        "after the range"
+    );
+    assert!(clip_start_sec(&s, 2).abs() < 1e-6, "before the range");
+    assert!((mark_at(&s.state(), "late") - 5.5).abs() < 1e-3);
+    // One node covers every track it moved.
+    assert_eq!(s.state().tracks[1].clips.len(), 1);
+}
+
+#[test]
+fn a_range_stretch_without_sync_lock_leaves_the_other_tracks() {
+    let mut s = synced_session(false);
+    s.ok(
+        "paulstretch",
+        json!({"track": 0, "factor": 3.0, "range": {"start_sec": 1.0, "end_sec": 2.0}}),
+    );
+    assert!((clip_start_sec(&s, 1) - 3.0).abs() < 1e-6);
+    assert!(clip_start_sec(&s, 2).abs() < 1e-6);
+    // Marks follow the recording whether or not the tracks are locked.
+    assert!((mark_at(&s.state(), "late") - 5.5).abs() < 1e-3);
+}
+
+#[test]
+fn a_whole_track_stretch_does_not_touch_other_tracks_even_with_sync_lock() {
+    let mut s = synced_session(true);
+    s.ok("paulstretch", json!({"track": 0, "factor": 2.0}));
+    assert!((clip_start_sec(&s, 1) - 3.0).abs() < 1e-6);
+}

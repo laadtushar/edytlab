@@ -14,6 +14,11 @@
 //! is [`DEFAULT_SEED`], never the clock, and a node replayed from its
 //! recorded arguments (`rederive`) writes the same audio.
 //!
+//! With sync-lock on, a range stretch opens the gained time on every other
+//! track, as `insert_silence` does (one node, `sync_other_tracks`); a
+//! whole-track stretch re-times one recording and, like `time_stretch`, moves
+//! no other track.
+//!
 //! What moves with the audio. A whole-track stretch scales every mark and
 //! word by the factor, as `time_stretch` does. A range is replaced by its
 //! stretched self, so what lies after it moves later by what the range
@@ -28,7 +33,8 @@ use serde_json::Value;
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, parse_args, remap_after_insert, remap_after_scale, Moved,
+    destructive_edit_then, insert_gap_timeline, load_head_state, parse_args, remap_after_insert,
+    remap_after_scale, seconds_to_frames, sync_other_tracks, track_clip_rates, Moved,
 };
 use crate::util::range_resolver::resolve as resolve_range;
 use crate::{Range, Tool, ToolContext, ToolResult};
@@ -63,6 +69,8 @@ struct Done {
     output_sec: f64,
 }
 
+/// The `paulstretch` agent tool: Paul Nasca's extreme stretch of a track or a
+/// range, written as one new session node.
 pub struct PaulstretchTool;
 
 impl Tool for PaulstretchTool {
@@ -73,7 +81,7 @@ impl Tool for PaulstretchTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "paulstretch",
-            "Paulstretch: stretch a track or `range` to `factor` times its length as a smooth ambient pad. Keeps the pitch, drops the attacks. factor 1 to 50; window_sec 0.02 to 5 (default 0.25; longer is smoother); same seed, same sound. Result at most 1200 s. Appends a new session node.",
+            "Paulstretch: stretch a track or `range` to `factor` times its length as a smooth ambient pad. Keeps the pitch, drops the attacks. factor 1 to 50; window_sec 0.02 to 5 (default 0.25; longer is smoother); same seed, same sound. Result at most 1200 s. With sync-lock on, a range opens the added time on every track. Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -112,7 +120,37 @@ impl Tool for PaulstretchTool {
         };
         let (track, factor) = (args.track, args.factor);
         let window_sec = args.window_sec.unwrap_or(DEFAULT_WINDOW_SEC);
+        // Before any arithmetic on them: a factor of 1e20 saturates `as usize`.
+        if !(audio_time::MIN_PAULSTRETCH_FACTOR..=audio_time::MAX_PAULSTRETCH_FACTOR)
+            .contains(&factor)
+        {
+            return Ok(ToolResult::Error(format!(
+                "invalid stretch factor: {factor} (must be finite and within {} to {})",
+                audio_time::MIN_PAULSTRETCH_FACTOR,
+                audio_time::MAX_PAULSTRETCH_FACTOR
+            )));
+        }
+        if !(audio_time::MIN_PAULSTRETCH_WINDOW_SEC..=audio_time::MAX_PAULSTRETCH_WINDOW_SEC)
+            .contains(&window_sec)
+        {
+            return Ok(ToolResult::Error(format!(
+                "invalid window_sec: {window_sec} (must be finite and within {} to {} seconds)",
+                audio_time::MIN_PAULSTRETCH_WINDOW_SEC,
+                audio_time::MAX_PAULSTRETCH_WINDOW_SEC
+            )));
+        }
         let seed = args.seed.unwrap_or(DEFAULT_SEED);
+
+        // Sync-lock needs each other track's own rate (#234, #673), asked before
+        // anything is edited so a track with no single rate refuses the call.
+        let rates = match load_head_state(ctx) {
+            Ok(state) if state.sync_lock => match track_clip_rates(&state) {
+                Ok(r) => r,
+                Err(e) => return Ok(ToolResult::Error(e)),
+            },
+            Ok(_) => Vec::new(),
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
 
         let done = Rc::new(Cell::new(Done::default()));
         let edit_done = Rc::clone(&done);
@@ -147,10 +185,11 @@ impl Tool for PaulstretchTool {
                         frames as f64 / rate
                     ));
                 }
-                let result_frames = frames - (end - start)
-                    + ((end - start) as f64 * factor as f64).round() as usize;
-                let result_sec = result_frames as f64 / rate;
-                if factor.is_finite() && result_sec > MAX_OUTPUT_SEC {
+                let span = end - start;
+                let stretched_frames = (span as f64 * factor as f64).round() as usize;
+                let result_frames = (frames - span).checked_add(stretched_frames);
+                let result_sec = result_frames.map_or(f64::INFINITY, |f| f as f64 / rate);
+                if result_sec > MAX_OUTPUT_SEC {
                     return Err(format!(
                         "the result would be {result_sec:.0} s long; the longest paulstretch makes is {MAX_OUTPUT_SEC:.0} s. Use a smaller factor or a shorter range"
                     ));
@@ -181,12 +220,24 @@ impl Tool for PaulstretchTool {
             },
             move |state, edited| {
                 let d = after_done.get();
-                let moved = Moved::track(edited);
                 if range.is_none() {
-                    remap_after_scale(state, moved, factor as f64);
+                    remap_after_scale(state, Moved::track(edited), factor as f64);
                 } else {
+                    // The range lengthens the recording where it ends, which is
+                    // what inserting that much time there does: marks, words
+                    // and (with sync-lock) every other track follow.
                     let gained = (d.end_sec - d.start_sec) * (factor as f64 - 1.0);
-                    remap_after_insert(state, moved, d.end_sec, gained);
+                    let at = d.end_sec;
+                    remap_after_insert(state, Moved::sync_locked(state, edited), at, gained);
+                    if state.sync_lock {
+                        sync_other_tracks(state, edited, &rates, |clips, rate| {
+                            let len_frames = seconds_to_frames(gained, rate);
+                            if len_frames == 0 {
+                                return clips.to_vec();
+                            }
+                            insert_gap_timeline(clips, seconds_to_frames(at, rate), len_frames)
+                        });
+                    }
                 }
                 let mut out = serde_json::Map::new();
                 out.insert("factor".into(), Value::from(factor));

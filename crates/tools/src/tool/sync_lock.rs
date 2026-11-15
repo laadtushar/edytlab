@@ -44,7 +44,7 @@ impl Tool for SetSyncLockTool {
              every track, so a multitrack recording stays aligned — cutting a sentence from one \
              speaker's track in an interview moves the other speaker's track by the same amount \
              rather than desynchronising the conversation. Affects `cut_range`, \
-             `insert_silence` and `paste_region`; each is still one undoable node covering every \
+             `insert_silence`, `paste_region` and `paulstretch` with a range; each is still one undoable node covering every \
              track it moved.",
             json!({
                 "type": "object",
