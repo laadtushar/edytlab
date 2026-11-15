@@ -58,6 +58,17 @@ describe("the transcript pane", () => {
     expect((container.firstElementChild as HTMLElement).className).toContain("fade-in");
   });
 
+  it("is a named, keyboard-focusable region, because it scrolls", () => {
+    // SonarCloud S6845 asks for no tabIndex on a non-interactive element, but
+    // a scroll container with no focus stop cannot be scrolled from the
+    // keyboard (WCAG 2.1.1, axe `scrollable-region-focusable`). A named region
+    // is how that focus stop is announced.
+    setup();
+    const region = screen.getByRole("region", { name: "Transcript" });
+    expect(region).toBe(screen.getByTestId("transcript-pane"));
+    expect(region).toHaveAttribute("tabindex", "0");
+  });
+
   it("shows every transcribed word", () => {
     setup();
     expect(screen.getAllByTestId("transcript-word")).toHaveLength(4);
