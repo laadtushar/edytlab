@@ -39,8 +39,9 @@ every render must report (#520, #531; ADR 0003).
 **Plan gate.** Plan first's wait for exactly one answer to a shown plan: approve, revise, reject or
 time out (ADR 0002).
 
-**Time edit.** A cut, a gap or a scale of the timeline, with what it moves: clips, other tracks
-under sync-lock, labels, words (ADR 0004).
+**Time edit.** A cut, a gap, a scale, a warp or a shift of the timeline, with what it moves: clips,
+other tracks under sync-lock, labels, words. A tool states one (`TimeEdit`) and what it is
+(`Scope`), and `time_edit::apply` moves them all (ADR 0004).
 
 **Live store.** The one `Store` per project folder, found by the folder's identity (#566).
 

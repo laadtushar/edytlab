@@ -290,6 +290,10 @@ const REACHABLE: &[&str] = &[
     "tool::util",
     // Sliding stretch: only `destructive_edit_then` and the sync-lock helpers.
     "tool::ramp",
+    // ADR 0004 (#715): the one time-edit function. Read for this entry: it
+    // imports only `session` types and pure `tool::util` helpers, and reads
+    // no file, opens no store and builds no dispatcher.
+    "tool::time_edit",
     "tool::speech_detect",
     "tool::local_model",
     "tool::ducking",
@@ -428,6 +432,7 @@ const SHARED_FILES: &[&str] = &[
     "ducking.rs",
     "generated_audio.rs",
     "local_model.rs",
+    "time_edit.rs",
 ];
 
 fn source_of(file: &str) -> String {

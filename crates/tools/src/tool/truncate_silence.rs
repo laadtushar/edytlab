@@ -1,8 +1,6 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{
-    destructive_edit_then, dropped_labels_field, parse_args, remap_after_cut, source_channels,
-    Moved,
-};
+use crate::tool::time_edit::{apply, Rates, Scope, TimeEdit};
+use crate::tool::util::{destructive_edit_then, dropped_labels_field, parse_args, source_channels};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -158,14 +156,14 @@ impl Tool for TruncateSilenceTool {
                 // so working forwards would leave every later span
                 // pointing at coordinates that no longer exist.
                 let rate = f64::from(track_rate_hook.get().max(1));
+                let scope = Scope::alone(edited);
                 let mut dropped = 0;
                 for (s, e) in removed_hook.borrow().iter().rev() {
-                    dropped += remap_after_cut(
-                        state,
-                        Moved::track(edited),
-                        *s as f64 / rate,
-                        *e as f64 / rate,
-                    );
+                    let edit = TimeEdit::Cut {
+                        start: *s as f64 / rate,
+                        end: *e as f64 / rate,
+                    };
+                    dropped += apply(state, edit, &scope, &Rates::default()).dropped_labels;
                 }
                 dropped_labels_field(dropped)
             },

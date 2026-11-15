@@ -1,10 +1,8 @@
 //! Splice silence into a buffer at a given offset.
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{
-    destructive_edit_then, insert_gap_timeline, load_head_state, parse_args, remap_after_insert,
-    seconds_to_frames, sync_other_tracks, track_channels, track_clip_rates, Moved,
-};
+use crate::tool::time_edit::{apply, Clips, Scope, SyncLock, TimeEdit, Words};
+use crate::tool::util::{destructive_edit_then, load_head_state, parse_args, track_channels};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -127,21 +125,11 @@ impl Tool for InsertSilenceTool {
         // is a span of time, and a second is not the same number of frames
         // on a 16 kHz voice as on a 48 kHz bed. Asked before anything is
         // edited, so a track that has no single rate refuses the whole edit.
-        let rates = match load_head_state(ctx) {
-            Ok(state) if state.sync_lock => match track_clip_rates(&state) {
-                Ok(r) => r,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            },
-            Ok(_) => Vec::new(),
+        let scope = Scope::new(track, SyncLock::Follows, Clips::Rewritten, Words::Follow);
+        let rates = match load_head_state(ctx).and_then(|state| scope.rates(&state)) {
+            Ok(r) => r,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        // Sync-lock (#170 §3): the gap has to open on every track, or
-        // everything after it drifts by exactly the amount inserted.
-        // The other tracks get a timeline shift rather than a rewrite —
-        // it is the same silence and it costs no derived file.
-        //
-        // It happens inside the same node as the sample edit, because
-        // "keep the tracks aligned" is one thing to undo.
         Ok(destructive_edit_then(
             ctx,
             track,
@@ -149,27 +137,18 @@ impl Tool for InsertSilenceTool {
                 let _ = apply_insert_silence(samples, sample_rate, channels, at, duration);
                 Ok((sample_rate, chans))
             },
-            move |state, edited| {
+            move |state, _edited| {
+                // The gap opens on every track under sync-lock, in the same
+                // node as the sample edit, because "keep the tracks aligned"
+                // is one thing to undo; the other tracks get a timeline
+                // shift rather than a rewrite, which costs no derived file.
                 // Labels move whether or not sync-lock is on: an insert
-                // lengthens the recording, and every mark after the
-                // splice point is now that much later (#203).
-                // The words of a transcript made from a track that moved
-                // follow (#231, #925): a word after the splice is now that
-                // much later, and `cut_words` reads these positions back as
-                // sample offsets. A transcript of a track this edit did not
-                // move (sync-lock off) stays where it is.
-                remap_after_insert(state, Moved::sync_locked(state, edited), at, duration);
-
-                if !state.sync_lock {
-                    return serde_json::Map::default();
-                }
-                sync_other_tracks(state, edited, &rates, |clips, rate| {
-                    let len_frames = seconds_to_frames(duration, rate);
-                    if len_frames == 0 {
-                        return clips.to_vec();
-                    }
-                    insert_gap_timeline(clips, seconds_to_frames(at, rate), len_frames)
-                });
+                // lengthens the recording, and every mark after the splice
+                // point is now that much later (#203). The words of a
+                // transcript made from a track that moved follow (#231,
+                // #925): a word after the splice is now that much later, and
+                // `cut_words` reads these positions back as sample offsets.
+                apply(state, TimeEdit::Gap { at, len: duration }, &scope, &rates);
                 serde_json::Map::default()
             },
             format!("insert {duration:.2}s silence at {at:.2}s on track {track}"),

@@ -105,6 +105,7 @@ pub mod stereo_widener;
 pub mod storage;
 pub mod sync_lock;
 pub mod text_edit;
+pub(crate) mod time_edit;
 pub mod time_shift;
 pub mod time_stretch;
 pub mod transcribe;

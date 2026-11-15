@@ -8,9 +8,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
+use crate::tool::time_edit::{apply, Clips, Rates, Scope, SyncLock, TimeEdit, Words};
 use crate::tool::util::{
-    append_state, check_sample_range, keep_timeline, load_track_state_and_rate, parse_args,
-    remap_after_cut, set_session_length, snap_range, timeline_end, Moved,
+    append_state, check_sample_range, load_track_state_and_rate, parse_args, set_session_length,
+    snap_range, timeline_end,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -80,26 +81,22 @@ impl Tool for TrimTool {
         // read the kept span straight out of the first clip's source — so
         // a window spanning an earlier cut's join brought the cut-out
         // audio back.
-        track.clips = keep_timeline(&track.clips, start, end);
-
+        //
         // Keeping a window is discarding everything outside it, so the
         // labels and the transcript have to move by exactly as much
         // (#231). Trim moved neither, which left a chapter mark at 12s
         // pointing past the end of a 10s track, and left `cut_words`
         // reading word positions from a timeline that no longer exists.
-        //
-        // Two cuts, tail first: cutting the head renumbers everything
-        // after it, so doing the head first would make `track_len` —
-        // measured before the edit — the wrong bound for the tail.
-        let moved = Moved::track(args.track);
-        let dropped_tail = remap_after_cut(
-            &mut state,
-            moved,
-            end as f64 / rate,
-            track_len as f64 / rate,
-        );
-        let dropped_head = remap_after_cut(&mut state, moved, 0.0, start as f64 / rate);
-        let dropped_labels = dropped_tail + dropped_head;
+        // `apply` does the clips and both together; trim does not follow
+        // sync-lock, so it is this track's edit alone.
+        let scope = Scope::new(args.track, SyncLock::Ignores, Clips::Slide, Words::Follow);
+        let rates = Rates::of_edited(&state, args.track, rate);
+        let edit = TimeEdit::Keep {
+            start: start as f64 / rate,
+            end: end as f64 / rate,
+            until: track_len as f64 / rate,
+        };
+        let dropped_labels = apply(&mut state, edit, &scope, &rates).dropped_labels;
 
         set_session_length(&mut state);
 

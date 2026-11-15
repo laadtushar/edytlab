@@ -8,9 +8,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
+use crate::tool::time_edit::{apply, Rates, Scope, TimeEdit};
 use crate::tool::util::{
     append_state, check_track_index, clip_frames_to_seconds, load_head_state, parse_args,
-    seconds_to_clip_frames, set_session_length, shift_track_transcript,
+    seconds_to_clip_frames, set_session_length,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -124,11 +125,15 @@ impl Tool for MoveClipTool {
         // The words of a transcript made from this track that sit in the clip
         // go with it (#899), in seconds, so the clip's rate does not matter
         // here. Words in the other clips stay with their clips.
-        shift_track_transcript(
+        let edit = TimeEdit::Shift {
+            by: new_start_sec - old_start_sec,
+            starting_in: Some((old_start_sec, old_end_sec)),
+        };
+        apply(
             &mut state,
-            args.track,
-            new_start_sec - old_start_sec,
-            Some((old_start_sec, old_end_sec)),
+            edit,
+            &Scope::alone(args.track),
+            &Rates::default(),
         );
         recompute_length(&mut state);
 

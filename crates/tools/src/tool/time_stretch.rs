@@ -23,7 +23,8 @@ use serde_json::Value;
 use crate::schema::anthropic_tool;
 
 use crate::tool::ramp::{self, Ramp};
-use crate::tool::util::{destructive_edit_then, parse_args, remap_after_scale, Moved};
+use crate::tool::time_edit::{apply, Rates, Scope, TimeEdit};
+use crate::tool::util::{destructive_edit_then, parse_args};
 use crate::util::range_resolver::resolve as resolve_range;
 use crate::{Range, Tool, ToolContext, ToolResult};
 
@@ -170,7 +171,11 @@ impl Tool for TimeStretchTool {
                 //
                 // Unconditional now: the hook only runs when the edit
                 // succeeded.
-                remap_after_scale(state, Moved::track(edited), 1.0 / factor as f64);
+                let scope = Scope::alone(edited);
+                let edit = TimeEdit::Scale {
+                    factor: 1.0 / factor as f64,
+                };
+                apply(state, edit, &scope, &Rates::default());
                 serde_json::Map::default()
             },
             format!(
