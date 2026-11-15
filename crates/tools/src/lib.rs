@@ -31,6 +31,7 @@ pub mod provenance;
 pub mod recipe;
 pub mod reclaim;
 pub mod rederive;
+pub mod render;
 pub mod repair;
 pub mod schema;
 pub mod session_lines;
