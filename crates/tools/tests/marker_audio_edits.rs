@@ -963,7 +963,11 @@ fn a_locked_cut_on_a_track_that_mixes_rates_is_refused() {
     let nodes = s.node_count();
     let args = json!({ "track": 0, "start_sample": 0, "end_sample": 48_000 });
     let m = s.err("cut_range", args);
-    assert!(!m.is_empty());
+    // The edited track's own two rates refuse it before sync-lock is asked.
+    assert!(
+        m.contains("different sample rates (48000 Hz and 16000 Hz)"),
+        "{m}"
+    );
     assert_eq!(s.node_count(), nodes);
 }
 
@@ -977,11 +981,17 @@ fn a_locked_cut_is_refused_when_another_track_mixes_rates() {
     let nodes = s.node_count();
     let args = json!({ "track": 1, "start_sample": 0, "end_sample": 48_000 });
     let m = s.err("cut_range", args);
-    assert!(m.contains("rate"), "{m}");
+    assert!(
+        m.contains("different sample rates (48000 Hz and 16000 Hz)"),
+        "{m}"
+    );
     assert_eq!(s.node_count(), nodes, "a refusal appended a node");
     for action in ["cut", "delete"] {
         let m = s.refused_at_markers(json!({ "action": action, "track": 1, "markers": ["um"] }));
-        assert!(m.contains("rate"), "{action}: {m}");
+        assert!(
+            m.contains("different sample rates (48000 Hz and 16000 Hz)"),
+            "{action}: {m}"
+        );
     }
 }
 
