@@ -85,10 +85,13 @@ PRIMARY = _token(_DARK, "primary")                # the violet accent
 MUTED_FG = _token(_DARK, "muted-foreground")      # secondary text
 BORDER = _token(_DARK, "border")
 RADIUS_PX = round(float(re.search(r"--radius:\s*([\d.]+)rem", _CSS).group(1)) * 16)   # the site's --radius, in px at 1x
-GRADIENT = _hsls(_rule("@utility gradient-text"))[:2]   # the headline gradient, light violet to magenta-violet
+# The headline gradient, light violet to magenta-violet.
+GRADIENT = _hsls(_rule("@utility gradient-text"))[:2]
+# The two washes behind a section (violet, magenta), and their shared opacity.
 _AURORA = _rule("@utility aurora")
-AURORA = _hsls(_AURORA[_AURORA.index("&::before {"):])[:2]   # the two washes behind a section (violet, magenta)
-AURORA_OPACITY = float(re.search(r"opacity:\s*([\d.]+)", _rule("&::before,\n  &::after", _AURORA)).group(1))
+AURORA = _hsls(_AURORA[_AURORA.index("&::before {"):])[:2]
+_AURORA_SHARED = _rule("&::before,\n  &::after", _AURORA)
+AURORA_OPACITY = float(re.search(r"opacity:\s*([\d.]+)", _AURORA_SHARED).group(1))
 
 def _logo_colours():
     fills = re.findall(r'(?:fill|stroke)="#([0-9A-Fa-f]{6})"', _LOGO)

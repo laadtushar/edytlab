@@ -76,7 +76,9 @@ function cssNumber(pattern: RegExp, text: string): number {
 const radiusPx = Math.round(cssNumber(/--radius:\s*([\d.]+)rem/, CSS) * 16);
 const gradient = hsls(rule('@utility gradient-text')).slice(0, 2);
 const auroraBlock = rule('@utility aurora');
-const aurora = hsls(auroraBlock.slice(auroraBlock.indexOf('&::before {'))).slice(0, 2);
+const auroraBefore = auroraBlock.indexOf('&::before {');
+if (auroraBefore < 0) throw new Error('@utility aurora has no `&::before {` block in globals.css');
+const aurora = hsls(auroraBlock.slice(auroraBefore)).slice(0, 2);
 const auroraOpacity = cssNumber(/opacity:\s*([\d.]+)/, rule('&::before,\n  &::after', auroraBlock));
 const fills = [...new Set([...LOGO.matchAll(/(?:fill|stroke)="#([0-9A-Fa-f]{6})"/g)].map((m) => `#${m[1].toUpperCase()}`))];
 if (fills.length !== 2) throw new Error(`expected two colours in website/public/logo.svg, found ${fills}`);
