@@ -27,6 +27,67 @@ struct Args {
     snap_to_zero_crossing: bool,
 }
 
+/// The rate of each track's clips, when sync-lock will carry an edit to them;
+/// nothing when it is off, so a session that mixes rates on a track the edit
+/// never reaches is not refused for it.
+pub(crate) fn sync_rates(state: &session::SessionState) -> Result<Vec<f64>, String> {
+    if state.sync_lock {
+        track_clip_rates(state)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+/// Remove the frames `[start, end)` of `track` and close the gap, in `state`.
+/// Returns how many other tracks sync-lock carried the cut to and how many
+/// labels the cut dropped.
+///
+/// The one place a cut is made, for `cut_range` and for `edit_at_markers`, so
+/// the two cannot differ: `rate` is the edited track's clip rate and `rates`
+/// each track's (see [`sync_rates`]). Does not set the session length; the
+/// caller does that once, after its last cut.
+pub(crate) fn cut_span(
+    state: &mut session::SessionState,
+    track: usize,
+    rates: &[f64],
+    rate: f64,
+    start: u64,
+    end: u64,
+) -> (usize, usize) {
+    state.tracks[track].clips = cut_timeline(&state.tracks[track].clips, start, end);
+
+    // Sync-lock (#170 §3): an interview is one track per speaker,
+    // and cutting a sentence out of one of them desynchronises the
+    // conversation unless the others lose the same span. One node,
+    // not one per track — undo has to put the whole edit back.
+    let (start_sec, end_sec) = (start as f64 / rate, end as f64 / rate);
+    let synced = if state.sync_lock {
+        sync_other_tracks(state, track, rates, |clips, clip_rate| {
+            cut_timeline(
+                clips,
+                seconds_to_frames(start_sec, clip_rate),
+                seconds_to_frames(end_sec, clip_rate),
+            )
+        })
+    } else {
+        0
+    };
+
+    // Labels name moments in the recording, not offsets in a file
+    // (#203). Leaving them put would rename every chapter after the
+    // cut to something `cut_len` seconds off.
+    //
+    // The transcript is the same kind of record and was the half
+    // nobody moved (#231): `cut_words` turns a word's `start_s` into
+    // a sample offset, so a stale transcript makes the *next* text
+    // edit delete audio elsewhere while naming the right word. Its
+    // words are seconds of one track, so they move only if that track
+    // did: this one, or every one under sync-lock (#925).
+    let moved = Moved::sync_locked(state, track);
+    let dropped = remap_after_cut(state, moved, start_sec, end_sec);
+    (synced, dropped)
+}
+
 pub struct CutRangeTool;
 
 impl Tool for CutRangeTool {
@@ -58,13 +119,9 @@ impl Tool for CutRangeTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
         // A sync-locked track gets the same seconds in its own frames.
-        let rates = if state.sync_lock {
-            match track_clip_rates(&state) {
-                Ok(r) => r,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            }
-        } else {
-            Vec::new()
+        let rates = match sync_rates(&state) {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
         };
         let track = &mut state.tracks[args.track];
         // The timeline's end, not the longest single clip: on a track
@@ -90,37 +147,7 @@ impl Tool for CutRangeTool {
             ));
         }
 
-        track.clips = cut_timeline(&track.clips, start, end);
-
-        // Sync-lock (#170 §3): an interview is one track per speaker,
-        // and cutting a sentence out of one of them desynchronises the
-        // conversation unless the others lose the same span. One node,
-        // not one per track — undo has to put the whole edit back.
-        let (start_sec, end_sec) = (start as f64 / rate, end as f64 / rate);
-        let synced = if state.sync_lock {
-            sync_other_tracks(&mut state, args.track, &rates, |clips, clip_rate| {
-                cut_timeline(
-                    clips,
-                    seconds_to_frames(start_sec, clip_rate),
-                    seconds_to_frames(end_sec, clip_rate),
-                )
-            })
-        } else {
-            0
-        };
-
-        // Labels name moments in the recording, not offsets in a file
-        // (#203). Leaving them put would rename every chapter after the
-        // cut to something `cut_len` seconds off.
-        //
-        // The transcript is the same kind of record and was the half
-        // nobody moved (#231): `cut_words` turns a word's `start_s` into
-        // a sample offset, so a stale transcript makes the *next* text
-        // edit delete audio elsewhere while naming the right word. Its
-        // words are seconds of one track, so they move only if that track
-        // did: this one, or every one under sync-lock (#925).
-        let moved = Moved::sync_locked(&state, args.track);
-        let dropped = remap_after_cut(&mut state, moved, start_sec, end_sec);
+        let (synced, dropped) = cut_span(&mut state, args.track, &rates, rate, start, end);
 
         set_session_length(&mut state);
 

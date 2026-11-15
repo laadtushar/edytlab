@@ -212,7 +212,8 @@ const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
 // #765's graphic EQ (`graphic` on `eq`, less high_pass_filter's cutoff_hz description) adds 68 B on top (79,030 B to 79,098 B).
 // #765's paulstretch adds 639 B on top (79,098 B to 79,737 B).
 // #765's paulstretch sync-lock wording (its description and set_sync_lock's) adds 92 B (79,737 B to 79,829 B).
-const FULL_TOOLS_MAX_BYTES: usize = 79_863; // main ratchet 79,132 + 731 B of #765's paulstretch
+// #766's `edit_at_markers` (marker-driven edits, item 2) adds 852 B on top (79,829 B to 80,681 B).
+const FULL_TOOLS_MAX_BYTES: usize = 80_715; // main ratchet 79,863 + 852 B of #766's edit_at_markers
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -821,7 +822,8 @@ const RESPONSES_SYSTEM_MAX_BYTES: usize = 1_360; // measured 1,141
 // #765's graphic EQ adds the same 68 B (82,594 B to 82,662 B).
 // #765's paulstretch adds 670 B on top (82,662 B to 83,332 B).
 // #765's paulstretch sync-lock wording adds the same 92 B (83,332 B to 83,424 B).
-const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 83_458; // main ratchet 82,696 + 762 B of #765's paulstretch
+// #766's `edit_at_markers` adds 883 B here (83,424 B to 84,307 B).
+const RESPONSES_FULL_TOOLS_MAX_BYTES: usize = 84_341; // main ratchet 83,458 + 883 B of #766's edit_at_markers
 
 #[tokio::test]
 async fn chatgpt_first_request_reports_the_full_responses_size() {

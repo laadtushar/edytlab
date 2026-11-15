@@ -2626,9 +2626,8 @@ fn category_for(name: &str) -> &'static str {
         | "reorder_tracks" => "session",
         "transcribe" | "diarize" | "separate_stems" | "analyze_track" | "measure" => "analysis",
         "fork_node" | "apply_diff" | "compare_nodes" | "revert_to" | "name_node" => "history",
-        "label" | "find_markers" | "add_markers" | "edit_markers" | "delete_markers" => {
-            "annotation"
-        }
+        "label" | "find_markers" | "add_markers" | "edit_markers" | "delete_markers"
+        | "edit_at_markers" => "annotation",
         _ => "audio",
     }
 }

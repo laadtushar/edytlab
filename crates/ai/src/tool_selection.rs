@@ -244,7 +244,12 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// two argument descriptions, which that request also sends, are 23 B
 /// shorter. The request is 14 B inside the headroom now. `MCP_ROOM_BYTES`
 /// stays 400 B and so does the 500 B headroom.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_760;
+/// `paulstretch` (#1010) added 12 B to the line within the room that was
+/// left. `edit_at_markers` (#766) then took the built-in names, every one
+/// unsent, to 1,369 B (measured), 10 B past what leaves 400 B for MCP
+/// names, so the budget rose by exactly those 10 B, to 1,770 B; every
+/// request in `tests/request_size.rs` still holds its headroom.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_770;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems` said so until #385 shipped its inference; none does now,
@@ -1521,7 +1526,9 @@ mod tests {
     /// `find_markers`, `edit_markers` and `delete_markers` (#766) begin
     /// with verbs every message uses ("delete the first five seconds",
     /// "make an edit at 10 s", "find the loudest part"). Only the word
-    /// "marker" names them, so the verbs alone send none of the four.
+    /// "marker" names them, so the verbs alone send none of the five
+    /// (`edit_at_markers`, #766 item 2, with them: its "at" is no more a
+    /// name than the verbs are).
     #[test]
     fn a_plain_verb_does_not_send_the_marker_tools() {
         let marker_tools = [
@@ -1529,6 +1536,7 @@ mod tests {
             "add_markers",
             "edit_markers",
             "delete_markers",
+            "edit_at_markers",
         ];
         for text in [
             "delete the first five seconds of track 1",

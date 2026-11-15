@@ -2,7 +2,7 @@
 title: "Tools reference"
 ---
 
-> Every one of the 114 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 115 tools the AI agent can call: parameters, types, and what each one does.
 
 [//]: # "GENERATED FILE — do not edit by hand. Regenerate with: UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc. The source of truth is the tool registry itself (ToolDispatcher::default_dispatcher()), so this file cannot disagree with what the agent can actually call."
 
@@ -48,6 +48,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
 - [`echo`](#echo) — Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0..0.65).
+- [`edit_at_markers`](#edit_at_markers) — Edit the audio under markers/regions, named or by id (find_markers).
 - [`edit_markers`](#edit_markers) — Rename, move or resize markers by id (find_markers).
 - [`eq`](#eq) — EQ a track with biquad bands.
 - [`export_labels`](#export_labels) — Export markers and regions as Audacity label text, Podlove chapters JSON or a CUE sheet (at most 99 tracks).
@@ -483,6 +484,19 @@ Echo: delay_ms + decay (0..1), or taps [[delay_ms, gain], ...] with feedback (0.
 | `start_sec` | number | no |  |
 | `taps` | array of array | no |  |
 | `track` | integer | yes |  |
+
+## `edit_at_markers`
+
+Edit the audio under markers/regions, named or by id (find_markers). cut: remove and close the gap (as cut_range; sync-lock and labels follow). delete: remove, leave a gap. silence: zero (as silence_region). split: cut clips at the marker's edges. join: make the clips under it one (as join_clips). A point marker needs width seconds, except for split. All markers = one undo step; any problem changes nothing.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `action` | one of `cut`, `delete`, `silence`, `split`, `join` | yes |  |
+| `markers` | array of string | yes | Marker names (whole, any case) or ids |
+| `track` | integer | yes |  |
+| `width` | number | no | Seconds a point marker spans |
+
+Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
 ## `edit_markers`
 

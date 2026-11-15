@@ -41,6 +41,7 @@ const TOOL_LABELS: Record<string, string> = {
   find_markers: "Find markers",
   add_markers: "Add markers",
   edit_markers: "Edit markers",
+  edit_at_markers: "Edit at markers",
   delete_markers: "Delete markers",
 
   // Analysis (read-only)

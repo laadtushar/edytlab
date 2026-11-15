@@ -802,6 +802,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "duck_under_speech",
             "duplicate_track",
             "echo",
+            "edit_at_markers",
             "edit_markers",
             "eq",
             "export_labels",

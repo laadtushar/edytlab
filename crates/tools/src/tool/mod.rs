@@ -27,6 +27,7 @@ pub mod distortion;
 pub mod ducking;
 pub mod duplicate_track;
 pub mod echo;
+pub mod edit_at_markers;
 pub mod effects;
 pub mod eq;
 pub mod export_labels;
@@ -141,6 +142,7 @@ pub use distortion::DistortionTool;
 pub use ducking::DuckUnderSpeechTool;
 pub use duplicate_track::DuplicateTrackTool;
 pub use echo::EchoTool;
+pub use edit_at_markers::EditAtMarkersTool;
 pub use effects::{
     AddEffectTool, RemoveEffectTool, ReorderEffectsTool, SetEffectBypassedTool, SetEffectParamsTool,
 };
