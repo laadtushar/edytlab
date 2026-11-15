@@ -842,6 +842,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "normalize_loudness",
             "notch_filter",
             "paste_region",
+            "paulstretch",
             "phaser",
             "pitch_shift",
             "plot_spectrum",

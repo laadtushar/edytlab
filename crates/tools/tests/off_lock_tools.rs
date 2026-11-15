@@ -86,7 +86,7 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// read only the head, write content-addressed files and append one node; a
 /// re-run has no external side effect. The click source is named `track`, so
 /// the existing re-run guard refuses a changed source after a concurrent edit.
-const OFF_LOCK: [&str; 50] = [
+const OFF_LOCK: [&str; 51] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
@@ -117,6 +117,7 @@ const OFF_LOCK: [&str; 50] = [
     "normalize",
     "normalize_loudness",
     "notch_filter",
+    "paulstretch",
     "phaser",
     "pitch_shift",
     "plot_spectrum",
@@ -1090,6 +1091,11 @@ fn the_scan_finds_the_spellings_that_hide_a_second_store() {
 /// a place the guard does not look. Keyed by tool as well as by argument,
 /// so a second tool that adds a `times` is read again, not waved through.
 const NOT_TRACKS: &[(&str, &str, &str)] = &[
+    (
+        "paulstretch",
+        "seed",
+        "the seed of the random phases (the track is `track`)",
+    ),
     (
         "diarize",
         "max_speakers",

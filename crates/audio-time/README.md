@@ -12,9 +12,12 @@ Implemented, on a pure-Rust phase vocoder (`src/vocoder.rs`, built on
   preservation (`src/formant.rs`)
 - `warp_to_grid` — moves beats onto a target grid in a single vocoder
   pass, so there is no seam at the beats (`src/warp.rs`)
+- `paulstretch` — Paul Nasca's extreme stretch (1x to 50x): magnitudes kept,
+  phases drawn at random from a seed, overlap-added; not a vocoder, and
+  built for ambient textures (`src/paulstretch.rs`)
 
 The session-level tools in `crates/tools` (`time_stretch`, `pitch_shift`,
-`align_to_beat`) call these directly.
+`align_to_beat`, `paulstretch`) call these directly.
 
 The original plan (M20, with the DSP deferred to M28) was an FFI to the
 Rubber Band C++ library. It was dropped: it needs a different native
@@ -33,3 +36,7 @@ The integration tests in `tests/integration.rs` cover argument
 validation, formant preservation (the resonances hold while the pitch
 moves), and beat warping (a click track lands on the target grid, with
 no discontinuity at segment boundaries and stereo kept frame-aligned).
+
+`tests/paulstretch.rs` covers Paulstretch: output length, RMS and spectral
+peak for a steady tone, seed determinism, stereo and other sample rates,
+and refused arguments.
