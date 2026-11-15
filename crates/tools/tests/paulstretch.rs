@@ -409,12 +409,18 @@ fn arguments_of_the_wrong_type_are_refused_and_change_nothing() {
     let (head, nodes) = (s.head(), s.node_count());
     // An integer to the schema, but not a `usize` or a `u64`: the tool's own
     // parser refuses it, as a result and not a dispatcher error.
-    for args in [
-        json!({"track": -1, "factor": 2.0}),
-        json!({"track": 0, "factor": 2.0, "seed": -5}),
+    for (args, bad) in [
+        (json!({"track": -1, "factor": 2.0}), "`-1`, expected usize"),
+        (
+            json!({"track": 0, "factor": 2.0, "seed": -5}),
+            "`-5`, expected u64",
+        ),
     ] {
         let msg = s.err("paulstretch", args);
-        assert!(!msg.is_empty());
+        // The refusal names the value and the type it should have been, so
+        // each case fails for its own argument, not for any refusal.
+        assert!(msg.starts_with("invalid arguments:"), "{msg}");
+        assert!(msg.contains(bad), "{msg}");
     }
     assert_eq!(s.head(), head);
     assert_eq!(s.node_count(), nodes);
