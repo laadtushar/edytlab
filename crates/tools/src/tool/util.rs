@@ -1671,14 +1671,15 @@ impl SampleRangeArgs {
     /// which differ on a track an earlier cut has split. The range is checked
     /// by [`check_sample_range`] and, when `snap_to_zero_crossing` is set,
     /// moved onto zero crossings by [`snap_range`]. A track with no clips has
-    /// a timeline of length 0, so the range check refuses it first and the
-    /// "no clips" refusal is a backstop.
+    /// a timeline of length 0, so the range check refuses it first; a
+    /// `debug_assert` holds that.
     pub(crate) fn window(&self, track: &Track, verb: &str) -> Result<SampleWindow, String> {
         let track_len = timeline_end(&track.clips);
         let (start, end) = check_sample_range(self.start_sample, self.end_sample, track_len)?;
-        if track.clips.is_empty() {
-            return Err(format!("track has no clips; nothing to {verb}"));
-        }
+        debug_assert!(
+            !track.clips.is_empty(),
+            "track has no clips; nothing to {verb}: the range check refuses it first"
+        );
         let (start, end, snap_note) = if self.snap_to_zero_crossing {
             snap_range(&track.clips, start, end, track_len)
         } else {
@@ -2596,8 +2597,8 @@ mod sample_window_tests {
 
     #[test]
     fn a_track_with_no_clips_is_refused_by_the_range_check() {
-        // Its timeline has length 0, so no range fits; the "no clips"
-        // message is only a backstop and never the one the model sees here.
+        // Its timeline has length 0, so no range fits; the window's
+        // debug_assert on clips is never reached.
         let track = track_of(Vec::new());
         assert_eq!(
             resolve_sample_window(&track, 0, 1, false, "trim").unwrap_err(),
