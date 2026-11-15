@@ -97,6 +97,29 @@ fn both_filters_run_off_the_lock_under_their_own_names() {
     assert_eq!(high.name(), "high_pass_filter");
     assert!(low.runs_off_the_lock());
     assert!(high.runs_off_the_lock());
-    assert_eq!(low.schema()["name"], "low_pass_filter");
-    assert_eq!(high.schema()["name"], "high_pass_filter");
+}
+
+#[test]
+fn both_schemas_require_a_track_and_a_cutoff_and_take_an_optional_window() {
+    let tools: [&dyn Tool; 2] = [&LowPassFilterTool, &HighPassFilterTool];
+    for tool in tools {
+        let schema = tool.schema();
+        assert_eq!(schema["name"], tool.name());
+        assert!(schema["description"]
+            .as_str()
+            .is_some_and(|d| !d.is_empty()));
+        assert_eq!(
+            schema["input_schema"]["required"],
+            json!(["track", "cutoff_hz"]),
+            "{}",
+            tool.name()
+        );
+        for key in ["track", "cutoff_hz", "start_sec", "end_sec"] {
+            assert!(
+                schema["input_schema"]["properties"][key].is_object(),
+                "{}: {key}",
+                tool.name()
+            );
+        }
+    }
 }
