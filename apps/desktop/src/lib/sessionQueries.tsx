@@ -12,6 +12,9 @@ export function createSessionQueryClient(): QueryClient {
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
       },
+      // The session's commands are local IPC: a webview that thinks it is
+      // offline must not hold the line.
+      mutations: { networkMode: "always" },
     },
   });
 }
