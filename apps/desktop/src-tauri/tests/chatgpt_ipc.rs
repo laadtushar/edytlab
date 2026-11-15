@@ -261,7 +261,7 @@ fn the_plan_is_configured_and_selectable_only_while_signed_in() {
 #[test]
 fn a_session_that_ends_in_a_turn_is_a_typed_error_and_keeps_the_message() {
     let rig = new_rig(true);
-    rig.state.set_active_provider("chatgpt".to_string());
+    rig.state.agent_settings.set_active_provider("chatgpt".to_string());
     let _project = rig.open_project();
     assert!(
         rig.state.chatgpt.has_agent(),
@@ -352,7 +352,7 @@ fn a_session_that_ends_in_a_turn_is_a_typed_error_and_keeps_the_message() {
 #[test]
 fn sign_out_and_start_over_finish_and_say_what_the_person_may_still_have_to_do() {
     let rig = new_rig(true);
-    rig.state.set_active_provider("chatgpt".to_string());
+    rig.state.agent_settings.set_active_provider("chatgpt".to_string());
     let _project = rig.open_project();
     assert!(rig.state.chatgpt.has_agent());
     // The session ends under a message (another window signed out), so there

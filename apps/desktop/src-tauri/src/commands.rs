@@ -856,8 +856,8 @@ pub async fn set_api_key(
     state: State<'_, AppState>,
     key: String,
 ) -> CmdResult<KeychainPersistenceDto> {
-    state.startup_reads_settled().await;
-    let provider_id = state.active_provider_id();
+    state.agent_settings.startup_reads_settled().await;
+    let provider_id = state.agent_settings.active_provider_id();
     set_api_key_for_inner(&state, &provider_id, &key, &OsKeychain).await
 }
 
@@ -898,7 +898,7 @@ pub async fn get_base_url_for(
     state: State<'_, AppState>,
     provider: String,
 ) -> CmdResult<Option<String>> {
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     stored_setting_unless_refused(&state, || ai::keychain::try_load_base_url(&provider))
 }
 
@@ -1014,7 +1014,7 @@ pub async fn get_effort_for(
     state: State<'_, AppState>,
     provider: String,
 ) -> CmdResult<Option<String>> {
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     stored_setting_unless_refused(&state, || ai::keychain::try_load_effort(&provider))
         .map(|level| level.map(|e| e.as_str().to_string()))
 }
@@ -1132,7 +1132,7 @@ async fn set_api_key_for_inner(
     refuse_session_provider(provider_id)?;
     // Startup's reads fill the cache this writes over, and would write
     // over this in turn if they finished after it.
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     // Selecting a keyless provider is a save with an empty key — that is
     // how the UI says "make this one active" — so it must be allowed
     // through rather than rejected as a blank credential.
@@ -1151,8 +1151,8 @@ async fn set_api_key_for_inner(
     // Both writes went through, so the keychain is readable and writable
     // now whatever it was at launch.
     keychain_readable_again(state, ai::keychain::try_load_model);
-    state.set_active_provider(provider_id.to_string());
-    state.set_api_key_cache(Some(key.to_string()));
+    state.agent_settings.set_active_provider(provider_id.to_string());
+    state.agent_settings.set_api_key_cache(Some(key.to_string()));
     rebuild_agent(state).await?;
     Ok(KeychainPersistenceDto::landed([key_at, provider_at]))
 }
@@ -1178,9 +1178,9 @@ pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
     // Pending while startup's keychain reads are (#497): the window is up
     // before they are done, and the frontend says it is waiting for the
     // keyring until this answers.
-    state.startup_reads_settled().await;
-    let provider_id = state.active_provider_id();
-    has_key_answer(state.keychain_read_error(), || {
+    state.agent_settings.startup_reads_settled().await;
+    let provider_id = state.agent_settings.active_provider_id();
+    has_key_answer(state.agent_settings.keychain_read_error(), || {
         provider_is_configured(&state, &provider_id)
     })
 }
@@ -1451,7 +1451,7 @@ fn open_chatgpt_usage_with(open: impl FnOnce(&str) -> Result<(), String>) -> Cmd
 #[tauri::command]
 pub async fn chatgpt_status(state: State<'_, AppState>) -> CmdResult<ChatGptStatusDto> {
     // The restore at launch is part of the startup reads.
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     Ok(state.chatgpt.status())
 }
 
@@ -1476,7 +1476,7 @@ async fn chatgpt_sign_in_with(
     intent: ChatGptSignInIntent,
     open: impl FnOnce(&str) -> Result<(), String>,
 ) -> CmdResult<ChatGptStatusDto> {
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     let status = state.chatgpt.sign_in(intent.into(), open).await?;
     if status.state == "signed_in" {
         // The token was written to the keychain, so it can be used again
@@ -1523,7 +1523,7 @@ pub async fn chatgpt_cancel_sign_in(state: State<'_, AppState>) -> CmdResult<()>
 /// run it on.
 #[tauri::command]
 pub async fn chatgpt_sign_out(state: State<'_, AppState>) -> CmdResult<ChatGptEndDto> {
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     let end = state.chatgpt.sign_out().await?;
     drop_chatgpt_agent(&state);
     Ok(end)
@@ -1536,7 +1536,7 @@ pub async fn chatgpt_sign_out(state: State<'_, AppState>) -> CmdResult<ChatGptEn
 /// Refused while a sign-in is in progress.
 #[tauri::command]
 pub async fn chatgpt_forget_registration(state: State<'_, AppState>) -> CmdResult<ChatGptEndDto> {
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     let end = state.chatgpt.forget_registration().await?;
     drop_chatgpt_agent(&state);
     Ok(end)
@@ -2083,8 +2083,8 @@ pub async fn remove_ml_model(
 pub async fn clear_api_key(state: State<'_, AppState>) -> CmdResult<()> {
     // The active provider is what startup is reading: before that, this
     // would clear the default provider's key.
-    state.startup_reads_settled().await;
-    let provider_id = state.active_provider_id();
+    state.agent_settings.startup_reads_settled().await;
+    let provider_id = state.agent_settings.active_provider_id();
     clear_api_key_for_inner(&state, &provider_id).await
 }
 
@@ -2094,10 +2094,10 @@ pub async fn clear_api_key_for(state: State<'_, AppState>, provider: String) -> 
 }
 
 async fn clear_api_key_for_inner(state: &AppState, provider_id: &str) -> CmdResult<()> {
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     ai::keychain::delete_api_key(provider_id).map_err(CommandError::from)?;
-    if state.active_provider_id() == provider_id {
-        state.set_api_key_cache(None);
+    if state.agent_settings.active_provider_id() == provider_id {
+        state.agent_settings.set_api_key_cache(None);
         rebuild_agent(state).await?;
     }
     Ok(())
@@ -2114,7 +2114,7 @@ async fn clear_api_key_for_inner(state: &AppState, provider_id: &str) -> CmdResu
 /// matching M13 acceptance criterion #2.
 #[tauri::command]
 pub async fn test_api_key(state: State<'_, AppState>, key: String) -> CmdResult<()> {
-    let provider_id = state.active_provider_id();
+    let provider_id = state.agent_settings.active_provider_id();
     ai::validate::test_api_key_for(&provider_id, &key).await
 }
 
@@ -2168,7 +2168,7 @@ pub async fn test_api_key_for(
     // the ladder it may step down and the levels it reads cannot change a
     // turn that is running.
     if is_session_provider(&provider) {
-        state.startup_reads_settled().await;
+        state.agent_settings.startup_reads_settled().await;
         return state
             .chatgpt
             .probe(model, crate::chatgpt::run_probe)
@@ -2203,8 +2203,8 @@ pub async fn list_providers() -> CmdResult<Vec<String>> {
 /// and its Save would write it over the real one (#497).
 #[tauri::command]
 pub async fn get_active_provider(state: State<'_, AppState>) -> CmdResult<String> {
-    state.startup_reads_settled().await;
-    active_provider_answer(state.keychain_read_error(), state.active_provider_id())
+    state.agent_settings.startup_reads_settled().await;
+    active_provider_answer(state.agent_settings.keychain_read_error(), state.agent_settings.active_provider_id())
 }
 
 /// The answer to [`get_active_provider`], given what startup found.
@@ -2250,7 +2250,7 @@ async fn set_active_provider_with(
     if !ai::SUPPORTED_PROVIDER_IDS.contains(&provider) {
         return Err(format!("unsupported provider id: {provider}"));
     }
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     // The ChatGPT plan can be the active provider only with a session to
     // build its agent from.
     if is_session_provider(provider) {
@@ -2260,13 +2260,13 @@ async fn set_active_provider_with(
         .save_active_provider(provider)
         .map_err(CommandError::from)?;
     keychain_readable_again(state, ai::keychain::try_load_model);
-    state.set_active_provider(provider.to_string());
+    state.agent_settings.set_active_provider(provider.to_string());
     // Re-cache the key for the now-active provider (if any) so the
     // next `rebuild_agent` picks the right credentials up. When the read
     // fails the cache is emptied rather than left holding the previous
     // provider's key, which the new provider would be sent.
     let read = key_for_switch(provider, load_key);
-    state.set_api_key_cache(read.as_ref().ok().cloned().flatten());
+    state.agent_settings.set_api_key_cache(read.as_ref().ok().cloned().flatten());
     rebuild_agent(state).await?;
     // The switch itself worked, so say what did not instead of
     // failing it: the agent is built for the new provider with no key.
@@ -2420,7 +2420,7 @@ pub async fn list_models_for(
     provider: String,
     api_key: Option<String>,
 ) -> CmdResult<ModelCatalogueDto> {
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     // The ChatGPT plan's catalogue is the signed-in account's, read with its
     // session on a provider of its own (never the agent's, which a turn may
     // be using), from the one host its bearer goes to. No key, no address.
@@ -2478,7 +2478,7 @@ async fn set_active_model_with(
         return Err("model id must not be empty".into());
     }
     // Startup restores every provider's pick into the map this writes to.
-    state.startup_reads_settled().await;
+    state.agent_settings.startup_reads_settled().await;
     // Persisted, not only cached (#249). `active_model_by_provider` is
     // in-memory, and nothing re-pushed it at startup — so after a
     // restart `rebuild_agent` saw no model and silently used
@@ -2490,7 +2490,7 @@ async fn set_active_model_with(
     // still applies to this session, but the user should know it will
     // not survive a restart.
     let persisted = keychain.save_model(&provider, &model);
-    state.set_model_for(provider, model);
+    state.agent_settings.set_model_for(provider, model);
     rebuild_agent(state).await?;
     persisted
         .map(|at| KeychainPersistenceDto::landed([at]))
@@ -2506,8 +2506,8 @@ async fn set_active_model_with(
 /// what its field shows over the stored model (#497).
 #[tauri::command]
 pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> CmdResult<String> {
-    state.startup_reads_settled().await;
-    active_model_answer(models_unread_reason(&state), state.model_for(&provider))
+    state.agent_settings.startup_reads_settled().await;
+    active_model_answer(models_unread_reason(&state), state.agent_settings.model_for(&provider))
 }
 
 /// The answer to [`get_active_model`]: the model known for the provider,
@@ -2554,7 +2554,7 @@ fn effective_provider_is_session(state: &AppState) -> bool {
         .active_profile_overrides()
         .2
         .map(|(provider, _)| provider);
-    is_session_provider(&pinned.unwrap_or_else(|| state.active_provider_id()))
+    is_session_provider(&pinned.unwrap_or_else(|| state.agent_settings.active_provider_id()))
 }
 
 /// Why the keychain is not asked, if startup found it refusing access
@@ -2566,7 +2566,7 @@ fn effective_provider_is_session(state: &AppState) -> bool {
 /// this instead (#497). The reason alone, in words for Settings' "Save
 /// leaves it as it is" note.
 fn refusal_note(state: &AppState) -> Option<String> {
-    crate::state::keychain_refusal_note(state.keychain_refused(), state.keychain_read_error())
+    crate::state::keychain_refusal_note(state.agent_settings.keychain_refused(), state.agent_settings.keychain_read_error())
 }
 
 // ---------------------------------------------------------------------------
@@ -5935,18 +5935,18 @@ fn rebuild_agent_from(
     // Whatever agent was running is replaced. If it ran on the ChatGPT plan,
     // the rung its provider ended on is kept for the next one built.
     state.chatgpt.agent_replaced_by_another_provider();
-    if state.keychain_refused() {
+    if state.agent_settings.keychain_refused() {
         *slot = None;
         return;
     }
     let store_handle = state.store_handle();
-    let global_provider_id = state.active_provider_id();
-    let global_chosen_model = state.model_for(&global_provider_id);
+    let global_provider_id = state.agent_settings.active_provider_id();
+    let global_chosen_model = state.agent_settings.model_for(&global_provider_id);
     let (profile_body, tool_whitelist, profile_model) = state.active_profile_overrides();
 
     let (effective_provider_id, api_key, effective_model) = resolve_effective_llm(
         global_provider_id,
-        state.api_key_snapshot(),
+        state.agent_settings.api_key_snapshot(),
         global_chosen_model,
         profile_model,
         // A provider paid for by a session has no key slot to read.
@@ -6269,7 +6269,7 @@ fn restart_mcp_server_inner(state: &AppState, id: String) -> CmdResult<()> {
 ///
 /// The text is what Settings shows beside the server's `error` badge.
 fn mcp_skip_reason(state: &AppState, server: &mcp::McpServerConfig) -> Option<String> {
-    if !state.keychain_refused() || !server.references_keychain() {
+    if !state.agent_settings.keychain_refused() || !server.references_keychain() {
         return None;
     }
     let why = state
@@ -6466,24 +6466,24 @@ pub(crate) fn load_startup_settings(
     let mut first_error: Option<String> = None;
     let mut refused = false;
     match load_active() {
-        Ok(Some(active)) => state.set_active_provider(active),
+        Ok(Some(active)) => state.agent_settings.set_active_provider(active),
         Ok(None) => {}
         Err(e) => refused = note_startup_failure("active provider", &e, &mut first_error),
     }
     if !refused {
-        match load_key(&state.active_provider_id()) {
-            Ok(Some(key)) => state.set_api_key_cache(Some(key)),
+        match load_key(&state.agent_settings.active_provider_id()) {
+            Ok(Some(key)) => state.agent_settings.set_api_key_cache(Some(key)),
             Ok(None) => {}
             Err(e) => refused = note_startup_failure("API key", &e, &mut first_error),
         }
     }
-    state.set_keychain_read_error(first_error);
+    state.agent_settings.set_keychain_read_error(first_error);
     if !refused {
         refused = restore_models(state, load_model);
     }
     // What the MCP autostart asks before it reads the keychain for a
     // server of its own (#497).
-    state.set_keychain_refused(refused);
+    state.agent_settings.set_keychain_refused(refused);
 }
 
 /// A key or provider save went through, so the keychain is readable and
@@ -6504,13 +6504,13 @@ fn keychain_readable_again(
     state: &AppState,
     load_model: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
 ) {
-    if state.keychain_read_error().is_none() && !state.keychain_refused() {
+    if state.agent_settings.keychain_read_error().is_none() && !state.agent_settings.keychain_refused() {
         return;
     }
-    state.set_keychain_read_error(None);
-    state.set_keychain_refused(false);
+    state.agent_settings.set_keychain_read_error(None);
+    state.agent_settings.set_keychain_refused(false);
     restore_models(state, |id| {
-        if state.model_for(id).is_some() {
+        if state.agent_settings.model_for(id).is_some() {
             Ok(None)
         } else {
             load_model(id)
@@ -6551,7 +6551,7 @@ pub(crate) fn restore_models(
 ) -> bool {
     for id in ai::SUPPORTED_PROVIDER_IDS {
         match load(id) {
-            Ok(Some(model)) => state.set_model_for((*id).to_string(), model),
+            Ok(Some(model)) => state.agent_settings.set_model_for((*id).to_string(), model),
             Ok(None) => {}
             Err(e) => {
                 tracing::warn!(provider = %id, error = %e, "could not read the chosen model from the keychain at startup");
@@ -8818,7 +8818,7 @@ mod tests {
         let project = tmp.path().join("p");
         std::fs::create_dir_all(&project).unwrap();
         let state = AppState::new();
-        state.set_active_provider("ollama".to_string());
+        state.agent_settings.set_active_provider("ollama".to_string());
         open_project_for_test(&state, &project).unwrap();
         state
             .store_handle()
@@ -9737,7 +9737,7 @@ mod tests {
         let state = AppState::default();
 
         // Before: a fresh process knows nothing.
-        assert_eq!(state.model_for("anthropic"), None);
+        assert_eq!(state.agent_settings.model_for("anthropic"), None);
 
         // What the keychain would hand back after the user picked one.
         restore_models(&state, |id| {
@@ -9745,7 +9745,7 @@ mod tests {
         });
 
         assert_eq!(
-            state.model_for("anthropic").as_deref(),
+            state.agent_settings.model_for("anthropic").as_deref(),
             Some("claude-opus-5"),
             "the selection did not survive the restart, so rebuild_agent \
              would fall back to the provider default"
@@ -9761,7 +9761,7 @@ mod tests {
 
         for id in ai::SUPPORTED_PROVIDER_IDS {
             assert_eq!(
-                state.model_for(id).as_deref(),
+                state.agent_settings.model_for(id).as_deref(),
                 Some(format!("{id}-chosen").as_str()),
                 "provider {id} lost its model across the restart"
             );
@@ -9777,7 +9777,7 @@ mod tests {
         restore_models(&state, |_| Ok(None));
 
         for id in ai::SUPPORTED_PROVIDER_IDS {
-            assert_eq!(state.model_for(id), None);
+            assert_eq!(state.agent_settings.model_for(id), None);
         }
     }
 
@@ -9793,11 +9793,11 @@ mod tests {
         let state = AppState::default();
         load_startup_settings(&state, || Ok(None), |_| Ok(None), |_| Ok(None));
 
-        assert_eq!(state.active_provider_id(), ai::ANTHROPIC_ID);
-        assert_eq!(state.api_key_snapshot(), None);
-        assert_eq!(state.keychain_read_error(), None);
+        assert_eq!(state.agent_settings.active_provider_id(), ai::ANTHROPIC_ID);
+        assert_eq!(state.agent_settings.api_key_snapshot(), None);
+        assert_eq!(state.agent_settings.keychain_read_error(), None);
         assert_eq!(
-            has_key_answer(state.keychain_read_error(), || Ok(false)),
+            has_key_answer(state.agent_settings.keychain_read_error(), || Ok(false)),
             Ok(false)
         );
     }
@@ -9815,11 +9815,11 @@ mod tests {
             |_| Ok(None),
         );
 
-        let stashed = state.keychain_read_error().expect("the failure is kept");
+        let stashed = state.agent_settings.keychain_read_error().expect("the failure is kept");
         assert_eq!(stashed, "locked", "the reason alone, not the whole message");
         // Even though a live read would say "no key", `has_api_key` must
         // not: that read is about the wrong provider.
-        let answer = has_key_answer(state.keychain_read_error(), || Ok(false));
+        let answer = has_key_answer(state.agent_settings.keychain_read_error(), || Ok(false));
         let err = answer.expect_err("must reject, not answer false");
         assert!(err.contains("locked"), "{err}");
     }
@@ -9834,9 +9834,9 @@ mod tests {
             |_| Ok(None),
         );
 
-        assert_eq!(state.active_provider_id(), "openrouter");
-        assert_eq!(state.api_key_snapshot(), None);
-        let stashed = state.keychain_read_error().expect("the failure is kept");
+        assert_eq!(state.agent_settings.active_provider_id(), "openrouter");
+        assert_eq!(state.agent_settings.api_key_snapshot(), None);
+        let stashed = state.agent_settings.keychain_read_error().expect("the failure is kept");
         assert!(stashed.contains("dismissed the unlock prompt"), "{stashed}");
     }
 
@@ -9851,7 +9851,7 @@ mod tests {
             |_| Err(KeychainError::new("second")),
             |_| Ok(None),
         );
-        let stashed = state.keychain_read_error().unwrap();
+        let stashed = state.agent_settings.keychain_read_error().unwrap();
         assert!(
             stashed.contains("first") && !stashed.contains("second"),
             "{stashed}"
@@ -9868,12 +9868,12 @@ mod tests {
             |id| Ok((id == "openrouter").then(|| "or-model".to_string())),
         );
 
-        assert_eq!(state.active_provider_id(), "openrouter");
-        assert_eq!(state.api_key_snapshot().as_deref(), Some("sk-or-1"));
-        assert_eq!(state.model_for("openrouter").as_deref(), Some("or-model"));
-        assert_eq!(state.keychain_read_error(), None);
+        assert_eq!(state.agent_settings.active_provider_id(), "openrouter");
+        assert_eq!(state.agent_settings.api_key_snapshot().as_deref(), Some("sk-or-1"));
+        assert_eq!(state.agent_settings.model_for("openrouter").as_deref(), Some("or-model"));
+        assert_eq!(state.agent_settings.keychain_read_error(), None);
         assert_eq!(
-            has_key_answer(state.keychain_read_error(), || Ok(true)),
+            has_key_answer(state.agent_settings.keychain_read_error(), || Ok(true)),
             Ok(true)
         );
     }
@@ -9884,9 +9884,9 @@ mod tests {
     #[test]
     fn a_later_clean_startup_read_clears_the_stash() {
         let state = AppState::default();
-        state.set_keychain_read_error(Some("locked".to_string()));
+        state.agent_settings.set_keychain_read_error(Some("locked".to_string()));
         load_startup_settings(&state, || Ok(None), |_| Ok(None), |_| Ok(None));
-        assert_eq!(state.keychain_read_error(), None);
+        assert_eq!(state.agent_settings.keychain_read_error(), None);
     }
 
     // ---- MCP servers after a refused startup (#497) ---------------------
@@ -9949,7 +9949,7 @@ mod tests {
             |_| Ok(None),
             |_| Ok(None),
         );
-        assert!(state.keychain_refused(), "precondition");
+        assert!(state.agent_settings.keychain_refused(), "precondition");
 
         let asked = RefCell::new(Vec::new());
         start_enabled_mcp_servers_with(&state, |slot| {
@@ -9991,7 +9991,7 @@ mod tests {
             ),
         )]);
         load_startup_settings(&state, || Ok(None), |_| Ok(None), |_| Ok(None));
-        assert!(!state.keychain_refused());
+        assert!(!state.agent_settings.keychain_refused());
 
         let asked = RefCell::new(Vec::new());
         start_enabled_mcp_servers_with(&state, |slot| {
@@ -10015,8 +10015,8 @@ mod tests {
             |_| Ok(None),
             |_| Ok(None),
         );
-        assert!(failed.keychain_read_error().is_some(), "it did fail");
-        assert!(!failed.keychain_refused(), "but it was not a refusal");
+        assert!(failed.agent_settings.keychain_read_error().is_some(), "it did fail");
+        assert!(!failed.agent_settings.keychain_refused(), "but it was not a refusal");
 
         let key_refused = AppState::default();
         load_startup_settings(
@@ -10025,7 +10025,7 @@ mod tests {
             |_| Err(KeychainError::access_denied("dismissed")),
             |_| Ok(None),
         );
-        assert!(key_refused.keychain_refused());
+        assert!(key_refused.agent_settings.keychain_refused());
 
         // Refused only at the models, with the provider and key read: the
         // keychain is refusing all the same, though there is no stash.
@@ -10036,8 +10036,8 @@ mod tests {
             |_| Ok(None),
             |_| Err(KeychainError::access_denied("dismissed")),
         );
-        assert_eq!(models_refused.keychain_read_error(), None);
-        assert!(models_refused.keychain_refused());
+        assert_eq!(models_refused.agent_settings.keychain_read_error(), None);
+        assert!(models_refused.agent_settings.keychain_refused());
     }
 
     /// The flag clears with the stash, on the save that proves the
@@ -10051,16 +10051,16 @@ mod tests {
             |_| Ok(None),
             |_| Ok(None),
         );
-        assert!(state.keychain_refused());
+        assert!(state.agent_settings.keychain_refused());
 
         keychain_readable_again(&state, |_| Ok(None));
-        assert!(!state.keychain_refused());
-        assert_eq!(state.keychain_read_error(), None);
+        assert!(!state.agent_settings.keychain_refused());
+        assert_eq!(state.agent_settings.keychain_read_error(), None);
 
         // Without a stash, too (refused at the models only).
-        state.set_keychain_refused(true);
+        state.agent_settings.set_keychain_refused(true);
         keychain_readable_again(&state, |_| Ok(None));
-        assert!(!state.keychain_refused());
+        assert!(!state.agent_settings.keychain_refused());
 
         assert!(!AppState::default().keychain_refused());
     }
@@ -10074,18 +10074,18 @@ mod tests {
         let state = AppState::default();
 
         assert_eq!(mcp_skip_reason(&state, &github), None, "not refused");
-        state.set_keychain_refused(true);
+        state.agent_settings.set_keychain_refused(true);
         assert_eq!(mcp_skip_reason(&state, &plain), None, "no reference");
         let reason = mcp_skip_reason(&state, &github).expect("skipped");
         assert!(
             !reason.contains("()"),
             "no empty reason in brackets: {reason}"
         );
-        state.set_keychain_read_error(Some("dismissed the prompt".into()));
+        state.agent_settings.set_keychain_read_error(Some("dismissed the prompt".into()));
         assert!(mcp_skip_reason(&state, &github)
             .unwrap()
             .contains("(dismissed the prompt)"));
-        state.set_keychain_refused(false);
+        state.agent_settings.set_keychain_refused(false);
         assert_eq!(mcp_skip_reason(&state, &github), None, "lifted");
     }
 
@@ -10105,8 +10105,8 @@ mod tests {
     #[test]
     fn a_stored_setting_is_not_read_after_a_refused_startup() {
         let state = AppState::default();
-        state.set_keychain_refused(true);
-        state.set_keychain_read_error(Some("locked".into()));
+        state.agent_settings.set_keychain_refused(true);
+        state.agent_settings.set_keychain_read_error(Some("locked".into()));
         let asked = Cell::new(0);
 
         let err = stored_setting_unless_refused(&state, || stored_url(&asked))
@@ -10131,11 +10131,11 @@ mod tests {
             Ok(Some("http://localhost:1234/v1".to_string()))
         );
 
-        state.set_keychain_read_error(Some("no secret service".into()));
+        state.agent_settings.set_keychain_read_error(Some("no secret service".into()));
         assert!(stored_setting_unless_refused(&state, || stored_url(&asked)).is_ok());
         assert_eq!(asked.get(), 2);
 
-        state.set_keychain_refused(true);
+        state.agent_settings.set_keychain_refused(true);
         assert!(stored_setting_unless_refused(&state, || stored_url(&asked)).is_err());
         keychain_readable_again(&state, |_| Ok(None));
         assert!(stored_setting_unless_refused(&state, || stored_url(&asked)).is_ok());
@@ -10158,7 +10158,7 @@ mod tests {
     #[test]
     fn the_model_list_reads_neither_key_nor_base_url_after_a_refused_startup() {
         let state = AppState::default();
-        state.set_keychain_refused(true);
+        state.agent_settings.set_keychain_refused(true);
         let asked = RefCell::new(Vec::new());
         let load = |what: &'static str| {
             let asked = &asked;
@@ -10269,7 +10269,7 @@ mod tests {
         assert_eq!(models_unread_reason(&clean), None);
 
         let failed = AppState::default();
-        failed.set_keychain_read_error(Some("ambiguous".into()));
+        failed.agent_settings.set_keychain_read_error(Some("ambiguous".into()));
         let reason = models_unread_reason(&failed).expect("a failed read");
         assert!(
             reason.contains("could not be read") && reason.contains("ambiguous"),
@@ -10277,13 +10277,13 @@ mod tests {
         );
 
         let refused = AppState::default();
-        refused.set_keychain_refused(true);
+        refused.agent_settings.set_keychain_refused(true);
         let reason = models_unread_reason(&refused).expect("a refusal");
         assert!(
             reason.contains("refused access") && !reason.contains("()"),
             "{reason}"
         );
-        refused.set_keychain_read_error(Some("locked".into()));
+        refused.agent_settings.set_keychain_read_error(Some("locked".into()));
         assert!(models_unread_reason(&refused).unwrap().contains("(locked)"));
     }
 
@@ -10327,11 +10327,11 @@ mod tests {
 
         assert_eq!(reads.get(), 1, "nothing was read after the refusal");
         assert_eq!(
-            state.keychain_read_error().as_deref(),
+            state.agent_settings.keychain_read_error().as_deref(),
             Some("prompt dismissed")
         );
-        assert_eq!(state.api_key_snapshot(), None);
-        assert_eq!(state.model_for("anthropic"), None);
+        assert_eq!(state.agent_settings.api_key_snapshot(), None);
+        assert_eq!(state.agent_settings.model_for("anthropic"), None);
     }
 
     #[test]
@@ -10350,7 +10350,7 @@ mod tests {
 
         assert_eq!(model_reads.get(), 0);
         assert_eq!(
-            state.keychain_read_error().as_deref(),
+            state.agent_settings.keychain_read_error().as_deref(),
             Some("prompt dismissed")
         );
     }
@@ -10373,10 +10373,10 @@ mod tests {
         let asked = asked.into_inner();
         assert_eq!(asked.len(), 3, "stopped at the refusal: {asked:?}");
         assert_eq!(
-            state.model_for(&asked[0]).as_deref(),
+            state.agent_settings.model_for(&asked[0]).as_deref(),
             Some(format!("{}-chosen", asked[0]).as_str())
         );
-        assert_eq!(state.model_for(&asked[2]), None);
+        assert_eq!(state.agent_settings.model_for(&asked[2]), None);
     }
 
     /// Any other failure is about one slot, so the next one is still
@@ -10398,11 +10398,11 @@ mod tests {
             },
         );
 
-        assert_eq!(state.keychain_read_error(), None);
-        assert_eq!(state.api_key_snapshot().as_deref(), Some("sk-x"));
-        assert_eq!(state.model_for("anthropic"), None);
+        assert_eq!(state.agent_settings.keychain_read_error(), None);
+        assert_eq!(state.agent_settings.api_key_snapshot().as_deref(), Some("sk-x"));
+        assert_eq!(state.agent_settings.model_for("anthropic"), None);
         assert_eq!(
-            state.model_for("openrouter").as_deref(),
+            state.agent_settings.model_for("openrouter").as_deref(),
             Some("openrouter-chosen")
         );
     }
@@ -10419,8 +10419,8 @@ mod tests {
             |id| Ok((id == "anthropic").then(|| "m".to_string())),
         );
 
-        assert_eq!(state.keychain_read_error().as_deref(), Some("not UTF-8"));
-        assert_eq!(state.model_for("anthropic").as_deref(), Some("m"));
+        assert_eq!(state.agent_settings.keychain_read_error().as_deref(), Some("not UTF-8"));
+        assert_eq!(state.agent_settings.model_for("anthropic").as_deref(), Some("m"));
     }
 
     // ---- Models come back once the keychain does (#394) ----------------
@@ -10438,15 +10438,15 @@ mod tests {
             |_| Ok(None),
             |_| Ok(Some("never read".to_string())),
         );
-        assert_eq!(state.model_for("anthropic"), None, "startup skipped them");
+        assert_eq!(state.agent_settings.model_for("anthropic"), None, "startup skipped them");
 
         keychain_readable_again(&state, |id| {
             Ok((id == "anthropic").then(|| "claude-opus-5".to_string()))
         });
 
-        assert_eq!(state.keychain_read_error(), None, "the stash is cleared");
+        assert_eq!(state.agent_settings.keychain_read_error(), None, "the stash is cleared");
         assert_eq!(
-            state.model_for("anthropic").as_deref(),
+            state.agent_settings.model_for("anthropic").as_deref(),
             Some("claude-opus-5"),
             "the stored pick is back, so rebuild_agent uses it"
         );
@@ -10458,17 +10458,17 @@ mod tests {
     #[test]
     fn recovery_does_not_overwrite_a_model_picked_since() {
         let state = AppState::default();
-        state.set_keychain_read_error(Some("locked".to_string()));
-        state.set_model_for("anthropic".to_string(), "picked-today".to_string());
+        state.agent_settings.set_keychain_read_error(Some("locked".to_string()));
+        state.agent_settings.set_model_for("anthropic".to_string(), "picked-today".to_string());
 
         keychain_readable_again(&state, |id| Ok(Some(format!("{id}-stored"))));
 
         assert_eq!(
-            state.model_for("anthropic").as_deref(),
+            state.agent_settings.model_for("anthropic").as_deref(),
             Some("picked-today")
         );
         assert_eq!(
-            state.model_for("openrouter").as_deref(),
+            state.agent_settings.model_for("openrouter").as_deref(),
             Some("openrouter-stored")
         );
     }
@@ -10484,7 +10484,7 @@ mod tests {
             Ok(None)
         });
         assert_eq!(reads.get(), 0);
-        assert_eq!(state.keychain_read_error(), None);
+        assert_eq!(state.agent_settings.keychain_read_error(), None);
     }
 
     // ---- Switching to a provider that needs no key ---------------------
@@ -10720,9 +10720,9 @@ mod tests {
     fn a_refused_startup_leaves_the_agent_unbuilt_and_the_keychain_unasked() {
         let dir = tempdir().unwrap();
         let state = state_with_a_store(dir.path());
-        state.set_active_provider("ollama".to_string());
-        state.set_keychain_refused(true);
-        state.set_keychain_read_error(Some("locked".into()));
+        state.agent_settings.set_active_provider("ollama".to_string());
+        state.agent_settings.set_keychain_refused(true);
+        state.agent_settings.set_keychain_read_error(Some("locked".into()));
 
         let (asked, built) = rebuild_and_record(&state);
 
@@ -10737,9 +10737,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let agents = tempdir().unwrap();
         let state = state_with_a_store(dir.path());
-        state.set_api_key_cache(Some("anthropic-key".to_string()));
+        state.agent_settings.set_api_key_cache(Some("anthropic-key".to_string()));
         pin_openai_profile(&state, agents.path());
-        state.set_keychain_refused(true);
+        state.agent_settings.set_keychain_refused(true);
 
         let (asked, built) = rebuild_and_record(&state);
 
@@ -10755,14 +10755,14 @@ mod tests {
     fn without_a_refusal_the_rebuild_reads_the_keychain_and_builds() {
         let dir = tempdir().unwrap();
         let state = state_with_a_store(dir.path());
-        state.set_active_provider("ollama".to_string());
+        state.agent_settings.set_active_provider("ollama".to_string());
         let (asked, built) = rebuild_and_record(&state);
         assert_eq!(asked, ["base_url:ollama", "effort:ollama"]);
         assert!(built, "a keyless provider needs no key to be built");
 
         let agents = tempdir().unwrap();
         let state = state_with_a_store(dir.path());
-        state.set_api_key_cache(Some("anthropic-key".to_string()));
+        state.agent_settings.set_api_key_cache(Some("anthropic-key".to_string()));
         pin_openai_profile(&state, agents.path());
         let (asked, built) = rebuild_and_record(&state);
         assert_eq!(asked, ["key:openai", "base_url:openai", "effort:openai"]);
@@ -10771,8 +10771,8 @@ mod tests {
         // A failed read that was not a refusal raises no prompt to avoid,
         // so it does not stop the build either.
         let state = state_with_a_store(dir.path());
-        state.set_active_provider("ollama".to_string());
-        state.set_keychain_read_error(Some("no secret service".into()));
+        state.agent_settings.set_active_provider("ollama".to_string());
+        state.agent_settings.set_keychain_read_error(Some("no secret service".into()));
         assert!(rebuild_and_record(&state).1);
     }
 
@@ -10782,8 +10782,8 @@ mod tests {
     fn the_rebuild_after_a_lifted_refusal_builds_the_agent() {
         let dir = tempdir().unwrap();
         let state = state_with_a_store(dir.path());
-        state.set_active_provider("ollama".to_string());
-        state.set_keychain_refused(true);
+        state.agent_settings.set_active_provider("ollama".to_string());
+        state.agent_settings.set_keychain_refused(true);
         assert!(!rebuild_and_record(&state).1, "precondition");
 
         keychain_readable_again(&state, |_| Ok(None));
@@ -10880,7 +10880,7 @@ mod tests {
                 state_with_chatgpt(tempdir().unwrap().path(), false),
             ),
         ] {
-            state.set_active_provider("anthropic".to_string());
+            state.agent_settings.set_active_provider("anthropic".to_string());
             let keychain = FakeKeychain::default();
             let err = tauri::async_runtime::block_on(set_active_provider_with(
                 &state,
@@ -10895,7 +10895,7 @@ mod tests {
                 "{what}: wrote {:?}",
                 keychain.wrote()
             );
-            assert_eq!(state.active_provider_id(), "anthropic", "{what}");
+            assert_eq!(state.agent_settings.active_provider_id(), "anthropic", "{what}");
         }
     }
 
@@ -10903,8 +10903,8 @@ mod tests {
     fn the_chatgpt_plan_can_be_the_active_provider_when_signed_in_and_builds_its_agent() {
         let dir = tempdir().unwrap();
         let state = state_with_chatgpt(dir.path(), true);
-        state.set_active_provider("anthropic".to_string());
-        state.set_api_key_cache(Some("anthropic-key".to_string()));
+        state.agent_settings.set_active_provider("anthropic".to_string());
+        state.agent_settings.set_api_key_cache(Some("anthropic-key".to_string()));
         let keychain = FakeKeychain::default();
         let at = tauri::async_runtime::block_on(set_active_provider_with(
             &state,
@@ -10919,9 +10919,9 @@ mod tests {
             ["save active_provider"],
             "and nothing else"
         );
-        assert_eq!(state.active_provider_id(), "chatgpt");
+        assert_eq!(state.agent_settings.active_provider_id(), "chatgpt");
         assert_eq!(
-            state.api_key_snapshot(),
+            state.agent_settings.api_key_snapshot(),
             None,
             "the other provider's key is not carried over"
         );
@@ -10945,7 +10945,7 @@ mod tests {
             .expect_err("refused");
             assert!(err.contains("ChatGPT"), "{err}");
             assert!(keychain.wrote().is_empty(), "wrote {:?}", keychain.wrote());
-            assert_eq!(state.api_key_snapshot(), None);
+            assert_eq!(state.agent_settings.api_key_snapshot(), None);
 
             for url in ["http://evil.example/v1", ""] {
                 let err = tauri::async_runtime::block_on(set_base_url_for_with(
@@ -11031,8 +11031,8 @@ mod tests {
             // Active, with a key that a hand-edited keychain or an older
             // build left behind.
             let state = state_with_chatgpt(dir.path(), signed_in);
-            state.set_active_provider("chatgpt".to_string());
-            state.set_api_key_cache(Some("sk-left-behind".to_string()));
+            state.agent_settings.set_active_provider("chatgpt".to_string());
+            state.agent_settings.set_api_key_cache(Some("sk-left-behind".to_string()));
             let (_, built) = rebuild_and_record(&state);
             assert!(
                 !built,
@@ -11041,14 +11041,14 @@ mod tests {
 
             // Active with no key at all: not a keyless agent either.
             let state = state_with_chatgpt(dir.path(), signed_in);
-            state.set_active_provider("chatgpt".to_string());
+            state.agent_settings.set_active_provider("chatgpt".to_string());
             let (_, built) = rebuild_and_record(&state);
             assert!(!built, "a keyless agent was built for the ChatGPT plan");
 
             // A profile that pins it.
             let agents = tempdir().unwrap();
             let state = state_with_chatgpt(dir.path(), signed_in);
-            state.set_api_key_cache(Some("anthropic-key".to_string()));
+            state.agent_settings.set_api_key_cache(Some("anthropic-key".to_string()));
             pin_profile(&state, agents.path(), "chatgpt");
             let (asked, built) = rebuild_and_record(&state);
             assert!(!built, "a profile built an agent for the signed-out plan");
@@ -11071,8 +11071,8 @@ mod tests {
         let dir = tempdir().unwrap();
         // Active, with a stale key left in the cache.
         let state = state_with_chatgpt(dir.path(), true);
-        state.set_active_provider("chatgpt".to_string());
-        state.set_api_key_cache(Some("sk-left-behind".to_string()));
+        state.agent_settings.set_active_provider("chatgpt".to_string());
+        state.agent_settings.set_api_key_cache(Some("sk-left-behind".to_string()));
         let (asked, built) = rebuild_and_record(&state);
         assert!(built, "the signed-in plan has an agent");
         assert_eq!(
@@ -11085,7 +11085,7 @@ mod tests {
         // A profile that pins it builds too, on the session, with no key read.
         let agents = tempdir().unwrap();
         let state = state_with_chatgpt(dir.path(), true);
-        state.set_api_key_cache(Some("anthropic-key".to_string()));
+        state.agent_settings.set_api_key_cache(Some("anthropic-key".to_string()));
         pin_profile(&state, agents.path(), "chatgpt");
         let (asked, built) = rebuild_and_record(&state);
         assert!(built, "a profile that pins the signed-in plan builds");
@@ -11099,12 +11099,12 @@ mod tests {
         // Replacing it with another provider's agent lets go of the plan's.
         let state = {
             let s = state_with_chatgpt(dir.path(), true);
-            s.set_active_provider("chatgpt".to_string());
+            s.agent_settings.set_active_provider("chatgpt".to_string());
             s
         };
         assert!(rebuild_and_record(&state).1);
         assert!(state.chatgpt.has_agent());
-        state.set_active_provider("ollama".to_string());
+        state.agent_settings.set_active_provider("ollama".to_string());
         assert!(rebuild_and_record(&state).1);
         assert!(!state.chatgpt.has_agent());
     }
@@ -11117,7 +11117,7 @@ mod tests {
         use ai::chatgpt::provider::ToolRung;
         let dir = tempdir().unwrap();
         let state = state_with_chatgpt(dir.path(), true);
-        state.set_active_provider("chatgpt".to_string());
+        state.agent_settings.set_active_provider("chatgpt".to_string());
         let mut slot = None;
 
         // The agent's provider, checked to be the slot's own.
@@ -11199,7 +11199,7 @@ mod tests {
     #[test]
     fn the_missing_agent_of_the_chatgpt_plan_asks_for_a_sign_in_not_a_key() {
         let out = state_with_chatgpt(tempdir().unwrap().path(), false);
-        out.set_active_provider("chatgpt".to_string());
+        out.agent_settings.set_active_provider("chatgpt".to_string());
         let text = no_agent_error(&out).to_string();
         assert!(text.contains("Continue with ChatGPT in Settings"), "{text}");
         assert!(!text.contains("set_api_key"), "{text}");
@@ -11215,7 +11215,7 @@ mod tests {
 
         // Everyone else is told what they always were.
         let other = state_with_chatgpt(tempdir().unwrap().path(), false);
-        other.set_active_provider("openai".to_string());
+        other.agent_settings.set_active_provider("openai".to_string());
         assert!(no_agent_error(&other).to_string().contains("set_api_key"));
     }
 
@@ -11230,7 +11230,7 @@ mod tests {
         let (handle, _store) = signed_in_handle(config.path());
         let mut state = AppState::new();
         state.chatgpt = handle;
-        state.set_active_provider("chatgpt".to_string());
+        state.agent_settings.set_active_provider("chatgpt".to_string());
         open_project_for_test(&state, &project).unwrap();
         {
             let mut slot = state.agent.try_lock().unwrap();
@@ -11267,7 +11267,7 @@ mod tests {
     fn agent_built_at_launch(settings: &std::path::Path) -> ai::Agent {
         let project = tempdir().unwrap();
         let state = state_with_a_store(project.path());
-        state.set_active_provider("ollama".to_string());
+        state.agent_settings.set_active_provider("ollama".to_string());
         state.install_settings(settings.to_path_buf());
         let mut slot = None;
         rebuild_agent_from(&state, &mut slot, |_| None, |_| None, |_| None);
@@ -11323,8 +11323,8 @@ mod tests {
     #[test]
     fn no_agent_after_a_refused_startup_says_the_keychain_refused() {
         let state = AppState::default();
-        state.set_keychain_refused(true);
-        state.set_keychain_read_error(Some("locked".into()));
+        state.agent_settings.set_keychain_refused(true);
+        state.agent_settings.set_keychain_read_error(Some("locked".into()));
 
         let text: String = no_agent_error(&state).into();
 
@@ -11341,7 +11341,7 @@ mod tests {
     #[test]
     fn no_agent_without_a_refusal_is_the_plain_error() {
         let state = AppState::default();
-        state.set_keychain_read_error(Some("no secret service".into()));
+        state.agent_settings.set_keychain_read_error(Some("no secret service".into()));
         let text: String = no_agent_error(&state).into();
         assert_eq!(text, "no agent configured; call set_api_key first");
     }
@@ -11500,7 +11500,7 @@ mod tests {
             let answer = tauri::async_runtime::block_on(set_api_key_for_inner(
                 &state, "openai", "sk-test", keychain,
             ));
-            (landing(answer), state.api_key_snapshot())
+            (landing(answer), state.agent_settings.api_key_snapshot())
         };
 
         let (answer, cached) = save(&FakeKeychain::default());
@@ -11543,7 +11543,7 @@ mod tests {
         .expect_err("the save failed");
         assert!(err.contains("keychain error"), "{err}");
         assert_eq!(keychain.wrote(), ["save api_key"], "and went no further");
-        assert_eq!(state.api_key_snapshot(), None);
+        assert_eq!(state.agent_settings.api_key_snapshot(), None);
     }
 
     #[test]
@@ -11655,7 +11655,7 @@ mod tests {
             session_only("no secret service for model")
         );
         assert_eq!(
-            state.model_for("anthropic").as_deref(),
+            state.agent_settings.model_for("anthropic").as_deref(),
             Some("claude-opus-5"),
             "chosen for this session either way"
         );

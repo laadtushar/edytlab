@@ -131,7 +131,7 @@ pub fn run() {
     // Pending from the first moment, before any command can ask: the
     // keychain reads that settle it start in `setup` below and can take
     // as long as the user does (#497).
-    app_state.begin_startup_reads();
+    app_state.agent_settings.begin_startup_reads();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -254,7 +254,7 @@ pub fn run() {
                 std::thread::spawn(move || {
                     {
                         // Ends the wait however this block ends.
-                        let _settled = state_for_startup.startup_reads_guard();
+                        let _settled = state_for_startup.agent_settings.startup_reads_guard();
                         try_load_api_key_at_startup(&state_for_startup);
                         // The saved ChatGPT sign-in, if there is one: with
                         // the other reads, so the agent built behind them
@@ -300,7 +300,7 @@ pub fn run() {
                             // not be.
                             let state_for_rebuild = app_state.clone();
                             tauri::async_runtime::spawn(async move {
-                                state_for_rebuild.startup_reads_settled().await;
+                                state_for_rebuild.agent_settings.startup_reads_settled().await;
                                 if let Err(e) =
                                     crate::commands::rebuild_agent_public(&state_for_rebuild).await
                                 {

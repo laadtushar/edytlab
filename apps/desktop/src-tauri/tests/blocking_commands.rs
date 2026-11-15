@@ -194,7 +194,7 @@ fn open_project_answers_while_an_agent_turn_holds_the_agent() {
 
     // A key saved while the turn runs. A rebuild that took its snapshot of
     // the state when the project was opened would not see it.
-    state.set_api_key_cache(Some("saved-during-the-turn".into()));
+    state.agent_settings.set_api_key_cache(Some("saved-during-the-turn".into()));
 
     // Let go before asserting, so a failure here cannot leave the open
     // waiting for ever.
@@ -232,7 +232,7 @@ fn open_project_rebuilds_the_agent_before_it_answers_when_no_turn_runs() {
     let project = tempfile::tempdir().expect("tempdir");
 
     let state = AppState::new();
-    state.set_api_key_cache(Some("saved".into()));
+    state.agent_settings.set_api_key_cache(Some("saved".into()));
     let (_app, webview) = mock_window!(
         state.clone();
         commands::open_project,
@@ -310,7 +310,7 @@ fn a_project_with_an_agent() -> SavedAsFixture {
     let copies = tempfile::tempdir().expect("tempdir");
 
     let state = AppState::new();
-    state.set_api_key_cache(Some("saved".into()));
+    state.agent_settings.set_api_key_cache(Some("saved".into()));
     let (app, webview) = mock_window!(
         state.clone();
         commands::open_project,
