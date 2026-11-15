@@ -155,10 +155,10 @@ fn window(n: usize) -> Vec<f32> {
 }
 
 fn stretch_plane(input: &[f32], stretch: f64, n: usize, seed: u64) -> Vec<f32> {
+    // `paulstretch` sends only non-empty planes and a stretch of at least 1,
+    // so the output has at least one frame.
     let out_len = (input.len() as f64 * stretch).round() as usize;
-    if out_len == 0 {
-        return Vec::new();
-    }
+    debug_assert!(out_len > 0, "an empty plane never reaches stretch_plane");
     let hop = n / 2;
     let w = window(n);
     let mean_w2 = w.iter().map(|v| v * v).sum::<f32>() / n as f32;

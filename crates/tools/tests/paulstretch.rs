@@ -398,3 +398,76 @@ fn a_whole_track_stretch_does_not_touch_other_tracks_even_with_sync_lock() {
     s.ok("paulstretch", json!({"track": 0, "factor": 2.0}));
     assert!((clip_start_sec(&s, 1) - 3.0).abs() < 1e-6);
 }
+
+/// Arguments that do not parse are the tool's refusal (wrong type), and the
+/// session is left as it was.
+#[test]
+fn arguments_of_the_wrong_type_are_refused_and_change_nothing() {
+    let mut s = tone_session(RATE, 1.0, 440.0);
+    let (head, nodes) = (s.head(), s.node_count());
+    // An integer to the schema, but not a `usize` or a `u64`: the tool's own
+    // parser refuses it, as a result and not a dispatcher error.
+    for args in [
+        json!({"track": -1, "factor": 2.0}),
+        json!({"track": 0, "factor": 2.0, "seed": -5}),
+    ] {
+        let msg = s.err("paulstretch", args);
+        assert!(!msg.is_empty());
+    }
+    assert_eq!(s.head(), head);
+    assert_eq!(s.node_count(), nodes);
+}
+
+#[test]
+fn an_empty_project_is_refused_and_says_to_load_first() {
+    let mut s = Session::empty();
+    let msg = s.err("paulstretch", json!({"track": 0, "factor": 2.0}));
+    assert!(msg.contains("no session loaded"), "{msg}");
+}
+
+#[test]
+fn under_sync_lock_a_track_with_clips_at_two_rates_refuses_the_range_stretch() {
+    let mut s = Session::with_tracks(&[
+        (
+            RATE,
+            (0..RATE as usize * 4)
+                .map(|i| (i as f32 * 0.01).sin() * 0.4)
+                .collect(),
+        ),
+        (
+            22_050,
+            (0..22_050).map(|i| (i as f32 * 0.02).sin() * 0.4).collect(),
+        ),
+    ]);
+    // Put the 48 kHz clip on the 22.05 kHz track as well: no single rate.
+    let mut state = s.state();
+    let extra = state.tracks[0].clips[0].clone();
+    state.tracks[1].clips.push(session::Clip {
+        start_in_track: 22_050,
+        ..extra
+    });
+    s.append_state("mixed", state);
+    s.ok("set_sync_lock", json!({"enabled": true}));
+    let (head, nodes) = (s.head(), s.node_count());
+    let msg = s.err(
+        "paulstretch",
+        json!({"track": 0, "factor": 3.0, "range": {"start_sec": 1.0, "end_sec": 2.0}}),
+    );
+    assert!(msg.contains("different sample rates"), "{msg}");
+    assert_eq!(s.head(), head);
+    assert_eq!(s.node_count(), nodes);
+}
+
+/// A factor of 1 gains no time, so there is no gap to open: the other tracks
+/// are left exactly as they were, and the edited one is the same length.
+#[test]
+fn a_range_stretch_that_gains_nothing_leaves_a_sync_locked_track_alone() {
+    let mut s = synced_session(true);
+    let before = s.state().tracks[1].clips.clone();
+    s.ok(
+        "paulstretch",
+        json!({"track": 0, "factor": 1.0, "range": {"start_sec": 1.0, "end_sec": 2.0}}),
+    );
+    assert_eq!(s.state().tracks[1].clips, before);
+    assert_eq!(head_audio(&s, 0).samples.len(), RATE as usize * 4);
+}
