@@ -21,10 +21,12 @@ const CSS = `:root { --radius: 0.5rem; }
   --muted-foreground: 0 0% 85%;
   --border: 0 0% 20%;
 }
-.gradient-text { background: linear-gradient(90deg, hsl(0 0% 100%), hsl(0 0% 90%)); }
-.aurora::before { background: linear-gradient(hsl(0 0% 95%), hsl(0 0% 85%)); }
-.aurora::before,
-  .aurora::after { opacity: 0.15; }
+@utility gradient-text { background: linear-gradient(90deg, hsl(0 0% 100%), hsl(0 0% 90%)); }
+@utility aurora {
+  &::before,
+  &::after { opacity: 0.15; }
+  &::before { background: linear-gradient(hsl(0 0% 95%), hsl(0 0% 85%)); }
+}
 `;
 const LOGO = `<svg><path fill="#112233"/><path stroke="#AABBCC"/></svg>
 `;
