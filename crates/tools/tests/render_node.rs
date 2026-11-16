@@ -86,6 +86,24 @@ impl Sandbox {
         )
     }
 
+    /// Sweep history at cap 0 and leave nothing a replay could start from:
+    /// no take, and no older audio.
+    fn strand(&self) {
+        tools::reclaim::sweep(&self.s.store, 0).expect("sweep");
+        std::fs::remove_file(self.s.dir.path().join("take.wav")).expect("remove the take");
+        let head_audio: Vec<PathBuf> = self.s.state().tracks[0]
+            .clips
+            .iter()
+            .map(|c| c.source_path.clone())
+            .collect();
+        let derived = self.s.dir.path().join(".audiograph").join("derived");
+        for entry in std::fs::read_dir(derived).expect("derived").flatten() {
+            if !head_audio.contains(&entry.path()) {
+                std::fs::remove_file(entry.path()).expect("remove history's audio");
+            }
+        }
+    }
+
     /// The same node with a stored effect the renderer cannot run, written
     /// the way an older build saved it.
     fn with_reverb(&mut self) -> NodeId {
@@ -135,20 +153,7 @@ fn a_swept_node_renders_and_its_audio_is_back() {
 fn a_node_that_cannot_be_put_back_is_refused_and_leaves_no_file() {
     let sb = Sandbox::new();
     let parent = sb.nodes[2];
-    tools::reclaim::sweep(&sb.s.store, 0).expect("sweep");
-    // Nothing a replay could start from: no take, and no older audio.
-    std::fs::remove_file(sb.s.dir.path().join("take.wav")).expect("remove the take");
-    let head_audio: Vec<PathBuf> = sb.s.state().tracks[0]
-        .clips
-        .iter()
-        .map(|c| c.source_path.clone())
-        .collect();
-    let derived = sb.s.dir.path().join(".audiograph").join("derived");
-    for entry in std::fs::read_dir(derived).expect("derived").flatten() {
-        if !head_audio.contains(&entry.path()) {
-            std::fs::remove_file(entry.path()).expect("remove history's audio");
-        }
-    }
+    sb.strand();
 
     let err = sb.mix(parent, false, true).expect_err("cannot be rebuilt");
 
@@ -484,4 +489,42 @@ fn a_poisoned_lock_is_named() {
     )
     .expect_err("poisoned engine");
     assert!(matches!(file_err, render::Error::Poisoned("engine")));
+}
+
+// ---------------------------------------------------------------------
+// The tools' answers when the module refuses
+// ---------------------------------------------------------------------
+
+#[test]
+fn the_preview_tool_words_each_refusal_as_before() {
+    let mut sb = Sandbox::new();
+    let missing = sb.s.err(
+        "render_preview",
+        json!({ "node_id": NodeId([9; 32]).to_hex() }),
+    );
+    assert!(missing.starts_with("node lookup failed: "), "{missing}");
+
+    let parent = sb.nodes[2];
+    sb.strand();
+    let stranded =
+        sb.s.err("render_preview", json!({ "node_id": parent.to_hex() }));
+    assert!(!stranded.starts_with("render failed"), "{stranded}");
+    assert!(!sb.entry(parent).exists());
+}
+
+#[test]
+fn the_export_tool_words_a_failed_render_as_before() {
+    let mut sb = Sandbox::new();
+    // A node with no tracks: the engine has nothing to render.
+    let mut state = sb.s.state();
+    state.tracks.clear();
+    sb.s.append_state("empty", state);
+    let out = sb.s.dir.path().join("empty.wav");
+
+    let msg = sb.s.err(
+        "render_final",
+        json!({ "node_id": sb.s.head_hex(), "format": "wav", "out_path": out }),
+    );
+
+    assert!(msg.starts_with("render failed: "), "{msg}");
 }
