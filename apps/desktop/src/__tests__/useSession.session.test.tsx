@@ -107,6 +107,8 @@ class Backend extends HeldTrackReads {
       case "get_node":
         return { id: args.id, parent: args.id === A ? null : A };
       case "set_head_to": {
+        const refused = this.refuse.get(cmd);
+        if (refused) throw refused;
         const to = args.nodeId as string;
         if (!this.nodes.includes(to)) throw "node not found";
         this.head = to;
@@ -646,6 +648,32 @@ describe("undo and redo skip the steps a compaction removed (#595)", () => {
     expect(result.current.session.head).toBe(A);
   });
 
+  it("a redo the store refuses for a node it still has is an error, and the step is kept", async () => {
+    const { result } = await mount();
+    await act(async () => {
+      await result.current.session.edit("setTrackGain", [0, -1]);
+    });
+    const edited = backend.head;
+    await act(async () => {
+      await result.current.session.move({ kind: "undo" });
+    });
+    backend.refuse.set("set_head_to", "the store is busy");
+
+    let failure: unknown;
+    await act(async () => {
+      await result.current.session.move({ kind: "redo" }).catch((error: unknown) => (failure = error));
+    });
+
+    expect(String(failure)).toContain("the store is busy");
+    expect(result.current.session.head).toBe(A);
+    // Still there to redo once the store will take it.
+    backend.refuse.clear();
+    await act(async () => {
+      expect(await result.current.session.move({ kind: "redo" })).toBe(true);
+    });
+    expect(result.current.session.head).toBe(edited);
+  });
+
   it("is refused, and says so, for a node that is not gone", async () => {
     const { result } = await mount();
     await act(async () => {
@@ -813,6 +841,25 @@ describe("what a turn reads again, from the table", () => {
 
     expect(reads().tracks - before.tracks).toBe(1);
     expect(readError.map(String)).toEqual(["the session could not be read"]);
+  });
+});
+
+describe("the transcript read", () => {
+  it("is no transcript when the session cannot answer", async () => {
+    const original = backend.handle;
+    let asked = 0;
+    backend.handle = (cmd, args) => {
+      if (cmd === "get_transcript") {
+        asked++;
+        throw "no session loaded; call open_project first";
+      }
+      return original(cmd, args);
+    };
+    bootIpc(backend);
+    const { result } = await mount();
+    await waitFor(() => expect(asked).toBeGreaterThan(0));
+    await settle();
+    expect(result.current.transcript).toEqual({ words: [], source: { kind: "unknown" } });
   });
 });
 

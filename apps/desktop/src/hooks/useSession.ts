@@ -540,7 +540,7 @@ export function useSession(options: UseSessionOptions = {}): UseSessionResult {
     mutationFn: ({ after }) => nextTrackRead(client, after),
   });
 
-  const { mutateAsync } = useMutation<Outcome, unknown, Turn>({
+  const { mutate, mutateAsync } = useMutation<Outcome, unknown, Turn>({
     mutationKey: WRITE_KEY,
     scope: { id: "session" },
     mutationFn: (turn) => turnRef.current.runTurn(turn),
@@ -634,9 +634,8 @@ export function useSession(options: UseSessionOptions = {}): UseSessionResult {
     keep(
       onToolCallEnd((id, ok) => {
         if (!compactions.delete(id) || !ok) return;
-        void mutateAsync({ type: "forget", epoch: epochRef.current, seq: ++seqRef.current }).catch(
-          () => undefined,
-        );
+        // `forgetRemoved` never rejects, and `mutate` reports nothing of it.
+        mutate({ type: "forget", epoch: epochRef.current, seq: ++seqRef.current });
       }),
     );
     keep(onAgentDone(() => void client.invalidateQueries({ queryKey: READS.graph })));
@@ -645,7 +644,7 @@ export function useSession(options: UseSessionOptions = {}): UseSessionResult {
       cancelled = true;
       for (const fn of unlisten) fn();
     };
-  }, [client, mutateAsync, newEdition]);
+  }, [client, mutate, newEdition]);
 
   return {
     tracks,

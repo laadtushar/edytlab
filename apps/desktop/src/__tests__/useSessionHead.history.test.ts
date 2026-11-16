@@ -23,6 +23,7 @@ vi.mock("../lib/tauri-bridge", async () => ({
 }));
 
 import { useSessionHead } from "../hooks/useSessionHead";
+import { onNodeCreated } from "../lib/tauri-bridge";
 import { held } from "./held";
 
 /** Mount the hook on a project whose head is "A", once that head has arrived. */
@@ -200,5 +201,34 @@ describe("useSessionHead: the path taken", () => {
 
     await waitFor(() => expect(result.current.head).toBe("A"));
     expect(result.current.trail).toEqual(["A", "B"]);
+  });
+});
+
+describe("useSessionHead: listening and rendering", () => {
+  it("detaches a listener that arrives after it has unmounted", async () => {
+    const listening = held<() => void>();
+    const unlisten = vi.fn();
+    vi.mocked(onNodeCreated).mockReturnValueOnce(listening.promise);
+    const { unmount } = renderHook(() => useSessionHead());
+
+    unmount();
+    expect(unlisten).not.toHaveBeenCalled();
+    await listening.resolve(unlisten);
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reads the head when the event bridge cannot be reached", async () => {
+    vi.mocked(onNodeCreated).mockReturnValueOnce(Promise.reject(new Error("no event bridge")));
+    const { result } = renderHook(() => useSessionHead());
+    await waitFor(() => expect(result.current.head).toBe("A"));
+  });
+
+  it("has nothing to render with no head", async () => {
+    bridge.getSessionHead.mockReset().mockRejectedValue("no session loaded; call open_project first");
+    const { result } = renderHook(() => useSessionHead());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await expect(result.current.renderHead()).rejects.toThrow("no node to render");
   });
 });
