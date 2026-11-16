@@ -61,17 +61,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use eventsource_stream::Eventsource;
-use futures_util::StreamExt;
 use serde_json::Value;
 use tools::{ToolDispatcher, ToolResult};
 
 use crate::anthropic::{
-    max_tokens_for, ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart,
-    Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
+    max_tokens_for, ApiError, CacheControl, ContentBlock, Message, MessagesRequest, OutputConfig,
+    Role, SystemBlock, ToolChoice,
 };
 use crate::approval;
 use crate::chatgpt::PlanUsageError;
+use crate::exchange::{step_streaming, Exchanged, ModelExchange, Step, StepBlock};
 use crate::models::clamp_max_tokens;
 use crate::plan_gate::{Answer, PlanGate};
 use crate::prompt::{
@@ -80,8 +79,8 @@ use crate::prompt::{
 use crate::provider::{ProviderFailure, ToolSet};
 use crate::responses;
 use crate::session_context::{block_budget, render_block_checked, SessionContext};
+use crate::tool_selection;
 use crate::tool_selection::is_not_implemented;
-use crate::{context_window, tool_selection};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
 
 // ---------------------------------------------------------------------------
@@ -777,13 +776,6 @@ async fn fetch_plan(
     Ok(steps)
 }
 
-/// Hard upper bound on the number of content blocks we'll allocate for
-/// a single streaming Anthropic message. The server tells us each
-/// block's index; without this cap a malicious or buggy server could
-/// hand us `u64::MAX` and force a massive `Vec` allocation. Anthropic's
-/// real tool-use messages have well under 10 blocks, so 100 is generous.
-const MAX_CONTENT_BLOCKS: usize = 100;
-
 /// Where a turn stands on approving edits (#415).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Gate {
@@ -816,6 +808,7 @@ fn tool_names(schemas: &Value) -> Vec<&str> {
 pub(crate) async fn run_turn<F>(
     cfg: &LlmConfig,
     http: &reqwest::Client,
+    exchange: &dyn ModelExchange,
     dispatcher: &Arc<Mutex<ToolDispatcher>>,
     store: &Arc<Mutex<session::Store>>,
     engine: &Arc<Mutex<audio_engine::Engine>>,
@@ -1119,288 +1112,88 @@ where
         // Provider-specific wire serialisation. Anthropic + OpenRouter
         // pass `MessagesRequest` through verbatim; OpenAI translates to
         // chat-completions JSON.
-        let request_body = cfg.provider.serialize_request(&request_struct);
-        let resp = cfg.post_json(http, &request_body).await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            // The route's errors page asks for the request ID to be kept with
-            // the status and the code: it is what OpenAI is asked about.
-            let request_id = responses::request_id_of(resp.headers());
-            let body = resp.text().await.unwrap_or_default();
-            let failure = ProviderFailure::Http {
-                status: status.as_u16(),
-                body: &body,
-                request_id: request_id.as_deref(),
-            };
-            // A provider that can ask for something else (the ChatGPT plan's
-            // ladder of tool layouts, its reasoning) is given the refusal
-            // first. If it changed itself, the same request built again is a
-            // different one: send that, never this body again. What it
-            // changed may be the `system` or the `tools` the thinking so far
-            // was produced under, so it is dropped (CLAUDE.md, the thinking
-            // rule), and the tools are chosen again for what it asks now.
-            if adaptations < MAX_ADAPTATIONS {
-                if let Some(adaptation) = cfg.provider.adapt_after_refusal(&failure) {
-                    let mut adaptation = adaptation;
-                    // What the provider changed may leave the request as it
-                    // was (the slim tool list of a registry of one tool is the
-                    // full one). That is the body just refused, and it is not
-                    // sent again: the provider is asked to step further, until
-                    // the body differs or it has no step left.
-                    let different = loop {
-                        adaptations += 1;
-                        tracing::warn!(
-                            status = status.as_u16(),
-                            request_id = request_id.as_deref().unwrap_or("-"),
-                            ?adaptation,
-                            "the provider refused the request; sending a different one"
-                        );
-                        conversation.invalidate_thinking();
-                        (tool_schemas, request_prompt) = select_tools(conversation.messages());
-                        let next = cfg.provider.serialize_request(&build_request(
-                            &wire_model,
-                            &request_prompt,
-                            &tool_schemas,
-                            conversation.messages(),
-                            tool_choice,
-                            cfg.effective_effort(),
-                        ));
-                        // Slim with every tool in it is the full list with
-                        // shorter words: the same offer, not a smaller one.
-                        let slim_of_everything = cfg.provider.tool_set() == ToolSet::Slim
-                            && tool_names(&tool_schemas) == tool_names(&permitted_schemas);
-                        if next != request_body && !slim_of_everything {
-                            break true;
+        let request_body = exchange.request_body(&request_struct);
+        let step = match step_streaming(exchange, &request_body, &mut on_event).await? {
+            Exchanged::Step(step) => step,
+            Exchanged::Refused(refusal) => {
+                // A provider that can ask for something else (the ChatGPT
+                // plan's ladder of tool layouts, its reasoning) is given the
+                // refusal first. If it changed itself, the same request built
+                // again is a different one: send that, never this body again.
+                // What it changed may be the `system` or the `tools` the
+                // thinking so far was produced under, so it is dropped
+                // (CLAUDE.md, the thinking rule), and the tools are chosen
+                // again for what it asks now.
+                if adaptations < MAX_ADAPTATIONS {
+                    if let Some(adaptation) = exchange.adapt(&refusal) {
+                        let mut adaptation = adaptation;
+                        // What the provider changed may leave the request as
+                        // it was (the slim tool list of a registry of one tool
+                        // is the full one). That is the body just refused, and
+                        // it is not sent again: the provider is asked to step
+                        // further, until the body differs or it has no step
+                        // left.
+                        let different = loop {
+                            adaptations += 1;
+                            // Formatted here, not in the macro, which skips
+                            // its fields when nothing listens.
+                            let adaptation_name = format!("{adaptation:?}");
+                            let request_id = refusal.request_id.as_deref().unwrap_or("-");
+                            tracing::warn!(
+                                status = refusal.status,
+                                request_id = request_id,
+                                adaptation = %adaptation_name,
+                                "the provider refused the request; sending a different one"
+                            );
+                            conversation.invalidate_thinking();
+                            (tool_schemas, request_prompt) = select_tools(conversation.messages());
+                            let next = exchange.request_body(&build_request(
+                                &wire_model,
+                                &request_prompt,
+                                &tool_schemas,
+                                conversation.messages(),
+                                tool_choice,
+                                cfg.effective_effort(),
+                            ));
+                            // Slim with every tool in it is the full list with
+                            // shorter words: the same offer, not a smaller one.
+                            let slim_of_everything = cfg.provider.tool_set() == ToolSet::Slim
+                                && tool_names(&tool_schemas) == tool_names(&permitted_schemas);
+                            if next != request_body && !slim_of_everything {
+                                break true;
+                            }
+                            match adaptations < MAX_ADAPTATIONS {
+                                true => match exchange.adapt(&refusal) {
+                                    Some(further) => adaptation = further,
+                                    None => break false,
+                                },
+                                false => break false,
+                            }
+                        };
+                        if different {
+                            continue;
                         }
-                        match adaptations < MAX_ADAPTATIONS {
-                            true => match cfg.provider.adapt_after_refusal(&failure) {
-                                Some(further) => adaptation = further,
-                                None => break false,
-                            },
-                            false => break false,
-                        }
-                    };
-                    if different {
-                        continue;
                     }
                 }
+                return Err(exchange.refusal_error(&refusal));
             }
-            // A failure the provider has its own words and recovery for (the
-            // ChatGPT plan's usage limit, an account that cannot use it, a
-            // session that ended). Nothing is retried on another provider.
-            if let Some(error) = cfg.provider.classify_failure(&failure) {
-                tracing::warn!(
-                    status = status.as_u16(),
-                    request_id = request_id.as_deref().unwrap_or("-"),
-                    code = %match &error {
-                        Error::PlanUsage(e) => e.code(),
-                        _ => "-",
-                    },
-                    "the provider refused the request"
-                );
-                return Err(error);
-            }
-            // A model the provider no longer has is its own error, naming
-            // the model and the default to switch to (#468).
-            if crate::provider::is_model_unavailable(
-                cfg.provider.as_ref(),
-                status.as_u16(),
-                &body,
-                &wire_model,
-            ) {
-                // The provider's words are for the log; the person is shown
-                // the model. A response body never carries the key.
-                tracing::warn!(
-                    status = status.as_u16(),
-                    model = %cfg.model,
-                    body = %body,
-                    "the provider has no such model"
-                );
-                return Err(Error::ModelUnavailable {
-                    model: cfg.model.clone(),
-                    default_model: cfg.provider.default_model().to_string(),
-                    status: status.as_u16(),
-                });
-            }
-            // A request that did not fit the model's context is its own
-            // error, with what to do about it (#395).
-            return Err(context_window::api_error(status.as_u16(), body));
-        }
-
-        // 3. Drain the SSE stream, accumulating text deltas + tool_use
-        //    blocks. The Anthropic stream emits one `message_start`
-        //    followed by a sequence of `content_block_*` events per
-        //    block, then `message_delta` + `message_stop`.
-        let stream_request_id = responses::request_id_of(resp.headers());
-        let stream = resp
-            .bytes_stream()
-            .map(|chunk| chunk.map_err(std::io::Error::other));
-        let mut sse = stream.eventsource();
-
-        // Whether the stream failed in a way the provider says to try again
-        // for (see the `Error` arm below).
-        let mut retry_step = false;
-
-        // Per-message accumulators, indexed by content-block index.
-        let mut blocks: Vec<PartialBlock> = Vec::new();
-        let mut stop_reason: Option<String> = None;
-        let mut text_this_message = String::new();
-        // Flag flipped by `MessageStop` inside the (provider-translated)
-        // event sequence so we can break out of the SSE loop cleanly.
-        let mut stream_finished = false;
-
-        while let Some(ev) = sse.next().await {
-            let event = ev.map_err(Error::Sse)?;
-            // `eventsource-stream` skips comment lines and reassembles
-            // multi-line `data:` payloads automatically. An empty data
-            // payload (server-side keepalive) is ignored.
-            if event.data.is_empty() {
+            // A transient failure in the stream, before any of the step was
+            // shown or run: the same request, once, after a pause.
+            Exchanged::Interrupted(error) => {
+                if step_retried {
+                    return Err(error);
+                }
+                step_retried = true;
+                tokio::time::sleep(exchange.retry_delay()).await;
                 continue;
             }
-            // Provider-specific stream parsing. Anthropic + OpenRouter
-            // deserialise the chunk straight into `StreamEvent`; OpenAI
-            // translates a chat-completions delta into one or more
-            // canonical events.
-            let parsed_events = cfg
-                .provider
-                .parse_stream_chunk(&event.data)
-                .map_err(|e| Error::Protocol(e.to_string()))?;
-            for parsed in parsed_events {
-                match parsed {
-                    StreamEvent::MessageStart { .. } => {
-                        blocks.clear();
-                        text_this_message.clear();
-                    }
-                    StreamEvent::ContentBlockStart {
-                        index,
-                        content_block,
-                    } => {
-                        grow_to(&mut blocks, index as usize)?;
-                        match content_block {
-                            ContentBlockStart::Text { .. } => {
-                                blocks[index as usize] = PartialBlock::Text(String::new());
-                            }
-                            ContentBlockStart::ToolUse { id, name, .. } => {
-                                on_event(AgentEvent::ToolCallStart {
-                                    name: name.clone(),
-                                    id: id.clone(),
-                                });
-                                blocks[index as usize] = PartialBlock::ToolUse {
-                                    id,
-                                    name,
-                                    args_json: String::new(),
-                                };
-                            }
-                            ContentBlockStart::Thinking {
-                                thinking,
-                                signature,
-                            } => {
-                                blocks[index as usize] = PartialBlock::Thinking {
-                                    thinking,
-                                    signature,
-                                };
-                            }
-                            ContentBlockStart::RedactedThinking { data } => {
-                                blocks[index as usize] = PartialBlock::RedactedThinking(data);
-                            }
-                            ContentBlockStart::Other => {
-                                blocks[index as usize] = PartialBlock::Ignored;
-                            }
-                        }
-                    }
-                    StreamEvent::ContentBlockDelta { index, delta } => {
-                        let slot = blocks.get_mut(index as usize).ok_or_else(|| {
-                            Error::Protocol("delta for unknown block index".into())
-                        })?;
-                        match (slot, delta) {
-                            (PartialBlock::Text(buf), ContentBlockDelta::TextDelta { text }) => {
-                                buf.push_str(&text);
-                                text_this_message.push_str(&text);
-                                on_event(AgentEvent::TextDelta(text));
-                            }
-                            (
-                                PartialBlock::ToolUse { args_json, .. },
-                                ContentBlockDelta::InputJsonDelta { partial_json },
-                            ) => {
-                                args_json.push_str(&partial_json);
-                            }
-                            (
-                                PartialBlock::Thinking { thinking, .. },
-                                ContentBlockDelta::ThinkingDelta { thinking: more },
-                            ) => thinking.push_str(&more),
-                            (
-                                PartialBlock::Thinking { signature, .. },
-                                ContentBlockDelta::SignatureDelta { signature: more },
-                            ) => signature.push_str(&more),
-                            // Mismatched delta kind for the block — ignore;
-                            // the server occasionally emits unrelated deltas
-                            // we don't model yet.
-                            _ => {}
-                        }
-                    }
-                    StreamEvent::ContentBlockStop { .. } => {
-                        // Nothing to do; we'll consume `blocks` after stop.
-                    }
-                    StreamEvent::MessageDelta { delta } => {
-                        if let Some(reason) = delta.stop_reason {
-                            stop_reason = Some(reason);
-                        }
-                    }
-                    StreamEvent::MessageStop => {
-                        stream_finished = true;
-                        break;
-                    }
-                    StreamEvent::Ping | StreamEvent::Other => {}
-                    StreamEvent::Error { error } => {
-                        // A transient failure the provider says is worth one
-                        // more try, before any of the step has been shown or
-                        // run (a retry after text went out would say it
-                        // twice): the same request, once, after a pause. Each
-                        // try spends the person's allowance, so only the
-                        // codes that blame the service qualify.
-                        if !step_retried
-                            && blocks.is_empty()
-                            && cfg.provider.retries_stream_failure(&error.kind)
-                        {
-                            retry_step = true;
-                            break;
-                        }
-                        // The error's `kind` (on the Responses format, the
-                        // API's code, such as
-                        // `subscription_sharing_usage_limit_exceeded`) and
-                        // `param` go to the provider first: one whose codes
-                        // call for different handling names the failure,
-                        // and nothing is tried on another provider. Any
-                        // other keeps only the message.
-                        return Err(cfg
-                            .provider
-                            .classify_failure(&ProviderFailure::Stream {
-                                kind: &error.kind,
-                                message: &error.message,
-                                param: error.param.as_deref(),
-                                request_id: stream_request_id.as_deref(),
-                            })
-                            .unwrap_or_else(|| Error::ApiStream(error_message(&error))));
-                    }
-                }
-            }
-            if stream_finished || retry_step {
-                break;
-            }
-        }
-        if retry_step {
-            step_retried = true;
-            tokio::time::sleep(cfg.provider.stream_retry_delay()).await;
-            continue;
-        }
+        };
         step_retried = false;
-        // A stream that ran out without its end marker. The Responses
-        // format succeeds only at `response.completed`; a step cut short is
-        // an error, not a shorter reply, and nothing of it is kept or run.
-        if !stream_finished && cfg.provider.wire_format().needs_terminal_event() {
-            return Err(responses::cut_off_error());
-        }
+        let Step {
+            blocks,
+            stop_reason,
+            text: text_this_message,
+        } = step;
 
         // 4. Append the assistant turn (with all its blocks) to history
         //    so the next API call sees it.
@@ -1412,27 +1205,25 @@ where
         //    for a provider whose server issued them, and only a
         //    thinking block that has a signature: without one the
         //    server cannot verify it.
-        let keep_thinking = cfg.provider.replays_thinking();
+        let keep_thinking = exchange.replays_thinking();
         let assistant_blocks: Vec<ContentBlock> = blocks
             .iter()
             .filter_map(|b| match b {
-                PartialBlock::Text(t) if !t.is_empty() => {
-                    Some(ContentBlock::Text { text: t.clone() })
-                }
-                PartialBlock::Thinking {
+                StepBlock::Text(t) if !t.is_empty() => Some(ContentBlock::Text { text: t.clone() }),
+                StepBlock::Thinking {
                     thinking,
                     signature,
                 } if keep_thinking && !signature.is_empty() => Some(ContentBlock::Thinking {
                     thinking: thinking.clone(),
                     signature: signature.clone(),
                 }),
-                PartialBlock::RedactedThinking(data) if keep_thinking && !data.is_empty() => {
+                StepBlock::RedactedThinking(data) if keep_thinking && !data.is_empty() => {
                     Some(ContentBlock::RedactedThinking { data: data.clone() })
                 }
                 // The last request offers no tools. A provider that
                 // ignores that and calls one anyway has the call left
                 // out of the history, since nothing will answer it.
-                PartialBlock::ToolUse {
+                StepBlock::ToolUse {
                     id,
                     name,
                     args_json,
@@ -1455,7 +1246,7 @@ where
         let tool_uses: Vec<(String, String, String)> = blocks
             .iter()
             .filter_map(|b| match b {
-                PartialBlock::ToolUse {
+                StepBlock::ToolUse {
                     id,
                     name,
                     args_json,
@@ -1845,7 +1636,7 @@ fn attach_cache_control_to_tools(mut tools: Value) -> Value {
     tools
 }
 
-fn error_message(err: &ApiError) -> String {
+pub(crate) fn error_message(err: &ApiError) -> String {
     err.message.clone()
 }
 
@@ -1933,18 +1724,6 @@ fn extract_response_text(cfg: &LlmConfig, body: &Value) -> Option<String> {
     }
 }
 
-fn grow_to(v: &mut Vec<PartialBlock>, idx: usize) -> Result<()> {
-    if idx >= MAX_CONTENT_BLOCKS {
-        return Err(Error::Protocol(format!(
-            "content_block_index {idx} exceeds MAX_CONTENT_BLOCKS ({MAX_CONTENT_BLOCKS})"
-        )));
-    }
-    while v.len() <= idx {
-        v.push(PartialBlock::Pending);
-    }
-    Ok(())
-}
-
 /// Pull the drawable part out of a tool result, for the tools that have
 /// one. See [`crate::ToolView`].
 ///
@@ -2030,29 +1809,6 @@ fn strip_view_only_fields(value: &mut Value) {
     for field in *fields {
         obj.remove(*field);
     }
-}
-
-/// Per-block accumulator. Index in the block array matches the
-/// streaming server's `index` field.
-#[derive(Debug)]
-enum PartialBlock {
-    /// `content_block_start` arrived for an index we don't model, so
-    /// subsequent deltas for it are silently dropped.
-    Pending,
-    Ignored,
-    Text(String),
-    ToolUse {
-        id: String,
-        name: String,
-        args_json: String,
-    },
-    /// Streamed as `thinking_delta`s and one `signature_delta`. Kept for
-    /// the history, never shown.
-    Thinking {
-        thinking: String,
-        signature: String,
-    },
-    RedactedThinking(String),
 }
 
 // ---------------------------------------------------------------------------

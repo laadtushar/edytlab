@@ -4,25 +4,14 @@
 //! window is a range on the track's *timeline*, so every clip reaching
 //! into it contributes its overlapping part, re-based to zero.
 
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::time_edit::{apply, Clips, Rates, Scope, SyncLock, TimeEdit, Words};
 use crate::tool::util::{
-    append_state, check_sample_range, load_track_state_and_rate, parse_args, set_session_length,
-    snap_range, timeline_end,
+    append_state, load_track_state_and_rate, parse_args, set_session_length, SampleRangeArgs,
 };
 use crate::{Tool, ToolContext, ToolResult};
-
-#[derive(Debug, Deserialize)]
-struct Args {
-    track: usize,
-    start_sample: u64,
-    end_sample: u64,
-    #[serde(default)]
-    snap_to_zero_crossing: bool,
-}
 
 pub struct TrimTool;
 
@@ -45,7 +34,7 @@ impl Tool for TrimTool {
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
-        let args: Args = match parse_args(args) {
+        let args: SampleRangeArgs = match parse_args(args) {
             Ok(a) => a,
             Err(r) => return Ok(r),
         };
@@ -57,22 +46,12 @@ impl Tool for TrimTool {
         let track = &mut state.tracks[args.track];
         // Measured across the whole timeline, not the longest single clip
         // — those differ as soon as a cut has split the track.
-        let track_len = timeline_end(&track.clips);
-        let (start, end) = match check_sample_range(args.start_sample, args.end_sample, track_len) {
-            Ok(p) => p,
+        let window = match args.window(track, "trim") {
+            Ok(w) => w,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-
-        if track.clips.is_empty() {
-            return Ok(ToolResult::Error(
-                "track has no clips; nothing to trim".into(),
-            ));
-        }
-        let (start, end, snap_note) = if args.snap_to_zero_crossing {
-            snap_range(&track.clips, start, end, track_len)
-        } else {
-            (start, end, None)
-        };
+        let (start, end, track_len, snap_note) =
+            (window.start, window.end, window.track_len, window.snap_note);
 
         let new_length = end - start;
         // Keeping the window means keeping it from every clip that reaches
