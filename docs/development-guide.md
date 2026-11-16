@@ -329,9 +329,9 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
 
    The same test fails an `async` command that does either of those outside a `blocking(..)` or `spawn_blocking(..)` call: a `std` lock blocks the thread, so a command left waiting in its task holds a worker until the lock is free, and enough of them leave none to run any async command. The agent rebuild (`rebuild_agent` and the two it is made of) is exempt from that scan, because it takes no lock a tool holds, only clones the handles; but `rebuild_agent` waits on the agent's own `tokio` mutex, which `send_message` holds for a whole turn. A command that is in the session's line (see below) must therefore not call it: use `rebuild_agent_soon`, as `open_project` does, which rebuilds at once if no turn is running and otherwise leaves the rebuild to run when the turn ends. `tests/blocking_commands.rs` shows both effects: the runtime with one worker, and `open_project` answering while a turn holds the agent.
 
-   Whatever edits the session also has to be sent in order by the frontend. Send it through the session's line (`inOrder` from `useSession`, `src/lib/sessionQueue.ts`), with its head adopted inside the turn, so two edits made in quick succession cannot apply or be answered the wrong way round (#498).
+   Whatever edits the session also has to be sent in order by the frontend. Add it to `apps/desktop/src/lib/sessionCommands.ts` (an entry of `edits`, which says what head it returns and what it reads again, or of `moves`) and send it through `useSession`'s `edit` or `move`: they put it in the session's line, one turn at a time, with its head adopted inside the turn, so two edits made in quick succession cannot apply or be answered the wrong way round (#498). Only `useSession` may import `sessionCommands.ts` (`sessionBoundary.test.ts`), which is what keeps a handler from going round the line.
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
-4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
+4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts` (a command that changes the session goes in `apps/desktop/src/lib/sessionCommands.ts` instead, above)
 5. Update [API Reference](./api-reference.md) and the site's `website/lib/docs/api-data.ts`, and give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
 
 ---
@@ -372,8 +372,10 @@ src/
 │   ├── graph.ts               # Graph layout (dagre), path steps for the graph
 │   ├── headTrail.ts           # The path taken through history: undo/redo targets
 │   ├── keychainNotice.ts      # The banner's words, for the launch banner and a Save that fell back
-│   ├── ownedControls.ts       # A lane control the user holds stays theirs until the session confirms it (#596)
+│   ├── heldControls.ts        # The lane controls the user holds over the session's track list (#596)
 │   ├── renderWarnings.ts      # The words for a render's left-out effects
+│   ├── sessionCommands.ts     # Every session-changing command, and what it returns and changes (only useSession imports it)
+│   ├── sessionReads.ts        # The session's reads as queries: tracks, graph, labels, transcript, warnings
 │   └── undoRedo.ts            # Undo/redo chords, text-entry check
 └── __tests__/
     ├── App.undoRedo.test.ts

@@ -61,7 +61,9 @@ export default function ApiReferencePage() {
       </blockquote>
 
       <p>
-        All commands are invoked via <code>tauri-bridge.ts</code>. They return{" "}
+        All commands are invoked via <code>tauri-bridge.ts</code>, except the ones that change the
+        session, which are in <code>sessionCommands.ts</code> and sent through the window&apos;s{" "}
+        <code>useSession</code>. They return{" "}
         <code>Promise&lt;T&gt;</code> and throw a string on Rust{" "}
         <code>Err(_)</code>.
       </p>

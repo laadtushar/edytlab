@@ -23,12 +23,12 @@ marker, a cut). Contrast **move**.
 head, Accept B, opening a project, an assistant edit. After a move the window releases held
 controls and re-reads the session (ADR 0001).
 
-**Held control (owned control).** A lane control (gain, pan, mute, solo) whose value the user set and
-the session has not yet confirmed; the window shows the user's value until a read after the commit
-lands (#596).
+**Held control.** A lane control (gain, pan, mute, solo) whose value the user set and the session has
+not yet confirmed; the window shows the user's value until a read after the commit lands (#596). It is
+the `variables` of a pending mutation in `useSession`, or the slider's input value before its commit.
 
-**Line.** The order in which the window's session-changing calls run, one at a time (today
-`inOrder`; with ADR 0001, the mutation scope `'session'`).
+**Line.** The order in which the window's session-changing calls run, one at a time: the mutation
+scope `'session'` in `useSession` (ADR 0001), through its `edit` and `move`.
 
 **Preview cache.** The bounded folder of rendered mixes (`previews/`); an entry can be **held** so
 eviction skips it while the window needs it (#607).
