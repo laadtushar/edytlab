@@ -791,7 +791,7 @@ export function sessionWith(tracks: TrackSummary[]): Backend {
     // `save_view_state` returns `CmdResult<()>`, which serialises as
     // `null`. The app calls it, debounced, once there is a head.
     save_view_state: ok(null),
-    // `render_warnings_of(&node.state)`: the effects in the node's stored
+    // `render_warnings(&left_out(&node.state))`: the effects in the node's stored
     // chains that a render leaves out. A project this build saved holds
     // only effects the renderer runs (`add_effect` refuses the rest), so
     // none. A test of a project an older build saved overrides it with
@@ -824,7 +824,7 @@ export function leftOut(
  *
  * `prepare_compare` renders each side into the project's preview cache
  * (`<project>/.audiograph/previews/<node>.wav`) and returns those paths,
- * what each side's render leaves out (`render_warnings_of`), and
+ * what each side's render leaves out (`render_warnings`), and
  * `compare_id`: `CompareHolds::begin`'s count, which starts at 1 with each
  * launch. The window's own paths here are fixtures, since this backend
  * renders nothing. `end_compare` is `CmdResult<()>`, so `null`, whether or

@@ -3328,6 +3328,33 @@ mod render_range_destination_tests {
 mod commands_tests {
     use super::*;
 
+    /// Each failure of `tools::render::node` reads as the command it came
+    /// through worded it before the render moved into that module.
+    #[test]
+    fn a_failed_render_reads_as_it_did_before_the_module() {
+        use tools::render::Error;
+        assert_eq!(
+            render_error(Error::Node(session::Error::NodeNotFound("abc".into()))),
+            "session error: node not found: abc"
+        );
+        assert_eq!(
+            render_error(Error::Render(audio_engine::Error::InvalidRange)),
+            "audio engine error: render range end is before start"
+        );
+        assert_eq!(
+            render_error(Error::Cache {
+                dir: "previews".into(),
+                source: std::io::Error::other("disk full"),
+            }),
+            "io error: disk full"
+        );
+        assert_eq!(render_error(Error::Refused("no".into())), "no");
+        assert_eq!(
+            render_error(Error::Poisoned("engine")),
+            CommandError::Poisoned("engine").to_string()
+        );
+    }
+
     #[test]
     fn split_array_items_basic() {
         assert_eq!(
@@ -3474,64 +3501,51 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
         let node_id =
             NodeId::from_hex(&node).map_err(|_| CommandError::InvalidNodeId(node.clone()))?;
 
-        let session_node = {
-            let store = lock_std(&store_handle, "store")?;
-            store.get(node_id).map_err(CommandError::from)?
-        };
-
         // Cached under `<project>/.audiograph/previews/`, keyed by node id.
         // The id is a hash of the session state, so undo and redo land back
         // on renders that already exist instead of paying for the mix again
         // — which is the difference between an editor that feels live and
-        // one that goes quiet after every edit.
-        let project_dir = {
-            let store = lock_std(&store_handle, "store")?;
-            store.project_dir().to_path_buf()
-        };
-        let cache = tools::PreviewCache::new(&project_dir);
-
-        let hold = cache.hold(node_id);
-        let out_path = cached_mix(state, &store_handle, &cache, node_id, &session_node.state)?;
-        let path = utf8_path(&out_path, "the preview")?;
+        // one that goes quiet after every edit. The hold is taken before the
+        // entry is looked up (`tools::render::node`).
+        let rendered = tools::render::node(
+            &*store_handle,
+            &*state.engine,
+            tools::render::Request {
+                node: node_id,
+                span: tools::render::Span::Whole,
+                target: tools::render::Target::Cache {
+                    hold: true,
+                    verify: false,
+                },
+            },
+        )
+        .map_err(render_error)?;
+        let path = utf8_path(&rendered.path, "the preview")?;
         // Replaces the hold on the mix played before, taken above first so
         // a render of the same node never leaves it unheld. The slot is
         // locked alone, and the old hold is dropped (which evicts) after.
-        let previous = lock_std(&state.window_mix, "window_mix")?.replace(hold);
-        drop(previous);
+        debug_assert!(rendered.hold.is_some());
+        if let Some(hold) = rendered.hold {
+            let previous = lock_std(&state.window_mix, "window_mix")?.replace(hold);
+            drop(previous);
+        }
         Ok(path)
     })
     .await
 }
 
-/// The whole mix of `node` (whose state is `session_state`) from the
-/// project's preview cache, rendered into it first if it is not there.
-///
-/// The one way the window gets a mix to play: `render_preview` for the
-/// transport and `prepare_compare` for each side of an A/B compare, so a
-/// compare's side is the entry Play already made for that node, and the
-/// other way round. A failed render leaves nothing behind
-/// (`PreviewCache::get_or_render`), and there is no file outside the cache
-/// to fall back on.
-fn cached_mix(
-    state: &AppState,
-    store_handle: &Mutex<session::Store>,
-    cache: &tools::PreviewCache,
-    node_id: NodeId,
-    session_state: &session::SessionState,
-) -> Result<PathBuf, CommandError> {
-    let (path, _hit) = cache.get_or_render::<_, CommandError>(node_id, |path| {
-        // A cached render needs none of the node's audio; a new one does.
-        {
-            let store = lock_std(store_handle, "store")?;
-            materialize(&store, node_id)?;
-        }
-        let engine = lock_std(&state.engine, "engine")?;
-        engine
-            .render_to_wav(session_state, path, None)
-            .map_err(CommandError::from)?;
-        Ok(())
-    })?;
-    Ok(path)
+/// A render's failure as the window shows it: the text each command showed
+/// before the render moved into `tools::render`.
+fn render_error(e: tools::render::Error) -> String {
+    use tools::render::Error;
+    match e {
+        Error::Node(e) => CommandError::Session(e).to_string(),
+        Error::Render(e) => CommandError::Engine(e).to_string(),
+        Error::Cache { source, .. } => CommandError::Io(source).to_string(),
+        // The text is already the one the window shows: a poisoned lock, a
+        // refused destination (#653), audio that could not be rebuilt.
+        other => other.to_string(),
+    }
 }
 
 /// `path` as the string the window feeds to `convertFileSrc`.
@@ -3585,13 +3599,13 @@ pub struct RenderWarning {
     pub reason: RenderWarningReason,
 }
 
-/// What a render of `state` leaves out, from the stored chains alone: no
-/// render and no audio, so it answers for a render served from the cache
-/// as well as for one just made.
-fn render_warnings_of(state: &session::SessionState) -> Vec<RenderWarning> {
+/// What a render leaves out (`tools::render::LeftOutEffect`), as the window
+/// phrases it.
+fn render_warnings(left_out: &[tools::render::LeftOutEffect]) -> Vec<RenderWarning> {
     use audio_engine::effect_chain::{ChainScope, KindSupport};
-    audio_engine::effect_chain::skipped_effects(state)
-        .into_iter()
+    left_out
+        .iter()
+        .cloned()
         .map(|skipped| RenderWarning {
             scope: match skipped.scope {
                 ChainScope::Track { index, name } => RenderWarningScope::Track { index, name },
@@ -3633,7 +3647,9 @@ pub async fn get_render_warnings(
             let store = lock_std(&store_handle, "store")?;
             store.get(node_id).map_err(CommandError::from)?
         };
-        Ok(render_warnings_of(&session_node.state))
+        Ok(render_warnings(&tools::render::left_out(
+            &session_node.state,
+        )))
     })
     .await
 }
@@ -3681,32 +3697,47 @@ pub async fn prepare_compare(
         let a_id = NodeId::from_hex(&a).map_err(|_| CommandError::InvalidNodeId(a.clone()))?;
         let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
 
-        let (a_state, b_state, project_dir) = {
+        // Both nodes are read before anything is held or begun, so a node
+        // that is not there leaves the open compare as it was.
+        let project_dir = {
             let store = lock_std(&store_handle, "store")?;
-            let a_node = store.get(a_id).map_err(CommandError::from)?;
-            let b_node = store.get(b_id).map_err(CommandError::from)?;
-            (
-                a_node.state,
-                b_node.state,
-                store.project_dir().to_path_buf(),
-            )
+            store.get(a_id).map_err(CommandError::from)?;
+            store.get(b_id).map_err(CommandError::from)?;
+            store.project_dir().to_path_buf()
         };
-        let a_warnings = render_warnings_of(&a_state);
-        let b_warnings = render_warnings_of(&b_state);
 
         // Held before either is looked up, so that rendering B, or anything
         // else rendering meanwhile, cannot evict A from under the bar; and
         // before the compare open until now is ended, since letting that go
         // evicts down to the cap, and the two may share a side (the head).
+        // The compare keeps its own holds (`state.compare`), so the renders
+        // below ask for none.
         let cache = tools::PreviewCache::new(&project_dir);
         let sides = vec![cache.hold(a_id), cache.hold(b_id)];
         // Ends whatever compare was open, even if this one then fails to
         // render: the bar has moved on from it.
         let compare_id = lock_std(&state.compare, "compare")?.begin();
-        let a_path = cached_mix(state, &store_handle, &cache, a_id, &a_state)?;
-        let b_path = cached_mix(state, &store_handle, &cache, b_id, &b_state)?;
-        let a_path = utf8_path(&a_path, "the A side")?;
-        let b_path = utf8_path(&b_path, "the B side")?;
+        let side = |node| {
+            tools::render::node(
+                &*store_handle,
+                &*state.engine,
+                tools::render::Request {
+                    node,
+                    span: tools::render::Span::Whole,
+                    target: tools::render::Target::Cache {
+                        hold: false,
+                        verify: false,
+                    },
+                },
+            )
+            .map_err(render_error)
+        };
+        let a_side = side(a_id)?;
+        let b_side = side(b_id)?;
+        let a_path = utf8_path(&a_side.path, "the A side")?;
+        let b_path = utf8_path(&b_side.path, "the B side")?;
+        let a_warnings = render_warnings(&a_side.left_out);
+        let b_warnings = render_warnings(&b_side.left_out);
 
         lock_std(&state.compare, "compare")?.open(compare_id, sides);
 
@@ -6625,32 +6656,41 @@ fn render_range_inner(
         .store_handle()
         .ok_or_else(|| CommandError::NoSession.to_string())?;
 
+    // Read first for the session's rate, which turns the seconds into
+    // frames.
     let session_node = {
         let store = lock_std(&store_handle, "store").map_err(|e| e.to_string())?;
-        let node = store
+        store
             .get(id)
-            .map_err(|e| CommandError::Session(e).to_string())?;
-        // The save dialog will offer the recording the session plays from, and
-        // writing a render onto it truncates it before it is read (#653). The
-        // window shows this message as the export's error.
-        tools::destination::refuse_project_audio(&store, [&out])?;
-        materialize(&store, id)?;
-        node
+            .map_err(|e| CommandError::Session(e).to_string())?
     };
 
     let sample_rate = session_node.state.sample_rate;
     let range = selection_frames(start_sec, end_sec, sample_rate);
 
-    let report = {
-        let engine = lock_std(&state.engine, "engine").map_err(|e| e.to_string())?;
-        engine
-            .render_to_wav(&session_node.state, &out, Some(range))
-            .map_err(|e| CommandError::Engine(e).to_string())?
-    };
+    // The save dialog will offer the recording the session plays from, and
+    // writing a render onto it truncates it before it is read (#653):
+    // `render::node` refuses it, and the window shows the message as the
+    // export's error.
+    let rendered = tools::render::node(
+        &*store_handle,
+        &*state.engine,
+        tools::render::Request {
+            node: id,
+            span: tools::render::Span::Frames(range),
+            target: tools::render::Target::File {
+                path: &out,
+                destination: &out,
+            },
+        },
+    )
+    .map_err(render_error)?;
+    debug_assert!(rendered.audio.is_some());
+    let report = rendered.audio.unwrap_or_default();
 
     Ok(serde_json::json!({
         "path": out_path,
-        "frames_written": report.frames_written,
+        "frames_written": report.frames,
         "sample_rate": report.sample_rate,
         "channels": report.channels,
         "peak_dbfs": report.peak_dbfs,
@@ -6660,7 +6700,7 @@ fn render_range_inner(
         ),
         // What the file was written without (#532): `get_render_warnings`'
         // list for this node, `[]` when nothing was left out.
-        "warnings": render_warnings_of(&session_node.state),
+        "warnings": render_warnings(&rendered.left_out),
     }))
 }
 

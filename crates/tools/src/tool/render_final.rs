@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::render::{self, Request, Span, Target};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{attach_render_warnings, parse_args};
 use crate::{Tool, ToolContext, ToolResult};
@@ -162,19 +163,10 @@ impl Tool for RenderFinalTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid node_id: {e}"))),
         };
 
-        // Never onto audio the project reads (#653): the file would be
-        // truncated before the render read it, and every node that names it
-        // would play something else. Asked before the render rebuilds
-        // anything, since a refusal is the cheap answer.
-        if let Err(e) = crate::destination::refuse_project_audio(ctx.store, [&args.out_path]) {
-            return Ok(ToolResult::Error(e));
-        }
-
-        // Its audio may have been swept from history; put it back first.
-        if let Err(e) = crate::rederive::materialize(ctx.store, node_id) {
-            return Ok(ToolResult::Error(e));
-        }
-
+        // `render::node` refuses a destination that is audio the project
+        // reads (#653) and puts the node's swept audio back before it
+        // renders. The node is read here first because the range and the
+        // chapters are worked out from its state before the expensive part.
         let node = match ctx.store.get(node_id) {
             Ok(n) => n,
             Err(e) => return Ok(ToolResult::Error(format!("node lookup failed: {e}"))),
@@ -344,15 +336,32 @@ impl Tool for RenderFinalTool {
         }
         let mut tag_warning: Option<String> = None;
 
-        let report = match ctx.engine.render_to_wav(&node.state, &render_path, range) {
+        let rendered = match render::node(
+            &*ctx.store,
+            &*ctx.engine,
+            Request {
+                node: node_id,
+                span: range.map_or(Span::Whole, Span::Frames),
+                target: Target::File {
+                    path: &render_path,
+                    destination: &out_path,
+                },
+            },
+        ) {
             Ok(r) => r,
-            Err(e) => return Ok(ToolResult::Error(format!("render failed: {e}"))),
+            Err(render::Error::Render(e)) => {
+                return Ok(ToolResult::Error(format!("render failed: {e}")))
+            }
+            Err(e) => return Ok(ToolResult::Error(e.to_string())),
         };
+        // A file target always reports what it wrote.
+        debug_assert!(rendered.audio.is_some());
+        let report = rendered.audio.unwrap_or_default();
 
         // The renderer clamps an end beyond the session. Chapters must fit
         // the actual export, not the longer interval the caller requested.
         if range.is_some() {
-            let duration = report.frames_written as f64 / f64::from(report.sample_rate);
+            let duration = report.frames as f64 / f64::from(report.sample_rate);
             tags.chapters.retain(|chapter| chapter.start_sec < duration);
         }
 
@@ -421,14 +430,14 @@ impl Tool for RenderFinalTool {
 
         let mut out = json!({
             "path": out_path.to_string_lossy(),
-            "frames_written": report.frames_written,
+            "frames_written": report.frames,
             "sample_rate": report.sample_rate,
             "channels": report.channels,
             "peak_dbfs": report.peak_dbfs,
             "format": args.format,
             "summary": format!(
                 "Rendered final {} ({} frames, {} ch, {} Hz) to {}",
-                args.format, report.frames_written, report.channels, report.sample_rate,
+                args.format, report.frames, report.channels, report.sample_rate,
                 out_path.display(),
             ),
         });
@@ -436,7 +445,7 @@ impl Tool for RenderFinalTool {
         // written can be fewer than the range asked for: say which.
         if let Some(r) = range {
             let start = r.start_frame as f64 / f64::from(node.state.sample_rate);
-            let end = start + report.frames_written as f64 / f64::from(report.sample_rate);
+            let end = start + report.frames as f64 / f64::from(report.sample_rate);
             out["range"] = json!([start, end]);
             out["summary"] = json!(format!(
                 "{} (session seconds {start:.2} to {end:.2})",
@@ -465,7 +474,7 @@ impl Tool for RenderFinalTool {
         }
         // What the render left out (#520). `warning` above is the tagging
         // failure, a single sentence kept as it was; these are the render's.
-        attach_render_warnings(&mut out, &report.warnings);
+        attach_render_warnings(&mut out, &render::sentences(&rendered.left_out));
         Ok(ToolResult::Ok(out))
     }
 }
