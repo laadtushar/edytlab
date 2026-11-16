@@ -30,7 +30,7 @@ export function asEffort(value: string | null | undefined): ReasoningEffort | ""
  * The levels to offer for a ChatGPT plan model: the ones it lists
  * (`ModelInfo.reasoning_levels`) that the backend can save, in the API's
  * order. A level this app does not know cannot be saved
- * (`set_effort_for` refuses it), so it is not offered. Empty when the model
+ * (`save_provider_settings` refuses it), so it is not offered. Empty when the model
  * lists none, which is also the model for which the backend sends no effort.
  */
 export function levelsOffered(listed: readonly string[]): ReasoningEffort[] {

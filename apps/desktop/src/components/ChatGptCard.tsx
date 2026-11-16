@@ -65,8 +65,8 @@ import {
   listModelsFor,
   onChatGptStatus,
   openChatgptUsage,
+  saveProviderSettings,
   setActiveModel,
-  setEffortFor,
   type ChatGptEnd,
   type ChatGptSignInIntent,
   type ChatGptStatus,
@@ -658,7 +658,7 @@ function PlanPickers({ onProblem }: { onProblem: (message: string | null) => voi
     setLoaded({ ...loaded, effort: next });
     onProblem(null);
     try {
-      const at = await setEffortFor("chatgpt", next);
+      const at = await saveProviderSettings({ provider: "chatgpt", effort: next ?? "" });
       if (alive.current) savedAt(at);
     } catch (e) {
       if (alive.current) {

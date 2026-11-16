@@ -62,7 +62,8 @@ vi.mock("../lib/tauri-bridge", () => ({
   getActiveModel: (p: string) => m.activeModel(p),
   setActiveModel: (p: string, id: string) => m.setModel(p, id),
   getEffortFor: (p: string) => m.getEffort(p),
-  setEffortFor: (p: string, e: string | null) => m.setEffort(p, e),
+  saveProviderSettings: (c: { provider: string; effort?: string }) =>
+    m.setEffort(c.provider, c.effort === "" ? null : (c.effort ?? null)),
 }));
 vi.mock("../lib/confirmAction", () => ({
   confirmAction: (q: string) => m.confirm(q),

@@ -3,7 +3,7 @@
  *
  * Settings draws its model field from this and the chat's "use the default"
  * button writes it, so the two agree about which model is selected. The
- * agent itself is pointed at a model by `set_active_model`, which the
+ * agent itself is pointed at a model by `save_provider_settings`, which the
  * backend persists; this only decides what the field shows (#249).
  */
 

@@ -28,10 +28,7 @@ import {
   getEffortFor,
   mlRuntimeStatus,
   listModelsFor,
-  setActiveModel,
-  setApiKeyFor,
-  setBaseUrlFor,
-  setEffortFor,
+  saveProviderSettings,
 } from "../lib/tauri-bridge";
 import { Settings } from "../components/Settings";
 
@@ -74,10 +71,7 @@ describe("Settings layout", () => {
     // Saves answer where they landed (#497); these all went to the
     // durable store.
     const durable = { persistent: true, reason: null };
-    vi.mocked(setEffortFor).mockResolvedValue(durable);
-    vi.mocked(setBaseUrlFor).mockResolvedValue(durable);
-    vi.mocked(setActiveModel).mockResolvedValue(durable);
-    vi.mocked(setApiKeyFor).mockResolvedValue(durable);
+    vi.mocked(saveProviderSettings).mockResolvedValue(durable);
   });
 
   it.each(["blocking", "panel"] as const)(
@@ -142,7 +136,7 @@ describe("Settings layout", () => {
   });
 
   it("a failed save says so in the footer, beside the button that was clicked", async () => {
-    vi.mocked(setApiKeyFor).mockRejectedValue("the keychain refused the key");
+    vi.mocked(saveProviderSettings).mockRejectedValue("the keychain refused the key");
     await renderSettings("blocking");
 
     await userEvent.type(screen.getByTestId("settings-key-input"), "sk-ant-test");

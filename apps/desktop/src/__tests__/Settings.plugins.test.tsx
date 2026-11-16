@@ -6,11 +6,10 @@ vi.mock('../lib/tauri-bridge', () => ({
   getCrashReports: () => Promise.resolve({ enabled: false, available: false }),
   setCrashReports: vi.fn(),
   installPlugin: vi.fn(),
-  clearApiKey: vi.fn().mockResolvedValue(undefined),
   listModelsFor: vi
     .fn()
     .mockResolvedValue({ models: [], source: "live", notice: null }),
-  setApiKeyFor: vi.fn().mockResolvedValue(undefined),
+  saveProviderSettings: vi.fn().mockResolvedValue(undefined),
   setActiveModel: vi.fn().mockResolvedValue(undefined),
   getActiveModel: vi.fn().mockResolvedValue(""),
   getActiveProvider: vi.fn(() => Promise.resolve("")),

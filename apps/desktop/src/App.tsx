@@ -2042,7 +2042,7 @@ function AppSession() {
             setSettingsOpen(false);
             // A save went through, so the keychain is readable now.
             setKeychainError(null);
-            // The Rust side rebuilds the agent inside set_api_key_for,
+            // The Rust side rebuilds the agent inside save_provider_settings,
             // so any "no agent configured" banner left over from the
             // failed action that prompted the user to open settings is
             // now stale — drop it.

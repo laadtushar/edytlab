@@ -32,7 +32,7 @@ import {
   clearApiKeyFor,
   installPlugin,
   listModelsFor,
-  setApiKeyFor,
+  saveProviderSettings,
   setActiveModel,
   hasApiKeyFor,
   getActiveModel,
@@ -40,11 +40,8 @@ import {
   setActiveProvider,
   getBaseUrlFor,
   defaultBaseUrlFor,
-  setBaseUrlFor,
   getEffortFor,
-  setEffortFor,
   testApiKeyFor,
-  type KeychainPersistence,
   type ModelInfo,
   type ProviderId,
   type ReasoningEffort,
@@ -507,8 +504,8 @@ export function Settings({
    * keyed-off-provider action in this panel (the model list, the base
    * URL, Test, Clear) operated on the one on screen.
    *
-   * They diverge for real reasons, not just theory: a `set_active_provider`
-   * that rejects leaves the UI advanced and the backend behind, and a
+   * They diverge for real reasons, not just theory: a switch of provider
+   * (`save_provider_settings`) that rejects leaves the UI advanced and the backend behind, and a
    * profile whose localStorage is cleared falls back to the default
    * while the keychain still holds another choice.
    *
@@ -701,7 +698,7 @@ export function Settings({
    * while it is signed in. Told to the app the way any provider switch is.
    *
    * When it already is the active provider (a session that ended and was
-   * signed in again) nothing is set: `set_active_provider` rebuilds the agent,
+   * signed in again) nothing is set: a provider save rebuilds the agent,
    * and a sign-in keeps the one it has, with the conversation in it.
    */
   const activateChatGpt = useCallback(async () => {
@@ -808,60 +805,31 @@ export function Settings({
     setSaving(true);
     setSaveError(null);
     setSavedSessionOnly(null);
-    // Where each write landed. A Save is several: a field that fell back
-    // to the kernel keyring is lost at the next reboot whichever one it is.
-    const landings: Array<KeychainPersistence | null | undefined> = [];
     try {
-      // Saved first: `set_api_key_for` rebuilds the agent, and the
-      // rebuild reads this. The other order builds an agent pointing at
-      // the old endpoint until something else triggers another rebuild.
+      // One call, one answer (ADR 0005): the backend writes the fields in the
+      // order the agent's rebuild needs, rebuilds once, and says where the
+      // save landed. A field that fell back to the kernel keyring is lost at
+      // the next reboot whichever one it is, and the answer says so.
       //
-      // Only a URL this form knows (see `baseUrlKnown`): an empty field
-      // that stands for "not read" would be sent as a delete.
-      if (baseUrlKnown) {
-        landings.push(await setBaseUrlFor(provider, baseUrl));
-      }
-      // Same reason, same place: the rebuild reads the stored effort.
-      // "Default" is sent as null, which clears the slot. Same condition
-      // too.
-      if (supportsEffort && effortKnown) {
-        landings.push(await setEffortFor(provider, effort === "" ? null : effort));
-      }
-      // A keyless provider is activated, not written.
-      //
-      // This used to call `setApiKeyFor(provider, "")` for every
-      // provider, on the reasoning that an empty string is how the UI
-      // says "make this one active". The keychain does not accept an
-      // empty secret — it answers `Attribute secret is invalid: cannot
-      // be empty` — so with Ollama selected, Save failed.
-      //
-      // It hid behind the first-run path. Clicking the Ollama radio
-      // calls `setActiveProvider` and reports the provider usable, and
-      // that is what dismisses the blocking modal, so a *new* user
-      // never noticed Save had also errored. A returning user opens
-      // the app with Ollama already restored from storage, the radio
-      // handler never fires because the selection has not changed, and
-      // the only button on a modal with no Close is one that cannot
-      // succeed. Found on the second launch of the real app.
-      if (needsKey) {
-        landings.push(await setApiKeyFor(provider, key));
-      } else {
-        landings.push(await setActiveProvider(provider));
-      }
-      // Only a model this form knows (see `modelKnown`): the field of a
-      // read that was refused is the browser's memory or the default.
-      if (modelKnown && model.trim()) {
-        try {
-          landings.push(await setActiveModel(provider, model));
-        } catch {
-          /* non-fatal */
-        }
-      }
+      // Only what this form knows is sent. An empty field that stands for
+      // "not read" would be taken for "clear it": a base URL (see
+      // `baseUrlKnown`), a level (`effortKnown`) and a model (`modelKnown`:
+      // the field of a read that was refused is the browser's memory or the
+      // default). A keyless provider sends no key and is chosen all the same:
+      // the keychain does not accept an empty secret, which once made Save
+      // fail for Ollama.
+      const landing = await saveProviderSettings({
+        provider,
+        key: needsKey ? key : undefined,
+        model: modelKnown && model.trim() ? model : undefined,
+        baseUrl: baseUrlKnown ? baseUrl : undefined,
+        effort: supportsEffort && effortKnown ? effort : undefined,
+      });
       setKey("");
       setTest({ kind: "idle" });
       // A durable save shows nothing new. One that fell back stays on
       // screen until the person goes on (`handleContinue`).
-      const notice = savedNotice(landings);
+      const notice = savedNotice([landing]);
       if (notice) {
         setSavedSessionOnly(notice.message);
       } else {
@@ -916,7 +884,7 @@ export function Settings({
   /**
    * Remove the key for the provider that is on screen.
    *
-   * Saving is explicit — `setApiKeyFor(provider, key)` — but clearing
+   * Saving is explicit — `saveProviderSettings({ provider, key })` — but clearing
    * went through `clearApiKey()`, which takes no argument and resolves
    * the slot from the *backend's* active provider. The two agree in
    * the normal flow, because picking a provider awaits

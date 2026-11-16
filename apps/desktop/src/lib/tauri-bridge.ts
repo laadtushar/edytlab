@@ -117,35 +117,50 @@ export const listModelsFor = (
   });
 
 /**
- * Choose a provider's model. Resolves with where the choice was saved
- * ({@link KeychainPersistence}); see {@link setApiKeyFor}.
+ * What a save changes for one provider. Every field but `provider` is
+ * optional: an absent one is left as it is, and an empty `baseUrl` or
+ * `effort` clears the setting (the provider's own address, the model's own
+ * level), which is what Settings sends for an emptied field.
  */
+export interface ProviderSettingsChange {
+  provider: ProviderId;
+  /** The key typed into the form. The ChatGPT plan has none. */
+  key?: string;
+  model?: string;
+  /** The ChatGPT plan has none. */
+  baseUrl?: string;
+  /** `""` is "Default". */
+  effort?: ReasoningEffort | "";
+}
+
+/**
+ * Save settings for one provider, make it the active provider and rebuild
+ * the agent once: ADR 0005's one call. Nothing is written if any field is
+ * refused. Resolves with where it was saved, once, as
+ * {@link getKeychainPersistence} says where saves go now:
+ * `persistent: false` is a save that fell back to the kernel keyring because
+ * no Secret Service could be reached, and will not survive a reboot. The
+ * values are saved and used all the same.
+ */
+export const saveProviderSettings = (
+  change: ProviderSettingsChange,
+): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("save_provider_settings", {
+    provider: change.provider,
+    key: change.key ?? null,
+    model: change.model ?? null,
+    baseUrl: change.baseUrl ?? null,
+    effort: change.effort ?? null,
+  });
+
+/** {@link saveProviderSettings} for a model pick alone. */
 export const setActiveModel = (
   provider: ProviderId,
   model: string,
-): Promise<KeychainPersistence> =>
-  invoke<KeychainPersistence>("set_active_model", { provider, model });
+): Promise<KeychainPersistence> => saveProviderSettings({ provider, model });
 
 export const getActiveModel = (provider: ProviderId): Promise<string> =>
   invoke<string>("get_active_model", { provider });
-
-/** {@link setApiKeyFor} for the active provider. */
-export const setApiKey = (key: string): Promise<KeychainPersistence> =>
-  invoke<KeychainPersistence>("set_api_key", { key });
-
-/**
- * Save a provider's key and make it the active provider. Resolves with
- * where it was saved, as {@link getKeychainPersistence} says where saves go
- * now: `persistent: false` is a save that fell back to the kernel keyring
- * because no Secret Service could be reached, and will not survive a reboot.
- * The key is saved and used all the same. The other `set*` functions that
- * write to the keychain answer the same way.
- */
-export const setApiKeyFor = (
-  provider: KeyProviderId,
-  key: string,
-): Promise<KeychainPersistence> =>
-  invoke<KeychainPersistence>("set_api_key_for", { provider, key });
 
 /**
  * Whether the active provider has what it needs (a stored key, or none
@@ -497,9 +512,6 @@ export const onMlModelProgress = (
 ): Promise<UnlistenFn> =>
   listen<MlModelStatus>("ml-model-progress", (e) => cb(e.payload));
 
-export const clearApiKey = (): Promise<void> =>
-  invoke<void>("clear_api_key");
-
 export const clearApiKeyFor = (provider: KeyProviderId): Promise<void> =>
   invoke<void>("clear_api_key_for", { provider });
 
@@ -548,10 +560,10 @@ export const listProviders = (): Promise<ProviderId[]> =>
 export const getActiveProvider = (): Promise<ProviderId> =>
   invoke<ProviderId>("get_active_provider");
 
+/** {@link saveProviderSettings} for choosing the provider alone. */
 export const setActiveProvider = (
   provider: ProviderId,
-): Promise<KeychainPersistence> =>
-  invoke<KeychainPersistence>("set_active_provider", { provider });
+): Promise<KeychainPersistence> => saveProviderSettings({ provider });
 
 /** A provider's base-URL override, or null when it uses the built-in one. */
 export const getBaseUrlFor = (provider: KeyProviderId): Promise<string | null> =>
@@ -562,39 +574,20 @@ export const defaultBaseUrlFor = (provider: KeyProviderId): Promise<string> =>
   invoke<string>("default_base_url_for", { provider });
 
 /**
- * Point a provider elsewhere. An empty string restores the default, which
- * writes nothing and so always resolves durable.
- */
-export const setBaseUrlFor = (
-  provider: KeyProviderId,
-  baseUrl: string,
-): Promise<KeychainPersistence> =>
-  invoke<KeychainPersistence>("set_base_url_for", { provider, baseUrl });
-
-/**
  * How hard the model works on a response — Anthropic's
  * `output_config.effort`. Higher is slower and spends more tokens.
  * Leaving it unset (`null`) uses the model's own default.
  */
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
-/** A provider's reasoning effort, or null for the model's default. */
+/**
+ * A provider's reasoning effort, or null for the model's default. Saved with
+ * {@link saveProviderSettings}, where `effort: ""` is "Default".
+ */
 export const getEffortFor = (
   provider: ProviderId,
 ): Promise<ReasoningEffort | null> =>
   invoke<ReasoningEffort | null>("get_effort_for", { provider });
-
-/**
- * Set a provider's reasoning effort. `null` restores the model's
- * default. Only Anthropic and the ChatGPT plan have the setting; the backend
- * refuses a level for any other provider. On the plan, a level is sent only
- * for a model whose `reasoning_levels` list it.
- */
-export const setEffortFor = (
-  provider: ProviderId,
-  effort: ReasoningEffort | null,
-): Promise<KeychainPersistence> =>
-  invoke<KeychainPersistence>("set_effort_for", { provider, effort });
 
 export const getSessionHead = (): Promise<NodeId> =>
   invoke<NodeId>("get_session_head");
