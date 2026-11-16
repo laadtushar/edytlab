@@ -5,6 +5,7 @@
 //! Anthropic API key or to open a project. The agent is constructed
 //! lazily once both have been provided.
 
+pub mod agent_settings;
 pub mod bundled_skills;
 pub mod chatgpt;
 pub mod commands;
@@ -23,7 +24,7 @@ use crate::commands::{
     accept_b, add_marker, apply_template, approve_plan, batch_load, calibrate_recording_latency,
     cancel_long_running_tool, cancel_ml_model_download, cancel_punch_record,
     cancel_recording_latency, chatgpt_cancel_sign_in, chatgpt_forget_registration, chatgpt_sign_in,
-    chatgpt_sign_out, chatgpt_status, chatgpt_take_pending_message, clear_api_key,
+    chatgpt_sign_out, chatgpt_status, chatgpt_take_pending_message,
     clear_api_key_for, cut_transcript_words, default_base_url_for, delete_agent_profile,
     delete_mcp_server, delete_skill, download_ml_model, duplicate_track, end_compare,
     forget_recent_project, get_active_agent_profile, get_active_model, get_active_provider,
@@ -37,12 +38,11 @@ use crate::commands::{
     read_agent_profile, read_mcp_server, read_memory, read_skill, reject_plan, remove_clip,
     remove_marker, remove_ml_model, remove_track, rename_node, rename_track, render_preview,
     render_range, report_webview_error, restart_mcp_server, save_head_trail, save_project_as,
-    save_view_state, send_message, set_active_agent_profile, set_active_model, set_active_provider,
-    set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope, set_crash_reports,
-    set_effort_for, set_head_to, set_plan_first, set_project_meta, set_recording_latency,
+    save_provider_settings, save_view_state, send_message, set_active_agent_profile, set_clip_envelope, set_crash_reports,
+    set_head_to, set_plan_first, set_project_meta, set_recording_latency,
     set_selection_context, set_sync_lock, set_track_gain, set_track_muted, set_track_pan,
     set_track_soloed, start_recording, stop_recording, test_api_key, test_api_key_for,
-    third_party_notices, timer_record, try_load_api_key_at_startup, update_marker,
+    third_party_notices, timer_record, update_marker,
     upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
 };
 use crate::state::AppState;
@@ -255,7 +255,7 @@ pub fn run() {
                     {
                         // Ends the wait however this block ends.
                         let _settled = state_for_startup.agent_settings.startup_reads_guard();
-                        try_load_api_key_at_startup(&state_for_startup);
+                        crate::agent_settings::load_at_startup(&state_for_startup);
                         // The saved ChatGPT sign-in, if there is one: with
                         // the other reads, so the agent built behind them
                         // sees it, and not after a refusal.
@@ -267,7 +267,7 @@ pub fn run() {
 
             // Auto-initialise a default project store under the OS app
             // data dir so the agent can be built immediately after
-            // set_api_key. Without this, rebuild_agent stays a no-op
+            // a provider save. Without this, the agent build stays a no-op
             // (it requires both an api key AND a store) and the user
             // would see "no agent configured" forever despite saving
             // a key. A user-driven `open_project` later overwrites
@@ -300,9 +300,10 @@ pub fn run() {
                             // not be.
                             let state_for_rebuild = app_state.clone();
                             tauri::async_runtime::spawn(async move {
-                                state_for_rebuild.agent_settings.startup_reads_settled().await;
-                                if let Err(e) =
-                                    crate::commands::rebuild_agent_public(&state_for_rebuild).await
+                                if let Err(e) = crate::agent_settings::build_after_startup(
+                                    &state_for_rebuild,
+                                )
+                                .await
                                 {
                                     tracing::warn!(
                                         error = ?e,
@@ -396,13 +397,10 @@ pub fn run() {
             open_project,
             batch_load,
             send_message,
-            set_api_key,
-            set_api_key_for,
+            save_provider_settings,
             get_base_url_for,
-            set_base_url_for,
             default_base_url_for,
             get_effort_for,
-            set_effort_for,
             set_plan_first,
             get_plan_first,
             reject_plan,
@@ -418,16 +416,13 @@ pub fn run() {
             download_ml_model,
             cancel_ml_model_download,
             remove_ml_model,
-            clear_api_key,
             clear_api_key_for,
             test_api_key,
             test_api_key_for,
             list_providers,
             list_models_for,
             get_active_provider,
-            set_active_provider,
             get_active_model,
-            set_active_model,
             get_session_head,
             get_node,
             get_graph,

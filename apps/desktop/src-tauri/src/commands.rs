@@ -7,10 +7,10 @@
 //! keeps the conversion noise out of the command bodies.
 //!
 //! State invariant: the agent is built lazily once both an API key and
-//! a project store exist. `set_api_key` and `open_project` are the two
-//! entry points that may trigger that construction; the helper
-//! [`rebuild_agent`] centralises the logic so the two commands cannot
-//! drift.
+//! a project store exist. `save_provider_settings` and `open_project` are
+//! the two entry points that may trigger that construction; both go through
+//! [`crate::agent_settings`], the one producer of the agent's configuration,
+//! so the two commands cannot drift.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,6 +26,7 @@ use crate::events::{
     ToolCallEndPayload, ToolCallPayload, DONE, NODE_CREATED, PLAN, PLAN_REJECTED, PLAN_UNAVAILABLE,
     TEXT_DELTA, TOOL_CALL, TOOL_CALL_END,
 };
+pub use crate::agent_settings::KeychainPersistenceDto;
 use crate::state::AppState;
 
 /// Information about an opened project, returned by `open_project` to
@@ -197,7 +198,7 @@ impl From<CommandError> for String {
     }
 }
 
-type CmdResult<T> = std::result::Result<T, String>;
+pub(crate) type CmdResult<T> = std::result::Result<T, String>;
 
 /// Put back any of `node`'s audio the history sweep removed, before a
 /// command renders the node or moves the head to it (#98).
@@ -349,7 +350,7 @@ pub async fn open_project<R: Runtime>(
     // After the store is replaced we may now be able to construct the
     // agent (if an API key was already cached). Rebuild it, but never
     // wait for a turn to end to do it (#498).
-    rebuild_agent_soon(&state);
+    crate::agent_settings::reapply_soon(&state);
     Ok(info)
 }
 
@@ -555,7 +556,7 @@ pub async fn save_project_as<R: Runtime>(
     // go on editing the project this one just left (#506). Rebuild it as
     // `open_project` does, and for the same reason never wait for a turn to
     // end to do it: Save As is in the session's line (#498).
-    rebuild_agent_soon(&state);
+    crate::agent_settings::reapply_soon(&state);
     Ok(report)
 }
 
@@ -841,42 +842,41 @@ fn repair_in_background(plan: tools::repair::RepairPlan, staged: Store) {
 }
 
 // ---------------------------------------------------------------------------
-// set_api_key
+// Provider settings: one save (ADR 0005)
 // ---------------------------------------------------------------------------
 
-/// Persist `key` for the active provider, refresh the in-memory cache,
-/// and rebuild the agent. Equivalent to
-/// [`set_api_key_for`] with the active provider id; preserved as a thin
-/// shim so existing tests / front-end callers that only know about
-/// "the API key" continue to work.
+/// Save settings for one provider, make it the active provider and rebuild the
+/// agent once. Every field but `provider` is optional: an absent one is left as
+/// it is, and an empty `base_url` or `effort` clears the setting (the
+/// provider's own address, the model's own level), which is what the window
+/// sends for an emptied field.
 ///
-/// Answers where the save landed, as [`set_api_key_for`] does.
+/// Answers once with where the saves landed (see [`KeychainPersistenceDto`]):
+/// `persistent: false` if any fell back to the kernel keyring because no Secret
+/// Service could be reached, so it will not survive a reboot. The values are
+/// saved either way. Nothing is written if any field is refused, and the
+/// ChatGPT plan is refused unless it is signed in, or with a key or an address.
+/// See [`crate::agent_settings::save`].
 #[tauri::command]
-pub async fn set_api_key(
-    state: State<'_, AppState>,
-    key: String,
-) -> CmdResult<KeychainPersistenceDto> {
-    state.agent_settings.startup_reads_settled().await;
-    let provider_id = state.agent_settings.active_provider_id();
-    set_api_key_for_inner(&state, &provider_id, &key, &OsKeychain).await
-}
-
-/// Persist `key` for `provider`, mark `provider` as active, and rebuild
-/// the agent. The frontend uses this when the user picks a provider in
-/// the Settings picker and saves a key against it.
-///
-/// Answers where the save landed (see [`KeychainPersistenceDto`]): the key
-/// and the active provider are two writes, and the answer is session-only
-/// if either fell back to the kernel keyring because no Secret Service
-/// could be reached, so it will not survive a reboot. The values are saved
-/// either way. Settings says so after Save (#497).
-#[tauri::command]
-pub async fn set_api_key_for(
+pub async fn save_provider_settings(
     state: State<'_, AppState>,
     provider: String,
-    key: String,
+    key: Option<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+    effort: Option<String>,
 ) -> CmdResult<KeychainPersistenceDto> {
-    set_api_key_for_inner(&state, &provider, &key, &OsKeychain).await
+    crate::agent_settings::save(
+        &state,
+        crate::agent_settings::SettingsChange {
+            provider,
+            key,
+            model,
+            base_url,
+            effort,
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -884,49 +884,14 @@ pub async fn set_api_key_for(
 // ---------------------------------------------------------------------------
 
 /// Read a provider's base-URL override, or `None` when it uses the
-/// built-in one.
-///
-/// Rejects when the keychain could not be read, which is not the same as
-/// `None`: Settings saves what it showed, and a blank it took for "no
-/// override" is sent back as a delete (#497).
-///
-/// Also rejects, without reading, after a startup the keychain refused
-/// (see [`stored_setting_unless_refused`]). Settings asks for this when it
-/// opens, and on a locked keyring a read is another unlock prompt.
+/// built-in one. Rejects when the keychain could not be read, and without
+/// reading after a startup it refused: see [`crate::agent_settings::base_url`].
 #[tauri::command]
 pub async fn get_base_url_for(
     state: State<'_, AppState>,
     provider: String,
 ) -> CmdResult<Option<String>> {
-    state.agent_settings.startup_reads_settled().await;
-    stored_setting_unless_refused(&state, || ai::keychain::try_load_base_url(&provider))
-}
-
-/// A stored setting as the frontend sees it: the value, or the reason the
-/// keychain could not be read, never `None` for a failure.
-///
-/// The reason alone, as [`has_key_answer`] gives it: Settings says the
-/// rest.
-fn stored_setting<T>(read: Result<Option<T>, ai::keychain::KeychainError>) -> CmdResult<Option<T>> {
-    read.map_err(|e| e.reason().to_string())
-}
-
-/// [`stored_setting`], except that `read` is not made at all once startup
-/// found the keychain refusing access ([`AppState::keychain_refused`]):
-/// the answer is then the refusal's own note ([`refusal_note`]).
-///
-/// What Settings reads when it opens would otherwise raise another unlock
-/// prompt for each field, on a keyring the user has just declined to
-/// unlock. The prompts end with the refusal, which the first save that
-/// goes through lifts ([`keychain_readable_again`]).
-fn stored_setting_unless_refused<T>(
-    state: &AppState,
-    read: impl FnOnce() -> Result<Option<T>, ai::keychain::KeychainError>,
-) -> CmdResult<Option<T>> {
-    match refusal_note(state) {
-        Some(why) => Err(why),
-        None => stored_setting(read()),
-    }
+    crate::agent_settings::base_url(&state, &provider).await
 }
 
 /// The URL a provider ships with, so the UI can show it as a placeholder
@@ -934,68 +899,6 @@ fn stored_setting_unless_refused<T>(
 #[tauri::command]
 pub async fn default_base_url_for(provider: String) -> CmdResult<String> {
     Ok(ai::validate::provider_for(&provider).base_url().to_string())
-}
-
-/// Point a provider somewhere else — a local server on another port, a
-/// gateway, a proxy, anything speaking the same API.
-///
-/// An empty string clears the override and restores the built-in URL,
-/// which is what the UI sends when the field is emptied.
-///
-/// The URL is validated here rather than at request time. A typo saved
-/// now would otherwise surface much later as a connection error with no
-/// hint that the cause was a malformed setting.
-///
-/// Answers where the save landed, as [`set_api_key_for`] does. Clearing the
-/// override writes nothing, so it is always durable: there is no value to
-/// lose.
-#[tauri::command]
-pub async fn set_base_url_for(
-    state: State<'_, AppState>,
-    provider: String,
-    base_url: String,
-) -> CmdResult<KeychainPersistenceDto> {
-    set_base_url_for_with(&state, &provider, &base_url, &OsKeychain).await
-}
-
-async fn set_base_url_for_with(
-    state: &AppState,
-    provider: &str,
-    base_url: &str,
-    keychain: &impl KeychainWrites,
-) -> CmdResult<KeychainPersistenceDto> {
-    if !ai::SUPPORTED_PROVIDER_IDS.contains(&provider) {
-        return Err(format!("unsupported provider id: {provider}"));
-    }
-    refuse_session_provider(provider)?;
-    let trimmed = base_url.trim();
-    let landed = if trimmed.is_empty() {
-        keychain
-            .delete_base_url(provider)
-            .map_err(CommandError::from)?;
-        KeychainPersistenceDto::landed([])
-    } else {
-        let rest = trimmed
-            .strip_prefix("http://")
-            .or_else(|| trimmed.strip_prefix("https://"))
-            .ok_or_else(|| {
-                format!("base URL must start with http:// or https:// — got `{trimmed}`")
-            })?;
-        if rest.is_empty() || rest.starts_with('/') {
-            return Err(format!("base URL has no host — got `{trimmed}`"));
-        }
-        // A trailing slash turns `{base}/v1/models` into `{base}//v1/models`
-        // on some servers. Normalising once here beats every call site
-        // remembering.
-        let at = keychain
-            .save_base_url(provider, trimmed.trim_end_matches('/'))
-            .map_err(CommandError::from)?;
-        KeychainPersistenceDto::landed([at])
-    };
-    // The agent holds its endpoint for the life of the config, so a
-    // saved URL that never reaches it looks like the setting was ignored.
-    rebuild_agent(state).await?;
-    Ok(landed)
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,229 +917,24 @@ pub async fn get_effort_for(
     state: State<'_, AppState>,
     provider: String,
 ) -> CmdResult<Option<String>> {
-    state.agent_settings.startup_reads_settled().await;
-    stored_setting_unless_refused(&state, || ai::keychain::try_load_effort(&provider))
-        .map(|level| level.map(|e| e.as_str().to_string()))
-}
-
-/// Validate a requested effort for `provider`. `None` (or blank) means
-/// "the model's default" and is always valid; a level is valid only for
-/// a provider whose endpoint takes one and only if it is exactly one of
-/// the five the API accepts. The API answers anything else with a 400 on
-/// every request, so a typo saved now would break chat later with no
-/// hint that a setting caused it.
-fn parse_effort_setting(
-    provider: &str,
-    effort: Option<&str>,
-) -> Result<Option<ai::Effort>, String> {
-    let Some(raw) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
-        return Ok(None);
-    };
-    if !ai::validate::provider_for(provider).supports_effort() {
-        return Err(format!(
-            "{provider} has no reasoning effort setting; it applies to Anthropic and the ChatGPT plan only"
-        ));
-    }
-    ai::Effort::parse(raw).map(Some).ok_or_else(|| {
-        let levels: Vec<&str> = ai::Effort::ALL.iter().map(|e| e.as_str()).collect();
-        format!(
-            "unknown reasoning effort `{raw}` (expected one of: {})",
-            levels.join(", ")
-        )
-    })
-}
-
-/// Set a provider's reasoning effort, or clear it with `None` (or a
-/// blank string) so the model's default applies again, which is what the
-/// UI sends for "Default".
-///
-/// Answers where the save landed, as [`set_base_url_for`] does.
-#[tauri::command]
-pub async fn set_effort_for(
-    state: State<'_, AppState>,
-    provider: String,
-    effort: Option<String>,
-) -> CmdResult<KeychainPersistenceDto> {
-    set_effort_for_with(&state, &provider, effort.as_deref(), &OsKeychain).await
-}
-
-async fn set_effort_for_with(
-    state: &AppState,
-    provider: &str,
-    effort: Option<&str>,
-    keychain: &impl KeychainWrites,
-) -> CmdResult<KeychainPersistenceDto> {
-    let landed = match parse_effort_setting(provider, effort)? {
-        Some(level) => {
-            let at = keychain
-                .save_effort(provider, level)
-                .map_err(CommandError::from)?;
-            KeychainPersistenceDto::landed([at])
-        }
-        None => {
-            keychain
-                .delete_effort(provider)
-                .map_err(CommandError::from)?;
-            KeychainPersistenceDto::landed([])
-        }
-    };
-    // The agent holds its config for its lifetime, so a saved level
-    // that never reaches it looks like the setting was ignored.
-    rebuild_agent(state).await?;
-    Ok(landed)
-}
-
-/// Whether `provider_id` is paid for by a sign-in session and not a key (the
-/// ChatGPT plan, #474). It has no key slot and no address: a saved key would
-/// be sent as the "plan" bearer, and bill the API under a label that says
-/// plan. So no key or address is ever saved or read for one; the session
-/// ([`crate::chatgpt::ChatGptHandle`]) is its credential, and an agent is
-/// built for it only while that session is signed in.
-fn is_session_provider(provider_id: &str) -> bool {
-    ai::validate::provider_for(provider_id).credential_kind() == ai::CredentialKind::ChatGptOAuth
-}
-
-/// The refusal for a command that saves a key or an address for a session
-/// provider: there is none to save, whether or not anyone is signed in.
-fn refuse_session_provider(provider_id: &str) -> CmdResult<()> {
-    if is_session_provider(provider_id) {
-        return Err(
-            "the ChatGPT plan is used by signing in with a ChatGPT account; \
-             no key or address can be saved for it"
-                .into(),
-        );
-    }
-    Ok(())
-}
-
-/// Makes the active provider the ChatGPT plan only while its session is
-/// signed in (with plan usage granted); otherwise says why not.
-///
-/// A saved sign-in that has not been read yet is read first, unless the
-/// keychain refused access at launch (the same rule as every other read,
-/// #497): then it stays unread and the answer says so.
-async fn require_signed_in_session(state: &AppState) -> CmdResult<()> {
-    state.chatgpt.restore().await;
-    if state.chatgpt.is_signed_in() {
-        return Ok(());
-    }
-    Err(crate::chatgpt::not_signed_in_error(&state.chatgpt.status()))
-}
-
-async fn set_api_key_for_inner(
-    state: &AppState,
-    provider_id: &str,
-    key: &str,
-    keychain: &impl KeychainWrites,
-) -> CmdResult<KeychainPersistenceDto> {
-    refuse_session_provider(provider_id)?;
-    // Startup's reads fill the cache this writes over, and would write
-    // over this in turn if they finished after it.
-    state.agent_settings.startup_reads_settled().await;
-    // Selecting a keyless provider is a save with an empty key — that is
-    // how the UI says "make this one active" — so it must be allowed
-    // through rather than rejected as a blank credential.
-    if ai::validate::provider_for(provider_id).requires_api_key() && key.trim().is_empty() {
-        return Err("api key must not be empty".into());
-    }
-    let key_at = keychain
-        .save_api_key(provider_id, key)
-        .map_err(CommandError::from)?;
-    // Saving a key for a provider implicitly makes it active — that
-    // matches the user's intent and avoids a second "switch provider"
-    // step in the settings UI.
-    let provider_at = keychain
-        .save_active_provider(provider_id)
-        .map_err(CommandError::from)?;
-    // Both writes went through, so the keychain is readable and writable
-    // now whatever it was at launch.
-    keychain_readable_again(state, ai::keychain::try_load_model);
-    state.agent_settings.set_active_provider(provider_id.to_string());
-    state.agent_settings.set_api_key_cache(Some(key.to_string()));
-    rebuild_agent(state).await?;
-    Ok(KeychainPersistenceDto::landed([key_at, provider_at]))
+    crate::agent_settings::effort(&state, &provider).await
 }
 
 // ---------------------------------------------------------------------------
 // has_api_key / clear_api_key / test_api_key
 // ---------------------------------------------------------------------------
 
-/// Whether the OS keychain holds an API key for the active provider.
+/// Whether the active provider has what it needs (a stored key, or none
+/// required): see [`crate::agent_settings::has_api_key`].
 ///
 /// Used by the frontend on mount to decide whether to render the M13
-/// blocking-modal first-launch flow. We deliberately re-read from the
-/// keychain rather than trusting the in-memory cache so the answer
-/// reflects the actual on-disk state — `clear_api_key` mutates the
-/// keychain and we want subsequent `has_api_key` calls to immediately
-/// see "no key" without needing the cache to also be cleared in lockstep.
-///
-/// Rejects when the keychain could not be read (locked, access denied,
-/// no service). That is not the same as `false`: `false` sends the user
-/// to enter a key, which on a locked keyring they already have (#394).
+/// blocking-modal first-launch flow. Rejects when the keychain could not be
+/// read (locked, access denied, no service). That is not the same as `false`:
+/// `false` sends the user to enter a key, which on a locked keyring they
+/// already have (#394).
 #[tauri::command]
 pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
-    // Pending while startup's keychain reads are (#497): the window is up
-    // before they are done, and the frontend says it is waiting for the
-    // keyring until this answers.
-    state.agent_settings.startup_reads_settled().await;
-    let provider_id = state.agent_settings.active_provider_id();
-    has_key_answer(state.agent_settings.keychain_read_error(), || {
-        provider_is_configured(&state, &provider_id)
-    })
-}
-
-/// The answer to [`has_api_key`], given what startup found.
-///
-/// A keychain that could not be read at launch means the active provider
-/// and key were never restored, so an answer computed from the defaults
-/// would be about the wrong provider. Report the failure instead, and
-/// only ask `configured` when startup read cleanly.
-///
-/// Both failures carry the reason alone (`KeychainError::reason`): the
-/// banner that shows it already says the keychain could not be read, and
-/// the full message would say so twice.
-fn has_key_answer(
-    startup_error: Option<String>,
-    configured: impl FnOnce() -> Result<bool, ai::keychain::KeychainError>,
-) -> CmdResult<bool> {
-    match startup_error {
-        Some(e) => Err(e),
-        None => configured().map_err(|e| e.reason().to_string()),
-    }
-}
-
-/// Whether `provider_id` is ready to use.
-///
-/// For a keyless provider that is unconditionally true: there is no
-/// credential to store, so asking the keychain would answer "no" forever
-/// and leave first launch stuck behind a key prompt it can never satisfy.
-///
-/// An unreadable keychain is an error rather than `false`.
-fn provider_is_configured(
-    state: &AppState,
-    provider_id: &str,
-) -> Result<bool, ai::keychain::KeychainError> {
-    // A provider paid for by a session is configured when its session is
-    // signed in, and no key slot is read.
-    if is_session_provider(provider_id) {
-        let status = state.chatgpt.status();
-        // A saved sign-in the keychain could not be asked for is not "not
-        // signed in": the answer `false` sends the person to sign in again
-        // over a session that may well be there (#394).
-        if status.state == "unread" {
-            return Err(ai::keychain::KeychainError::new(
-                status
-                    .reason
-                    .map(|r| r.message)
-                    .unwrap_or_else(|| "the saved ChatGPT sign-in could not be read".into()),
-            ));
-        }
-        return Ok(status.state == "signed_in");
-    }
-    if !ai::validate::provider_for(provider_id).requires_api_key() {
-        return Ok(true);
-    }
-    ai::keychain::try_load_api_key(provider_id).map(|k| k.is_some())
+    crate::agent_settings::has_api_key(&state).await
 }
 
 /// Whether a key is stored for `provider`. The Settings UI uses this
@@ -1247,125 +945,7 @@ fn provider_is_configured(
 /// `false`; Settings shows the reason where it shows other save errors.
 #[tauri::command]
 pub async fn has_api_key_for(state: State<'_, AppState>, provider: String) -> CmdResult<bool> {
-    provider_is_configured(&state, &provider).map_err(|e| e.to_string())
-}
-
-/// Where values saved now would end up, as the frontend needs to see it.
-///
-/// `persistent: false` means Linux with no Secret Service running, so
-/// settings sit in the kernel keyring and are gone after the next restart
-/// of the machine. `reason` is why, as the keyring library words it.
-#[derive(Debug, Clone, Serialize)]
-pub struct KeychainPersistenceDto {
-    pub persistent: bool,
-    pub reason: Option<String>,
-}
-
-impl KeychainPersistenceDto {
-    /// Where a command's saves landed, taken together: session-only if any
-    /// of them was (with the reason of the first), durable otherwise, and
-    /// durable for a command that wrote nothing (a clear).
-    fn landed(saves: impl IntoIterator<Item = ai::keychain::Persistence>) -> Self {
-        saves
-            .into_iter()
-            .find(|at| matches!(at, ai::keychain::Persistence::SessionOnly { .. }))
-            .unwrap_or(ai::keychain::Persistence::Durable)
-            .into()
-    }
-}
-
-impl From<ai::keychain::Persistence> for KeychainPersistenceDto {
-    fn from(p: ai::keychain::Persistence) -> Self {
-        match p {
-            ai::keychain::Persistence::Durable => Self {
-                persistent: true,
-                reason: None,
-            },
-            ai::keychain::Persistence::SessionOnly { reason } => Self {
-                persistent: false,
-                reason: Some(reason),
-            },
-        }
-    }
-}
-
-/// The keychain writes the save commands make, as a trait so a test can say
-/// where each one landed without an OS keychain. [`OsKeychain`] is the real
-/// one: `ai::keychain`'s own functions, whose `Persistence` is what the
-/// commands report.
-pub(crate) trait KeychainWrites: Sync {
-    fn save_api_key(
-        &self,
-        provider: &str,
-        key: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error>;
-    fn save_active_provider(
-        &self,
-        provider: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error>;
-    fn save_base_url(
-        &self,
-        provider: &str,
-        base_url: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error>;
-    fn delete_base_url(&self, provider: &str) -> Result<(), keyring::Error>;
-    fn save_effort(
-        &self,
-        provider: &str,
-        effort: ai::Effort,
-    ) -> Result<ai::keychain::Persistence, keyring::Error>;
-    fn delete_effort(&self, provider: &str) -> Result<(), keyring::Error>;
-    fn save_model(
-        &self,
-        provider: &str,
-        model: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error>;
-}
-
-/// The OS keychain.
-pub(crate) struct OsKeychain;
-
-impl KeychainWrites for OsKeychain {
-    fn save_api_key(
-        &self,
-        provider: &str,
-        key: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error> {
-        ai::keychain::save_api_key(provider, key)
-    }
-    fn save_active_provider(
-        &self,
-        provider: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error> {
-        ai::keychain::save_active_provider(provider)
-    }
-    fn save_base_url(
-        &self,
-        provider: &str,
-        base_url: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error> {
-        ai::keychain::save_base_url(provider, base_url)
-    }
-    fn delete_base_url(&self, provider: &str) -> Result<(), keyring::Error> {
-        ai::keychain::delete_base_url(provider)
-    }
-    fn save_effort(
-        &self,
-        provider: &str,
-        effort: ai::Effort,
-    ) -> Result<ai::keychain::Persistence, keyring::Error> {
-        ai::keychain::save_effort(provider, effort)
-    }
-    fn delete_effort(&self, provider: &str) -> Result<(), keyring::Error> {
-        ai::keychain::delete_effort(provider)
-    }
-    fn save_model(
-        &self,
-        provider: &str,
-        model: &str,
-    ) -> Result<ai::keychain::Persistence, keyring::Error> {
-        ai::keychain::save_model(provider, model)
-    }
+    crate::agent_settings::has_api_key_for(&state, &provider).await
 }
 
 /// Whether settings and keys saved now survive a reboot.
@@ -1479,31 +1059,17 @@ async fn chatgpt_sign_in_with(
     state.agent_settings.startup_reads_settled().await;
     let status = state.chatgpt.sign_in(intent.into(), open).await?;
     if status.state == "signed_in" {
-        // The token was written to the keychain, so it can be used again
-        // whatever it was at launch, as after a key or provider save.
-        if status
+        // The token written to the keychain can be used again whatever it was
+        // at launch, as after a save; a person who had the plan as the active
+        // provider and no agent (signed out, then in) gets one, and a running
+        // agent keeps its history.
+        let in_keychain = status
             .token_storage
             .as_ref()
-            .is_some_and(|s| s.kind == "keychain")
-        {
-            keychain_readable_again(state, ai::keychain::try_load_model);
-        }
-        // A person who had the plan as the active provider and no agent
-        // (signed out, then in) gets one; a running agent keeps its history.
-        build_agent_if_missing(state);
-        refresh_chatgpt_models_soon(state);
+            .is_some_and(|s| s.kind == "keychain");
+        crate::agent_settings::chatgpt_signed_in(state, in_keychain);
     }
     Ok(status)
-}
-
-/// Builds the agent if there is none and nothing is using the slot, without
-/// touching a running one: its conversation is the person's.
-fn build_agent_if_missing(state: &AppState) {
-    if let Ok(mut slot) = state.agent.try_lock() {
-        if slot.is_none() {
-            rebuild_agent_into(state, &mut slot);
-        }
-    }
 }
 
 /// Ends the sign-in in progress, if there is one: at once if it is waiting for
@@ -1544,9 +1110,7 @@ pub async fn chatgpt_forget_registration(state: State<'_, AppState>) -> CmdResul
 
 /// The agent that ran on the plan has no session to run on any more.
 fn drop_chatgpt_agent(state: &AppState) {
-    if state.chatgpt.has_agent() {
-        rebuild_agent_soon(state);
-    }
+    crate::agent_settings::chatgpt_session_ended(state);
 }
 
 /// The message a turn could not send because the ChatGPT session ended
@@ -2072,40 +1636,18 @@ pub async fn remove_ml_model(
     Ok(MlModelStatusDto::from(&status))
 }
 
-/// Remove the stored API key for the active provider and tear down the
-/// agent. Equivalent to [`clear_api_key_for`] with the active provider.
-///
-/// After this call the app must behave as if it had just launched with
-/// no key configured for the active provider — the M13 acceptance
-/// criterion #3 says clearing the key returns the app to the
-/// first-launch state without restart.
-#[tauri::command]
-pub async fn clear_api_key(state: State<'_, AppState>) -> CmdResult<()> {
-    // The active provider is what startup is reading: before that, this
-    // would clear the default provider's key.
-    state.agent_settings.startup_reads_settled().await;
-    let provider_id = state.agent_settings.active_provider_id();
-    clear_api_key_for_inner(&state, &provider_id).await
-}
-
+/// Remove the stored API key for `provider` and, when it is the active
+/// provider, tear down the agent: after this call the app behaves as if it had
+/// just launched with no key configured for it (M13 acceptance criterion #3),
+/// with no restart.
 #[tauri::command]
 pub async fn clear_api_key_for(state: State<'_, AppState>, provider: String) -> CmdResult<()> {
-    clear_api_key_for_inner(&state, &provider).await
-}
-
-async fn clear_api_key_for_inner(state: &AppState, provider_id: &str) -> CmdResult<()> {
-    state.agent_settings.startup_reads_settled().await;
-    ai::keychain::delete_api_key(provider_id).map_err(CommandError::from)?;
-    if state.agent_settings.active_provider_id() == provider_id {
-        state.agent_settings.set_api_key_cache(None);
-        rebuild_agent(state).await?;
-    }
-    Ok(())
+    crate::agent_settings::clear_key(&state, &provider).await
 }
 
 /// Probe an API key with a 1-token Messages call against the *active*
 /// provider's endpoint. Used by the Settings "Test" button. The key is
-/// *not* persisted by this command — that's `set_api_key`'s job.
+/// *not* persisted by this command — that's `save_provider_settings`' job.
 /// Validation runs in Rust so the proposed key never has to leave the
 /// trusted process.
 ///
@@ -2167,7 +1709,7 @@ pub async fn test_api_key_for(
     // (`key` and `base_url` are ignored), and on a provider of its own, so
     // the ladder it may step down and the levels it reads cannot change a
     // turn that is running.
-    if is_session_provider(&provider) {
+    if crate::agent_settings::is_session_provider(&provider) {
         state.agent_settings.startup_reads_settled().await;
         return state
             .chatgpt
@@ -2194,105 +1736,12 @@ pub async fn list_providers() -> CmdResult<Vec<String>> {
         .collect())
 }
 
-/// The active provider id. Defaults to `"anthropic"` for back-compat
-/// when no preference has been recorded yet.
-///
-/// Rejects while startup's keychain read is still unaccounted for
-/// ([`AppState::keychain_read_error`]): the default is then what was
-/// never read, not an answer. Settings would show it as the stored choice
-/// and its Save would write it over the real one (#497).
+/// The active provider id. Defaults to `"anthropic"` for back-compat when no
+/// preference has been recorded yet. Rejects while startup's keychain read is
+/// still unaccounted for: see [`crate::agent_settings::active_provider`].
 #[tauri::command]
 pub async fn get_active_provider(state: State<'_, AppState>) -> CmdResult<String> {
-    state.agent_settings.startup_reads_settled().await;
-    active_provider_answer(state.agent_settings.keychain_read_error(), state.agent_settings.active_provider_id())
-}
-
-/// The answer to [`get_active_provider`], given what startup found.
-///
-/// The reason alone, as [`has_key_answer`] gives it: the banner that shows
-/// it already says the keychain could not be read.
-fn active_provider_answer(startup_error: Option<String>, active: String) -> CmdResult<String> {
-    match startup_error {
-        Some(e) => Err(e),
-        None => Ok(active),
-    }
-}
-
-/// Switch the active provider. Persists the choice and rebuilds the
-/// agent against the new provider's stored key (if any). Does NOT
-/// require a key to already be present; the frontend uses this when the
-/// user toggles the picker before saving a key.
-///
-/// Answers where the choice landed, as [`set_api_key_for`] does. (When the
-/// switch worked but the new provider's saved key could not be read, it
-/// rejects with that instead: the choice is saved, and the message is the
-/// one that matters.)
-#[tauri::command]
-pub async fn set_active_provider(
-    state: State<'_, AppState>,
-    provider: String,
-) -> CmdResult<KeychainPersistenceDto> {
-    set_active_provider_with(
-        &state,
-        &provider,
-        &OsKeychain,
-        ai::keychain::try_load_api_key,
-    )
-    .await
-}
-
-async fn set_active_provider_with(
-    state: &AppState,
-    provider: &str,
-    keychain: &impl KeychainWrites,
-    load_key: impl FnOnce(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
-) -> CmdResult<KeychainPersistenceDto> {
-    if !ai::SUPPORTED_PROVIDER_IDS.contains(&provider) {
-        return Err(format!("unsupported provider id: {provider}"));
-    }
-    state.agent_settings.startup_reads_settled().await;
-    // The ChatGPT plan can be the active provider only with a session to
-    // build its agent from.
-    if is_session_provider(provider) {
-        require_signed_in_session(state).await?;
-    }
-    let at = keychain
-        .save_active_provider(provider)
-        .map_err(CommandError::from)?;
-    keychain_readable_again(state, ai::keychain::try_load_model);
-    state.agent_settings.set_active_provider(provider.to_string());
-    // Re-cache the key for the now-active provider (if any) so the
-    // next `rebuild_agent` picks the right credentials up. When the read
-    // fails the cache is emptied rather than left holding the previous
-    // provider's key, which the new provider would be sent.
-    let read = key_for_switch(provider, load_key);
-    state.agent_settings.set_api_key_cache(read.as_ref().ok().cloned().flatten());
-    rebuild_agent(state).await?;
-    // The switch itself worked, so say what did not instead of
-    // failing it: the agent is built for the new provider with no key.
-    if let Err(e) = read {
-        return Err(format!(
-            "switched to {provider}, but its saved key could not be read: {}",
-            e.reason()
-        ));
-    }
-    Ok(KeychainPersistenceDto::landed([at]))
-}
-
-/// The key to cache when switching to `provider`.
-///
-/// A provider that needs none (a local Ollama daemon) has nothing to
-/// read, so the keychain is not asked: on a locked keyring that read is
-/// an unlock prompt for a key that does not exist, and an error the
-/// switch would then report.
-fn key_for_switch(
-    provider: &str,
-    load: impl FnOnce(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
-) -> Result<Option<String>, ai::keychain::KeychainError> {
-    if is_session_provider(provider) || !ai::validate::provider_for(provider).requires_api_key() {
-        return Ok(None);
-    }
-    load(provider)
+    crate::agent_settings::active_provider(&state).await
 }
 
 // ---------------------------------------------------------------------------
@@ -2355,50 +1804,6 @@ impl From<ai::Catalogue> for ModelCatalogueDto {
     }
 }
 
-/// What the catalogue is fetched with: the key, and the endpoint the agent
-/// will use.
-///
-/// Both come from the keychain unless the key was typed into the form, and
-/// after a startup the keychain refused neither is read: that is two more
-/// unlock prompts every time Settings opens or the provider changes
-/// (#497). The list is refused with [`refusal_note`] instead. Reading
-/// only the key would leave the endpoint unknown, and a list from the
-/// built-in endpoint is not the list of the server chat talks to, so a
-/// key typed for a gateway would go to the wrong host.
-fn catalogue_inputs(
-    state: &AppState,
-    provider: &str,
-    typed: Option<String>,
-    load_key: impl Fn(&str) -> Option<String>,
-    load_base_url: impl Fn(&str) -> Option<String>,
-) -> CmdResult<(Option<String>, Option<String>)> {
-    if let Some(why) = refusal_note(state) {
-        return Err(why);
-    }
-    Ok((
-        catalogue_key(provider, typed, load_key),
-        load_base_url(provider),
-    ))
-}
-
-/// The key the catalogue is fetched with: the one typed into the form if
-/// there is one, else the one saved for `provider`.
-///
-/// Settings sends only what was typed, and after a key is saved the form is
-/// empty, so without the fallback the normal case, a saved key, never got a
-/// live list. The saved key is read here and stays in this process; it is
-/// not sent to the webview.
-fn catalogue_key(
-    provider: &str,
-    typed: Option<String>,
-    load: impl Fn(&str) -> Option<String>,
-) -> Option<String> {
-    typed
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty())
-        .or_else(|| load(provider))
-}
-
 /// List the model catalogue for `provider`, and say which list it is.
 ///
 /// `api_key` is the key typed into the form, if any; without one the saved
@@ -2413,7 +1818,7 @@ fn catalogue_key(
 /// entries without hitting the network.
 ///
 /// Rejects, without reading the keychain, after a startup the keychain
-/// refused (see [`catalogue_inputs`]).
+/// refused (see [`crate::agent_settings::catalogue_inputs`]).
 #[tauri::command]
 pub async fn list_models_for(
     state: State<'_, AppState>,
@@ -2424,7 +1829,7 @@ pub async fn list_models_for(
     // The ChatGPT plan's catalogue is the signed-in account's, read with its
     // session on a provider of its own (never the agent's, which a turn may
     // be using), from the one host its bearer goes to. No key, no address.
-    if is_session_provider(&provider) {
+    if crate::agent_settings::is_session_provider(&provider) {
         let catalogue = state
             .chatgpt
             .list_models(crate::chatgpt::read_models)
@@ -2433,13 +1838,7 @@ pub async fn list_models_for(
     }
     // Follow the same endpoint the agent will use. Listing one server's
     // catalogue while chat talks to another is worse than not listing.
-    let (key, base) = catalogue_inputs(
-        &state,
-        &provider,
-        api_key,
-        ai::keychain::load_api_key,
-        ai::keychain::load_base_url,
-    )?;
+    let (key, base) = crate::agent_settings::catalogue_inputs(&state, &provider, api_key)?;
     let catalogue = ai::list_models_for_at(&provider, key.as_deref(), base.as_deref())
         .await
         .map_err(|e| e.to_string())?;
@@ -2450,123 +1849,29 @@ pub async fn list_models_for(
 // Model selection
 // ---------------------------------------------------------------------------
 
-/// Persist the chosen model id for `provider`. The next agent rebuild
-/// reads this slot and constructs the [`ai::LlmConfig`] with the
-/// chosen model overlaid on the provider's default.
-///
-/// Answers where the choice landed, as [`set_api_key_for`] does.
-#[tauri::command]
-pub async fn set_active_model(
-    state: State<'_, AppState>,
-    provider: String,
-    model: String,
-) -> CmdResult<KeychainPersistenceDto> {
-    set_active_model_with(&state, provider, model, &OsKeychain).await
-}
-
-async fn set_active_model_with(
-    state: &AppState,
-    provider: String,
-    model: String,
-    keychain: &impl KeychainWrites,
-) -> CmdResult<KeychainPersistenceDto> {
-    if !ai::SUPPORTED_PROVIDER_IDS.iter().any(|p| *p == provider) {
-        return Err(format!("unsupported provider id: {provider}"));
-    }
-    let model = model.trim().to_string();
-    if model.is_empty() {
-        return Err("model id must not be empty".into());
-    }
-    // Startup restores every provider's pick into the map this writes to.
-    state.agent_settings.startup_reads_settled().await;
-    // Persisted, not only cached (#249). `active_model_by_provider` is
-    // in-memory, and nothing re-pushed it at startup — so after a
-    // restart `rebuild_agent` saw no model and silently used
-    // `provider.default_model()`, while Settings went on showing the
-    // user's pick from localStorage. A different model at a different
-    // price, with nothing on screen to say so.
-    //
-    // A failed write is reported rather than swallowed: the choice
-    // still applies to this session, but the user should know it will
-    // not survive a restart.
-    let persisted = keychain.save_model(&provider, &model);
-    state.agent_settings.set_model_for(provider, model);
-    rebuild_agent(state).await?;
-    persisted
-        .map(|at| KeychainPersistenceDto::landed([at]))
-        .map_err(|e| format!("model selected for this session, but could not be saved: {e}"))
-}
-
 /// Read the model id currently selected for `provider`. Empty string
 /// when nothing has been chosen yet.
 ///
 /// Rejects when startup could not read the keychain and nothing is known
-/// for `provider` (see [`active_model_answer`]): "nothing chosen" is then
+/// for `provider` (see [`crate::agent_settings::chosen_model`]): "nothing chosen" is then
 /// what the map lacks, not what the keychain says, and Settings would save
 /// what its field shows over the stored model (#497).
 #[tauri::command]
 pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> CmdResult<String> {
-    state.agent_settings.startup_reads_settled().await;
-    active_model_answer(models_unread_reason(&state), state.agent_settings.model_for(&provider))
-}
-
-/// The answer to [`get_active_model`]: the model known for the provider,
-/// else "none chosen" if startup read the keychain cleanly, else the
-/// reason it could not.
-///
-/// A model that is known is an answer whatever startup found. It was
-/// restored before the refusal ended the reads, or chosen since.
-fn active_model_answer(unread: Option<String>, known: Option<String>) -> CmdResult<String> {
-    match (known, unread) {
-        (Some(model), _) => Ok(model),
-        (None, Some(why)) => Err(why),
-        (None, None) => Ok(String::new()),
-    }
-}
-
-/// Why startup's keychain reads left the chosen models unrestored, if
-/// they did. Startup stops at the first refusal, so the models after it
-/// were never read; a read that failed some other way (the stash) may have
-/// been one of the models'. Either way an empty map entry proves nothing.
-fn models_unread_reason(state: &AppState) -> Option<String> {
-    refusal_note(state).or_else(|| {
-        state
-            .keychain_read_error()
-            .map(|reason| format!("the keychain could not be read at launch ({reason})"))
-    })
+    crate::agent_settings::chosen_model(&state, &provider).await
 }
 
 /// The error for a turn with no agent to run it: the plain one, unless the
 /// keychain refused access at launch, which is why the agent was left
-/// unbuilt ([`rebuild_agent_from`]) and what undoes it.
-fn no_agent_error(state: &AppState) -> CommandError {
-    match refusal_note(state) {
+/// unbuilt ([`crate::agent_settings`]) and what undoes it.
+pub(crate) fn no_agent_error(state: &AppState) -> CommandError {
+    match state.agent_settings.refusal_note() {
         Some(why) => CommandError::NoAgentKeychainRefused(why),
-        None if effective_provider_is_session(state) => CommandError::NoAgentChatGpt,
+        None if crate::agent_settings::effective_provider_is_session(state) => {
+            CommandError::NoAgentChatGpt
+        }
         None => CommandError::NoAgent,
     }
-}
-
-/// Whether the agent that is missing is the ChatGPT plan's: it is the active
-/// provider, or the active profile pins it. There is no key to set for it.
-fn effective_provider_is_session(state: &AppState) -> bool {
-    let pinned = state
-        .active_profile_overrides()
-        .2
-        .map(|(provider, _)| provider);
-    is_session_provider(&pinned.unwrap_or_else(|| state.agent_settings.active_provider_id()))
-}
-
-/// Why the keychain is not asked, if startup found it refusing access
-/// ([`AppState::keychain_refused`]); `None` while it is not known to.
-///
-/// Each further read of a locked Secret Service raises its own unlock
-/// prompt, right after the user dismissed the first, so what is read on
-/// the user's behalf only because a panel opened is refused up front with
-/// this instead (#497). The reason alone, in words for Settings' "Save
-/// leaves it as it is" note.
-fn refusal_note(state: &AppState) -> Option<String> {
-    crate::state::keychain_refusal_note(state.agent_settings.keychain_refused(), state.agent_settings.keychain_read_error())
 }
 
 // ---------------------------------------------------------------------------
@@ -4117,7 +3422,7 @@ pub async fn set_plan_first(state: State<'_, AppState>, enabled: bool) -> CmdRes
     if let Err(e) = &saved {
         tracing::warn!(error = %e, "could not save the Plan first setting");
     }
-    rebuild_agent(state.inner()).await?;
+    crate::agent_settings::reapply(state.inner()).await?;
     saved.map_err(CommandError::PlanFirstNotSaved)?;
     Ok(())
 }
@@ -5547,7 +4852,7 @@ pub async fn upsert_agent_profile(
     // If the user is editing the currently active profile, rebuild
     // the agent so the override takes effect on the next turn.
     if is_active {
-        rebuild_agent(&state).await?;
+        crate::agent_settings::reapply(&state).await?;
     }
     Ok(())
 }
@@ -5600,7 +4905,7 @@ pub async fn delete_agent_profile(state: State<'_, AppState>, name: String) -> C
     .await?;
     // Rebuild the agent against the default config.
     if was_active {
-        rebuild_agent(&state).await?;
+        crate::agent_settings::reapply(&state).await?;
     }
     blocking(&state, |state| {
         if let Err(e) = state.reload_agent_profiles_from_disk() {
@@ -5641,7 +4946,7 @@ pub async fn set_active_agent_profile(
     state
         .set_active_agent_profile(name)
         .map_err(CommandError::from)?;
-    rebuild_agent(&state).await?;
+    crate::agent_settings::reapply(&state).await?;
     Ok(())
 }
 
@@ -5777,281 +5082,6 @@ fn parse_agent_profile_file(raw: &str) -> Result<ParsedAgentProfile, CommandErro
         tools,
         body,
     })
-}
-
-/// Rebuild the agent from the current state. Called after the API key,
-/// active provider, or project store changes; either or both
-/// prerequisites being missing is fine and clears the agent rather than
-/// failing.
-/// Public wrapper called from `lib.rs::setup` after auto-initialising
-/// the default project store. The internal helper is private; tests
-/// don't currently call it directly so a thin pub façade keeps the
-/// rest of the module's seal intact.
-pub async fn rebuild_agent_public(state: &AppState) -> Result<(), CommandError> {
-    rebuild_agent(state).await
-}
-
-/// Resolve the `(provider_id, api_key, model)` triple the agent should
-/// be built with.
-///
-/// A profile that pins `model: { provider, id }` overrides *both* the
-/// provider and the model id. When the pinned provider differs from the
-/// globally active one, the cached API key belongs to the wrong
-/// provider — sending it would 401 against the pinned provider's
-/// endpoint — so the key is re-read from that provider's keychain slot
-/// via `load_key`.
-///
-/// Split out of [`rebuild_agent`] as a pure function so the
-/// provider/key pairing can be unit-tested without a keychain or a
-/// live `AppState`.
-fn resolve_effective_llm(
-    global_provider_id: String,
-    global_key: Option<String>,
-    global_model: Option<String>,
-    profile_model: Option<(String, String)>,
-    load_key: impl Fn(&str) -> Option<String>,
-) -> (String, Option<String>, Option<String>) {
-    match profile_model {
-        // Profile pins a provider that is not the active one: the
-        // cached key is for a different service.
-        Some((provider, id)) if provider != global_provider_id => {
-            let key = load_key(&provider);
-            (provider, key, Some(id))
-        }
-        // Profile pins a model on the provider that is already active.
-        Some((provider, id)) => (provider, global_key, Some(id)),
-        // No profile override: the global picker wins.
-        None => (global_provider_id, global_key, global_model),
-    }
-}
-
-/// Wait for the agent's mutex, then rebuild the agent.
-///
-/// The mutex is held by `send_message` for a whole turn, which can be
-/// minutes (a plan card waits up to five), so this waits that long too. A
-/// command that is in the session's line (`sessionQueue.ts`) must not
-/// call it: everything queued after that command would wait for the turn.
-/// [`rebuild_agent_soon`] is the one for those.
-///
-/// What the agent is built from is read *after* the mutex is held, not
-/// before: a caller that waited behind a turn builds from the state of the
-/// moment it runs, not of the moment it was asked.
-async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
-    {
-        let mut slot = state.agent.lock().await;
-        rebuild_agent_into(state, &mut slot);
-    }
-    refresh_chatgpt_models_soon(state);
-    Ok(())
-}
-
-/// Reads the signed-in ChatGPT account's model list in the background when
-/// an agent was just built on the plan, so the reasoning levels each model
-/// takes are known ([`crate::chatgpt::ChatGptHandle::refresh_models_with`]).
-/// Nothing is waited for, and a state that does not read it (tests) makes no
-/// request.
-fn refresh_chatgpt_models_soon(state: &AppState) {
-    if !state.chatgpt.refreshes_models() || !state.chatgpt.has_agent() {
-        return;
-    }
-    let state = state.clone();
-    // Called by another name: `tests/main_thread_commands.rs` reads the
-    // plain call as the reclaimer's, which takes the locks, and would take
-    // this for a command that waits on them.
-    let in_background = tauri::async_runtime::spawn;
-    in_background(async move {
-        state
-            .chatgpt
-            .refresh_models_with(crate::chatgpt::read_models)
-            .await;
-    });
-}
-
-/// Rebuild the agent without waiting for a turn to end (#498).
-///
-/// Opening a project and Save As call this, and the app sends both in the
-/// session's line, so they must answer even while the agent is mid-turn.
-///
-/// - Nobody holds the agent (the usual case): rebuilt here and now, so the
-///   agent is on the new store when the command answers.
-/// - A turn holds it: the rebuild runs as its own task, which waits its
-///   turn on the mutex and then reads the state as it is *then*. Several of
-///   these queued behind one turn each build from the latest state, so an
-///   older open cannot be applied after a newer one. The turn itself
-///   carries on with the agent and the store it started with (#501).
-fn rebuild_agent_soon(state: &AppState) {
-    if let Ok(mut slot) = state.agent.try_lock() {
-        rebuild_agent_into(state, &mut slot);
-        drop(slot);
-        refresh_chatgpt_models_soon(state);
-        return;
-    }
-    let state = state.clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = rebuild_agent(&state).await {
-            tracing::warn!(error = %e, "could not rebuild the agent after a turn");
-        }
-    });
-}
-
-/// Build the agent from the state as it is now and put it in `slot`, which
-/// is the agent's mutex, held by the caller. Nothing here waits for a
-/// turn; see [`rebuild_agent`] and [`rebuild_agent_soon`] for the callers.
-///
-/// After a startup the keychain refused, nothing is built and the keychain
-/// is not read ([`rebuild_agent_from`]).
-fn rebuild_agent_into(state: &AppState, slot: &mut Option<ai::Agent>) {
-    rebuild_agent_from(
-        state,
-        slot,
-        ai::keychain::load_api_key,
-        ai::keychain::load_base_url,
-        ai::keychain::load_effort,
-    );
-}
-
-/// [`rebuild_agent_into`] with the three keychain reads it makes passed in,
-/// so a test can count them without an OS keychain: another provider's key
-/// (for a profile that pins one), and the base URL and the level of the
-/// provider the agent is built for.
-fn rebuild_agent_from(
-    state: &AppState,
-    slot: &mut Option<ai::Agent>,
-    load_key: impl Fn(&str) -> Option<String>,
-    load_base_url: impl Fn(&str) -> Option<String>,
-    load_effort: impl Fn(&str) -> Option<ai::Effort>,
-) {
-    // After a startup the keychain refused (#497), no agent can be built
-    // without asking it again: every agent reads its provider's base URL and
-    // level, and a profile that pins another provider reads that provider's
-    // key. On a locked Secret Service each read is an unlock prompt, raised
-    // right after the user declined the first, and this runs at startup
-    // behind the reads. Building without them would be a guess, an agent
-    // pointed at the provider's own host when the stored URL is a gateway's
-    // (the reason `list_models_for` is refused as well). So the agent is
-    // left unbuilt, and `send_message` says why ([`no_agent_error`]). The
-    // first key or provider save that goes through lifts the refusal
-    // ([`keychain_readable_again`]) and builds it.
-    // Whatever agent was running is replaced. If it ran on the ChatGPT plan,
-    // the rung its provider ended on is kept for the next one built.
-    state.chatgpt.agent_replaced_by_another_provider();
-    if state.agent_settings.keychain_refused() {
-        *slot = None;
-        return;
-    }
-    let store_handle = state.store_handle();
-    let global_provider_id = state.agent_settings.active_provider_id();
-    let global_chosen_model = state.agent_settings.model_for(&global_provider_id);
-    let (profile_body, tool_whitelist, profile_model) = state.active_profile_overrides();
-
-    let (effective_provider_id, api_key, effective_model) = resolve_effective_llm(
-        global_provider_id,
-        state.agent_settings.api_key_snapshot(),
-        global_chosen_model,
-        profile_model,
-        // A provider paid for by a session has no key slot to read.
-        |provider| {
-            if is_session_provider(provider) {
-                None
-            } else {
-                load_key(provider)
-            }
-        },
-    );
-    // The config the agent is built from, or none.
-    //
-    // A provider paid for by a session (the ChatGPT plan, #474) has an agent
-    // only while its session is signed in with plan usage granted, whether
-    // it is the active provider or a profile pins it. It is built on the
-    // session, never a key (the cached key is another provider's or none at
-    // all, and its slots are not read), and with no address: the bearer
-    // goes to one host. A signed-out or ended session builds none, and
-    // `send_message` says there is no agent.
-    let cfg = if is_session_provider(&effective_provider_id) {
-        match (state.chatgpt.signed_in_session(), store_handle.is_some()) {
-            (Some(session), true) => {
-                // Starts where the account's route is known to stand: the
-                // rung and the reasoning levels the last agent and the model
-                // list found out.
-                let provider = state.chatgpt.new_agent_provider();
-                let mut cfg = ai::LlmConfig::with_credential(
-                    provider as Arc<dyn ai::LlmProvider>,
-                    ai::Credential::ChatGpt(session),
-                );
-                if let Some(m) = effective_model {
-                    if !m.trim().is_empty() {
-                        cfg = cfg.with_model(m);
-                    }
-                }
-                if let Some(effort) = load_effort(&effective_provider_id) {
-                    cfg = cfg.with_effort(effort);
-                }
-                Some(cfg)
-            }
-            _ => None,
-        }
-    } else {
-        let provider = ai::validate::provider_for(&effective_provider_id);
-
-        // A provider that needs no key (a local Ollama daemon) still has to
-        // produce an agent. Before `requires_api_key` existed, the match
-        // below was the hard stop: no key meant no agent, so a keyless
-        // provider could never be used at all.
-        let api_key = match api_key {
-            Some(k) => Some(k),
-            None if !provider.requires_api_key() => Some(String::new()),
-            None => None,
-        };
-        api_key.map(|key| {
-            let mut cfg = ai::LlmConfig::new(provider, key);
-            if let Some(m) = effective_model {
-                if !m.trim().is_empty() {
-                    cfg = cfg.with_model(m);
-                }
-            }
-            // Point at a local server, a gateway, or a proxy. Absent, the
-            // provider's own URL applies.
-            if let Some(base) = load_base_url(&effective_provider_id) {
-                cfg = cfg.with_base_url(base);
-            }
-            // Absent, the model's own default applies. A provider that
-            // cannot take one drops it in `effective_effort`.
-            if let Some(effort) = load_effort(&effective_provider_id) {
-                cfg = cfg.with_effort(effort);
-            }
-            cfg
-        })
-    };
-
-    *slot = match (cfg, store_handle) {
-        (Some(cfg), Some(store)) => {
-            let plan_first = state.plan_first.load(std::sync::atomic::Ordering::SeqCst);
-            let mut agent = ai::Agent::new(
-                cfg,
-                Arc::clone(&state.dispatcher),
-                store,
-                Arc::clone(&state.engine),
-                state.plan_gate.clone(),
-                state.clipboard_handle(),
-            );
-            agent.set_plan_first(plan_first);
-            let agent = match state.memory_handle() {
-                Some(mem) => agent.with_memory(mem),
-                None => agent,
-            };
-            let agent = agent.with_skills(state.skills_handle());
-            let agent = match profile_body {
-                Some(body) => agent.with_profile_body(body),
-                None => agent,
-            };
-            let agent = match tool_whitelist {
-                Some(list) => agent.with_tool_whitelist(list),
-                None => agent,
-            };
-            Some(agent)
-        }
-        _ => None,
-    };
 }
 
 // ---------------------------------------------------------------------------
@@ -6239,7 +5269,7 @@ fn restart_mcp_server_inner(state: &AppState, id: String) -> CmdResult<()> {
         state.mcp.record_failure(&id, &reason);
         return Err(CommandError::InvalidMcpServer(reason).into());
     }
-    let resolve = |slot: &str| ai::keychain::load_api_key(slot);
+    let resolve = |slot: &str| state.agent_settings.mcp_secret(slot);
     state
         .mcp
         .restart(&id, &server, resolve)
@@ -6273,6 +5303,7 @@ fn mcp_skip_reason(state: &AppState, server: &mcp::McpServerConfig) -> Option<St
         return None;
     }
     let why = state
+        .agent_settings
         .keychain_read_error()
         .map(|reason| format!(" ({reason})"))
         .unwrap_or_default();
@@ -6294,7 +5325,7 @@ fn mcp_skip_reason(state: &AppState, server: &mcp::McpServerConfig) -> Option<St
 /// registry, when startup found it refusing access (see
 /// [`mcp_skip_reason`]).
 pub fn start_enabled_mcp_servers(state: &AppState) {
-    start_enabled_mcp_servers_with(state, ai::keychain::load_api_key);
+    start_enabled_mcp_servers_with(state, |slot| state.agent_settings.mcp_secret(slot));
 }
 
 /// [`start_enabled_mcp_servers`], with the keychain read passed in so the
@@ -6425,143 +5456,6 @@ fn entry_to_server_config(e: &McpServerEntry) -> Result<mcp::McpServerConfig, Co
             "unknown transport `{other}` (expected stdio|sse)"
         ))),
     }
-}
-
-/// At app startup, restore the active provider from the keychain (if
-/// recorded) and load that provider's stored key into the in-memory
-/// cache. If nothing is stored, this is a no-op and the frontend's
-/// first action is to surface the Settings modal.
-///
-/// A keychain that cannot be read is not "nothing stored": the reason is
-/// kept on `state` and `has_api_key` rejects with it, so the frontend can
-/// tell the user instead of asking for a key they already entered (#394).
-///
-/// Blocks for as long as the keychain does, which for a locked Secret
-/// Service is as long as the user takes to answer its prompt, so `run`
-/// calls it off the setup thread and the commands that depend on it wait
-/// for it (`AppState::startup_reads_settled`, #497).
-pub fn try_load_api_key_at_startup(state: &AppState) {
-    load_startup_settings(
-        state,
-        ai::keychain::try_load_active_provider,
-        ai::keychain::try_load_api_key,
-        ai::keychain::try_load_model,
-    );
-}
-
-/// Startup, with the keychain reads passed in so the failure paths can
-/// be tested without an OS keychain: the active provider, its key, then
-/// every provider's chosen model.
-///
-/// A locked keychain stops it at the first refusal. Each read of a
-/// locked Secret Service raises its own unlock prompt, so carrying on
-/// would ask the user to dismiss the same prompt once per slot, eight
-/// times, before the window is up.
-pub(crate) fn load_startup_settings(
-    state: &AppState,
-    load_active: impl Fn() -> Result<Option<String>, ai::keychain::KeychainError>,
-    load_key: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
-    load_model: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
-) {
-    let mut first_error: Option<String> = None;
-    let mut refused = false;
-    match load_active() {
-        Ok(Some(active)) => state.agent_settings.set_active_provider(active),
-        Ok(None) => {}
-        Err(e) => refused = note_startup_failure("active provider", &e, &mut first_error),
-    }
-    if !refused {
-        match load_key(&state.agent_settings.active_provider_id()) {
-            Ok(Some(key)) => state.agent_settings.set_api_key_cache(Some(key)),
-            Ok(None) => {}
-            Err(e) => refused = note_startup_failure("API key", &e, &mut first_error),
-        }
-    }
-    state.agent_settings.set_keychain_read_error(first_error);
-    if !refused {
-        refused = restore_models(state, load_model);
-    }
-    // What the MCP autostart asks before it reads the keychain for a
-    // server of its own (#497).
-    state.agent_settings.set_keychain_refused(refused);
-}
-
-/// A key or provider save went through, so the keychain is readable and
-/// writable now whatever it was at launch: drop the failure startup kept.
-///
-/// If there was one, startup stopped reading there and never restored the
-/// chosen models, so read them now. Without that the agent would run each
-/// provider's default model while Settings showed the stored pick (#249).
-/// A provider with a pick already in this session is left alone: it was
-/// made after the failure and may be newer than what the keychain holds.
-///
-/// With nothing kept this reads nothing, so an ordinary save costs no
-/// extra keychain round trips.
-///
-/// The refusal startup recorded goes with the failure: MCP servers that
-/// were skipped for it can be restarted from Settings now.
-fn keychain_readable_again(
-    state: &AppState,
-    load_model: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
-) {
-    if state.agent_settings.keychain_read_error().is_none() && !state.agent_settings.keychain_refused() {
-        return;
-    }
-    state.agent_settings.set_keychain_read_error(None);
-    state.agent_settings.set_keychain_refused(false);
-    restore_models(state, |id| {
-        if state.agent_settings.model_for(id).is_some() {
-            Ok(None)
-        } else {
-            load_model(id)
-        }
-    });
-}
-
-/// Log a startup read that failed and keep the first one's reason.
-/// Returns whether the keychain refused access, which ends startup's
-/// reads.
-///
-/// Only the reason is kept (`KeychainError::reason`): the banner built
-/// from it already says the keychain could not be read.
-fn note_startup_failure(
-    what: &str,
-    e: &ai::keychain::KeychainError,
-    first_error: &mut Option<String>,
-) -> bool {
-    tracing::warn!(error = %e, "could not read the {what} from the keychain at startup");
-    first_error.get_or_insert_with(|| e.reason().to_string());
-    e.is_access_denied()
-}
-
-/// Repopulate the in-memory model map from `load`.
-///
-/// Split out so the restart path is testable without an OS keychain:
-/// the logic worth pinning is that *every* provider's choice comes back,
-/// not just the active one's. Switching provider must not lose a choice
-/// made earlier, and this map is what `rebuild_agent` reads after a
-/// switch.
-///
-/// A slot that cannot be read is skipped, except that a keychain which
-/// refused access ends the loop: the rest would be refused too, each
-/// with an unlock prompt of its own. Returns whether it did.
-pub(crate) fn restore_models(
-    state: &AppState,
-    load: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
-) -> bool {
-    for id in ai::SUPPORTED_PROVIDER_IDS {
-        match load(id) {
-            Ok(Some(model)) => state.agent_settings.set_model_for((*id).to_string(), model),
-            Ok(None) => {}
-            Err(e) => {
-                tracing::warn!(provider = %id, error = %e, "could not read the chosen model from the keychain at startup");
-                if e.is_access_denied() {
-                    return true;
-                }
-            }
-        }
-    }
-    false
 }
 
 // ---------------------------------------------------------------------------
