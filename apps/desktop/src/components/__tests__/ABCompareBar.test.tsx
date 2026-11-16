@@ -20,7 +20,6 @@ vi.mock("../../lib/tauri-bridge", async () => {
   return {
     ...actual,
     prepareCompare: (a: string, b: string) => prepareCompareMock(a, b),
-    acceptB: (b: string) => acceptBMock(b),
     endCompare: (id: number) => endCompareMock(id),
   };
 });
@@ -45,6 +44,7 @@ describe("ABCompareBar", () => {
 
     render(
       <ABCompareBar
+        acceptB={acceptBMock}
         aNodeId={A_NODE}
         bNodeId={B_NODE}
         onAudioPathChange={vi.fn()}
@@ -63,6 +63,7 @@ describe("ABCompareBar", () => {
 
     render(
       <ABCompareBar
+        acceptB={acceptBMock}
         aNodeId={A_NODE}
         bNodeId={B_NODE}
         onAudioPathChange={vi.fn()}
@@ -86,6 +87,7 @@ describe("ABCompareBar", () => {
 
     render(
       <ABCompareBar
+        acceptB={acceptBMock}
         aNodeId={A_NODE}
         bNodeId={B_NODE}
         onAudioPathChange={onAudioPathChange}
@@ -105,6 +107,7 @@ describe("ABCompareBar", () => {
 
     render(
       <ABCompareBar
+        acceptB={acceptBMock}
         aNodeId={A_NODE}
         bNodeId={B_NODE}
         onAudioPathChange={onAudioPathChange}
@@ -124,13 +127,14 @@ describe("ABCompareBar", () => {
     expect(onAudioPathChange).toHaveBeenLastCalledWith(B_PATH);
   });
 
-  it("Accept B button calls acceptB then onAcceptB", async () => {
+  it("Accept B button calls the parent's acceptB then onAcceptB", async () => {
     prepareCompareMock.mockResolvedValue({ a_path: A_PATH, b_path: B_PATH });
     acceptBMock.mockResolvedValue(B_NODE);
     const onAcceptB = vi.fn();
 
     render(
       <ABCompareBar
+        acceptB={acceptBMock}
         aNodeId={A_NODE}
         bNodeId={B_NODE}
         onAudioPathChange={vi.fn()}
@@ -152,41 +156,13 @@ describe("ABCompareBar", () => {
     expect(onAcceptB).toHaveBeenCalled();
   });
 
-  it("accepts through the parent's acceptB when it gives one, and not the bridge (#498)", async () => {
-    // The parent puts the move in line with the session's other edits;
-    // going round it would send the head move out of turn.
-    prepareCompareMock.mockResolvedValue({ a_path: A_PATH, b_path: B_PATH });
-    const acceptB = vi.fn().mockResolvedValue(B_NODE);
-    const onAcceptB = vi.fn();
-
-    render(
-      <ABCompareBar
-        aNodeId={A_NODE}
-        bNodeId={B_NODE}
-        onAudioPathChange={vi.fn()}
-        acceptB={acceptB}
-        onAcceptB={onAcceptB}
-        onClose={vi.fn()}
-      />,
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId("ab-accept-b")).not.toBeDisabled(),
-    );
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ab-accept-b"));
-    });
-
-    expect(acceptB).toHaveBeenCalledWith(B_NODE);
-    expect(acceptBMock).not.toHaveBeenCalled();
-    expect(onAcceptB).toHaveBeenCalled();
-  });
-
   it("Close button calls onClose", async () => {
     prepareCompareMock.mockResolvedValue({ a_path: A_PATH, b_path: B_PATH });
     const onClose = vi.fn();
 
     render(
       <ABCompareBar
+        acceptB={acceptBMock}
         aNodeId={A_NODE}
         bNodeId={B_NODE}
         onAudioPathChange={vi.fn()}
@@ -210,6 +186,7 @@ describe("ABCompareBar render warnings (#532)", () => {
 
   const bar = () => (
     <ABCompareBar
+      acceptB={acceptBMock}
       aNodeId={A_NODE}
       bNodeId={B_NODE}
       onAudioPathChange={vi.fn()}
@@ -265,6 +242,7 @@ describe("ABCompareBar lets go of the renders it compared (#575)", () => {
 
   const bar = (bNodeId = B_NODE, onAudioPathChange = vi.fn()) => (
     <ABCompareBar
+      acceptB={acceptBMock}
       aNodeId={A_NODE}
       bNodeId={bNodeId}
       onAudioPathChange={onAudioPathChange}

@@ -3,9 +3,14 @@ title: "API reference"
 description: "Every Tauri command and TypeScript bridge function: signature, parameters, return type and errors."
 ---
 
-> Every function `tauri-bridge.ts` exports, which is the whole IPC surface the
-> frontend can reach. Commands are invoked from the frontend via that module —
-> nothing calls `invoke` directly.
+> Every function `tauri-bridge.ts` exports, and every command of
+> `lib/sessionCommands.ts`'s `edits` and `moves`, which together are the whole
+> IPC surface the frontend can reach. Commands are invoked from the frontend
+> via those two modules — nothing calls `invoke` directly. The commands that
+> change the session (the mixer, labels, transcript cuts, loads, templates,
+> undo's `setHeadTo`, `acceptB`, `openProject`, `saveProjectAs`, `renameNode`)
+> are in `sessionCommands.ts`, which only `useSession` imports: the window
+> sends them through its `edit` and `move`.
 >
 > `apiReferenceCoverage.test.ts` fails if an export here has no entry, so this
 > page cannot quietly fall behind the bridge again.
@@ -2251,6 +2256,6 @@ interface CapabilityDescriptor {
 ---
 
 *Kept current by the staleness sweep in `CLAUDE.md`; it describes `main`, not a
-release. Coverage of `tauri-bridge.ts` is enforced by
+release. Coverage of `tauri-bridge.ts` and `lib/sessionCommands.ts` is enforced by
 `apps/desktop/src/__tests__/apiReferenceCoverage.test.ts` — a new export with no
 entry here fails CI.*

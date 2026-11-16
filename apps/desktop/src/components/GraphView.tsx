@@ -2,10 +2,10 @@
  * GraphView — react-flow visualisation of the session DAG.
  *
  * Responsibilities:
- *  - Fetch the full graph via the `get_graph` bridge call on mount and
- *    whenever the parent signals a refresh (`refreshKey`): the head
- *    moved, a project opened, the agent's turn ended, nodes were removed
- *    (#602).
+ *  - Show the session's `graph` query (`get_graph`), which is read again
+ *    whenever `useSession` says it may have changed: the head moved, a
+ *    project opened, a node was named, the agent's turn ended, nodes were
+ *    removed (#602).
  *  - Lay nodes out top→bottom with dagre, colour-code lineages, and
  *    render via @xyflow/react.
  *  - Click a node → call the parent's `onSelectNode(id)`, which previews
@@ -15,8 +15,8 @@
  *  - Right-click a node → context menu with Set-as-head / Compare /
  *    Rename / Delete. Set-as-head is handed to the parent's
  *    `onSetHead`, because moving the head is the parent's to do and to
- *    record on the undo path (#453); only Rename calls the bridge
- *    (`rename_node`). Compare is enabled when the parent provides
+ *    record on the undo path (#453); Rename is `onRenameNode`, the
+ *    parent's too. Compare is enabled when the parent provides
  *    `onCompareNodes`. Delete is disabled — the content-addressed DAG
  *    has no safe delete semantics yet.
  *
@@ -33,6 +33,7 @@
  * stays parent-only, so the path never moves a node.
  */
 
+import { useQuery } from "@tanstack/react-query";
 import {
   memo,
   useCallback,
@@ -63,13 +64,8 @@ import {
   nodeLabel,
   pathSteps,
 } from "../lib/graph";
-import {
-  getGraph as bridgeGetGraph,
-  renameNode as bridgeRenameNode,
-  type GraphNode,
-  type GraphSummary,
-  type NodeId,
-} from "../lib/tauri-bridge";
+import { READS, readGraph } from "../lib/sessionReads";
+import type { GraphNode, NodeId } from "../lib/tauri-bridge";
 import { focusOnMount } from "../lib/focusOnMount";
 
 export interface GraphViewProps {
@@ -103,18 +99,10 @@ export interface GraphViewProps {
   onSetHead: (id: NodeId) => Promise<void>;
   /**
    * Name or un-name a node. The parent puts it in line with the session's
-   * other edits (#498); without it the bridge is called directly.
+   * other edits (#498); the label is drawn when the graph has been read
+   * again, which that edit does when it settles.
    */
-  onRenameNode?: (id: NodeId, label: string) => Promise<void>;
-  /**
-   * Bumping this number forces a refetch of `get_graph`: it is the one
-   * trigger from outside. The parent bumps it whenever what the graph
-   * draws may have changed (`useSession`'s `graphVersion`, #602): a head
-   * move, a project opening, the end of the agent's turn (a label the
-   * agent set moves no head) and a compaction that removed nodes. A
-   * preview click (`onSelectNode`) is none of these and does not bump it.
-   */
-  refreshKey?: number;
+  onRenameNode: (id: NodeId, label: string) => Promise<void>;
   /**
    * The heads the user has been on, oldest first, ending at `head`: the
    * path taken. Drawn over the edges; absent or short, nothing is drawn.
@@ -228,41 +216,31 @@ export function GraphView({
   onSelectNode,
   onCompareNodes,
   onSetHead,
-  onRenameNode = bridgeRenameNode,
-  refreshKey = 0,
+  onRenameNode,
   path,
 }: GraphViewProps) {
-  const [graph, setGraph] = useState<GraphSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The session's `graph` query. What it draws is read again when the
+  // session says it may have changed (`useSession`'s table, #602): a head
+  // move, a project opening, a node named, the end of the agent's turn (a
+  // label the agent set moves no head) and a compaction that removed nodes.
+  // A preview click (`onSelectNode`) is none of these and reads nothing.
+  const { data: graph = null, error: readError } = useQuery({
+    queryKey: READS.graph,
+    queryFn: readGraph,
+  });
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? (readError ? String(readError) : null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [localRefresh, setLocalRefresh] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const refetch = useCallback(() => {
-    setLocalRefresh((n) => n + 1);
-  }, []);
-
-  // Fetch on mount + whenever `refreshKey` or `localRefresh` changes.
+  // A graph that has been read again says whatever a refused action did not.
   useEffect(() => {
-    let cancelled = false;
-    bridgeGetGraph()
-      .then((g) => {
-        if (!cancelled) {
-          setGraph(g);
-          setError(null);
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey, localRefresh]);
+    if (graph) setError(null);
+  }, [graph]);
 
-  // No read of its own after the move: it is a head move, which the parent
-  // counts in `refreshKey`, so a read here would be the second for one
+  // No read of its own after the move: it is a head move, which the session
+  // reads the graph again for, so a read here would be the second for one
   // click (#602).
   const handleSetHead = useCallback(
     async (nodeId: string) => {
@@ -279,12 +257,11 @@ export function GraphView({
     async (nodeId: string, label: string) => {
       try {
         await onRenameNode(nodeId, label);
-        refetch();
       } catch (e) {
         setError(String(e));
       }
     },
-    [onRenameNode, refetch],
+    [onRenameNode],
   );
 
   const handleContextMenu = useCallback(

@@ -468,7 +468,7 @@ pub async fn get_head_trail(state: State<'_, AppState>) -> CmdResult<session::tr
 /// Keep the path the user has taken with the project, replacing the last.
 ///
 /// Called after every head move, without waiting for the answer, and
-/// never from inside the session's line of edits (`lib/sessionQueue.ts`):
+/// never from inside the session's line of edits (`useSession`):
 /// it writes a file and fsyncs it, and an edit must not wait on that. A
 /// trail that does not belong to the open project (its head is not one of
 /// its nodes: a save sent for the project that was just left) is dropped
@@ -5829,7 +5829,7 @@ fn resolve_effective_llm(
 ///
 /// The mutex is held by `send_message` for a whole turn, which can be
 /// minutes (a plan card waits up to five), so this waits that long too. A
-/// command that is in the session's line (`sessionQueue.ts`) must not
+/// command that is in the session's line (`useSession`) must not
 /// call it: everything queued after that command would wait for the turn.
 /// [`rebuild_agent_soon`] is the one for those.
 ///

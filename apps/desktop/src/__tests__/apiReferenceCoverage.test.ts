@@ -24,6 +24,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const bridge = readFileSync(join(process.cwd(), "src", "lib", "tauri-bridge.ts"), "utf8");
+// The commands that change the session moved out of the bridge, so that only
+// `useSession` can send them (ADR 0001): its table is part of the IPC surface.
+const sessionCommands = readFileSync(join(process.cwd(), "src", "lib", "sessionCommands.ts"), "utf8");
 const doc = readFileSync(join(process.cwd(), "..", "..", "docs", "api-reference.md"), "utf8");
 
 /**
@@ -38,6 +41,13 @@ function bridgeExports(): Set<string> {
     names.add(m[1]);
   }
   for (const m of bridge.matchAll(/^export const ([A-Za-z0-9_]+)\s*=/gm)) {
+    names.add(m[1]);
+  }
+  // `edits` and `moves` in `lib/sessionCommands.ts`: one entry per command,
+  // at the object's own indent.
+  for (const m of sessionCommands
+    .slice(sessionCommands.indexOf("export const edits"))
+    .matchAll(/^  ([A-Za-z0-9]+): /gm)) {
     names.add(m[1]);
   }
   return names;
@@ -60,6 +70,7 @@ function documented(): Set<string> {
 describe("docs/api-reference.md", () => {
   it("is being read by this test at all", () => {
     expect(bridge.length, "tauri-bridge.ts read as empty").toBeGreaterThan(1000);
+    expect(sessionCommands.length, "sessionCommands.ts read as empty").toBeGreaterThan(1000);
     expect(doc.length, "api-reference.md read as empty").toBeGreaterThan(1000);
     // A regex that stopped matching would make every assertion below
     // vacuously true.

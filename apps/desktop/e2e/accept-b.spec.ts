@@ -5,7 +5,7 @@
  * list on a head move, so the lanes went on showing side A's tracks, and a
  * lane control the user held stayed laid over them. A move the session
  * makes by itself lets go of what the user holds and reads the tracks
- * again before anything is drawn (`owned.clear()`, then `refreshTracks`).
+ * again before anything is drawn (`useSession`'s `move`).
  *
  * `App.sessionMoves.test.tsx` holds the same rule in jsdom; this is the
  * real bar, the real key events and the real order of the answers, in a

@@ -2,11 +2,11 @@
  * Every way the session moves by itself releases what the user holds on a
  * lane, and reads the tracks again (#596, ADR 0001).
  *
- * The rule (`lib/ownedControls.ts`): a lane control the user has set is the
- * user's until the session confirms it, and anything that moves the session
- * without the user's own commit (undo, redo, Set as head, opening a project)
- * calls `owned.clear()` before it re-reads the tracks. `App.laneControls`
- * pins undo and opening a project. Two moves were missing from the rule:
+ * The rule (`lib/heldControls.ts`, `useSession`): a lane control the user has
+ * set is the user's until the session confirms it, and anything that moves
+ * the session without the user's own commit (undo, redo, Set as head,
+ * opening a project) is a `move`, which lets go of what is held before it
+ * re-reads the tracks. `App.laneControls` pins undo and opening a project. Two moves were missing from the rule:
  *
  * - **Accept B** of an A/B compare moved the head and did neither. Nothing
  *   else re-reads the tracks on a head move, so the lanes went on showing

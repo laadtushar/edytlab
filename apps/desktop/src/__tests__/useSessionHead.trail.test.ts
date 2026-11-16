@@ -1,13 +1,13 @@
 /**
- * useSession keeps the path with the project (#453).
+ * useSessionHead keeps the path with the project (#453).
  *
  * The path is read back as the project opens and undo uses it, so after a
  * restart undo retraces what the user did. It is saved after every move
  * the user makes, and nothing waits for the save: an edit is a turn in
- * the session's line (`lib/sessionQueue.ts`), and a turn that waited for
- * the disk would hold up every edit behind it.
+ * the session's line (`useSession`), and a turn that waited for the disk
+ * would hold up every edit behind it.
  *
- * Like `useSession.history.test.ts`, these drive the hook the way the app
+ * Like `useSessionHead.history.test.ts`, these drive the hook the way the app
  * does and assert through the peeks and `waitFor`, never on a render
  * React may not have drawn yet.
  */
@@ -19,9 +19,6 @@ import { held } from "./held";
 
 const bridge = vi.hoisted(() => ({
   nodeCreated: [] as ((nodeId: string) => void)[],
-  toolCall: [] as ((name: string, id: string) => void)[],
-  toolCallEnd: [] as ((id: string, ok: boolean) => void)[],
-  agentDone: [] as (() => void)[],
   getSessionHead: vi.fn(),
   getHeadTrail: vi.fn(),
   saveHeadTrail: vi.fn(),
@@ -40,24 +37,6 @@ vi.mock("../lib/tauri-bridge", () => ({
       bridge.nodeCreated = bridge.nodeCreated.filter((c) => c !== cb);
     });
   }),
-  onToolCall: vi.fn((cb: (name: string, id: string) => void) => {
-    bridge.toolCall.push(cb);
-    return Promise.resolve(() => {
-      bridge.toolCall = bridge.toolCall.filter((c) => c !== cb);
-    });
-  }),
-  onToolCallEnd: vi.fn((cb: (id: string, ok: boolean) => void) => {
-    bridge.toolCallEnd.push(cb);
-    return Promise.resolve(() => {
-      bridge.toolCallEnd = bridge.toolCallEnd.filter((c) => c !== cb);
-    });
-  }),
-  onAgentDone: vi.fn((cb: () => void) => {
-    bridge.agentDone.push(cb);
-    return Promise.resolve(() => {
-      bridge.agentDone = bridge.agentDone.filter((c) => c !== cb);
-    });
-  }),
 }));
 
 /** `get_graph`'s answer for a store holding `ids`. */
@@ -67,8 +46,7 @@ const graphOf = (head: string, ids: string[]) => ({
 });
 
 import type { SavedTrail } from "../lib/headTrail";
-import { useSession } from "../hooks/useSession";
-import { SessionQueryProvider } from "../lib/sessionQueries";
+import { useSessionHead } from "../hooks/useSessionHead";
 
 /** Mute, then unmute: the project ends the session on A, having been on M. */
 const mutedAndUnmuted: SavedTrail = { head: "A", trail: ["A", "M"], redo: [] };
@@ -77,7 +55,7 @@ const nothing: SavedTrail = { head: null, trail: [], redo: [] };
 
 /** Mount, and wait until the head and the saved path have both been read. */
 async function mountOnA() {
-  const hook = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
+  const hook = renderHook(() => useSessionHead());
   await waitFor(() => expect(hook.result.current.peekUndo()).not.toBeNull());
   await act(async () => {
     await Promise.allSettled(bridge.getHeadTrail.mock.results.map((r) => r.value));
@@ -87,16 +65,13 @@ async function mountOnA() {
 
 beforeEach(() => {
   bridge.nodeCreated = [];
-  bridge.toolCall = [];
-  bridge.toolCallEnd = [];
-  bridge.agentDone = [];
   bridge.getSessionHead.mockReset().mockResolvedValue("A");
   bridge.getHeadTrail.mockReset().mockResolvedValue(nothing);
   bridge.saveHeadTrail.mockReset().mockResolvedValue(undefined);
   bridge.getGraph.mockReset().mockResolvedValue(graphOf("A", ["A", "M"]));
 });
 
-describe("useSession: the path comes back after a restart", () => {
+describe("useSessionHead: the path comes back after a restart", () => {
   it("undo retraces the saved path, not the node's first parent", async () => {
     bridge.getHeadTrail.mockResolvedValue(mutedAndUnmuted);
     const { result } = await mountOnA();
@@ -151,7 +126,7 @@ describe("useSession: the path comes back after a restart", () => {
   it("an edit that lands before the saved path is read wins over it", async () => {
     const path = held<SavedTrail>();
     bridge.getHeadTrail.mockReturnValue(path.promise);
-    const { result } = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
+    const { result } = renderHook(() => useSessionHead());
     await waitFor(() => expect(result.current.peekUndo()).not.toBeNull());
 
     act(() => result.current.setHeadLocal("B"));
@@ -171,7 +146,7 @@ describe("useSession: the path comes back after a restart", () => {
   });
 });
 
-describe("useSession: opening a project", () => {
+describe("useSessionHead: opening a project", () => {
   it("resetHead takes the path saved with that project", async () => {
     const { result } = await mountOnA();
     act(() => result.current.resetHead("X", { head: "X", trail: ["W", "V"], redo: [] }));
@@ -213,7 +188,7 @@ describe("useSession: opening a project", () => {
   });
 });
 
-describe("useSession: the path is saved as the user makes it", () => {
+describe("useSessionHead: the path is saved as the user makes it", () => {
   it("an edit saves the whole path, ending at the new head", async () => {
     const { result } = await mountOnA();
     act(() => result.current.setHeadLocal("M"));
@@ -301,27 +276,20 @@ describe("useSession: the path is saved as the user makes it", () => {
   });
 });
 
-describe("useSession: nothing waits for the save", () => {
-  it("an edit in the line finishes while a save is still on its way", async () => {
+describe("useSessionHead: nothing waits for the save", () => {
+  it("adopting a head finishes while a save is still on its way", async () => {
     const stuck = held<void>();
     bridge.saveHeadTrail.mockReturnValue(stuck.promise);
     const { result } = await mountOnA();
 
-    // The first edit's save never comes back during this test.
+    // The first move's save never comes back during this test.
     act(() => result.current.setHeadLocal("B"));
     await waitFor(() => expect(bridge.saveHeadTrail).toHaveBeenCalledTimes(1));
 
-    // The next turn in the line starts, adopts its head and ends. A line
-    // that waited for the save would leave this pending for good.
-    let done = false;
-    await act(async () => {
-      await result.current.inOrder(async () => {
-        result.current.setHeadLocal("C");
-      });
-      done = true;
-    });
+    // The next head is adopted at once. A head that waited for the save
+    // would leave undo pointed at the wrong node.
+    act(() => result.current.setHeadLocal("C"));
 
-    expect(done).toBe(true);
     expect(result.current.peekUndo()).toEqual({ from: "C", to: "B" });
     await stuck.resolve(undefined);
   });
@@ -333,16 +301,10 @@ describe("useSession: nothing waits for the save", () => {
     act(() => result.current.setHeadLocal("B"));
     await waitFor(() => expect(bridge.saveHeadTrail).toHaveBeenCalledTimes(1));
 
-    const moved = await act(async () =>
-      result.current.inOrder(async () => {
-        const step = result.current.peekUndo();
-        if (!step?.to) return false;
-        result.current.stepBack(step.from, step.to);
-        return true;
-      }),
-    );
+    const step = result.current.peekUndo();
+    expect(step?.to).toBe("A");
+    act(() => result.current.stepBack(step!.from, step!.to!));
 
-    expect(moved).toBe(true);
     expect(result.current.peekRedo()).toEqual({ from: "A", to: "B" });
     await stuck.resolve(undefined);
   });
@@ -372,7 +334,7 @@ describe("useSession: nothing waits for the save", () => {
   });
 });
 
-describe("useSession: a compaction removes nodes the path names (#595)", () => {
+describe("useSessionHead: a compaction removes nodes the path names (#595)", () => {
   /** Mute, then unmute: the head is A again, with [A, M] behind it. */
   async function mutedThenUnmuted() {
     const hook = await mountOnA();
@@ -386,13 +348,6 @@ describe("useSession: a compaction removes nodes the path names (#595)", () => {
       }),
     );
     return hook;
-  }
-
-  /** The agent's `compact_session` call starts and ends, as the events say. */
-  async function compactionEnds(ok: boolean, name = "compact_session") {
-    await waitFor(() => expect(bridge.toolCallEnd).toHaveLength(1));
-    act(() => bridge.toolCall.forEach((cb) => cb(name, "toolu_1")));
-    act(() => bridge.toolCallEnd.forEach((cb) => cb("toolu_1", ok)));
   }
 
   it("forgetRemoved drops what the store no longer has, saves, and says what it dropped", async () => {
@@ -441,185 +396,4 @@ describe("useSession: a compaction removes nodes the path names (#595)", () => {
     expect(dropped).toEqual([]);
     expect(result.current.peekUndo()).toEqual({ from: "A", to: "M" });
   });
-
-  it("forgets the removed steps when the agent's compaction ends", async () => {
-    const { result } = await mutedThenUnmuted();
-    bridge.getGraph.mockResolvedValue(graphOf("A", ["A"]));
-
-    await compactionEnds(true);
-
-    await waitFor(() => expect(result.current.peekUndo()).toEqual({ from: "A", to: null }));
-    await waitFor(() =>
-      expect(bridge.saveHeadTrail).toHaveBeenLastCalledWith({ head: "A", trail: [], redo: [] }),
-    );
-  });
-
-  it("asks nothing for another tool, or a compaction that failed", async () => {
-    await mutedThenUnmuted();
-
-    await compactionEnds(true, "storage_report");
-    await compactionEnds(false);
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(bridge.getGraph).not.toHaveBeenCalled();
-  });
-});
-
-describe("useSession: when the history graph has to be read again (#602)", () => {
-  /**
-   * Mount on A, and wait for the listeners and for the head that arrived at
-   * mount to have been drawn: that move counts too, and `graphVersion` is
-   * what React last rendered, which a late scheduler leaves behind the ref
-   * the peeks read.
-   */
-  async function mounted() {
-    const hook = await mountOnA();
-    await waitFor(() => expect(bridge.toolCallEnd).toHaveLength(1));
-    await waitFor(() => expect(hook.result.current.graphVersion).toBeGreaterThan(0));
-    return hook;
-  }
-  const version = (hook: { result: { current: { graphVersion: number } } }) =>
-    hook.result.current.graphVersion;
-
-  /** The agent's call to `name` starts and ends, as the events say. */
-  async function toolRuns(name: string, ok = true) {
-    act(() => bridge.toolCall.forEach((cb) => cb(name, "toolu_1")));
-    act(() => bridge.toolCallEnd.forEach((cb) => cb("toolu_1", ok)));
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-
-  it("moves on when the head moves: an edit, an undo, a redo", async () => {
-    const hook = await mounted();
-
-    let seen = version(hook);
-    act(() => hook.result.current.setHeadLocal("B"));
-    expect(version(hook)).toBeGreaterThan(seen);
-
-    seen = version(hook);
-    act(() => hook.result.current.stepBack("B", "A"));
-    expect(version(hook)).toBeGreaterThan(seen);
-
-    seen = version(hook);
-    act(() => hook.result.current.stepForward("A", "B"));
-    expect(version(hook)).toBeGreaterThan(seen);
-  });
-
-  it("moves on once for a head move, however many things hear of it", async () => {
-    const hook = await mounted();
-    const seen = version(hook);
-
-    // The agent's node-created and the app's own adoption of the same head.
-    act(() => {
-      bridge.nodeCreated.forEach((cb) => cb("B"));
-      hook.result.current.setHeadLocal("B");
-    });
-
-    expect(version(hook)).toBe(seen + 1);
-  });
-
-  it("stays when the head does not move", async () => {
-    const hook = await mounted();
-    const seen = version(hook);
-
-    act(() => hook.result.current.setHeadLocal("A"));
-    act(() => bridge.nodeCreated.forEach((cb) => cb("A")));
-
-    expect(version(hook)).toBe(seen);
-  });
-
-  it("moves on when a project is opened, even on the head the last one had", async () => {
-    const hook = await mounted();
-    const seen = version(hook);
-
-    act(() => hook.result.current.resetHead("A", null));
-
-    expect(version(hook)).toBeGreaterThan(seen);
-  });
-
-  it("moves on when the agent's turn ends: it may have named a node", async () => {
-    const hook = await mounted();
-    await waitFor(() => expect(bridge.agentDone).toHaveLength(1));
-    const seen = version(hook);
-
-    act(() => bridge.agentDone.forEach((cb) => cb()));
-
-    expect(version(hook)).toBe(seen + 1);
-  });
-
-  it("moves on when the agent's compaction ends, though the path names no node", async () => {
-    const hook = await mounted();
-    const seen = version(hook);
-    bridge.getGraph.mockClear();
-
-    await toolRuns("compact_session");
-
-    expect(version(hook)).toBe(seen + 1);
-    // The path was empty: nothing to ask the store about.
-    expect(bridge.getGraph).not.toHaveBeenCalled();
-  });
-
-  it("moves on for a compaction even when the store cannot be read", async () => {
-    const hook = await mutedThenUnmuted();
-    const seen = version(hook);
-    bridge.getGraph.mockRejectedValue("no session loaded; call open_project first");
-
-    await toolRuns("compact_session");
-
-    await waitFor(() => expect(version(hook)).toBe(seen + 1));
-  });
-
-  it("moves on once for a compaction that drops steps from the path", async () => {
-    const hook = await mutedThenUnmuted();
-    const seen = version(hook);
-    bridge.getGraph.mockResolvedValue(graphOf("A", ["A"]));
-
-    await toolRuns("compact_session");
-    await waitFor(() => expect(hook.result.current.peekUndo()).toEqual({ from: "A", to: null }));
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(version(hook)).toBe(seen + 1);
-  });
-
-  it("moves on when forgetRemoved runs on its own: an undo the store refused", async () => {
-    const hook = await mutedThenUnmuted();
-    const seen = version(hook);
-    bridge.getGraph.mockResolvedValue(graphOf("A", ["A"]));
-
-    await act(async () => {
-      await hook.result.current.forgetRemoved();
-    });
-
-    expect(version(hook)).toBe(seen + 1);
-  });
-
-  it("stays for another tool, or a compaction that failed", async () => {
-    const hook = await mounted();
-    const seen = version(hook);
-
-    await toolRuns("storage_report");
-    await toolRuns("compact_session", false);
-
-    expect(version(hook)).toBe(seen);
-  });
-
-  /** Mute, then unmute: the head is A again, with [A, M] behind it. */
-  async function mutedThenUnmuted() {
-    const hook = await mounted();
-    act(() => hook.result.current.setHeadLocal("M"));
-    act(() => hook.result.current.setHeadLocal("A"));
-    await waitFor(() =>
-      expect(bridge.saveHeadTrail).toHaveBeenLastCalledWith({
-        head: "A",
-        trail: ["A", "M"],
-        redo: [],
-      }),
-    );
-    return hook;
-  }
 });

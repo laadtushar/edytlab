@@ -1,5 +1,5 @@
 /**
- * useSession keeps the path the user took beside the head (#398).
+ * useSessionHead keeps the path the user took beside the head (#398).
  *
  * Undo and redo ask `peekUndo` / `peekRedo`, which read a ref the reducer
  * writes synchronously. These tests drive the hook the way the app does
@@ -22,13 +22,12 @@ vi.mock("../lib/tauri-bridge", async () => ({
   getHeadTrail: bridge.getHeadTrail,
 }));
 
-import { useSession } from "../hooks/useSession";
-import { SessionQueryProvider } from "../lib/sessionQueries";
+import { useSessionHead } from "../hooks/useSessionHead";
 import { held } from "./held";
 
 /** Mount the hook on a project whose head is "A", once that head has arrived. */
 async function mountOnA() {
-  const hook = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
+  const hook = renderHook(() => useSessionHead());
   await waitFor(() => expect(hook.result.current.peekUndo()).not.toBeNull());
   return hook;
 }
@@ -39,7 +38,7 @@ beforeEach(() => {
   bridge.getHeadTrail.mockReset().mockResolvedValue({ head: null, trail: [], redo: [] });
 });
 
-describe("useSession: the path taken", () => {
+describe("useSessionHead: the path taken", () => {
   it("adopts a head read when only the saved trail was restored while it waited", async () => {
     const saved = held<{ head: string; trail: string[]; redo: string[] }>();
     bridge.getHeadTrail.mockReturnValueOnce(saved.promise);
@@ -112,7 +111,7 @@ describe("useSession: the path taken", () => {
 
   it("has nothing to undo or redo with no head", async () => {
     bridge.getSessionHead.mockRejectedValue("no session loaded");
-    const { result } = renderHook(() => useSession(), { wrapper: SessionQueryProvider });
+    const { result } = renderHook(() => useSessionHead());
     // Let the refused read land, then ask.
     await act(async () => {
       await Promise.allSettled(bridge.getSessionHead.mock.results.map((r) => r.value));

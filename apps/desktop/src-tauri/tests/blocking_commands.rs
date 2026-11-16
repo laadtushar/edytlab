@@ -163,7 +163,7 @@ fn commands_waiting_on_a_lock_leave_the_worker_free() {
 /// answer, which can be five minutes. Opening a project rebuilds the agent
 /// so it works on the new store, and the rebuild takes that same mutex. If
 /// `open_project` waited for it, it would answer only when the turn ended,
-/// and since the app sends it in the session's line (`sessionQueue.ts`),
+/// and since the app sends it in the session's line (`useSession`),
 /// every edit made after it (a fader, a mute, undo) would wait with it, for
 /// as long as the turn.
 ///

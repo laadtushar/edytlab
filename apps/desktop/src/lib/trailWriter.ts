@@ -5,7 +5,7 @@
  * Every move of the head changes the path, and the path is kept with the
  * project (`save_head_trail`). The save writes a file and syncs it, and
  * the move that caused it is a turn in the session's line of edits
- * (`lib/sessionQueue.ts`): if the turn waited for the save, every edit
+ * (`useSession`): if the turn waited for the save, every edit
  * behind it would wait for the disk too. So the save is not part of any
  * turn. It is handed here and the caller goes on.
  *
