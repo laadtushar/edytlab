@@ -45,6 +45,14 @@ other tracks under sync-lock, labels, words. A tool states one (`TimeEdit`) and 
 
 **Live store.** The one `Store` per project folder, found by the folder's identity (#566).
 
+**MCP server mode.** `edytlab-mcp`, one process serving one project's tools over stdio to an outside
+agent (Claude Desktop, Claude Code, Cursor). Not the MCP client of `crates/mcp`, which lets edytlab's
+own agent call other servers (ADR 0010, accepted; not built).
+
+**Tool tier.** Which tools an MCP server mode process serves: `read`, `edit` or `full`, chosen at
+launch (`edit` by default), with a tool in `full` until it is classified (ADR 0010, accepted;
+not built).
+
 **Audio store.** The project's own audio files: the three folders whose files are named by their
 content (`derived/` and `clipboard/` under `.audiograph/`, `generated/` at the project's root), the
 names (an `AudioName`, which only the store makes) and the one way a file is put under a name, whole

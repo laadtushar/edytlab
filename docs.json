@@ -59,7 +59,8 @@
           "docs/adr/0006-the-open-project",
           "docs/adr/0007-a-turn",
           "docs/adr/0008-project-audio-files",
-          "docs/adr/0009-settings-and-secrets-storage"
+          "docs/adr/0009-settings-and-secrets-storage",
+          "docs/adr/0010-mcp-server-mode"
         ]
       }
     ]
