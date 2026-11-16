@@ -8,7 +8,7 @@
  *     swaps the visible label / placeholder so the user knows which key
  *     they're entering.
  *  3. "Test" routes through `testApiKeyFor(provider, key, …)`.
- *  4. "Save" routes through `setApiKeyFor(provider, key)` and the input
+ *  4. "Save" routes through `saveProviderSettings({ provider, key })` and the input
  *     is wiped on success.
  *  5. The model combo populates suggestions from the catalogue mock
  *     and accepts free-form input not in the list.
@@ -20,12 +20,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const setApiKeyForMock = vi.fn();
+const saveProviderSettingsMock = vi.fn();
 const testApiKeyForMock = vi.fn();
 const setActiveProviderMock = vi.fn();
 const setActiveModelMock = vi.fn();
 const getActiveModelMock = vi.fn();
-const clearApiKeyMock = vi.fn();
 const listModelsForMock = vi.fn();
 
 vi.mock("../../lib/tauri-bridge", async () => {
@@ -34,8 +33,7 @@ vi.mock("../../lib/tauri-bridge", async () => {
   >("../../lib/tauri-bridge");
   return {
     ...actual,
-    setApiKeyFor: (provider: string, key: string) =>
-      setApiKeyForMock(provider, key),
+    saveProviderSettings: (change: unknown) => saveProviderSettingsMock(change),
     testApiKeyFor: (
       provider: string,
       key: string,
@@ -48,7 +46,6 @@ vi.mock("../../lib/tauri-bridge", async () => {
     getActiveModel: (provider: string) => getActiveModelMock(provider),
     listModelsFor: (provider: string, apiKey?: string) =>
       listModelsForMock(provider, apiKey),
-    clearApiKey: () => clearApiKeyMock(),
   };
 });
 
@@ -95,14 +92,13 @@ const OPENAI_CATALOGUE = live([
 ]);
 
 beforeEach(() => {
-  setApiKeyForMock.mockReset();
+  saveProviderSettingsMock.mockReset();
   testApiKeyForMock.mockReset();
   setActiveProviderMock.mockReset();
   setActiveModelMock.mockReset();
   getActiveModelMock.mockReset();
-  clearApiKeyMock.mockReset();
   listModelsForMock.mockReset();
-  setApiKeyForMock.mockResolvedValue(undefined);
+  saveProviderSettingsMock.mockResolvedValue(undefined);
   testApiKeyForMock.mockResolvedValue({
     model: "claude-sonnet-5-5",
     toolsOk: true,
@@ -112,7 +108,6 @@ beforeEach(() => {
   setActiveProviderMock.mockResolvedValue(undefined);
   setActiveModelMock.mockResolvedValue(undefined);
   getActiveModelMock.mockResolvedValue("");
-  clearApiKeyMock.mockResolvedValue(undefined);
   // Default: catalogue resolves to a live Anthropic list. Tests
   // override per-provider as needed.
   listModelsForMock.mockImplementation(async (p: string) => {
@@ -202,7 +197,9 @@ describe("Settings provider picker", () => {
     fireEvent.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() =>
-      expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-test"),
+      expect(saveProviderSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "anthropic", key: "sk-ant-test" }),
+      ),
     );
     // The wipe is drawn after the save resolves, not with it.
     await waitFor(() => {

@@ -52,10 +52,10 @@ export function keychainNotice(
 }
 
 /**
- * The notice for a Save, given where each of its writes landed (what
- * `setBaseUrlFor`, `setEffortFor`, `setApiKeyFor`, `setActiveProvider` and
- * `setActiveModel` resolve with), or null when every one of them went to
- * the durable store (#497).
+ * The notice for a save, given where its writes landed (what
+ * `saveProviderSettings` resolves with, once for a whole Save; the card's own
+ * model and level picks are saves of their own), or null when every one of
+ * them went to the durable store (#497).
  *
  * The launch banner's words, because the cause is the same: no Secret
  * Service answering. The banner covers a machine that has none at launch;

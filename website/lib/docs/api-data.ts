@@ -465,14 +465,9 @@ export const apiAreas: ApiArea[] = [
         title: "API Keys",
         items: [
           {
-            name: "setApiKey(key)",
+            name: "saveProviderSettings(provider, key?, model?, baseUrl?, effort?)",
             returns: "KeychainPersistence",
-            desc: "Store the API key for the active provider in the OS keychain. Resolves with where it landed, as setApiKeyFor does.",
-          },
-          {
-            name: "setApiKeyFor(provider, key)",
-            returns: "KeychainPersistence",
-            desc: "Store the API key for a specific provider and make it the active one. Resolves with where the save landed: persistent is false when it fell back to the kernel keyring because no Secret Service could be reached, so it lasts only until restart. The key is saved and used either way. The other setters that write to the keychain answer the same way.",
+            desc: "Save what the agent is built from for one provider, make it the active provider and rebuild the agent once: Settings' Save is this one call. A field left out is left as it is; an empty baseUrl or effort restores the provider's own address or the model's default. Everything is checked before anything is written. The key (the only secret) goes to the OS keychain, the rest to the settings file, in the order the rebuild needs. Resolves once with where the save landed: persistent is false when a write fell back to the kernel keyring because no Secret Service could be reached, so it lasts only until restart. The values are saved and used either way. chatgpt can be saved only while the ChatGPT sign-in is signed in, and never with a key or an address. A save made during a turn is applied after it.",
           },
           {
             name: "hasApiKey()",
@@ -487,17 +482,12 @@ export const apiAreas: ApiArea[] = [
           {
             name: "getKeychainPersistence()",
             returns: "KeychainPersistence",
-            desc: "Whether a key saved now survives a reboot (settings are in a file and always do). persistent is false on Linux with no Secret Service running, where keys are kept in the kernel keyring until restart; reason says why. The setters answer the same shape for the save they just made.",
+            desc: "Whether a key saved now survives a reboot (settings are in a file and always do). persistent is false on Linux with no Secret Service running, where keys are kept in the kernel keyring until restart; reason says why. saveProviderSettings answers the same shape for the save it just made.",
           },
           {
             name: "clearApiKeyFor(provider)",
             returns: "void",
-            desc: "Remove a specific provider's key from the keychain.",
-          },
-          {
-            name: "clearApiKey()",
-            returns: "void",
-            desc: "Remove the API key for the active provider from the keychain.",
+            desc: "Remove a specific provider's key from the keychain. When it is the active provider the agent is torn down, as if the app had just launched with no key for it.",
           },
           {
             name: "testApiKeyFor(provider, key, baseUrl?, model?)",
@@ -526,11 +516,6 @@ export const apiAreas: ApiArea[] = [
             desc: "Returns the currently active provider ID.",
           },
           {
-            name: "setActiveProvider(provider)",
-            returns: "KeychainPersistence",
-            desc: "Switch the active provider. Rebuilds the agent. Resolves with where the choice was saved, as setApiKeyFor does. chatgpt can be made active only while the ChatGPT sign-in is signed in.",
-          },
-          {
             name: "listModelsFor(provider, apiKey?)",
             returns: "ModelCatalogue",
             desc: "Live list; Anthropic falls back to a built-in list without a key or when the fetch fails. Cached 10 minutes. Each model carries reasoning_levels, which only chatgpt fills in: the levels the signed-in account lists for it. For chatgpt it is the account's own list, read with its session, and rejects when not signed in.",
@@ -541,14 +526,9 @@ export const apiAreas: ApiArea[] = [
             desc: "Returns the model ID selected for the provider.",
           },
           {
-            name: "setActiveModel(provider, model)",
-            returns: "KeychainPersistence",
-            desc: "Set the active model for a provider. Resolves with where the choice was saved, as setApiKeyFor does.",
-          },
-          {
             name: "getBaseUrlFor(provider)",
             returns: "string | null",
-            desc: "The base URL the provider has been pointed at, or null when it is on its default. Rejects when the keychain could not be read, which is not the same as null, and rejects without reading after a startup the keychain refused.",
+            desc: "The base URL the provider has been pointed at, or null when it is on its default. Rejects when the keychain could not be read, which is not the same as null, and rejects without reading after a startup the keychain refused. Set it with saveProviderSettings; an empty string restores the default.",
           },
           {
             name: "defaultBaseUrlFor(provider)",
@@ -556,19 +536,9 @@ export const apiAreas: ApiArea[] = [
             desc: "The URL the provider ships with. Shown as the field's placeholder.",
           },
           {
-            name: "setBaseUrlFor(provider, baseUrl)",
-            returns: "KeychainPersistence",
-            desc: "Point a provider at a proxy, a gateway or a local server. An empty string restores the default. Resolves with where the URL was saved, as setApiKeyFor does; clearing writes nothing and is always persistent.",
-          },
-          {
             name: "getEffortFor(provider)",
             returns: "ReasoningEffort | null",
-            desc: "The reasoning effort saved for the provider, or null when the model's own default applies. Only Anthropic and the ChatGPT plan have the setting; any other provider answers null. Rejects when the keychain could not be read, as getBaseUrlFor does.",
-          },
-          {
-            name: "setEffortFor(provider, effort)",
-            returns: "KeychainPersistence",
-            desc: "Set how hard the model works on a response: low, medium, high, xhigh or max, sent as output_config.effort. null restores the model's default. Anthropic and the ChatGPT plan only; any other provider is refused. For chatgpt the level is sent as reasoning.effort, and only when the model's list names it. Rebuilds the agent, and resolves with where the level was saved, as setBaseUrlFor does.",
+            desc: "The reasoning effort saved for the provider, or null when the model's own default applies. Only Anthropic and the ChatGPT plan have the setting; any other provider answers null. Rejects when the keychain could not be read, as getBaseUrlFor does. Set it with saveProviderSettings: low, medium, high, xhigh or max, sent as output_config.effort (for chatgpt as reasoning.effort, and only when the model's list names it); an empty string restores the model's default. Any other provider is refused.",
           },
         ],
       },

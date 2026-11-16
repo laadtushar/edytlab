@@ -13,7 +13,7 @@
  *    `keyConfigured` back to `false`.
  *
  * Updated for the multi-provider abstraction: Save/Test now route
- * through `setApiKeyFor` / `testApiKeyFor` (provider-explicit), with
+ * through `saveProviderSettings` / `testApiKeyFor` (provider-explicit), with
  * Anthropic as the default selection.
  */
 
@@ -21,9 +21,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const setApiKeyForMock = vi.fn();
+const saveProviderSettingsMock = vi.fn();
 const testApiKeyForMock = vi.fn();
-const clearApiKeyMock = vi.fn();
 const clearApiKeyForMock = vi.fn();
 const setActiveProviderMock = vi.fn();
 const hasApiKeyForMock = vi.fn();
@@ -39,16 +38,13 @@ const getActiveModelMock = vi.fn();
 const getActiveProviderMock = vi.fn();
 const getBaseUrlForMock = vi.fn();
 const defaultBaseUrlForMock = vi.fn();
-const setBaseUrlForMock = vi.fn();
 const getEffortForMock = vi.fn();
-const setEffortForMock = vi.fn();
 // The panel's foot line (#383). No runtime in this build is the answer a
 // build from source gives (the installers carry one since v0.7.0).
 const mlRuntimeStatusMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
-  setApiKeyFor: (provider: string, key: string) =>
-    setApiKeyForMock(provider, key),
+  saveProviderSettings: (change: unknown) => saveProviderSettingsMock(change),
   testApiKeyFor: (
     provider: string,
     key: string,
@@ -63,15 +59,10 @@ vi.mock("../lib/tauri-bridge", () => ({
   getActiveProvider: () => getActiveProviderMock(),
   listModelsFor: (provider: string, apiKey?: string) =>
     listModelsForMock(provider, apiKey),
-  clearApiKey: () => clearApiKeyMock(),
   clearApiKeyFor: (provider: string) => clearApiKeyForMock(provider),
   getBaseUrlFor: (provider: string) => getBaseUrlForMock(provider),
   defaultBaseUrlFor: (provider: string) => defaultBaseUrlForMock(provider),
-  setBaseUrlFor: (provider: string, baseUrl: string) =>
-    setBaseUrlForMock(provider, baseUrl),
   getEffortFor: (provider: string) => getEffortForMock(provider),
-  setEffortFor: (provider: string, effort: string | null) =>
-    setEffortForMock(provider, effort),
   mlRuntimeStatus: () => mlRuntimeStatusMock(),
   // The Send crash reports row (#958), off in a build that cannot send.
   getCrashReports: () => Promise.resolve({ enabled: false, available: false }),
@@ -95,13 +86,24 @@ import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
 import { keychainNotice } from "../lib/keychainNotice";
 import { held } from "./held";
 
+/** What the last Save sent: the one call every field goes in (ADR 0005). */
+function lastSave(): {
+  provider: string;
+  key?: string;
+  model?: string;
+  baseUrl?: string;
+  effort?: string;
+} {
+  const calls = saveProviderSettingsMock.mock.calls;
+  return calls[calls.length - 1][0];
+}
+
 describe("Settings", () => {
   beforeEach(() => {
-    setApiKeyForMock.mockReset().mockResolvedValue(undefined);
+    saveProviderSettingsMock.mockReset().mockResolvedValue(undefined);
     testApiKeyForMock
       .mockReset()
       .mockResolvedValue({ model: "claude-sonnet-5-5", toolsOk: true, detail: null });
-    clearApiKeyMock.mockReset().mockResolvedValue(undefined);
     clearApiKeyForMock.mockReset().mockResolvedValue(undefined);
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
     hasApiKeyForMock.mockReset().mockResolvedValue(true);
@@ -115,9 +117,7 @@ describe("Settings", () => {
     defaultBaseUrlForMock
       .mockReset()
       .mockResolvedValue("https://api.anthropic.com");
-    setBaseUrlForMock.mockReset().mockResolvedValue(undefined);
     getEffortForMock.mockReset().mockResolvedValue(null);
-    setEffortForMock.mockReset().mockResolvedValue(undefined);
     mlRuntimeStatusMock
       .mockReset()
       .mockResolvedValue({ state: "missing", searched: [] });
@@ -153,7 +153,7 @@ describe("Settings", () => {
     expect(screen.queryByTestId("settings-storage-warning")).toBeNull();
   });
 
-  it("saves a base URL, and saves it before the key so the rebuilt agent uses it", async () => {
+  it("saves a base URL with the key in one call, so the rebuilt agent uses it", async () => {
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={vi.fn()} />);
 
@@ -164,15 +164,14 @@ describe("Settings", () => {
     await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
     await user.click(screen.getByTestId("settings-save-button"));
 
-    expect(setBaseUrlForMock).toHaveBeenCalledWith(
-      "anthropic",
-      "http://localhost:1234/v1",
-    );
-    // `setApiKeyFor` rebuilds the agent and the rebuild reads the stored
-    // URL, so the other order would leave the agent on the old endpoint.
-    expect(setBaseUrlForMock.mock.invocationCallOrder[0]).toBeLessThan(
-      setApiKeyForMock.mock.invocationCallOrder[0],
-    );
+    // One call: the backend writes the URL before the key and rebuilds the
+    // agent once, so the agent is never built against the old endpoint.
+    expect(saveProviderSettingsMock).toHaveBeenCalledTimes(1);
+    expect(lastSave()).toMatchObject({
+      provider: "anthropic",
+      key: "sk-ant-good",
+      baseUrl: "http://localhost:1234/v1",
+    });
   });
 
   it("shows the provider's own endpoint as the placeholder", async () => {
@@ -193,7 +192,7 @@ describe("Settings", () => {
     await waitFor(() => expect(input).toHaveValue("https://gateway.internal/v1"));
   });
 
-  it("calls setApiKeyFor with the active provider and onSaved when Save is clicked with a non-empty key", async () => {
+  it("saves the key for the active provider and calls onSaved when Save is clicked with a non-empty key", async () => {
     const onSaved = vi.fn();
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={onSaved} />);
@@ -201,7 +200,7 @@ describe("Settings", () => {
     await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
     await user.click(screen.getByTestId("settings-save-button"));
 
-    expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
+    expect(lastSave()).toMatchObject({ provider: "anthropic", key: "sk-ant-good" });
     // Input should be wiped after a successful save so the key does not
     // linger in component state. The save is awaited inside the click
     // handler, so the wipe is drawn some time after the click resolves.
@@ -314,15 +313,13 @@ describe("Settings", () => {
     );
     await user.click(screen.getByTestId("settings-clear-button"));
 
-    // Clears the provider on screen, by name. It used to call the
-    // argument-less `clearApiKey`, which resolves the slot from the
-    // *backend's* active provider — so deleting a credential depended
-    // on the UI and the backend agreeing which provider is current,
-    // and #225 §3 is open because they have two sources of truth for
-    // that.
+    // Clears the provider on screen, by name. It used to call an
+    // argument-less clear, which resolved the slot from the *backend's*
+    // active provider — so deleting a credential depended on the UI and the
+    // backend agreeing which provider is current, and #225 §3 is open
+    // because they have two sources of truth for that.
     expect(clearApiKeyForMock).toHaveBeenCalledTimes(1);
     expect(clearApiKeyForMock).toHaveBeenCalledWith("anthropic");
-    expect(clearApiKeyMock).not.toHaveBeenCalled();
     expect(onCleared).toHaveBeenCalledTimes(1);
   });
 
@@ -629,7 +626,7 @@ describe("Settings", () => {
     expect(getEffortForMock).toHaveBeenCalledWith("anthropic");
   });
 
-  it("saves the chosen level with the other settings, before the key so the rebuilt agent uses it", async () => {
+  it("saves the chosen level with the other settings, in the one call", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<Settings mode="blocking" onSaved={onSaved} />);
@@ -642,10 +639,12 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setEffortForMock).toHaveBeenCalledWith("anthropic", "high");
-    expect(setEffortForMock.mock.invocationCallOrder[0]).toBeLessThan(
-      setApiKeyForMock.mock.invocationCallOrder[0],
-    );
+    expect(saveProviderSettingsMock).toHaveBeenCalledTimes(1);
+    expect(lastSave()).toMatchObject({
+      provider: "anthropic",
+      key: "sk-ant-good",
+      effort: "high",
+    });
   });
 
   it("clears a saved level when Default is picked", async () => {
@@ -663,8 +662,8 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    // null is what the backend reads as "delete the slot".
-    expect(setEffortForMock).toHaveBeenCalledWith("anthropic", null);
+    // "" is what the backend reads as "delete the slot".
+    expect(lastSave()).toMatchObject({ provider: "anthropic", effort: "" });
   });
 
   it("does not touch the effort setting when saving another provider", async () => {
@@ -678,7 +677,7 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setEffortForMock).not.toHaveBeenCalled();
+    expect(lastSave().effort).toBeUndefined();
   });
 
   it("still opens, on Default, when the stored level cannot be read", async () => {
@@ -710,9 +709,9 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
-    expect(setBaseUrlForMock).not.toHaveBeenCalled();
-    expect(setEffortForMock).not.toHaveBeenCalled();
+    expect(lastSave()).toMatchObject({ provider: "anthropic", key: "sk-ant-good" });
+    expect(lastSave().baseUrl).toBeUndefined();
+    expect(lastSave().effort).toBeUndefined();
   });
 
   /**
@@ -733,8 +732,8 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setBaseUrlForMock).not.toHaveBeenCalled();
-    expect(setEffortForMock).not.toHaveBeenCalled();
+    expect(lastSave().baseUrl).toBeUndefined();
+    expect(lastSave().effort).toBeUndefined();
     await url.resolve("https://gateway.internal/v1");
     await level.resolve("high");
   });
@@ -788,11 +787,11 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setBaseUrlForMock).toHaveBeenCalledWith(
-      "anthropic",
-      "http://localhost:1234/v1",
-    );
-    expect(setEffortForMock).toHaveBeenCalledWith("anthropic", "low");
+    expect(lastSave()).toMatchObject({
+      provider: "anthropic",
+      baseUrl: "http://localhost:1234/v1",
+      effort: "low",
+    });
   });
 
   /** A read that worked and found nothing is "no override": clearing it is a write. */
@@ -809,7 +808,7 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setBaseUrlForMock).toHaveBeenCalledWith("anthropic", "");
+    expect(lastSave()).toMatchObject({ provider: "anthropic", baseUrl: "" });
   });
 
   /** Another provider's URL must not be saved under this one while its own is being read. */
@@ -831,11 +830,11 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setBaseUrlForMock).not.toHaveBeenCalled();
+    expect(lastSave().baseUrl).toBeUndefined();
   });
 
   it("reports a failure to save the level instead of swallowing it", async () => {
-    setEffortForMock.mockRejectedValue("unknown reasoning effort `x`");
+    saveProviderSettingsMock.mockRejectedValue("unknown reasoning effort `x`");
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(<Settings mode="blocking" onSaved={onSaved} />);
@@ -873,8 +872,8 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
-    expect(setActiveModelMock).not.toHaveBeenCalled();
+    expect(lastSave()).toMatchObject({ provider: "anthropic", key: "sk-ant-good" });
+    expect(lastSave().model).toBeUndefined();
   });
 
   /** The same hole without a failure: Save before the read has answered. */
@@ -890,7 +889,7 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setActiveModelMock).not.toHaveBeenCalled();
+    expect(lastSave().model).toBeUndefined();
     await read.resolve("claude-opus-5");
   });
 
@@ -935,7 +934,7 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setActiveModelMock).toHaveBeenCalledWith("anthropic", "remembered-here");
+    expect(lastSave()).toMatchObject({ provider: "anthropic", model: "remembered-here" });
   });
 
   /**
@@ -952,12 +951,11 @@ describe("Settings", () => {
     await user.clear(screen.getByTestId("settings-model-input"));
     await user.type(screen.getByTestId("settings-model-input"), "my-model");
     expect(screen.queryByTestId("settings-model-unread")).toBeNull();
-    setActiveModelMock.mockClear();
     await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setActiveModelMock).toHaveBeenCalledWith("anthropic", "my-model");
+    expect(lastSave()).toMatchObject({ provider: "anthropic", model: "my-model" });
   });
 
   /** Another provider's model is not this one's, and neither is its read. */
@@ -979,12 +977,12 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(setActiveModelMock).not.toHaveBeenCalled();
+    expect(lastSave().model).toBeUndefined();
   });
 
   // ---- Where a save landed (#497) ---------------------------------------
   //
-  // Each command that writes to the keychain answers where its value went.
+  // The save answers, once, where its values went.
   // A save that fell back to the kernel keyring (the Secret Service went
   // away after launch) lasts until the next reboot, and the form says so
   // where the person pressed Save, in the words of the launch banner.
@@ -1001,9 +999,7 @@ describe("Settings", () => {
   }
 
   it("shows nothing new after a save that went to the durable store", async () => {
-    setBaseUrlForMock.mockResolvedValue(DURABLE);
-    setApiKeyForMock.mockResolvedValue(DURABLE);
-    setActiveModelMock.mockResolvedValue(DURABLE);
+    saveProviderSettingsMock.mockResolvedValue(DURABLE);
     const onSaved = vi.fn();
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={onSaved} />);
@@ -1018,7 +1014,7 @@ describe("Settings", () => {
   });
 
   it("says so after a save that fell back, and waits for Continue", async () => {
-    setApiKeyForMock.mockResolvedValue(FELL_BACK);
+    saveProviderSettingsMock.mockResolvedValue(FELL_BACK);
     const onSaved = vi.fn();
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={onSaved} />);
@@ -1037,41 +1033,39 @@ describe("Settings", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
-  /** Any field counts, not only the key. */
-  it("says so when only the base URL, the level or the model fell back", async () => {
+  /**
+   * One call, one answer: whichever field fell back, the backend says so
+   * once, for the whole save, and every field went in that one call.
+   */
+  it("says so once for a save of the key, base URL, level and model that fell back", async () => {
     window.localStorage.setItem("edytlab.model.anthropic", "claude-opus-5");
-    for (const [label, mock] of [
-      ["base URL", setBaseUrlForMock],
-      ["level", setEffortForMock],
-      ["model", setActiveModelMock],
-    ] as const) {
-      setBaseUrlForMock.mockResolvedValue(DURABLE);
-      setEffortForMock.mockResolvedValue(DURABLE);
-      setActiveModelMock.mockResolvedValue(DURABLE);
-      setApiKeyForMock.mockResolvedValue(DURABLE);
-      mock.mockResolvedValue(FELL_BACK);
-      const onSaved = vi.fn();
-      const user = userEvent.setup();
-      const { unmount } = render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
-      await waitFor(() => expect(getEffortForMock).toHaveBeenCalled());
-      await user.type(screen.getByTestId("settings-base-url-input"), "http://x/v1");
-      await user.selectOptions(screen.getByTestId("settings-effort-select"), "high");
+    saveProviderSettingsMock.mockResolvedValue(FELL_BACK);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await waitFor(() => expect(getEffortForMock).toHaveBeenCalled());
+    await user.type(screen.getByTestId("settings-base-url-input"), "http://x/v1");
+    await user.selectOptions(screen.getByTestId("settings-effort-select"), "high");
 
-      await saveWithKey(user);
+    await saveWithKey(user);
 
-      expect(
-        await screen.findByTestId("settings-save-session-only"),
-        label,
-      ).toHaveTextContent(BANNER);
-      expect(onSaved, label).not.toHaveBeenCalled();
-      unmount();
-      getEffortForMock.mockClear();
-    }
+    expect(await screen.findByTestId("settings-save-session-only")).toHaveTextContent(
+      BANNER,
+    );
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(saveProviderSettingsMock).toHaveBeenCalledTimes(1);
+    expect(lastSave()).toMatchObject({
+      provider: "anthropic",
+      key: "sk-ant-good",
+      baseUrl: "http://x/v1",
+      effort: "high",
+      model: "claude-opus-5",
+    });
   });
 
   it("says so for a provider that needs no key", async () => {
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "ollama");
-    setActiveProviderMock.mockResolvedValue(FELL_BACK);
+    saveProviderSettingsMock.mockResolvedValue(FELL_BACK);
     const onSaved = vi.fn();
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={onSaved} />);
@@ -1090,7 +1084,7 @@ describe("Settings", () => {
    * has just cleared.
    */
   it("treats Close after a save that fell back as Continue", async () => {
-    setApiKeyForMock.mockResolvedValue(FELL_BACK);
+    saveProviderSettingsMock.mockResolvedValue(FELL_BACK);
     const onSaved = vi.fn();
     const onClose = vi.fn();
     const user = userEvent.setup();
@@ -1105,7 +1099,7 @@ describe("Settings", () => {
   });
 
   it("goes back to Save when another provider is picked", async () => {
-    setApiKeyForMock.mockResolvedValue(FELL_BACK);
+    saveProviderSettingsMock.mockResolvedValue(FELL_BACK);
     const user = userEvent.setup();
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
     await saveWithKey(user);
@@ -1121,7 +1115,7 @@ describe("Settings", () => {
 
   /** A save that fails is an error, as before, and not a notice. */
   it("shows the error and no notice when the save itself fails", async () => {
-    setApiKeyForMock.mockRejectedValue("the store is gone");
+    saveProviderSettingsMock.mockRejectedValue("the store is gone");
     const onSaved = vi.fn();
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={onSaved} />);

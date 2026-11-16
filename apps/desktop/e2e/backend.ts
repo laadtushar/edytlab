@@ -693,9 +693,10 @@ export function sessionOnlyKeychain(): Backend {
 }
 
 /**
- * Where a save landed, as the save commands answer: a
- * `KeychainPersistenceDto` (`commands.rs`), which `landed(..)` builds from
- * the `Persistence` that `ai::keychain::save_*` return. `Durable` is
+ * Where a save landed, as `save_provider_settings` answers: a
+ * `KeychainPersistenceDto` (`agent_settings.rs`), which `landed(..)` builds
+ * from the `Persistence` that `ai::keychain::save_*` return, one answer for
+ * the whole save. `Durable` is
  * `{ persistent: true, reason: null }`, a save that fell back to the
  * kernel keyring `{ persistent: false, reason }`, with the reason of the
  * first write that did. A clear writes nothing and is always durable.
@@ -703,24 +704,36 @@ export function sessionOnlyKeychain(): Backend {
 export const DURABLE_SAVE = { persistent: true, reason: null } as const;
 
 /**
+ * What `saveProviderSettings` sends for `fields`: the command's arguments
+ * with every field a save leaves alone as `null`, as the bridge sends them.
+ */
+export function providerSave(fields: {
+  provider: string;
+  key?: string;
+  model?: string;
+  baseUrl?: string;
+  effort?: string;
+}): Record<string, string | null> {
+  return { key: null, model: null, baseUrl: null, effort: null, ...fields };
+}
+
+/**
  * What Settings' Save sends, answered as the backend does when the
- * keychain keeps what it is given: each of these is a
- * `CmdResult<KeychainPersistenceDto>` (see {@link DURABLE_SAVE}). Save
- * writes the base URL and the reasoning level once their reads have
- * answered (the defaults here do), then the key, then the model.
+ * keychain keeps what it is given: `save_provider_settings`, one call for
+ * the key, the base URL, the reasoning level and the model, answers a
+ * `CmdResult<KeychainPersistenceDto>` (see {@link DURABLE_SAVE}). Save sends
+ * the base URL and the level once their reads have answered (the defaults
+ * here do).
  */
 export function savingSettings(): Backend {
   return {
-    set_base_url_for: ok(DURABLE_SAVE),
-    set_effort_for: ok(DURABLE_SAVE),
-    set_api_key_for: ok(DURABLE_SAVE),
-    set_active_model: ok(DURABLE_SAVE),
+    save_provider_settings: ok(DURABLE_SAVE),
   };
 }
 
 /**
- * The same saves on a keychain that lost its Secret Service after launch:
- * every write falls back to the kernel keyring. The reason is the text
+ * The same save on a keychain that lost its Secret Service after launch:
+ * a write falls back to the kernel keyring. The reason is the text
  * `write_to` gives (`e.to_string()` of the keyring's `PlatformFailure`), the
  * same a real run of {@link sessionOnlyKeychain}'s probe produced.
  */
@@ -731,10 +744,7 @@ export function savingSettingsSessionOnly(): Backend {
       "Platform secure storage failure: DBus error: Failed to connect to socket /nonexistent: No such file or directory",
   };
   return {
-    set_base_url_for: ok(fellBack),
-    set_effort_for: ok(fellBack),
-    set_api_key_for: ok(fellBack),
-    set_active_model: ok(fellBack),
+    save_provider_settings: ok(fellBack),
   };
 }
 

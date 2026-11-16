@@ -18,6 +18,7 @@
 
 import {
   DURABLE_SAVE,
+  providerSave,
   deferred,
   firstRun,
   ok,
@@ -123,9 +124,8 @@ test.describe("Settings after a startup the keychain refused", () => {
       get_effort_for: refused,
       get_active_model: refused,
       list_models_for: refused,
-      // Both answer where the save landed (`DURABLE_SAVE`).
-      set_api_key_for: ok(DURABLE_SAVE),
-      set_active_model: ok(DURABLE_SAVE),
+      // Answers where the save landed (`DURABLE_SAVE`).
+      save_provider_settings: ok(DURABLE_SAVE),
     });
     const page = app.page;
 
@@ -145,12 +145,11 @@ test.describe("Settings after a startup the keychain refused", () => {
 
     // The panel closes on a save that went through.
     await expect(settings).toHaveCount(0);
-    expect(await app.requestsFor("set_api_key_for")).toEqual([
-      { provider: "anthropic", key: "sk-ant-test" },
+    // One call, and the fields whose reads were refused are not in it: sent
+    // blank they would clear what is stored.
+    expect(await app.requestsFor("save_provider_settings")).toEqual([
+      providerSave({ provider: "anthropic", key: "sk-ant-test" }),
     ]);
-    expect(await app.requestsFor("set_base_url_for")).toEqual([]);
-    expect(await app.requestsFor("set_effort_for")).toEqual([]);
-    expect(await app.requestsFor("set_active_model")).toEqual([]);
   });
 });
 
@@ -251,8 +250,8 @@ test.describe("a save that fell back to the kernel keyring", () => {
     await expect(note).toContainText("kept only until you restart your computer");
     await expect(note).toContainText("/nonexistent");
     await expect(dialog).toBeVisible();
-    expect(await app.requestsFor("set_api_key_for")).toEqual([
-      { provider: "anthropic", key: "sk-ant-test" },
+    expect(await app.requestsFor("save_provider_settings")).toEqual([
+      expect.objectContaining({ provider: "anthropic", key: "sk-ant-test" }),
     ]);
 
     await page.getByTestId("settings-continue-button").click();

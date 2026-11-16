@@ -295,34 +295,57 @@ inspection.
 
 ## API Key Management
 
-### `setApiKey(key: string) → KeychainPersistence`
+### `saveProviderSettings(change: ProviderSettingsChange) → KeychainPersistence`
 
-Set the API key for the active provider. Stored in the OS keychain. Resolves
-as `setApiKeyFor` does.
-
-```typescript
-await bridge.setApiKey("sk-ant-api...");
-```
-
-### `setApiKeyFor(provider: ProviderId, key: string) → KeychainPersistence`
-
-Set the API key for a specific provider, and make it the active one.
-
-Resolves with where the save landed, in the shape `getKeychainPersistence`
-answers with: `persistent: false` is a save that fell back to the kernel
-keyring because no Secret Service could be reached (it went away after launch,
-say), so it lasts only until the machine restarts, and `reason` is why. The key
-is saved and used all the same. The key and the active provider are two writes;
-the answer is `persistent: false` if either fell back, with the first reason.
-Settings shows the launch banner's words for it after Save. The other `set*`
-functions (`setActiveProvider`, `setBaseUrlFor`, `setEffortFor`,
-`setActiveModel`) write the settings file, `provider-settings.json`, not the
-keychain, and answer the same shape; a file is durable, so they answer
-`persistent: true`.
+Save what the agent is built from for one provider, make it the active provider
+and rebuild the agent **once** (ADR 0005; command `save_provider_settings`,
+module `agent_settings`). Settings' Save is this one call.
 
 ```typescript
-const { persistent, reason } = await bridge.setApiKeyFor("openrouter", "sk-or-...");
+interface ProviderSettingsChange {
+  provider: ProviderId;
+  key?: string;       // the ChatGPT plan has none
+  model?: string;
+  baseUrl?: string;   // "" restores the provider's own address; the plan has none
+  effort?: ReasoningEffort | ""; // "" is "Default"
+}
+
+const { persistent, reason } = await bridge.saveProviderSettings({
+  provider: "openrouter",
+  key: "sk-or-...",
+  model: "anthropic/claude-sonnet-5.5",
+});
 ```
+
+A field that is absent is left as it is. Everything is checked before anything
+is written, so a save with a refused field changes nothing: a blank key, a model
+that is only spaces, an address with no `http://` or `https://`, a level the
+provider cannot take, an unknown provider, a key or an address for the ChatGPT
+plan, or the plan while it is not signed in. The writes then go in the order the
+agent's rebuild needs: key, address, level, provider, model. A write that fails
+stops the rest; the agent is still rebuilt from the ones that went through, and
+the failure is what rejects. A model that could not be stored still applies to
+this session and rejects with `"model selected for this session, but could not
+be saved: …"`. A keyless provider (a local Ollama) is chosen with no key.
+
+Resolves **once** with where the save landed, in the shape
+`getKeychainPersistence` answers with: `persistent: false` is a save that fell
+back to the kernel keyring because no Secret Service could be reached (it went
+away after launch, say), so it lasts only until the machine restarts, and
+`reason` is why. The values are saved and used all the same. The key (the only
+secret) goes to the keychain and the other fields to the settings file; the
+answer is `persistent: false` if any write fell back, with the first reason.
+Settings shows the launch banner's words for it after Save. A file is durable,
+so a save of settings alone answers `persistent: true`.
+
+Pending while the launch-time keychain reads are still going, like
+`hasApiKey`. The first save that goes through lifts a startup the keychain
+refused, and builds the agent that startup left unbuilt. The rebuild waits for
+a turn in progress to end, so a save made during a turn is applied after it.
+
+**Throws:** if the switch worked but the new provider's saved key could not be
+read, `"switched to <provider>, but its saved key could not be read: …"`; the
+choice is saved and the agent is built with no key.
 
 ### `hasApiKey() → boolean`
 
@@ -357,15 +380,11 @@ interface KeychainPersistence {
 const { persistent, reason } = await bridge.getKeychainPersistence();
 ```
 
-This is where saves go *now*, and the app shows it once at launch. The `set*` functions answer the same shape for the save they just made.
-
-### `clearApiKey() → void`
-
-Remove the API key for the active provider from the keychain.
+This is where saves go *now*, and the app shows it once at launch. `saveProviderSettings` answers the same shape for the save it just made.
 
 ### `clearApiKeyFor(provider: ProviderId) → void`
 
-Remove the API key for a specific provider.
+Remove the API key for a specific provider. When it is the active provider the agent is torn down: the app behaves as if it had just launched with no key for it.
 
 ### `testApiKey(key: string) → void`
 
@@ -433,7 +452,7 @@ Returns the currently active provider.
 
 ### `setActiveProvider(provider: ProviderId | "chatgpt") → KeychainPersistence`
 
-Switch the active provider. Rebuilds the agent with the new provider configuration. Resolves with where the choice was saved, as `setApiKeyFor` does.
+Switch the active provider: `saveProviderSettings({ provider })`. Rebuilds the agent with the new provider configuration. Resolves with where the choice was saved, as `saveProviderSettings` does.
 
 `"chatgpt"` can be made active only while the ChatGPT sign-in is signed in; otherwise it rejects, saying to sign in first, and nothing is saved. Its agent is built on the session, never a key.
 
@@ -468,15 +487,11 @@ while the launch-time reads are still going.
 The URL the provider ships with. Shown as the field's placeholder, so the user
 can see what "empty" means.
 
----
-
-### `setBaseUrlFor(provider: ProviderId, baseUrl: string) → KeychainPersistence`
-
-Point a provider somewhere else — a proxy, a gateway, a local server. **An
-empty string restores the default**, which is how the field is cleared.
-
-Resolves with where the URL was saved, as `setApiKeyFor` does. Clearing writes
-nothing, so it always resolves `persistent: true`: there is no value to lose.
+An override is set with `saveProviderSettings({ provider, baseUrl })`: a proxy,
+a gateway, a local server. **An empty string restores the default**, which is
+how the field is cleared; it writes nothing, so it is always durable. The
+address must start with `http://` or `https://` and have a host, and a
+trailing slash is dropped. The ChatGPT plan has none.
 
 ---
 
@@ -490,27 +505,19 @@ other provider answers `null`.
 read, as `getBaseUrlFor` does, and for the same reason. Like it, rejects
 without reading after a startup the keychain refused.
 
----
-
-### `setEffortFor(provider: ProviderId, effort: ReasoningEffort | null) → KeychainPersistence`
-
-Set how hard the model works on a response: sent to the Anthropic API as
-`output_config.effort`. Higher effort is slower and uses more tokens, and the
-model may think before it answers. **`null` (or an empty value) restores the
-model's default**, which is how the setting is cleared. Rebuilds the agent.
-
-Resolves with where the level was saved, as `setBaseUrlFor` does (clearing it
-is always `persistent: true`).
-
-Rejects a level that is not one of the five in `ReasoningEffort`, and rejects
-any level for a provider other than Anthropic and the ChatGPT plan (OpenRouter
-and the chat-completions providers have no such field, so none is ever sent to
-them). The ChatGPT plan sends it as `reasoning.effort`, and only when the
-model's list (`ModelInfo.reasoning_levels`) names it.
+Set it with `saveProviderSettings({ provider, effort })`. It is sent to the
+Anthropic API as `output_config.effort`; higher effort is slower and uses more
+tokens, and the model may think before it answers. **`""` restores the model's
+default**, which is how the setting is cleared. A level that is not one of the
+five in `ReasoningEffort` is rejected, and so is any level for a provider other
+than Anthropic and the ChatGPT plan (OpenRouter and the chat-completions
+providers have no such field, so none is ever sent to them). The ChatGPT plan
+sends it as `reasoning.effort`, and only when the model's list
+(`ModelInfo.reasoning_levels`) names it.
 
 ```typescript
-await bridge.setEffortFor("anthropic", "xhigh");
-await bridge.setEffortFor("anthropic", null); // back to the model's default
+await bridge.saveProviderSettings({ provider: "anthropic", effort: "xhigh" });
+await bridge.saveProviderSettings({ provider: "anthropic", effort: "" }); // back to the model's default
 ```
 
 ---
@@ -590,7 +597,7 @@ since, or restored before the refusal, is still answered. Pending, like
 
 ### `setActiveModel(provider: ProviderId, model: string) → KeychainPersistence`
 
-Set the active model for a provider. Persisted in the settings file, `provider-settings.json`, as the provider's `model`. Resolves with where the choice was saved, as `setApiKeyFor` does.
+Set the active model for a provider: `saveProviderSettings({ provider, model })`. Persisted in the settings file, `provider-settings.json`, as the provider's `model`. Resolves with where the choice was saved, as `saveProviderSettings` does.
 
 **Throws:** If the settings could not be written, `"model selected for this session, but could not be saved: …"`: the choice applies until the app closes.
 

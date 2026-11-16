@@ -34,11 +34,7 @@ import {
   hasApiKeyFor,
   installPlugin,
   listModelsFor,
-  setActiveModel,
-  setActiveProvider,
-  setApiKeyFor,
-  setBaseUrlFor,
-  setEffortFor,
+  saveProviderSettings,
   testApiKeyFor,
 } from "../lib/tauri-bridge";
 import { Settings } from "../components/Settings";
@@ -155,13 +151,9 @@ describe("Settings tab strip", () => {
     // The Account tab's foot line (#383): no runtime in this build.
     vi.mocked(mlRuntimeStatus).mockResolvedValue({ state: "missing", searched: [] });
     for (const fn of [
-      setEffortFor,
       hasApiKeyFor,
       clearApiKeyFor,
-      setApiKeyFor,
-      setActiveProvider,
-      setActiveModel,
-      setBaseUrlFor,
+      saveProviderSettings,
       testApiKeyFor,
       installPlugin,
     ]) {

@@ -52,14 +52,8 @@ const BRIDGE = join(SRC, "lib", "tauri-bridge.ts");
  */
 const KNOWN_UNREACHABLE: Record<string, string> = {
   // Legitimately dead — no action.
-  setApiKey:
-    "superseded by setApiKeyFor; kept for the legacy unsuffixed keychain slot",
   testApiKey:
     "superseded by testApiKeyFor; kept for the legacy unsuffixed keychain slot",
-  clearApiKey:
-    "superseded by clearApiKeyFor, which Settings now calls; this one takes no " +
-    "argument and resolves the slot from the backend's active provider, so a " +
-    "destructive action depended on the UI and the backend agreeing (#320)",
 
   // Not a gap, but not a plain duplicate either.
   listProviders:

@@ -14,18 +14,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Settings talks to the keychain through the bridge. The whole point
 // of the onboarding case below is *which* bridge call it makes, so the
 // calls are spies rather than a stubbed-out module.
-const setApiKeyFor = vi.fn((_p: string, _k: string) => Promise.resolve());
-const setActiveProvider = vi.fn((_p: string) => Promise.resolve());
+const saveProviderSettings = vi.fn((_c: { provider: string; key?: string }) =>
+  Promise.resolve(),
+);
 
 vi.mock("../lib/tauri-bridge", () => ({
-  setApiKeyFor: (p: string, k: string) => setApiKeyFor(p, k),
-  setActiveProvider: (p: string) => setActiveProvider(p),
+  saveProviderSettings: (c: { provider: string; key?: string }) =>
+    saveProviderSettings(c),
+  setActiveProvider: (p: string) => saveProviderSettings({ provider: p }),
   clearApiKeyFor: vi.fn(() => Promise.resolve()),
-  setBaseUrlFor: vi.fn(() => Promise.resolve()),
   getBaseUrlFor: vi.fn(() => Promise.resolve("")),
   defaultBaseUrlFor: vi.fn(() => Promise.resolve("")),
   getEffortFor: vi.fn(() => Promise.resolve(null)),
-  setEffortFor: vi.fn(() => Promise.resolve()),
   listModelsFor: vi.fn(() =>
     Promise.resolve({ models: [], source: "live", notice: null }),
   ),
@@ -41,7 +41,7 @@ import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
 
 describe("onboarding with a keyless provider already selected", () => {
   /**
-   * The lockout. `handleSave` wrote `setApiKeyFor(provider, "")` for
+   * The lockout. `handleSave` wrote an empty key for
    * every provider, and the keychain rejects an empty secret. A new
    * user never saw it, because *clicking* the Ollama radio activates
    * the provider and that is what dismisses the blocking modal.
@@ -54,8 +54,7 @@ describe("onboarding with a keyless provider already selected", () => {
    * returning user opens the app in.
    */
   beforeEach(() => {
-    setApiKeyFor.mockClear();
-    setActiveProvider.mockClear();
+    saveProviderSettings.mockClear();
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "ollama");
   });
 
@@ -65,11 +64,16 @@ describe("onboarding with a keyless provider already selected", () => {
 
     fireEvent.click(await screen.findByText("Save & Continue"));
 
-    await waitFor(() => expect(setActiveProvider).toHaveBeenCalledWith("ollama"));
+    await waitFor(() =>
+      expect(saveProviderSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "ollama" }),
+      ),
+    );
+    const calls = saveProviderSettings.mock.calls;
     expect(
-      setApiKeyFor,
+      calls[calls.length - 1][0].key,
       "wrote an empty secret to the keychain, which it rejects",
-    ).not.toHaveBeenCalled();
+    ).toBeUndefined();
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
@@ -83,7 +87,9 @@ describe("onboarding with a keyless provider already selected", () => {
     fireEvent.click(screen.getByText("Save & Continue"));
 
     await waitFor(() =>
-      expect(setApiKeyFor).toHaveBeenCalledWith("anthropic", "sk-ant-test"),
+      expect(saveProviderSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "anthropic", key: "sk-ant-test" }),
+      ),
     );
   });
 });
