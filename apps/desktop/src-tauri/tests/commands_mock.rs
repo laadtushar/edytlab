@@ -45,7 +45,7 @@ fn open_project_via_ipc_returns_project_info() {
         AppState::new();
         commands::open_project,
         commands::send_message,
-        commands::set_api_key,
+        commands::save_provider_settings,
         commands::get_session_head,
         commands::get_node,
         commands::render_preview,
@@ -93,7 +93,7 @@ fn get_session_head_returns_error_when_no_project_open() {
         AppState::new();
         commands::open_project,
         commands::send_message,
-        commands::set_api_key,
+        commands::save_provider_settings,
         commands::get_session_head,
         commands::get_node,
         commands::render_preview,
@@ -116,7 +116,9 @@ fn get_session_head_returns_error_when_no_project_open() {
 /// startup found wrong with the keychain (`None` for a clean start).
 fn active_provider_over_ipc(stash: Option<&str>) -> Result<String, String> {
     let state = AppState::new();
-    state.agent_settings.set_keychain_read_error(stash.map(str::to_string));
+    state
+        .agent_settings
+        .set_keychain_read_error(stash.map(str::to_string));
     let (_app, webview) = mock_window!(
         state;
         commands::get_active_provider,
@@ -168,7 +170,9 @@ fn ipc(state: AppState, cmd: &str, body: serde_json::Value) -> Result<serde_json
 fn refused_state(stash: Option<&str>) -> AppState {
     let state = AppState::new();
     state.agent_settings.set_keychain_refused(true);
-    state.agent_settings.set_keychain_read_error(stash.map(str::to_string));
+    state
+        .agent_settings
+        .set_keychain_read_error(stash.map(str::to_string));
     state
 }
 
@@ -197,7 +201,9 @@ fn the_active_model_is_not_answered_as_none_chosen_after_a_refused_startup() {
 #[test]
 fn a_model_that_is_known_is_answered_after_a_refused_startup() {
     let state = refused_state(Some("locked"));
-    state.agent_settings.set_model_for("anthropic".into(), "claude-opus-5".into());
+    state
+        .agent_settings
+        .set_model_for("anthropic".into(), "claude-opus-5".into());
     assert_eq!(
         ipc(
             state,
@@ -288,7 +294,9 @@ fn call_while_startup_reads_are_pending(
     body: serde_json::Value,
 ) -> (std::time::Duration, Result<serde_json::Value, String>) {
     let state = AppState::new();
-    state.agent_settings.set_keychain_read_error(Some("locked".into()));
+    state
+        .agent_settings
+        .set_keychain_read_error(Some("locked".into()));
     state.agent_settings.begin_startup_reads();
     let reads = state.agent_settings.startup_reads_guard();
     let (_app, webview) = mock_window!(
@@ -372,7 +380,9 @@ fn restarting_a_keychain_server_after_a_refused_startup_is_refused_with_a_reason
         },
     );
     state.agent_settings.set_keychain_refused(true);
-    state.agent_settings.set_keychain_read_error(Some("locked".into()));
+    state
+        .agent_settings
+        .set_keychain_read_error(Some("locked".into()));
     let (_app, webview) = mock_window!(
         state;
         commands::restart_mcp_server,

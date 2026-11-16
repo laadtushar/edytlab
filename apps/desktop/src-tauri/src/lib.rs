@@ -24,26 +24,26 @@ use crate::commands::{
     accept_b, add_marker, apply_template, approve_plan, batch_load, calibrate_recording_latency,
     cancel_long_running_tool, cancel_ml_model_download, cancel_punch_record,
     cancel_recording_latency, chatgpt_cancel_sign_in, chatgpt_forget_registration, chatgpt_sign_in,
-    chatgpt_sign_out, chatgpt_status, chatgpt_take_pending_message,
-    clear_api_key_for, cut_transcript_words, default_base_url_for, delete_agent_profile,
-    delete_mcp_server, delete_skill, download_ml_model, duplicate_track, end_compare,
-    forget_recent_project, get_active_agent_profile, get_active_model, get_active_provider,
-    get_base_url_for, get_crash_reports, get_effort_for, get_graph, get_head_trail,
-    get_keychain_persistence, get_node, get_plan_first, get_project_meta, get_recording_latency,
-    get_render_warnings, get_session_head, get_sync_lock, get_transcript, get_view_state,
-    has_api_key, has_api_key_for, install_bundled_skills, install_plugin, list_agent_profiles,
-    list_capabilities, list_markers, list_mcp_servers, list_models_for, list_providers,
-    list_recent_projects, list_skills, list_templates, list_tracks, ml_model_status,
-    ml_runtime_status, move_clip, open_chatgpt_usage, open_project, prepare_compare, punch_record,
-    read_agent_profile, read_mcp_server, read_memory, read_skill, reject_plan, remove_clip,
-    remove_marker, remove_ml_model, remove_track, rename_node, rename_track, render_preview,
-    render_range, report_webview_error, restart_mcp_server, save_head_trail, save_project_as,
-    save_provider_settings, save_view_state, send_message, set_active_agent_profile, set_clip_envelope, set_crash_reports,
-    set_head_to, set_plan_first, set_project_meta, set_recording_latency,
-    set_selection_context, set_sync_lock, set_track_gain, set_track_muted, set_track_pan,
-    set_track_soloed, start_recording, stop_recording, test_api_key, test_api_key_for,
-    third_party_notices, timer_record, update_marker,
-    upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
+    chatgpt_sign_out, chatgpt_status, chatgpt_take_pending_message, clear_api_key_for,
+    cut_transcript_words, default_base_url_for, delete_agent_profile, delete_mcp_server,
+    delete_skill, download_ml_model, duplicate_track, end_compare, forget_recent_project,
+    get_active_agent_profile, get_active_model, get_active_provider, get_base_url_for,
+    get_crash_reports, get_effort_for, get_graph, get_head_trail, get_keychain_persistence,
+    get_node, get_plan_first, get_project_meta, get_recording_latency, get_render_warnings,
+    get_session_head, get_sync_lock, get_transcript, get_view_state, has_api_key, has_api_key_for,
+    install_bundled_skills, install_plugin, list_agent_profiles, list_capabilities, list_markers,
+    list_mcp_servers, list_models_for, list_providers, list_recent_projects, list_skills,
+    list_templates, list_tracks, ml_model_status, ml_runtime_status, move_clip, open_chatgpt_usage,
+    open_project, prepare_compare, punch_record, read_agent_profile, read_mcp_server, read_memory,
+    read_skill, reject_plan, remove_clip, remove_marker, remove_ml_model, remove_track,
+    rename_node, rename_track, render_preview, render_range, report_webview_error,
+    restart_mcp_server, save_head_trail, save_project_as, save_provider_settings, save_view_state,
+    send_message, set_active_agent_profile, set_clip_envelope, set_crash_reports, set_head_to,
+    set_plan_first, set_project_meta, set_recording_latency, set_selection_context, set_sync_lock,
+    set_track_gain, set_track_muted, set_track_pan, set_track_soloed, start_recording,
+    stop_recording, test_api_key, test_api_key_for, third_party_notices, timer_record,
+    update_marker, upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory,
+    RecorderState,
 };
 use crate::state::AppState;
 use tauri::{
@@ -300,10 +300,9 @@ pub fn run() {
                             // not be.
                             let state_for_rebuild = app_state.clone();
                             tauri::async_runtime::spawn(async move {
-                                if let Err(e) = crate::agent_settings::build_after_startup(
-                                    &state_for_rebuild,
-                                )
-                                .await
+                                if let Err(e) =
+                                    crate::agent_settings::build_after_startup(&state_for_rebuild)
+                                        .await
                                 {
                                     tracing::warn!(
                                         error = ?e,

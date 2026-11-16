@@ -194,7 +194,9 @@ fn open_project_answers_while_an_agent_turn_holds_the_agent() {
 
     // A key saved while the turn runs. A rebuild that took its snapshot of
     // the state when the project was opened would not see it.
-    state.agent_settings.set_api_key_cache(Some("saved-during-the-turn".into()));
+    state
+        .agent_settings
+        .set_api_key_cache(Some("saved-during-the-turn".into()));
 
     // Let go before asserting, so a failure here cannot leave the open
     // waiting for ever.

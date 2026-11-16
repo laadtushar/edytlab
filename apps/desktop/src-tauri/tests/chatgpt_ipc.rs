@@ -108,7 +108,7 @@ fn new_rig(signed_in: bool) -> Rig {
             commands::open_project,
             commands::send_message,
             commands::has_api_key_for,
-            commands::set_active_provider,
+            commands::save_provider_settings,
             commands::list_models_for,
             commands::test_api_key_for,
             commands::chatgpt_status,
@@ -229,7 +229,7 @@ fn the_plan_is_configured_and_selectable_only_while_signed_in() {
         Ok(json!(false))
     );
     let err = out
-        .call("set_active_provider", json!({ "provider": "chatgpt" }))
+        .call("save_provider_settings", json!({ "provider": "chatgpt" }))
         .expect_err("refused while signed out");
     assert!(err.contains("sign in with ChatGPT"), "{err}");
 
@@ -261,7 +261,9 @@ fn the_plan_is_configured_and_selectable_only_while_signed_in() {
 #[test]
 fn a_session_that_ends_in_a_turn_is_a_typed_error_and_keeps_the_message() {
     let rig = new_rig(true);
-    rig.state.agent_settings.set_active_provider("chatgpt".to_string());
+    rig.state
+        .agent_settings
+        .set_active_provider("chatgpt".to_string());
     let _project = rig.open_project();
     assert!(
         rig.state.chatgpt.has_agent(),
@@ -352,7 +354,9 @@ fn a_session_that_ends_in_a_turn_is_a_typed_error_and_keeps_the_message() {
 #[test]
 fn sign_out_and_start_over_finish_and_say_what_the_person_may_still_have_to_do() {
     let rig = new_rig(true);
-    rig.state.agent_settings.set_active_provider("chatgpt".to_string());
+    rig.state
+        .agent_settings
+        .set_active_provider("chatgpt".to_string());
     let _project = rig.open_project();
     assert!(rig.state.chatgpt.has_agent());
     // The session ends under a message (another window signed out), so there
