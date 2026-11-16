@@ -1,9 +1,10 @@
 ---
-title: "0010. MCP server mode: an outside agent drives one project, read-only unless told otherwise"
+title: "0010. MCP server mode: an outside agent drives one project, edits by default as undoable nodes"
 sidebarTitle: "0010 MCP server mode"
 ---
 
-Status: Proposed, 2026-11-15. For the owner to decide; nothing here is built.
+Status: Accepted, 2026-11-16, with six questions still open (Questions). The owner decided the
+default mode, distribution, the SDK and live editing; nothing here is built yet.
 
 ## Context
 
@@ -73,7 +74,7 @@ it alone is only as safe as the user's most permissive setting.
 One new crate, `crates/mcp-server`, holds the server library and a binary, `edytlab-mcp`. One
 process serves one project, named at launch (`--project <dir>`, required). It speaks stdio only.
 
-### 1. Approvals: tiers, read-only by default, enforced by the server
+### 1. Approvals: tiers, `edit` by default, enforced by the server
 
 Options:
 
@@ -92,7 +93,9 @@ Options:
 
 **Recommendation: B, shaped as tiers, with A kept as the second layer.**
 
-- A launch flag `--mode read|edit|full` picks a tier. The default is `read`.
+- A launch flag `--mode read|edit|full` picks a tier. The default is `edit` (the owner's
+  decision, 2026-11-16): the issue's first example works with no flag, every edit is an undoable
+  node, and the host's own prompt is the layer above it. `full` is never the default.
   - `read`: the tools that do not mutate (13 today). The server opens the store read-only.
   - `edit`: adds the mutating tools that stay inside the project: they append a session node and
     write only the project's own audio folders and caches. Every such edit is an undoable node.
@@ -110,13 +113,16 @@ Options:
 - The tool list is fixed for the life of the process, which the spec allows ("MUST NOT vary
   per-connection").
 - The host's own prompt stays on top. The docs for each host say how to set it:
-  `claude mcp add edytlab -- edytlab-mcp --project <dir> --mode edit`.
+  `claude mcp add edytlab -- edytlab-mcp --project <dir>` (edit is the default).
 
 Why not C now: it is the only option that could replace the host's prompt, and it is the one the
 hosts support least. If a host documents elicitation, a later record can add "ask in `full`".
 
-Consequence: a user who wants `claude -p` to edit passes `--mode edit` on purpose, and the worst
-case is nodes they can undo. A user who wants an export passes `--mode full`.
+Consequence: with no flag, `claude -p` can edit, and the worst case is nodes the user can undo; the
+host's allow rules decide whether each call is asked about. A user who only wants to read passes
+`--mode read`, and a user who wants an export passes `--mode full`. Because `edit` holds the
+project's lock (section 2), the default command is refused while the window has that project open;
+the refusal names the window and says that `--mode read` works alongside it.
 
 ### 2. One live store per folder: refuse, detected by a lock across processes
 
@@ -133,8 +139,9 @@ Options:
   merge has no owner, and the issue's acceptance ("the window then shows it on reopen") would need
   the merge to exist.
 
-**Recommendation: A, with a lock file the window and the server both take; B as a later record if
-live editing is wanted.**
+**Decision: A now, with a lock file the window and the server both take. B is the planned target
+(the owner's decision, 2026-11-16): the window will accept a server's edits live once ADR 0006's
+`open_project` module is built, in a record of its own. Until then, A.**
 
 - The first store on a folder in a process takes an exclusive advisory lock on
   `.audiograph/open.lock` (`File::try_lock`, stable since Rust 1.89; flock on unix, `LockFileEx` on
@@ -262,7 +269,8 @@ there is one text to keep current (`bundled_skills.rs`).
 
 - `rmcp` is the official Rust SDK (`modelcontextprotocol/rust-sdk`). It implements `2026-07-28`
   and stays compatible with `2025-11-25` and earlier, has a stdio server (`transport-io`), on
-  `tokio`, with `#[tool]` macros. At the time of writing: 3.10.0, published 2026-11-12,
+  `tokio`, with `#[tool]` macros. **Decided (the owner, 2026-11-16): use `rmcp`**, pinned to an
+  exact 3.x release that is at least two weeks old when it is added. At the time of writing: 3.10.0, published 2026-11-12,
   Apache-2.0, `rust-version` 1.88 (the repo pins 1.90), about 50 million downloads. Its prompt and
   resource support is not checked here; stage 0 checks it. The 3.x
   line broke from 2.x, so pin the exact minor and read the changelog on each bump.
@@ -282,7 +290,9 @@ Each stage is one PR that leaves `main` working.
   the registry over stdio and answers a legacy `initialize` and a modern `server/discover`.
   `claude mcp add`, Claude Desktop's config and Cursor's `mcp.json` each list it. Output: a note in
   the stage 1 PR on what failed.
-- **Stage 1, read-only server.** The crate, `--project`, `--mode read` only, `open_read_only` per
+- **Stage 1, read-only server.** The crate, `--project`, `--mode read` only (until stage 2 the flag
+  is required and a missing one is refused with that reason; the `edit` default arrives with the
+  lock), `open_read_only` per
   call, `Shared::dispatch` with the `read` set, tier test (`READ_ONLY` equals the `read` tier), the
   path resolver for reads, the "no `ai`, no network" tree test. **The stdio end-to-end test**
   (acceptance 3): a test starts `edytlab-mcp` on a fixture project and drives it with an MCP
@@ -308,7 +318,11 @@ Each stage is one PR that leaves `main` working.
 - **Stage 5, documentation and packaging** (acceptance 4): README, `docs/architecture.md`, the
   developer guide on the site, the privacy page (no new outbound request; a new local entry
   point), `docs/agents/mcp-server.md` and its row in `CLAUDE.md`, and how the binary reaches the
-  user (Questions). Documentation for each stage lands in that stage.
+  user. **Both ways (the owner, 2026-11-16):** the installers put `edytlab-mcp` next to the app
+  (inside the `.app` bundle on macOS; the docs give each platform's path for `claude mcp add`), and
+  each release also carries a standalone `edytlab-mcp` archive per platform. `release-dev.yml`,
+  `docs/agents/ci-release.md` and the release-day asset count in `CLAUDE.md` (6 today) change with
+  it. Documentation for each stage lands in that stage.
 
 ### How we will know
 
@@ -323,9 +337,7 @@ Each stage is one PR that leaves `main` working.
 
 ## Questions for the owner
 
-1. **The default.** Is `read` the right default, so a user who wants edits must say `--mode edit`?
-   The alternative is `edit`, which makes the issue's first example work with no flag and trusts
-   the host's prompt for the rest.
+1. ~~**The default.**~~ Decided 2026-11-16: `edit` (section 1).
 2. **The tiers.** Which tools belong in `edit` and which in `full` is a product call. This record
    puts `revert_to` and `compact_session` in `full`, and `fork_node`, `name_node` and
    `separate_stems` (hundreds of MB, held by Plan first today) are open.
@@ -335,15 +347,12 @@ Each stage is one PR that leaves `main` working.
    warning that two writers are possible?
 5. **Older windows.** Is it acceptable that `edit` mode is only safe against a window from the
    release that adds the lock? The server can say so when it starts.
-6. **Distribution.** Does the installer bundle `edytlab-mcp` next to the app (what path does
-   `claude mcp add` get? on macOS inside the `.app`?), or is it a separate download, or both? This
-   decides whether `docs/agents/ci-release.md` and the release workflow change.
+6. ~~**Distribution.**~~ Decided 2026-11-16: both, bundled and a standalone asset (stage 5).
 7. **Skills as prompts.** Serve only the bundled skills, or the user's own skills too (the folder
    is shared)?
-8. **Live editing.** Should the window ever accept a server's edits live (option B of section 2)?
-   If so, it waits for ADR 0006 and gets its own record.
-9. **The SDK.** Is a new dependency on `rmcp` (Apache-2.0, official, 3.x) acceptable, against writing
-   the protocol for two eras by hand?
+8. ~~**Live editing.**~~ Decided 2026-11-16: yes, as the planned target after ADR 0006, in its
+   own record (section 2).
+9. ~~**The SDK.**~~ Decided 2026-11-16: `rmcp`, an exact 3.x pin at least two weeks old.
 10. **The cost of the schemas.** `read` is 13 tools. `edit` and `full` send about a hundred schemas to
     the host's model every turn, and the slim set that Ollama gets (`tool_selection.rs`) is not
     applied. Is `--tools` enough, or should the server offer a profile?

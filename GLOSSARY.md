@@ -47,10 +47,11 @@ other tracks under sync-lock, labels, words. A tool states one (`TimeEdit`) and 
 
 **MCP server mode.** `edytlab-mcp`, one process serving one project's tools over stdio to an outside
 agent (Claude Desktop, Claude Code, Cursor). Not the MCP client of `crates/mcp`, which lets edytlab's
-own agent call other servers (ADR 0010, proposed).
+own agent call other servers (ADR 0010, accepted; not built).
 
 **Tool tier.** Which tools an MCP server mode process serves: `read`, `edit` or `full`, chosen at
-launch, with a tool in `full` until it is classified (ADR 0010, proposed).
+launch (`edit` by default), with a tool in `full` until it is classified (ADR 0010, accepted;
+not built).
 
 **Audio store.** The project's own audio files: the three folders whose files are named by their
 content (`derived/` and `clipboard/` under `.audiograph/`, `generated/` at the project's root), the
