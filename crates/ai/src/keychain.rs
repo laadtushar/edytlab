@@ -2929,7 +2929,7 @@ mod tests {
         assert!(!KeychainError::new("anything").is_access_denied());
     }
 
-    /// A blank stored URL is what `set_base_url_for` would never write, but a
+    /// A blank stored URL is what `save_provider_settings` would never write, but a
     /// hand edit could; it must read as no override rather than a URL
     /// that fails every request.
     #[test]

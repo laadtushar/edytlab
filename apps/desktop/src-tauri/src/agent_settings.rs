@@ -2692,7 +2692,7 @@ mod tests {
         );
     }
 
-    /// `set_base_url_for` did not look at the provider id at all.
+    /// The old per-field address command did not look at the provider id at all.
     #[test]
     fn nothing_is_stored_for_a_provider_that_does_not_exist() {
         let keychain = Arc::new(FakeKeychain::default());

@@ -13,7 +13,7 @@
 //!   and there is no way to select it. That is #225's whole subject:
 //!   a capability fully plumbed with nothing to reach it by.
 //! * an id in the array and not in the registry — the radio is offered,
-//!   `set_active_provider` takes it, and the first message fails.
+//!   `save_provider_settings` takes it, and the first message fails.
 //!
 //! `list_providers` exists on the bridge for this and returns nothing
 //! but `SUPPORTED_PROVIDER_IDS`, so calling it at runtime would buy

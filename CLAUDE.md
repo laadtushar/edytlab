@@ -80,7 +80,7 @@ In a Linux cloud session (claude.ai/code) the checkout is a normal Linux path an
 Each guide in `docs/agents/` holds one area's design notes and rules. Read it before changing that area.
 
 - Running git, pnpm or cargo on the owner's Windows machine → `docs/agents/windows-local.md`
-- Touching a provider, the keychain, a provider slot, the slim tool set or the session block → `docs/agents/providers.md`
+- Touching a provider, the keychain, a provider slot (`agent_settings` owns them: one `save_provider_settings` write, one agent producer), the slim tool set or the session block → `docs/agents/providers.md`
 - Touching the ChatGPT plan provider or its sign-in → `docs/agents/chatgpt.md`
 - Touching transcription, diarization, stem separation, a model download or an ONNX Runtime session → `docs/agents/ml-models.md`
 - Touching which files import (decoders, M4A, Opus) → `docs/agents/formats.md`
