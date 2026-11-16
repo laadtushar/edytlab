@@ -3,7 +3,8 @@
  *
  * `GraphView` read the store on mount and again only when the app bumped
  * its `refreshKey`, which it did on `agent://node-created` and nothing
- * else. So an open graph went stale whenever the session changed some
+ * else (it is now the session's `graph` query, which `useSession` reads
+ * again when the graph may have changed). So an open graph went stale whenever the session changed some
  * other way:
  *
  * - `compact_session` deletes nodes and makes none, so the nodes it

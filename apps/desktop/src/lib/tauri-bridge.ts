@@ -48,9 +48,6 @@ export interface SessionState {
   length_samples: number;
 }
 
-export const openProject = (path: string): Promise<ProjectInfo> =>
-  invoke<ProjectInfo>("open_project", { path });
-
 export const sendMessage = (text: string, disabledTools?: string[]): Promise<void> =>
   invoke<void>("send_message", { text, disabledTools: disabledTools ?? [] });
 
@@ -843,9 +840,6 @@ export const prepareCompare = (a: NodeId, b: NodeId): Promise<PreparedCompare> =
 export const endCompare = (compareId: number): Promise<void> =>
   invoke<void>("end_compare", { compareId });
 
-export const acceptB = (b: NodeId): Promise<string> =>
-  invoke<string>("accept_b", { b });
-
 // -----------------------------------------------------------------------------
 // Events
 // -----------------------------------------------------------------------------
@@ -1050,26 +1044,6 @@ export const setSelectionContext = (
   range: { start_sec: number; end_sec: number } | null,
 ): Promise<void> => invoke("set_selection_context", { range });
 
-export const addMarker = (time: number, name: string): Promise<string> =>
-  invoke<string>("add_marker", { time, name });
-
-export const removeMarker = (id: string): Promise<string> =>
-  invoke<string>("remove_marker", { id });
-
-/**
- * Rename and/or move a label (#203 §1).
- *
- * One call rather than a rename and a move, so a drag-and-rename is one
- * undo step rather than two, and so a caller changing only the name does
- * not have to read the position back to leave it alone. Omitted fields
- * are left as they are; a change that changes nothing appends no node
- * and returns the head unchanged.
- */
-export const updateMarker = (
-  id: string,
-  patch: { name?: string; time?: number; start?: number; end?: number },
-): Promise<string> => invoke<string>("update_marker", { id, ...patch });
-
 // ---- Transcript IPC (#157) ----
 
 export interface TranscriptWord {
@@ -1110,14 +1084,6 @@ export interface Transcript {
  */
 export const getTranscript = (): Promise<Transcript> =>
   invoke<Transcript>("get_transcript");
-
-/** Cut `[fromWord, toWord)` and the audio underneath. Returns the new head. */
-export const cutTranscriptWords = (
-  track: number,
-  fromWord: number,
-  toWord: number,
-): Promise<string> =>
-  invoke<string>("cut_transcript_words", { track, fromWord, toWord });
 
 export const listMarkers = (): Promise<Marker[]> =>
   invoke<Marker[]>("list_markers");
@@ -1263,15 +1229,6 @@ export function isNoSession(err: unknown): boolean {
 // to the new head, so the caller refreshes with `listTracks` after.
 // The backend validates ranges too — these are not the only guard.
 
-export const setTrackGain = (track: number, gainDb: number): Promise<string> =>
-  invoke<string>("set_track_gain", { track, gainDb });
-
-export const setTrackPan = (track: number, pan: number): Promise<string> =>
-  invoke<string>("set_track_pan", { track, pan });
-
-export const setTrackMuted = (track: number, muted: boolean): Promise<string> =>
-  invoke<string>("set_track_muted", { track, muted });
-
 /**
  * Sync-lock: whether an edit that shifts time on one track shifts them
  * all (#170 §3).
@@ -1282,15 +1239,6 @@ export const setTrackMuted = (track: number, muted: boolean): Promise<string> =>
  */
 export const getSyncLock = (): Promise<boolean> =>
   invoke<boolean>("get_sync_lock");
-
-/** Resolves to the new head, or the unchanged one if nothing changed. */
-export const setSyncLock = (enabled: boolean): Promise<string> =>
-  invoke<string>("set_sync_lock", { enabled });
-
-export const setTrackSoloed = (
-  track: number,
-  soloed: boolean,
-): Promise<string> => invoke<string>("set_track_soloed", { track, soloed });
 
 /**
  * Track-head actions (#161). Each appends an ordinary session node and
@@ -1396,71 +1344,12 @@ export interface CopyReport {
   skipped_cache_files: number;
 }
 
-/**
- * Copy the open project to `dest` and continue in the copy — Save As in
- * the sense a DAW means it, with the original left as it was. The copy is
- * the project at the moment of the click, whatever the agent commits while
- * it is made (#571), without the caches (#576).
- */
-export const saveProjectAs = (dest: string): Promise<CopyReport> =>
-  invoke<CopyReport>("save_project_as", { dest });
-
 export const forgetRecentProject = (path: string): Promise<RecentProject[]> =>
   invoke<RecentProject[]>("forget_recent_project", { path });
-
-export const renameTrack = (track: number, name: string): Promise<string> =>
-  invoke<string>("rename_track", { track, name });
-
-export const removeTrack = (track: number): Promise<string> =>
-  invoke<string>("remove_track", { track });
-
-export const duplicateTrack = (track: number): Promise<string> =>
-  invoke<string>("duplicate_track", { track });
-
-/**
- * Replace a clip's volume automation curve. An empty array clears it.
- *
- * Points need not be sorted — the tool sorts, so dragging one past its
- * neighbour does not need the caller to reorder first.
- */
-/**
- * Move one clip to a new start, in seconds from the top of the
- * timeline. The other clips stay put — `time_shift` is the whole-track
- * version.
- *
- * Clips are re-sorted by start afterwards, so a clip dragged past its
- * neighbour comes back at a different index. Re-read `listTracks`
- * rather than reusing the index.
- */
-export const moveClip = (
-  track: number,
-  clip: number,
-  startSec: number,
-): Promise<string> =>
-  invoke<string>("move_clip", { track, clip, startSec });
-
-/** Remove one clip, leaving a silent gap where it was. */
-export const removeClip = (track: number, clip: number): Promise<string> =>
-  invoke<string>("remove_clip", { track, clip });
-
-export const setClipEnvelope = (
-  track: number,
-  clip: number,
-  points: EnvelopePoint[],
-): Promise<string> =>
-  invoke<string>("set_clip_envelope", { track, clip, points });
 
 // -----------------------------------------------------------------------------
 // DAG ops (M24): set head + rename node
 // -----------------------------------------------------------------------------
-
-/** Move the session head to `nodeId`. Returns the new head as hex. */
-export const setHeadTo = (nodeId: string): Promise<string> =>
-  invoke<string>("set_head_to", { nodeId });
-
-/** Set (or clear, when `label` is empty) a human-readable label on a node. */
-export const renameNode = (nodeId: string, label: string): Promise<void> =>
-  invoke<void>("rename_node", { nodeId, label });
 
 // -----------------------------------------------------------------------------
 // Capabilities
@@ -1503,9 +1392,6 @@ export interface BatchLoadResult {
   failures: { path: string; error: string }[];
 }
 
-export const batchLoad = (paths: string[]): Promise<BatchLoadResult> =>
-  invoke<BatchLoadResult>("batch_load", { paths });
-
 // -----------------------------------------------------------------------------
 // Templates (Task 8)
 // -----------------------------------------------------------------------------
@@ -1517,9 +1403,6 @@ export interface TemplateInfo {
 
 export const listTemplates = (): Promise<TemplateInfo[]> =>
   invoke<TemplateInfo[]>("list_templates");
-
-export const applyTemplate = (name: string): Promise<string> =>
-  invoke<string>("apply_template", { name });
 
 // -----------------------------------------------------------------------------
 // Microphone recording (Task 5)

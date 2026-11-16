@@ -1,73 +1,94 @@
 /**
- * useSession — owns head-node tracking and the session's line of edits.
+ * useSession: the one way the window changes the session, and the reads it
+ * shows (ADR 0001, #713).
  *
- * Responsibilities:
- *  - subscribes to `agent://node-created` so the head pointer follows
- *    every agent-produced edit without an explicit `getSessionHead`
- *    round-trip after each turn — and reads `getSessionHead` once at
- *    mount, for the head that was already there before any event.
- *  - exposes a `renderPreview` helper that resolves the latest node id
- *    to a temp WAV path via the bridge.
- *  - keeps the path the user took (undo trail and redo list, #398)
- *    beside the head, in one reducer (`lib/headTrail.ts`), so undo and
- *    redo follow the steps taken rather than the node's first parent.
- *  - saves that path with the project after every move (#453) and reads
- *    it back when the project opens, so it survives a restart. The save
- *    is not a turn in the line below and nothing waits for it
- *    (`lib/trailWriter.ts`).
- *  - forgets the steps a compaction deleted (#595): when the agent's
- *    `compact_session` ends, and whenever undo or redo is refused, it asks
- *    the store which nodes it still has (`forgetRemoved`), so undo is not
- *    pointed at one that is gone.
- *  - holds the one line every session-changing command goes through
- *    (`lib/sessionQueue.ts`, #498), so edits reach the backend, and their
- *    heads are adopted, in the order the user made them.
- *  - counts the moments the history graph has to be read again
- *    (`graphVersion`, #602): the one trigger the open graph follows, so it
- *    is not left to each caller to remember.
+ * Two operations change the session:
  *
- * It does not open projects. `App` does, as a turn in the line (it also
- * restores the view in the same turn), and tells the hook through
- * `resetHead`. A hook method that opened one in the line would deadlock
- * when called from inside a turn, and nothing needed it (#498).
+ *  - `edit(name, args, options)`: a command that returns a new head (a
+ *    track's gain, a marker, a template, a cut, a load). The head it
+ *    returns is adopted inside the same turn. The user's held lane controls
+ *    keep their claims until the track read after the edit has landed.
+ *  - `move(request)`: undo, redo, Set as head, Accept B, opening a project,
+ *    Save As, a punch-in's reconcile; and the assistant's own
+ *    `agent://node-created`, which the module hears itself. The session
+ *    moved by itself, so held controls are let go of, every read is made
+ *    again, and undo and redo skip steps a compaction removed (#595).
  *
- * Pure: the hook never mutates state during render. Track confirmation
- * follows observer adoption in a layout effect. The `useEffect` wiring the
- * `onNodeCreated` listener returns its async unlisten so React can
- * detach it on unmount; this avoids the duplicated-listener leak that
- * would otherwise happen under StrictMode's double-mount.
+ * Both are mutations in one TanStack Query scope, `'session'`, so they run
+ * one at a time in the order they were made (#498). An edit sent without
+ * this could overtake the one before it in the backend, or have its answer
+ * adopted out of order, which is a head that goes backwards. A turn that
+ * fails does not stop the ones behind it. The commands live in
+ * `lib/sessionCommands.ts`, which only this module imports.
+ *
+ * What an edit or a move changes is a table, not a handler's memory: each
+ * entry of `lib/sessionCommands.ts` names its `reads`, a turn first cancels
+ * the reads in flight that it can change (a read requested before a write
+ * must not land after it), and invalidates them when it settles, from that
+ * table. A turn is over when its command has been answered and its head
+ * adopted: the reads follow without holding up the next edit.
+ *
+ * A held lane control is a mutation's `variables` (`lib/heldControls.ts`):
+ * the edit's own while it is in the line, then a `confirm` mutation's,
+ * pending until the first track read asked for after the answer has landed,
+ * which is when the value goes back to the session (#596). The slider's
+ * input value before its commit is a draft kept here.
+ *
+ * The head, the path taken and the undo rule stay in the window (#568); they
+ * are `useSessionHead`, which only this hook imports. A click on a node in
+ * the graph is a preview and moves none of it (#522).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-
 import {
-  headTrailReducer,
-  initialHeadTrail,
-  readSavedTrail,
-  redoTarget,
-  undoTarget,
-  type HeadAction,
-  type SavedTrail,
-} from "../lib/headTrail";
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { createSessionQueue, type InSessionOrder } from "../lib/sessionQueue";
-import { createTrailWriter } from "../lib/trailWriter";
-import type { Claim, OwnedControls } from "../lib/ownedControls";
-import { useSessionTracks } from "./useSessionTracks";
-
+import type { SavedTrail } from "../lib/headTrail";
 import {
-  getGraph,
-  getHeadTrail,
-  getSessionHead,
+  overlay,
+  lastHeld,
+  holdKey,
+  trackKey,
+  type ControlName,
+  type ControlValue,
+  type Hold,
+} from "../lib/heldControls";
+import {
+  edits,
+  moves,
+  type Edit,
+  type EditAnswer,
+  type EditArgs,
+  type EditName,
+} from "../lib/sessionCommands";
+import {
+  EMPTY_TRACKS,
+  HEAD_READS,
+  PROJECT_READS,
+  READS,
+  readTracks,
+  type ReadName,
+} from "../lib/sessionReads";
+import {
+  getNode,
   onAgentDone,
+  onMarkerChanged,
   onNodeCreated,
   onToolCall,
   onToolCallEnd,
-  renderPreview as bridgeRenderPreview,
-  saveHeadTrail,
+  type CopyReport,
   type NodeId,
+  type ProjectInfo,
   type TrackSummary,
 } from "../lib/tauri-bridge";
+import { useSessionHead } from "./useSessionHead";
+
+export type { EditArgs, EditName };
 
 /**
  * The agent's tool that deletes history (`crates/tools/src/tool/compact.rs`).
@@ -76,313 +97,516 @@ import {
  */
 const COMPACT_TOOL = "compact_session";
 
+const WRITE_KEY = ["session", "write"] as const;
+/** The wait for the read that confirms an edit's held control. */
+const CONFIRM_KEY = ["session", "confirm"] as const;
+/** Matches both: every mutation that can hold a control. */
+const HOLDING_KEY = ["session"] as const;
+
+/** The session moved by itself; see `move`. */
+export type MoveRequest =
+  | { kind: "undo" }
+  | { kind: "redo" }
+  /** "Set as head" in the graph. */
+  | { kind: "setHead"; node: NodeId }
+  /** A/B compare's Accept B. */
+  | { kind: "acceptB"; b: NodeId }
+  /**
+   * Open a project. `restore` runs in the turn, after the project is open
+   * and before the head is reset: it puts the view back and answers the
+   * path the project was saved with (`getHeadTrail`).
+   */
+  | {
+      kind: "open";
+      path: string;
+      restore: (info: ProjectInfo) => Promise<SavedTrail | null>;
+    }
+  /** Copy the project and carry on in the copy; `adopted` runs in the turn. */
+  | { kind: "saveAs"; dest: string; adopted?: () => void }
+  /**
+   * A command that was applied outside the line (a punch-in) has landed:
+   * read the head it left. Held controls are let go of only while
+   * `isCurrent()` still holds (the project is the one it was asked in).
+   */
+  | { kind: "reconcile"; isCurrent: () => boolean };
+
+export type MoveAnswer<M extends MoveRequest> = M extends { kind: "undo" | "redo" }
+  ? boolean
+  : M extends { kind: "setHead" }
+    ? void
+    : M extends { kind: "acceptB" }
+      ? NodeId
+      : M extends { kind: "open" }
+        ? ProjectInfo
+        : M extends { kind: "saveAs" }
+          ? CopyReport
+          : NodeId | null;
+
+/** What a lane control the user sets is held as: the track's position and the control. */
+export interface HeldInput {
+  index: number;
+  control: ControlName;
+  value: ControlValue;
+}
+
+export interface EditOptions {
+  /**
+   * The lane control this edit commits. It is the user's until the track
+   * read after the edit has landed.
+   */
+  hold?: HeldInput;
+}
+
 /**
- * The node ids in a `get_graph` answer, or `null` for an answer that is
- * not one (a mock that does not know the command): nothing can be said to
- * be gone from that.
+ * A turn in the session's scope: what `mutate` is given, and what held
+ * controls read. `seq` orders holds across turns and confirmations: for one
+ * control the newest wins.
  */
-function graphNodeIds(raw: unknown): Set<NodeId> | null {
-  const nodes = (raw as { nodes?: unknown } | null | undefined)?.nodes;
-  if (!Array.isArray(nodes)) return null;
-  const ids = new Set<NodeId>();
-  for (const n of nodes) {
-    const id = (n as { id?: unknown } | null)?.id;
-    if (typeof id === "string") ids.add(id);
-  }
-  return ids;
+type Turn =
+  | { type: "edit"; name: EditName; args: unknown[]; hold?: Hold; epoch: number; seq: number }
+  | { type: "move"; request: MoveRequest; epoch: number; seq: number }
+  | { type: "forget"; epoch: number; seq: number };
+
+/**
+ * Waiting, outside the line, for the first track read asked for after an
+ * edit was answered. The edit's control is the user's until it has landed.
+ */
+interface Confirm {
+  type: "confirm";
+  hold: Hold;
+  epoch: number;
+  seq: number;
+  /** `dataUpdateCount` of the track query when the read was asked for. */
+  after: number;
+}
+
+/** What a turn answers, and whether it moved the session. */
+interface Outcome {
+  answer: unknown;
+  /** Let go of every held control (the session moved by itself). */
+  release: boolean;
+}
+
+export interface UseSessionOptions {
+  /**
+   * A track read that failed after a turn. The turn itself is not failed by
+   * it: the command was answered, and the read is a separate matter.
+   */
+  onReadError?: (error: unknown) => void;
 }
 
 export interface UseSessionResult {
+  /**
+   * The track list as the lanes draw it: the session's own, with the
+   * controls the user holds laid over it (#596).
+   */
   tracks: TrackSummary[];
-  /** Explicitly read the current backend project's tracks. */
-  refreshTracks: () => Promise<void>;
-  /** Latest known head node id: read once at mount (a returning user's
-   * restored head), then kept current off the event stream. */
+  /**
+   * The session's own track list, with nothing held over it: what the
+   * session holds as of the last read, which a commit compares against.
+   */
+  sessionTracks: TrackSummary[];
+  /**
+   * A number that goes up whenever the session changed under whatever the
+   * window had rendered of it: an edit adopted a head, the assistant made a
+   * node, a project opened, a punch landed. What a render was made at is
+   * compared with it, so a mix rendered before one of these is not the
+   * session's mix any more, with no handler left to clear it (ADR 0001).
+   * Undo, redo, Set as head and Accept B do not count: the mix of the node
+   * they leave is still that node's, and `mixIsStale` says it is not the
+   * one shown.
+   */
+  edition: number;
+  /** Latest known head node id: read once at mount, then kept current. */
   head: NodeId | null;
   /** Render the latest head node to a temp WAV. Throws if no head. */
   renderHead: () => Promise<string>;
   /**
-   * The head moved on: an edit, an agent step, a click in the graph, an
-   * A/B accept. The head it leaves goes on the undo trail and the redo
-   * list is dropped, because this starts a new branch. Moving to the
-   * head it already has changes nothing.
-   *
-   * This only changes the frontend's idea of the head; commands that
-   * made the move on the backend have already done so. A click on a node
-   * in the graph is not one: it is a preview, kept apart from the head
-   * (`useGraphPreview`, #522), because the store did not move and the
-   * saved path must end where the store does. Every head move in the
-   * frontend must come through here (or `resetHead`): a head moved any
-   * other way is one undo does not know about (`lib/headTrail.ts`).
-   */
-  setHeadLocal: (nodeId: NodeId) => void;
-  /** Read the current head unless another head move wins while reading. */
-  reconcileHead: () => Promise<NodeId | null>;
-  /**
-   * A different project is open: its head replaces this one's and none of
-   * the old path applies. `null` is a project with nothing in it yet.
-   *
-   * `saved` is the path that project was saved with (`getHeadTrail`). It
-   * is used if it ends at `nodeId`, and ignored if it ends anywhere else:
-   * then it is not the path to this head, and undo falls back to the
-   * node's parent (#453).
-   */
-  resetHead: (nodeId: NodeId | null, saved?: SavedTrail | null) => void;
-  /**
    * The heads the user has been on this session, oldest first, not
-   * including `head`. Undo goes to its last entry: the node's stored
-   * parent is the wrong answer once an edit has returned to a state
-   * reached before (see `lib/headTrail.ts`).
+   * including `head`: the path drawn over the history graph.
    */
   trail: readonly NodeId[];
   /**
-   * Where undo would go, read from the latest state rather than the
-   * latest render. A key pressed right after an edit can reach a handler
-   * that closed over the render before it; this cannot be stale. `null`
-   * when there is no head. `to` is `null` when the trail is spent: the
-   * caller then asks the node for its parent.
+   * Send a command that changes the session and adopt the head it returns,
+   * as one turn in the session's line. Resolves with the command's answer
+   * once the turn is over; rejects when the command does, and the edits
+   * behind it still run.
    */
-  peekUndo: () => { from: NodeId; to: NodeId | null } | null;
-  /** Where redo would go, read the same way; `null` when there is nothing to redo. */
-  peekRedo: () => { from: NodeId; to: NodeId } | null;
-  /** Undo moved the backend from `from` to `to`: pop the trail, keep `from` for redo. */
-  stepBack: (from: NodeId, to: NodeId) => void;
-  /** Redo moved the backend from `from` to `to`: `from` goes back on the trail. */
-  stepForward: (from: NodeId, to: NodeId) => void;
+  edit: <K extends EditName>(
+    name: K,
+    args: EditArgs<K>,
+    options?: EditOptions,
+  ) => Promise<EditAnswer<K>>;
   /**
-   * Drop from the path every entry naming a node the store no longer has,
-   * and save what is left (#595). A compaction deletes history, and the
-   * path can name what it deleted: the redo list, and a step that returned
-   * to an earlier state (mute, then unmute, leaves the mute off the head's
-   * chain). Undo pointed at one would be refused on every press.
-   *
-   * Asks the store for its nodes (`get_graph`) and resolves to the ids it
-   * dropped: none when the path names no missing node, or when the store
-   * cannot answer. It never rejects. It is not a turn in the session's line
-   * and queues nothing, so undo and redo call it from inside theirs, after
-   * a refusal; the hook runs it in the line itself when `compact_session`
-   * ends.
+   * Move the session: one turn in the line, read when it is its turn. A
+   * move that happened releases the user's held controls and reads again
+   * what it changed. Rejects when the command is refused.
    */
-  forgetRemoved: () => Promise<NodeId[]>;
+  move: <M extends MoveRequest>(request: M) => Promise<MoveAnswer<M>>;
+  /** The user is moving a lane control: it is theirs until the session confirms it. */
+  holdInput: (input: HeldInput) => void;
   /**
-   * A number that goes up whenever what the history graph draws may have
-   * changed, and only then (#602): hand it to `GraphView` as `refreshKey`
-   * and the open graph is read again, once. It goes up when
-   *
-   * - the head moves: an edit, undo, redo, "Set as head", an agent step,
-   *   and a project opening, which counts even if its head is the one the
-   *   last had;
-   * - the agent's turn ends, because `name_node` sets a label and moves
-   *   nothing (#601), so no node is created for anything to hear of;
-   * - `forgetRemoved` runs, because it runs when nodes may be gone. That
-   *   is when the agent's `compact_session` ends (it makes no node
-   *   either), and when the store refuses an undo or redo.
-   *
-   * A click on a node in the graph is a preview and moves none of these
-   * (#522), so it does not read the graph again.
+   * A release, key-up or blur whose value needed no commit: it is what the
+   * session holds, or what a commit already on its way will leave it with.
    */
-  graphVersion: number;
+  dropInput: (index: number, control: ControlName) => void;
   /**
-   * Run a command that changes the session or moves the head once every
-   * one queued before it has finished (#498). The command's whole turn
-   * goes in: the call, and adopting the head it returns. An edit sent
-   * without this can overtake the one before it in the backend, or have
-   * its answer adopted out of order, which is a head that goes backwards.
-   * A turn that fails does not stop the ones behind it.
+   * The last value an edit sent for a control that has not been confirmed:
+   * what the session will hold once the commits in line are applied.
    */
-  inOrder: InSessionOrder;
+  sentValue: (index: number, control: ControlName) => ControlValue | undefined;
 }
 
-export interface UseSessionWithTrackControlsResult extends UseSessionResult {
-  refreshTracks: (claim?: Claim) => Promise<void>;
-}
+export function useSession(options: UseSessionOptions = {}): UseSessionResult {
+  const client = useQueryClient();
+  const sessionHead = useSessionHead();
+  const { head, renderHead, trail, setHeadLocal, resetHead, reconcileHead } = sessionHead;
+  const { peekUndo, peekRedo, stepBack, stepForward, forgetRemoved: forget } = sessionHead;
 
-export function useSession(): UseSessionResult;
-export function useSession(options: {
-  trackControls: OwnedControls;
-}): UseSessionWithTrackControlsResult;
-export function useSession(options?: {
-  trackControls: OwnedControls;
-}): UseSessionWithTrackControlsResult {
-  const { tracks, refreshTracks, resetTracks } = useSessionTracks(options?.trackControls);
-  // The head, the undo trail and the redo list, in one reducer. Held in a
-  // ref as well as in state: undo and redo read it through `peekUndo` /
-  // `peekRedo`, which must see a move made a moment ago even if React has
-  // not rendered it yet (a key pressed right after an edit).
-  const historyRef = useRef(initialHeadTrail);
-  // A trail-only restore/drop is not a new head, but even an identical-head
-  // reset is a different project and must invalidate an in-flight read.
-  const headRevisionRef = useRef(0);
-  const [history, setHistory] = useState(initialHeadTrail);
-  const { head, trail } = history;
-  // One per mounted session, made once: the line is state, so it must not
-  // be rebuilt by a render.
-  const [queue] = useState(createSessionQueue);
-  // The one trigger for reading the history graph again. A render with
-  // more than one cause for it (a head move and a turn ending together)
-  // reads the graph once, because `GraphView` sees only the number.
-  const [graphVersion, setGraphVersion] = useState(0);
-  const graphChanged = useCallback(() => setGraphVersion((n) => n + 1), []);
-  // Saves the path with the project, outside the line above: no edit waits
-  // for the disk. `send` reads the bridge when it runs, not now.
-  const [writer] = useState(() => createTrailWriter((path) => saveHeadTrail(path)));
-  const dispatchHead = useCallback(
-    (action: HeadAction) => {
-      const before = historyRef.current;
-      const next = headTrailReducer(before, action);
-      // Every head move comes through here, so this is the one place the
-      // graph hears of them (#602). A project opening is one even when it
-      // is on the same head: the nodes behind it are another project's.
-      if (next.head !== before.head || action.type === "reset") {
-        headRevisionRef.current += 1;
-        graphChanged();
-      }
-      if (next === before) return;
-      historyRef.current = next;
-      setHistory(next);
-      // The path is saved when the user's steps change it. Not when it is
-      // only being read (`fill`, `restore`): that is what is already
-      // saved. And a different project drops what was waiting to be saved
-      // for the old one.
-      switch (action.type) {
-        case "advance":
-        case "stepBack":
-        case "stepForward":
-        case "drop":
-          if (next.head !== null) writer.save(next);
-          break;
-        case "reset":
-          writer.forget();
-          break;
-        default:
-          break;
-      }
-    },
-    [writer, graphChanged],
-  );
-
-  // Subscribe to node-created so the head pointer follows the agent's
-  // edits. Cleanup detaches the listener — important under StrictMode.
-  //
-  // And read the head once, at mount. The subscription only reports
-  // *changes*; a head that was already there when the app started —
-  // every returning user's, since the backend reopens the project and
-  // restores `HEAD` from disk — never arrives as an event. So a returning
-  // user had no head at all, and "preview" silently did nothing (#332).
-  //
-  // The event wins a race: if an edit lands before this read resolves,
-  // its head is newer than the one read, so the read only fills a head
-  // that is still unknown. A rejection leaves it unknown, which is what a
-  // fresh project's `NoSession` means and what the boot `listTracks`
-  // does with a failure too.
-  //
-  // And the path saved with the project, read with it (#453). It applies
-  // only to the head it ends at, so it is used once that head is known,
-  // and only if no edit has made a path of its own meanwhile. A project
-  // with no saved path, a corrupt one and a backend that cannot answer
-  // all read as no path: undo then falls back to the node's parent.
+  const onReadErrorRef = useRef(options.onReadError);
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    onNodeCreated((nodeId) => {
-      dispatchHead({ type: "advance", head: nodeId });
-    })
-      .then((fn) => {
-        if (cancelled) {
-          fn();
+    onReadErrorRef.current = options.onReadError;
+  }, [options.onReadError]);
+
+  // ---- reads --------------------------------------------------------------
+
+  // Fresh `TrackSummary` and `clips` references on every adopted read, even
+  // for identical data. Consumers re-sync on the identity of the list and of
+  // each track's `clips` (App's lane memo, Timeline's lane state, ClipStrip
+  // and AutomationLane drafts): a refused edit followed by an identical read
+  // must still hand back new references, or a dragged chip stays where it was
+  // dropped while the session holds the old position.
+  const { data: sessionTracks = EMPTY_TRACKS } = useQuery({
+    queryKey: READS.tracks,
+    queryFn: readTracks,
+    structuralSharing: false,
+  });
+  const tracksRef = useRef<TrackSummary[]>(sessionTracks);
+  useEffect(() => {
+    tracksRef.current = sessionTracks;
+  }, [sessionTracks]);
+
+  /**
+   * Ask again for the reads a turn can change: the table's answer, at the
+   * turn's end. Not awaited by the turn, so the next one is not held up; the
+   * track read's failure is reported, and `confirm` waits for its success.
+   */
+  const settle = useCallback(
+    (reads: readonly ReadName[]): void => {
+      for (const name of reads) {
+        // A read in flight that has no data yet is shared by `invalidate`
+        // and not asked for again, so it is cancelled first: whatever it
+        // is about to answer was asked for before the change.
+        void client.cancelQueries({ queryKey: READS[name] });
+        if (name === "tracks") {
+          const before = client.getQueryState(READS.tracks)?.errorUpdateCount ?? 0;
+          void client.invalidateQueries({ queryKey: READS.tracks }).then(() => {
+            const state = client.getQueryState(READS.tracks);
+            if (state?.status === "error" && state.errorUpdateCount > before) {
+              onReadErrorRef.current?.(state.error);
+            }
+          });
         } else {
-          unlisten = fn;
+          void client.invalidateQueries({ queryKey: READS[name] });
         }
-      })
-      .catch(() => undefined);
-    const saved = Promise.resolve()
-      .then(() => getHeadTrail())
-      .then(readSavedTrail, () => null);
-    getSessionHead()
-      .then(async (restored) => {
-        if (cancelled) return;
-        dispatchHead({ type: "fill", head: restored });
-        const path = await saved;
-        if (!cancelled && path) dispatchHead({ type: "restore", saved: path });
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [dispatchHead]);
-
-  const renderHead = useCallback(async (): Promise<string> => {
-    if (!head) {
-      throw new Error("no node to render");
-    }
-    return bridgeRenderPreview(head);
-  }, [head]);
-
-  const setHeadLocal = useCallback(
-    (nodeId: NodeId) => dispatchHead({ type: "advance", head: nodeId }),
-    [dispatchHead],
-  );
-  const reconcileHead = useCallback(async (): Promise<NodeId | null> => {
-    const revision = headRevisionRef.current;
-    const current = await getSessionHead();
-    // Agent events and project resets can win while the IPC read is in flight.
-    if (headRevisionRef.current !== revision) return null;
-    dispatchHead({ type: "advance", head: current });
-    return current;
-  }, [dispatchHead]);
-  const resetHead = useCallback(
-    (nodeId: NodeId | null, saved?: SavedTrail | null) => {
-      resetTracks();
-      dispatchHead({ type: "reset", head: nodeId, saved });
+      }
     },
-    [dispatchHead, resetTracks],
+    [client],
   );
-  const stepBack = useCallback(
-    (from: NodeId, to: NodeId) => dispatchHead({ type: "stepBack", from, to }),
-    [dispatchHead],
+
+  // ---- held controls ------------------------------------------------------
+
+  // Bumped when the session moves by itself: a hold made before it is no
+  // longer held, whatever turn it belongs to.
+  const epochRef = useRef(0);
+  const seqRef = useRef(0);
+  const [epoch, setEpoch] = useState(0);
+  const [edition, setEdition] = useState(0);
+  const newEdition = useCallback(() => setEdition((n) => n + 1), []);
+  // The input values of sliders being dragged, not yet committed. Read at
+  // render, so a list that arrives meanwhile cannot overwrite them; setting
+  // one draws nothing, because the slider already shows its own value.
+  const draftsRef = useRef(new Map<string, Hold>());
+  const [draftVersion, bumpDrafts] = useState(0);
+  const holdOf = useCallback((input: HeldInput): Hold | null => {
+    const track = trackKey(tracksRef.current, input.index);
+    return track === null ? null : { track, control: input.control, value: input.value };
+  }, []);
+
+  const release = useCallback(() => {
+    epochRef.current += 1;
+    draftsRef.current.clear();
+    setEpoch(epochRef.current);
+    bumpDrafts((n) => n + 1);
+  }, []);
+
+  const pending = useMutationState({
+    filters: { mutationKey: HOLDING_KEY, status: "pending" },
+    select: (mutation) => mutation.state.variables as Turn | Confirm | undefined,
+  });
+
+  /** The holds of the edits not yet confirmed, oldest first. */
+  const sentHolds = useMemo(() => sentHoldsOf(pending, epoch), [pending, epoch]);
+  const tracks = useMemo(
+    () => {
+      const drawn = overlay(sessionTracks, [...sentHolds, ...draftsRef.current.values()]);
+      // A control handed back is a new list, even when it draws what the
+      // session's own list does: the timeline copies what it is handed into
+      // its lanes, and must go back to the session's value.
+      return drawn === sessionTracks ? [...sessionTracks] : drawn;
+    },
+    // `draftVersion` says a draft was let go of; the drafts are read from the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionTracks, sentHolds, draftVersion],
   );
-  const stepForward = useCallback(
-    (from: NodeId, to: NodeId) => dispatchHead({ type: "stepForward", from, to }),
-    [dispatchHead],
+
+  const holdInput = useCallback(
+    (input: HeldInput) => {
+      const hold = holdOf(input);
+      if (hold) draftsRef.current.set(holdKey(hold), hold);
+    },
+    [holdOf],
   );
-  const forget = useCallback(async (): Promise<NodeId[]> => {
-    // What the path names now. A node an edit adds while the store is being
-    // read is not among them, so it cannot be taken for one that is gone.
-    const { trail: path, redo } = historyRef.current;
-    const named = new Set([...path, ...redo]);
-    if (named.size === 0) return [];
-    let held: Set<NodeId> | null;
-    try {
-      held = graphNodeIds(await getGraph());
-    } catch {
-      return [];
+  const dropInput = useCallback((index: number, control: ControlName) => {
+    const track = trackKey(tracksRef.current, index);
+    if (track === null) return;
+    if (draftsRef.current.delete(holdKey({ track, control }))) {
+      bumpDrafts((n) => n + 1);
     }
-    // A list without the head is not the store this path is in (another
-    // project opened meanwhile), and says nothing about it.
-    const head = historyRef.current.head;
-    if (held === null || head === null || !held.has(head)) return [];
-    const gone = [...named].filter((id) => !held.has(id));
-    if (gone.length > 0) dispatchHead({ type: "drop", nodes: gone });
-    return gone;
-  }, [dispatchHead]);
-  const forgetRemoved = useCallback(async (): Promise<NodeId[]> => {
+  }, []);
+  const sentValue = useCallback(
+    (index: number, control: ControlName): ControlValue | undefined => {
+      const track = trackKey(tracksRef.current, index);
+      if (track === null) return undefined;
+      const holds = sentHoldsOf(
+        client
+          .getMutationCache()
+          .findAll({ mutationKey: HOLDING_KEY, status: "pending" })
+          .map((m) => m.state.variables as Turn | Confirm | undefined),
+        epochRef.current,
+      );
+      return lastHeld(holds, track, control);
+    },
+    [client],
+  );
+
+  // ---- the turns ----------------------------------------------------------
+
+  // What the history graph draws may have changed whenever the store may
+  // have lost nodes (#602).
+  const forgetAndShow = useCallback(async (): Promise<NodeId[]> => {
     try {
       return await forget();
     } finally {
-      // It runs when nodes may be gone, whatever the path named and
-      // however the store answered, and the graph is drawn from the store
-      // and not from the path (#602). After the read, not before: the
-      // graph is then read from a store that is settled.
-      graphChanged();
+      // After the read, not before: the graph is then read from a store that
+      // is settled.
+      void client.invalidateQueries({ queryKey: READS.graph });
     }
-  }, [forget, graphChanged]);
+  }, [forget, client]);
 
-  // When the agent's compaction ends, forget what it deleted, in the line:
-  // an undo pressed meanwhile waits for it, so it is never sent to a node
-  // that is gone. A dry run deletes nothing, and the store then answers
-  // with every node the path names. `forgetRemoved` also says the graph is
-  // to be read again, so a compaction needs nothing more for the view.
+  const moveSession = useCallback(
+    async (request: MoveRequest): Promise<Outcome> => {
+      switch (request.kind) {
+        case "undo":
+          // A step to a node the store no longer has is dropped and the
+          // next one tried (#595). A pass that goes round again has taken
+          // the step it tried off the path, so this ends.
+          for (;;) {
+            // Where the user came from, read from the latest state and not
+            // from this render: a key pressed right after an edit must not
+            // undo to where the render before it was (#398). It is read
+            // when it is the turn's turn (#498): the head to leave is the
+            // one the edit before it made.
+            const step = peekUndo();
+            if (!step) return { answer: false, release: false };
+            // The node's stored parent is right only while no edit has
+            // returned to an earlier state, so it is asked for only when
+            // the trail has nothing left.
+            const to = step.to ?? (await getNode(step.from)).parent;
+            if (!to) return { answer: false, release: false };
+            try {
+              await moves.setHeadTo(to);
+            } catch (err) {
+              // Refused. If the node is gone, the path has now forgotten it:
+              // try the next step. Whether it is gone is asked of the
+              // store's nodes, not read from the error's text. A stored
+              // parent that is gone is not on the path, so forgetting cannot
+              // take it away, and it is an error like any other.
+              if (step.to !== null && (await forgetAndShow()).includes(to)) continue;
+              throw err;
+            }
+            stepBack(step.from, to);
+            return { answer: true, release: true };
+          }
+        case "redo":
+          // A removed step is skipped, as undo skips one (#595).
+          for (;;) {
+            const step = peekRedo();
+            if (!step) return { answer: false, release: false };
+            try {
+              await moves.setHeadTo(step.to);
+            } catch (err) {
+              if ((await forgetAndShow()).includes(step.to)) continue;
+              throw err;
+            }
+            stepForward(step.from, step.to);
+            return { answer: true, release: true };
+          }
+        case "setHead":
+          await moves.setHeadTo(request.node);
+          setHeadLocal(request.node);
+          return { answer: undefined, release: true };
+        case "acceptB": {
+          const accepted = await moves.acceptB(request.b);
+          setHeadLocal(accepted);
+          return { answer: accepted, release: true };
+        }
+        case "open": {
+          const info = await moves.openProject(request.path);
+          const saved = await request.restore(info);
+          // Always, including `null`: the project just opened has its own
+          // head and its own history, and neither the old project's head
+          // nor the path taken through it may carry over (#398).
+          resetHead(info.head ?? null, saved);
+          newEdition();
+          return { answer: info, release: true };
+        }
+        case "saveAs": {
+          const report = await moves.saveProjectAs(request.dest);
+          request.adopted?.();
+          return { answer: report, release: true };
+        }
+        case "reconcile": {
+          // The response may arrive after a later edit or project switch.
+          // The head is read inside the line; a head read that fails or
+          // names a newer one is not adopted over it.
+          const current = await reconcileHead();
+          if (current !== null) newEdition();
+          return { answer: current, release: current !== null && request.isCurrent() };
+        }
+      }
+    },
+    [
+      peekUndo,
+      peekRedo,
+      stepBack,
+      stepForward,
+      setHeadLocal,
+      resetHead,
+      reconcileHead,
+      forgetAndShow,
+      newEdition,
+    ],
+  );
+
+  const runTurn = useCallback(
+    async (turn: Turn): Promise<Outcome> => {
+      // A read requested before a write must not land after it. What a turn
+      // can change is asked for again when it settles (`settle`), so a read
+      // that is overtaken here is not needed.
+      for (const name of readsOf(turn)) {
+        await client.cancelQueries({ queryKey: READS[name] });
+      }
+      switch (turn.type) {
+        case "edit": {
+          const spec = edits[turn.name] as unknown as Edit<unknown[], unknown>;
+          const answer = await spec.run(...turn.args);
+          const adopted = spec.head(answer);
+          if (adopted) {
+            setHeadLocal(adopted);
+            newEdition();
+          }
+          return { answer, release: false };
+        }
+        case "move":
+          return moveSession(turn.request);
+        case "forget":
+          await forgetAndShow();
+          return { answer: undefined, release: false };
+      }
+    },
+    [client, moveSession, setHeadLocal, forgetAndShow, newEdition],
+  );
+
+  // What `useMutation` runs is fixed when a turn is made; these are read when
+  // it runs, so a turn made a moment ago still sees the latest handlers.
+  const turnRef = useRef({ runTurn, release, settle });
+  useEffect(() => {
+    turnRef.current = { runTurn, release, settle };
+  }, [runTurn, release, settle]);
+
+  const { mutateAsync: confirm } = useMutation<void, unknown, Confirm>({
+    mutationKey: CONFIRM_KEY,
+    mutationFn: ({ after }) => nextTrackRead(client, after),
+  });
+
+  const { mutate, mutateAsync } = useMutation<Outcome, unknown, Turn>({
+    mutationKey: WRITE_KEY,
+    scope: { id: "session" },
+    mutationFn: (turn) => turnRef.current.runTurn(turn),
+    // Settled, not succeeded: a turn the session refused is read back too,
+    // so the control goes back to the session's value (#596), and a read
+    // after an error is how the window learns where the session is. The
+    // turn does not wait for it: the next edit goes out at once, and the
+    // read confirms the control when it lands.
+    onSettled: (outcome, _error, turn) => {
+      const { release: letGo, settle: ask } = turnRef.current;
+      if (outcome?.release) letGo();
+      const after = client.getQueryState(READS.tracks)?.dataUpdateCount ?? 0;
+      ask(readsOf(turn));
+      if (turn.type === "edit" && turn.hold) {
+        const { hold, epoch: held, seq } = turn;
+        confirm({ type: "confirm", hold, epoch: held, seq, after }).catch(() => undefined);
+      }
+    },
+  });
+
+  const edit = useCallback(
+    <K extends EditName>(
+      name: K,
+      args: EditArgs<K>,
+      editOptions?: EditOptions,
+    ): Promise<EditAnswer<K>> => {
+      const hold = editOptions?.hold ? holdOf(editOptions.hold) : null;
+      if (hold) draftsRef.current.delete(holdKey(hold));
+      return mutateAsync({
+        type: "edit",
+        name,
+        args,
+        hold: hold ?? undefined,
+        epoch: epochRef.current,
+        seq: ++seqRef.current,
+      }).then((outcome) => outcome.answer as EditAnswer<K>);
+    },
+    [mutateAsync, holdOf],
+  );
+  const move = useCallback(
+    <M extends MoveRequest>(request: M): Promise<MoveAnswer<M>> =>
+      mutateAsync({
+        type: "move",
+        request,
+        epoch: epochRef.current,
+        seq: ++seqRef.current,
+      }).then((outcome) => outcome.answer as MoveAnswer<M>),
+    [mutateAsync],
+  );
+
+  // ---- what the session does by itself --------------------------------------
+
+  // A node the assistant created moved the session by itself, as an undo
+  // does: what the user had set on a lane belongs to where it was (#596), and
+  // every read is made again. Not a turn in the line: the assistant's work
+  // is one command that lasts as long as the model does, reported through
+  // events, and a line that waited for it would hold up every edit. Edits
+  // during its turn stay allowed (the backend's store lock orders them). The
+  // head follows the same event in `useSessionHead`.
+  //
+  // And when its compaction ends, forget what it deleted, in the line: an
+  // undo pressed meanwhile waits for it, so it is never sent to a node that
+  // is gone. A dry run deletes nothing, and the store then answers with every
+  // node the path names. A turn's end is the word on a label the agent set:
+  // `name_node` moves no head and makes no node (#601), so nothing else
+  // announces it (#602).
   useEffect(() => {
     let cancelled = false;
     const unlisten: (() => void)[] = [];
@@ -396,6 +620,13 @@ export function useSession(options?: {
     };
     const compactions = new Set<string>();
     keep(
+      onNodeCreated(() => {
+        turnRef.current.release();
+        newEdition();
+        turnRef.current.settle(HEAD_READS);
+      }),
+    );
+    keep(
       onToolCall((name, id) => {
         if (name === COMPACT_TOOL) compactions.add(id);
       }),
@@ -403,44 +634,79 @@ export function useSession(options?: {
     keep(
       onToolCallEnd((id, ok) => {
         if (!compactions.delete(id) || !ok) return;
-        void queue.run(forgetRemoved);
+        // `forgetRemoved` never rejects, and `mutate` reports nothing of it.
+        mutate({ type: "forget", epoch: epochRef.current, seq: ++seqRef.current });
       }),
     );
-    // A turn's end is the word on a label the agent set: `name_node` moves
-    // no head and makes no node (#601), so nothing else announces it (#602).
-    keep(onAgentDone(graphChanged));
+    keep(onAgentDone(() => void client.invalidateQueries({ queryKey: READS.graph })));
+    keep(onMarkerChanged(() => void client.invalidateQueries({ queryKey: READS.markers })));
     return () => {
       cancelled = true;
       for (const fn of unlisten) fn();
     };
-  }, [queue, forgetRemoved, graphChanged]);
-
-  const peekUndo = useCallback(() => {
-    const { head: from, trail: path } = historyRef.current;
-    return from === null ? null : { from, to: undoTarget(path, from, null) };
-  }, []);
-  const peekRedo = useCallback(() => {
-    const { head: from, redo } = historyRef.current;
-    if (from === null) return null;
-    const to = redoTarget(redo, from);
-    return to === null ? null : { from, to };
-  }, []);
+  }, [client, mutate, newEdition]);
 
   return {
     tracks,
-    refreshTracks,
+    sessionTracks,
+    edition,
     head,
     renderHead,
-    setHeadLocal,
-    reconcileHead,
-    resetHead,
     trail,
-    peekUndo,
-    peekRedo,
-    stepBack,
-    stepForward,
-    forgetRemoved,
-    graphVersion,
-    inOrder: queue.run,
+    edit,
+    move,
+    holdInput,
+    dropInput,
+    sentValue,
   };
+}
+
+/** The reads a turn can change: the table's answer for it. */
+function readsOf(turn: Turn): readonly ReadName[] {
+  switch (turn.type) {
+    case "edit":
+      return edits[turn.name].reads;
+    case "forget":
+      return [];
+    case "move":
+      // A different project's reads are none of the last one's.
+      return turn.request.kind === "open" || turn.request.kind === "saveAs"
+        ? PROJECT_READS
+        : HEAD_READS;
+  }
+}
+
+/**
+ * The holds of the turns and confirmations still pending, oldest first, that
+ * were made since the session last moved by itself (`epoch`).
+ */
+function sentHoldsOf(pending: readonly (Turn | Confirm | undefined)[], epoch: number): Hold[] {
+  return pending
+    .flatMap((turn) =>
+      (turn?.type === "edit" || turn?.type === "confirm") && turn.hold && turn.epoch === epoch
+        ? [turn]
+        : [],
+    )
+    .sort((a, b) => a.seq - b.seq)
+    .map((turn) => turn.hold as Hold);
+}
+
+/**
+ * Resolves when a track read asked for after `after` successes ago has
+ * landed in the cache. A read that failed, or was overtaken before it
+ * landed, confirms nothing: the control stays the user's until one does.
+ */
+function nextTrackRead(client: QueryClient, after: number): Promise<void> {
+  const landed = () => {
+    const state = client.getQueryState(READS.tracks);
+    return state?.status === "success" && state.dataUpdateCount > after;
+  };
+  if (landed()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = client.getQueryCache().subscribe(() => {
+      if (!landed()) return;
+      unsubscribe();
+      resolve();
+    });
+  });
 }

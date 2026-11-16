@@ -7,7 +7,7 @@
  * adopt whatever came back, so two fader moves could apply the wrong way
  * round (the older value landed last, and the refresh showed it) and two
  * replies could cross (the head went to a node older than the one it was
- * on, which `applyNewHead` treats as lost work).
+ * on, which `useSession` treats as lost work).
  *
  * The real `App` runs here with only the IPC boundary replaced, by a
  * backend that holds each edit's answer until the test releases it

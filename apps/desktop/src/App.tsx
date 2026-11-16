@@ -13,39 +13,10 @@
  * a one-click recovery path.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type {
-  EnvelopePoint,
-  RenderWarning,
-  TrackSummary,
-  Transcript,
-} from "./lib/tauri-bridge";
-import {
-  acceptB as bridgeAcceptB,
-  addMarker,
-  getNode,
-  getTranscript,
-  cutTranscriptWords,
-  getSyncLock,
-  setSyncLock,
-  removeMarker,
-  renameNode,
-  updateMarker,
-  renderRange,
-  setHeadTo,
-  moveClip,
-  removeClip,
-  setClipEnvelope,
-  setSelectionContext,
-  duplicateTrack,
-  removeTrack,
-  renameTrack,
-  setTrackGain,
-  setTrackMuted,
-  setTrackPan,
-  setTrackSoloed,
-} from "./lib/tauri-bridge";
+import type { EnvelopePoint, RenderWarning } from "./lib/tauri-bridge";
+import { getSyncLock, renderRange, setSelectionContext } from "./lib/tauri-bridge";
 import { save } from "@tauri-apps/plugin-dialog";
 import { isUndoChord, isRedoChord, isTextEntry } from "./lib/undoRedo";
 import { isDerivedAudioPath } from "./lib/derivedAudio";
@@ -75,13 +46,13 @@ import {
   type TimelineHandle,
 } from "./components/Timeline";
 import { useMarkers } from "./hooks/useMarkers";
-import { useSession } from "./hooks/useSession";
+import { useSession, type EditArgs, type EditName, type HeldInput } from "./hooks/useSession";
+import { useTranscript } from "./hooks/useTranscript";
 import { SessionQueryProvider } from "./lib/sessionQueries";
 import {
   getKeychainPersistence,
   hasApiKey,
   installBundledSkills,
-  onNodeCreated,
   onToolProgress,
   renderPreview as bridgeRenderPreview,
   type KeychainPersistence,
@@ -92,7 +63,7 @@ import {
   writeSessionOnlyDismissed,
 } from "./lib/keychainNotice";
 import { KeyringWaiting } from "./components/KeyringWaiting";
-import { listTemplates, applyTemplate, punchRecord, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
+import { listTemplates, punchRecord, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
   listenToFileDrops,
@@ -100,17 +71,13 @@ import {
   pickProjectDirectory,
 } from "./lib/file-open";
 import { isSessionValue } from "./lib/controlValue";
-import { cutBlockedReason, cutTrack, NO_TRANSCRIPT } from "./lib/transcriptSource";
-import { OwnedControls, trackKey, type Claim, type ControlName } from "./lib/ownedControls";
+import { cutBlockedReason, cutTrack } from "./lib/transcriptSource";
 import { describeLoadFailures } from "./lib/load-failures";
-import { batchLoad } from "./lib/tauri-bridge";
 import {
   forgetRecentProject,
   getHeadTrail,
   getViewState,
   listRecentProjects,
-  openProject,
-  saveProjectAs,
   saveViewState,
   type RecentProject,
 } from "./lib/tauri-bridge";
@@ -153,27 +120,20 @@ function App() {
 }
 
 function AppSession() {
-  // A control stays held until the query observer adopts its confirming
-  // list (#596). The owner's layout-effect hand-back redraws that list.
-  const [ownedVersion, bumpOwned] = useReducer((n: number) => n + 1, 0);
-  const [owned] = useState(() => new OwnedControls(bumpOwned));
+  const [renderError, setRenderError] = useState<string | null>(null);
   const {
-    tracks,
-    refreshTracks,
+    tracks: heldTracks,
+    edition,
+    sessionTracks,
     renderHead,
     head,
-    setHeadLocal,
-    reconcileHead,
-    resetHead,
     trail,
-    peekUndo,
-    peekRedo,
-    stepBack,
-    stepForward,
-    forgetRemoved,
-    graphVersion,
-    inOrder,
-  } = useSession({ trackControls: owned });
+    edit,
+    move,
+    holdInput,
+    dropInput,
+    sentValue,
+  } = useSession({ onReadError: (err) => setRenderError(String(err)) });
   // The node the history graph is previewing, apart from `head` (#522): a
   // click there shows a node, and only "Set as head" moves the head, so the
   // undo path and the file it is saved to follow real moves alone.
@@ -196,10 +156,33 @@ function AppSession() {
   // Merged, `onNodeCreated` overwrote the mix with a raw track path after
   // every agent turn, so the mix was correct for about one render and
   // then quietly was not.
-  const [mixPath, setMixPath] = useState<string | null>(null);
-  const [mixNodeId, setMixNodeId] = useState<string | null>(null);
+  //
+  // A render is of the session as it was when it was made: it carries the
+  // session's `edition` and is no mix at all once an edit, the assistant, a
+  // project opening or a punch has changed the session since, so nothing
+  // clears it by hand. Undo, redo and Set as head leave it: it is the mix of
+  // the node they left, and `mixIsStale` compares that node with the one shown.
+  const [rendered, setRendered] = useState({ mixPath: null, mixNodeId: null, edition: 0 } as {
+    mixPath: string | null;
+    mixNodeId: string | null;
+    edition: number;
+  });
+  const editionRef = useRef(edition);
+  useLayoutEffect(() => {
+    editionRef.current = edition;
+  }, [edition]);
+  const current = rendered.edition === edition;
+  const mixPath = current ? rendered.mixPath : null;
+  const mixNodeId = current ? rendered.mixNodeId : null;
+  /** The mix of `nodeId` is at `path`; `nodeId` is not known for compare's renders. */
+  const setMix = useCallback((path: string | null, nodeId?: string | null) => {
+    setRendered((cur) => ({
+      mixPath: path,
+      mixNodeId: nodeId !== undefined ? nodeId : cur.edition === editionRef.current ? cur.mixNodeId : null,
+      edition: editionRef.current,
+    }));
+  }, []);
   const [rendering, setRendering] = useState(false);
-  const [renderError, setRenderError] = useState<string | null>(null);
   const [leftView, setLeftView] = useState<LeftView>("timeline");
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
   // Whether the launch-time `has_api_key` is still pending. It is while
@@ -239,7 +222,7 @@ function AppSession() {
   const timelineRef = useRef<TimelineHandle>(null);
   // The label lane's labels: re-read when a label changes and whenever
   // the head moves, since undo does not announce itself (#453).
-  const markers = useMarkers(head);
+  const markers = useMarkers();
   // What a render of the node shown leaves out: a stored effect this build
   // cannot run (#532). Read off the node, so Play and Export need not
   // render first to learn of it, and it clears when a head move lands on a
@@ -258,10 +241,11 @@ function AppSession() {
   }, [head]);
   // The latest list, for handlers that must compare against what the
   // session holds now rather than what they closed over.
-  const tracksRef = useRef<TrackSummary[]>(tracks);
+  const tracks = sessionTracks;
+  const tracksRef = useRef(sessionTracks);
   useEffect(() => {
-    tracksRef.current = tracks;
-  }, [tracks]);
+    tracksRef.current = sessionTracks;
+  }, [sessionTracks]);
   /**
    * What the timeline draws and the status bar names: the session's own
    * audio, whichever track holds it. The track itself is kept for its
@@ -298,8 +282,7 @@ function AppSession() {
    */
   const laneTracks = useMemo(
     () =>
-      owned
-        .overlay(tracks)
+      heldTracks
         // A track with no audio still gets a lane (#742): a template's
         // tracks, and one the assistant has added, hold no clips yet. The
         // lane's `index` is the track's place in the session's list, which
@@ -314,10 +297,7 @@ function AppSession() {
           soloed: t.soloed,
           clips: t.clips,
         })),
-    // `ownedVersion` is not read: it says a control was handed back, which
-    // `owned` holds no record of any more.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [owned, tracks, ownedVersion],
+    [heldTracks],
   );
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
@@ -374,54 +354,17 @@ function AppSession() {
   const headMove = useHeadMove();
   const runHeadMove = headMove.run;
 
+  // Undo and redo are moves: in the session's line behind any edit still on
+  // its way, decided only when it is their turn (#498), and one at a time here.
   const handleUndo = useCallback(async () => {
     await runHeadMove(async () => {
       try {
-        // In line behind any edit still on its way, and decided only when
-        // it is its turn (#498): the head to leave is the one that edit
-        // makes, so reading the trail now would undo to where the edit
-        // began and skip it.
-        const moved = await inOrder(async () => {
-          // A step to a node the store no longer has is dropped and the
-          // next one tried (#595). A pass that goes round again has taken
-          // the step it tried off the path, so this ends.
-          for (;;) {
-            // Where the user came from, read from the latest state and not
-            // from this render: a key pressed right after an edit must not
-            // undo to where the render before it was (#398).
-            const step = peekUndo();
-            if (!step) return false;
-            // The node's stored parent is right only while no edit has
-            // returned to an earlier state, so it is asked for only when
-            // the trail has nothing left.
-            const to = step.to ?? (await getNode(step.from)).parent;
-            if (!to) return false;
-            try {
-              await setHeadTo(to);
-            } catch (err) {
-              // Refused. If the node is gone, the path has now forgotten
-              // it: try the next step. Whether it is gone is asked of the
-              // store's nodes, not read from the error's text. A stored
-              // parent that is gone is not on the path, so forgetting
-              // cannot take it away, and it is an error like any other.
-              if (step.to !== null && (await forgetRemoved()).includes(to)) continue;
-              throw err;
-            }
-            stepBack(step.from, to);
-            return true;
-          }
-        });
-        if (moved) {
-          // The session moved by itself: what the user had set on a lane
-          // belongs to where it was (#596).
-          owned.clear();
-          await refreshTracks();
-        }
+        await move({ kind: "undo" });
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [peekUndo, stepBack, forgetRemoved, runHeadMove, inOrder, owned]);
+  }, [runHeadMove, move]);
 
   // Whenever the head moves — an edit, an undo, a project opening — the
   // toggle re-reads the session rather than trusting what it last set.
@@ -444,46 +387,24 @@ function AppSession() {
   const handleSyncLockChange = useCallback(
     async (enabled: boolean) => {
       try {
-        await inOrder(async () => {
-          const newHead = await setSyncLock(enabled);
-          setHeadLocal(newHead);
-          setSyncLockState(enabled);
-        });
+        await edit("setSyncLock", [enabled]);
+        setSyncLockState(enabled);
       } catch (err) {
         setRenderError(String(err));
       }
     },
-    [setHeadLocal, inOrder],
+    [edit],
   );
 
   const handleRedo = useCallback(async () => {
     await runHeadMove(async () => {
       try {
-        // In line, and read when it is its turn, as undo is (#498).
-        const moved = await inOrder(async () => {
-          // A removed step is skipped, as undo skips one (#595).
-          for (;;) {
-            const step = peekRedo();
-            if (!step) return false;
-            try {
-              await setHeadTo(step.to);
-            } catch (err) {
-              if ((await forgetRemoved()).includes(step.to)) continue;
-              throw err;
-            }
-            stepForward(step.from, step.to);
-            return true;
-          }
-        });
-        if (moved) {
-          owned.clear();
-          await refreshTracks();
-        }
+        await move({ kind: "redo" });
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [peekRedo, stepForward, forgetRemoved, runHeadMove, inOrder, owned]);
+  }, [runHeadMove, move]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -631,71 +552,13 @@ function AppSession() {
     };
   }, []);
 
-  /**
-   * Adopt the node a command just appended (#232).
-   *
-   * Every session-mutating command returns its new head, and only the
-   * mixer commands were reading it. `agent://node-created` fires from
-   * the agent path alone (commands.rs:1403), so for a UI-driven edit
-   * the frontend head simply stopped moving.
-   *
-   * That is data loss, not staleness. `persistView` writes this value
-   * into `view.json`, and opening a project used to feed that to
-   * `set_head_to`, which rewinds the store head *durably* — so every
-   * label typed since the last agent edit was gone from `list_markers`,
-   * while the nodes sat intact and unreachable in the graph. (Opening no
-   * longer obeys the saved head, #507; the value is still saved.)
-   * Undo reads the same value, so Ctrl+Z after naming a label reverts
-   * the edit before it instead.
-   *
-   * Clearing the mix is part of adopting the head: `render_preview`
-   * names its output after the node id, so re-rendering a stale head
-   * hands back the same path string, React's useState bails out, the
-   * load effect never fires and nothing reloads — no change and no
-   * error either.
-   */
-  const applyNewHead = useCallback(
-    (newHead: string | null | undefined) => {
-      if (!newHead) return;
-      setHeadLocal(newHead);
-      setMixPath(null);
-      setMixNodeId(null);
-    },
-    [setHeadLocal],
-  );
+  // No handler adopts a head, clears the mix or reads the tracks again after
+  // an edit (#232, #498): `edit` and `move` do, from the table in
+  // `lib/sessionCommands.ts`, and a mix rendered before the session changed
+  // is no mix (`edition`, above).
 
-  /**
-   * Send a command that changes the session, and adopt the head it
-   * returns, as one turn in the session's line (#498).
-   *
-   * Adopting is inside the turn on purpose. The next edit is not sent
-   * until it is done, so no answer can be adopted after a newer one, and
-   * the head never goes back to a node it has left. Rejects when the
-   * command does; the edits behind it still run.
-   */
-  const applyEdit = useCallback(
-    (command: () => Promise<string | null | undefined>): Promise<void> =>
-      inOrder(async () => {
-        applyNewHead(await command());
-      }),
-    [inOrder, applyNewHead],
-  );
-
-  /**
-   * `batch_load` as one turn in the line, with its head adopted inside
-   * the turn like any other edit's. A file the backend refused leaves no
-   * node, so with nothing loaded the head has not moved and nothing is
-   * adopted.
-   */
-  const loadInOrder = useCallback(
-    (paths: string[]) =>
-      inOrder(async () => {
-        const result = await batchLoad(paths);
-        if (result.tracks_loaded > 0) applyNewHead(result.last_node_id);
-        return result;
-      }),
-    [inOrder, applyNewHead],
-  );
+  /** `batch_load` as one turn in the session's line, its head adopted inside the turn. */
+  const loadInOrder = useCallback((paths: string[]) => edit("batchLoad", [paths]), [edit]);
 
   /**
    * Load whatever arrived — from the picker, the menu or a drop — one
@@ -720,9 +583,6 @@ function AppSession() {
       if (paths.length === 0) return;
       try {
         const result = await loadInOrder(paths);
-        // A refused file leaves no node, so with nothing loaded the head
-        // has not moved and there is nothing to redraw.
-        if (result.tracks_loaded > 0) await refreshTracks();
         setRenderError(describeLoadFailures(result.failures));
       } catch (err) {
         const what = paths.length === 1 ? trimPath(paths[0]) : `${paths.length} files`;
@@ -748,53 +608,40 @@ function AppSession() {
   const handleApplyTemplate = useCallback(async (name: string) => {
     setShowTemplatePicker(false);
     try {
-      await applyEdit(() => applyTemplate(name));
-      await refreshTracks();
+      await edit("applyTemplate", [name]);
     } catch (e) {
       setRenderError(String(e));
     }
-  }, [applyEdit]);
+  }, [edit]);
 
   // Mixer commits. Each command appends one session node, so the head
-  // moves and the track list has to be re-read: the Timeline shows the
-  // value optimistically, and this is what confirms or corrects it.
+  // moves and the track list is read again: the Timeline shows the value
+  // optimistically, and this is what confirms or corrects it.
   //
   // A rejected value (out of range, track gone) surfaces in the error
-  // banner and the refresh puts the control back where the session
-  // actually is, rather than leaving the fader lying.
+  // banner and the read puts the control back where the session actually
+  // is, rather than leaving the fader lying.
   //
-  // Until that refresh the control is the user's (#596): a track list read
-  // before the commit was answered, landing meanwhile, would put the
-  // older value back under it. `claim` is the control's hold on the
-  // lane (`lib/ownedControls.ts`); the answer ends the commit, and the
-  // refresh requested here is the first read that can confirm it. It does
-  // so when `useSessionTracks` adopts that read into the track query, which
-  // hands out fresh track and clip references even for identical data, so
-  // a refused edit still redraws the lane from the session's value.
+  // Until that read has landed the control is the user's (#596): a track
+  // list read before the commit was answered, landing meanwhile, would put
+  // the older value back under it. `hold` names the control the edit commits
+  // (`useSession`, `lib/heldControls.ts`); the control goes back to the
+  // session once the list read after the answer is in. That read hands out
+  // fresh track and clip references even for identical data, so a refused
+  // edit still redraws the lane from the session's value.
   //
   // In line (#498): two commits made in quick succession reach the
-  // session in the order they were made, so the last value set is the
-  // one it keeps. The refresh is outside the turn, so it never holds up
-  // the next edit; the track query only adopts the newest request's reply
-  // (`useSessionTracks`), so one that a newer request has overtaken is dropped.
-  const commitTrackChange = useCallback(
-    async (apply: () => Promise<string>, claim?: Claim) => {
+  // session in the order they were made, so the last value set is the one
+  // it keeps.
+  const commit = useCallback(
+    async <K extends EditName>(name: K, args: EditArgs<K>, hold?: HeldInput) => {
       try {
-        // Every one of these commands appends a node and returns its id.
-        // `applyNewHead` is what stops that value being discarded; see
-        // its comment for why a stale head loses data rather than just
-        // looking wrong.
-        await applyEdit(apply);
-      } catch (e) {
-        setRenderError(String(e));
-      }
-      try {
-        await refreshTracks(claim);
+        await edit(name, args, { hold });
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [applyEdit, refreshTracks],
+    [edit],
   );
 
   // Release, key-up and blur all commit a slider, and most carry the value
@@ -802,143 +649,103 @@ function AppSession() {
   //
   // "Already what the session holds" means what it will hold once the
   // commits ahead of this one in the line have been applied, not what the
-  // last refresh showed (#498). Against the refresh alone, 0 -> -3 -> 0
-  // made in one window drops the final 0, because it matches the 0 on
-  // screen, and the session keeps -3. The last value sent for a control is
-  // kept by `owned` until a track list read after that commit has landed,
-  // so the track list is the truth again.
+  // last read showed (#498). Against the read alone, 0 -> -3 -> 0 made in
+  // one window drops the final 0, because it matches the 0 on screen, and
+  // the session keeps -3. The last value sent for a control is kept by
+  // `useSession` until a track list read after that commit has landed, so
+  // the track list is the truth again.
   //
   // A slider is the user's from its first input event (#596), not from its
   // commit: key-up comes after the input, and a track list landing in
   // between used to put the slider back, so the key-up committed the value
   // the session held and nothing was sent.
-  const claimFor = useCallback(
-    (index: number, control: ControlName, value: number | boolean): Claim | undefined => {
-      const track = trackKey(tracksRef.current, index);
-      return track === null ? undefined : owned.send(track, control, value);
-    },
-    [owned],
-  );
   const commitSlider = useCallback(
-    (
+    <K extends "setTrackGain" | "setTrackPan">(
       index: number,
       control: "gain" | "pan",
       shown: number | undefined,
       value: number,
-      apply: () => Promise<string>,
+      name: K,
+      args: EditArgs<K>,
     ) => {
-      const track = trackKey(tracksRef.current, index);
-      const sent = track === null ? undefined : owned.sent(track, control);
+      const sent = sentValue(index, control);
       if (isSessionValue(typeof sent === "number" ? sent : shown, value)) {
-        if (track !== null) owned.skip(track, control);
+        dropInput(index, control);
         return;
       }
-      void commitTrackChange(apply, claimFor(index, control, value));
+      void commit(name, args, { index, control, value });
     },
-    [commitTrackChange, claimFor, owned],
+    [commit, sentValue, dropInput],
   );
   const handleTrackGainChange = useCallback(
     (index: number, gainDb: number) =>
-      commitSlider(index, "gain", tracksRef.current[index]?.gain_db, gainDb, () =>
-        setTrackGain(index, gainDb),
-      ),
+      commitSlider(index, "gain", tracksRef.current[index]?.gain_db, gainDb, "setTrackGain", [
+        index,
+        gainDb,
+      ]),
     [commitSlider],
   );
   const handleTrackPanChange = useCallback(
     (index: number, pan: number) =>
-      commitSlider(index, "pan", tracksRef.current[index]?.pan, pan, () =>
-        setTrackPan(index, pan),
-      ),
+      commitSlider(index, "pan", tracksRef.current[index]?.pan, pan, "setTrackPan", [index, pan]),
     [commitSlider],
   );
   // A slider's input event: the value is the user's from here until the
   // session confirms it.
-  const holdSlider = useCallback(
-    (index: number, control: "gain" | "pan", value: number) => {
-      const track = trackKey(tracksRef.current, index);
-      if (track !== null) owned.set(track, control, value);
-    },
-    [owned],
-  );
   const handleTrackGainInput = useCallback(
-    (index: number, gainDb: number) => holdSlider(index, "gain", gainDb),
-    [holdSlider],
+    (index: number, gainDb: number) => holdInput({ index, control: "gain", value: gainDb }),
+    [holdInput],
   );
   const handleTrackPanInput = useCallback(
-    (index: number, pan: number) => holdSlider(index, "pan", pan),
-    [holdSlider],
+    (index: number, pan: number) => holdInput({ index, control: "pan", value: pan }),
+    [holdInput],
   );
   const handleTrackMuteChange = useCallback(
     (index: number, muted: boolean) =>
-      void commitTrackChange(
-        () => setTrackMuted(index, muted),
-        claimFor(index, "muted", muted),
-      ),
-    [commitTrackChange, claimFor],
+      void commit("setTrackMuted", [index, muted], { index, control: "muted", value: muted }),
+    [commit],
   );
   const handleClipEnvelopeChange = useCallback(
     (trackIndex: number, clipIndex: number, points: EnvelopePoint[]) =>
-      void commitTrackChange(() =>
-        setClipEnvelope(trackIndex, clipIndex, points),
-      ),
-    [commitTrackChange],
+      void commit("setClipEnvelope", [trackIndex, clipIndex, points]),
+    [commit],
   );
 
   const handleMoveClip = useCallback(
     (trackIndex: number, clipIndex: number, startSec: number) =>
-      void commitTrackChange(() => moveClip(trackIndex, clipIndex, startSec)),
-    [commitTrackChange],
+      void commit("moveClip", [trackIndex, clipIndex, startSec]),
+    [commit],
   );
 
   const handleRemoveClip = useCallback(
     (trackIndex: number, clipIndex: number) =>
-      void commitTrackChange(() => removeClip(trackIndex, clipIndex)),
-    [commitTrackChange],
+      void commit("removeClip", [trackIndex, clipIndex]),
+    [commit],
   );
 
   const handleTrackSoloChange = useCallback(
     (index: number, soloed: boolean) =>
-      void commitTrackChange(
-        () => setTrackSoloed(index, soloed),
-        claimFor(index, "soloed", soloed),
-      ),
-    [commitTrackChange, claimFor],
+      void commit("setTrackSoloed", [index, soloed], { index, control: "soloed", value: soloed }),
+    [commit],
   );
 
   // Track-head actions (#161). Each is one existing tool, one node, and
   // undoes like any other edit — which is why removing does not stop to
-  // ask. `listTracks` is refreshed after, since these change the list
-  // itself rather than a value on a track.
-  const afterTrackListChange = useCallback(async () => {
-    try {
-      await refreshTracks();
-    } catch (e) {
-      setRenderError(String(e));
-    }
-  }, []);
-
+  // ask. The list is read again like any edit's, since these change the
+  // list itself rather than a value on a track.
   const handleRenameTrack = useCallback(
-    (index: number, name: string) =>
-      void commitTrackChange(() => renameTrack(index, name)).then(
-        afterTrackListChange,
-      ),
-    [commitTrackChange, afterTrackListChange],
+    (index: number, name: string) => void commit("renameTrack", [index, name]),
+    [commit],
   );
 
   const handleDuplicateTrack = useCallback(
-    (index: number) =>
-      void commitTrackChange(() => duplicateTrack(index)).then(
-        afterTrackListChange,
-      ),
-    [commitTrackChange, afterTrackListChange],
+    (index: number) => void commit("duplicateTrack", [index]),
+    [commit],
   );
 
   const handleRemoveTrack = useCallback(
-    (index: number) =>
-      void commitTrackChange(() => removeTrack(index)).then(
-        afterTrackListChange,
-      ),
-    [commitTrackChange, afterTrackListChange],
+    (index: number) => void commit("removeTrack", [index]),
+    [commit],
   );
 
   /**
@@ -988,14 +795,15 @@ function AppSession() {
    * tolerate, because nothing is asked of the store.
    *
    * The path the user took through the project is read here too (#453),
-   * beside the view, and goes to `resetHead` with the head. It applies
-   * only if it ends at the store's head: a path that ends elsewhere (the
-   * last save was lost to a crash, another client moved the store) is not
-   * the way to this head, and undo then asks the node for its parent. A
-   * path that cannot be read is no path; it never stops a project opening.
+   * beside the view, and answered to `move`, which resets the head with it.
+   * It applies only if it ends at the store's head: a path that ends
+   * elsewhere (the last save was lost to a crash, another client moved the
+   * store) is not the way to this head, and undo then asks the node for its
+   * parent. A path that cannot be read is no path; it never stops a project
+   * opening.
    */
   const restoreView = useCallback(
-    async (storeHead: string | null) => {
+    async () => {
       const [view, path] = await Promise.all([
         getViewState().catch(() => null),
         Promise.resolve()
@@ -1007,12 +815,9 @@ function AppSession() {
       // A preview of the project that was left is nothing in this one, even
       // when both happen to be on the same head (#522).
       clearPreview();
-      // Always, including `null`: the project just opened has its own
-      // head and its own history, and neither the old project's head nor
-      // the path taken through it may carry over (#398).
-      resetHead(storeHead, path);
+      return path;
     },
-    [applyView, resetHead, clearPreview],
+    [applyView, clearPreview],
   );
 
   /**
@@ -1025,24 +830,22 @@ function AppSession() {
       try {
         // In line: an edit made before this goes to the project being
         // left, and one made after it to the project being opened (#498).
-        await inOrder(async () => {
-          const info = await openProject(path);
-          projectGenerationRef.current += 1;
-          // Whatever the last project had on screen is not this one's. A
-          // rendered mix outlives a project change otherwise.
-          setMixPath(null);
-          setMixNodeId(null);
-          await restoreView(info.head ?? null);
+        // The held controls of the project that was left are let go of, and
+        // every read is made again.
+        await move({
+          kind: "open",
+          path,
+          restore: async () => {
+            projectGenerationRef.current += 1;
+            return restoreView();
+          },
         });
-        // Nothing set on the project that was left is a value of this one.
-        owned.clear();
-        await refreshTracks();
         setRecents(await listRecentProjects());
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [restoreView, inOrder, owned],
+    [restoreView, move],
   );
 
   /**
@@ -1139,13 +942,14 @@ function AppSession() {
       if (!dir) return;
       persistView();
       // In line: it moves the session to the copy, as opening does (#498).
-      const report = await inOrder(async () => {
-        const saved = await saveProjectAs(dir);
-        projectGenerationRef.current += 1;
-        return saved;
+      const report = await move({
+        kind: "saveAs",
+        dest: dir,
+        adopted: () => {
+          projectGenerationRef.current += 1;
+        },
       });
       setRecents(await listRecentProjects());
-      await refreshTracks();
       // Not an error, so it does not go through the error banner — but
       // the numbers are worth seeing, since a copy that skipped the
       // caches is smaller than the folder it came from and that would
@@ -1159,7 +963,7 @@ function AppSession() {
     } catch (e) {
       setRenderError(String(e));
     }
-  }, [persistView, inOrder]);
+  }, [persistView, move]);
 
   /** Forget the row, not the project. */
   const handleForgetRecent = useCallback(async (path: string) => {
@@ -1231,14 +1035,13 @@ function AppSession() {
   const handleAddLabel = useCallback(
     async (timeSec: number, name: string) => {
       try {
-        await applyEdit(() => addMarker(timeSec, name));
-        // The lane re-reads on the `marker-changed` event and on the head
-        // change this adoption makes (`useMarkers`).
+        await edit("addMarker", [timeSec, name]);
+        // The lane reads again when the edit settles (`useMarkers`).
       } catch (err) {
         setRenderError(String(err));
       }
     },
-    [applyEdit],
+    [edit],
   );
 
   // The ruler hands over a time and no name. The name is typed into the
@@ -1254,11 +1057,11 @@ function AppSession() {
 
   const handleRemoveMarker = useCallback(async (id: string) => {
     try {
-      await applyEdit(() => removeMarker(id));
+      await edit("removeMarker", [id]);
     } catch (err) {
       setRenderError(String(err));
     }
-  }, [applyEdit]);
+  }, [edit]);
 
   // The lane's three edits. Each is one call and therefore one undoable
   // node — a rename is not a delete plus an add, and a drag is not a
@@ -1277,26 +1080,8 @@ function AppSession() {
     [tracks],
   );
 
-  // The transcript at the current head, and where it came from. Re-read
-  // whenever the head moves — a cut shifts every later word, and a
-  // transcription the agent just made arrives as a head move, so the pane
-  // must not go on showing the timings (or the lack of a transcript) from
-  // before.
-  const [transcript, setTranscript] = useState<Transcript>(NO_TRANSCRIPT);
-
-  useEffect(() => {
-    let cancelled = false;
-    getTranscript()
-      .then((t) => {
-        if (!cancelled) setTranscript(t);
-      })
-      .catch(() => {
-        // No session yet; the pane's empty state is the right answer.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [head]);
+  // The transcript at the current head, and where it came from.
+  const transcript = useTranscript();
 
   // The track the transcript's words are of, or none. A word's time is
   // seconds of the audio it was made from, so cutting by it cuts that
@@ -1308,33 +1093,30 @@ function AppSession() {
     async (from: number, to: number) => {
       if (transcriptCutTrack === null) return;
       try {
-        await inOrder(async () => {
-          setHeadLocal(await cutTranscriptWords(transcriptCutTrack, from, to));
-        });
-        await refreshTracks();
+        await edit("cutTranscriptWords", [transcriptCutTrack, from, to]);
         setSelection(null);
       } catch (err) {
         setRenderError(String(err));
       }
     },
-    [setHeadLocal, inOrder, transcriptCutTrack],
+    [edit, transcriptCutTrack],
   );
 
   const handleRenameMarker = useCallback(async (id: string, name: string) => {
     try {
-      await applyEdit(() => updateMarker(id, { name }));
+      await edit("updateMarker", [id, { name }]);
     } catch (err) {
       setRenderError(String(err));
     }
-  }, [applyEdit]);
+  }, [edit]);
 
   const handleMoveMarker = useCallback(async (id: string, timeSec: number) => {
     try {
-      await applyEdit(() => updateMarker(id, { time: timeSec }));
+      await edit("updateMarker", [id, { time: timeSec }]);
     } catch (err) {
       setRenderError(String(err));
     }
-  }, [applyEdit]);
+  }, [edit]);
 
   const handleSeekToMarker = useCallback((timeSec: number) => {
     timelineRef.current?.seekTo(timeSec);
@@ -1377,32 +1159,12 @@ function AppSession() {
   }, [loadFiles]);
 
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    onNodeCreated(async (_nodeId: string) => {
-      // The graph needs no word from here: the node moves the head, and
-      // `useSession` counts that for the view (`graphVersion`, #602).
-      //
-      // The assistant moved the session by itself, so what the user had
-      // set on a lane belongs to where it was, as it does for an undo
-      // (#596): a slider moved and not yet let go of would otherwise stay
-      // on the user's value over the assistant's.
-      owned.clear();
-      await refreshTracks();
-      // The session moved, so any previously rendered mix is stale.
-      setMixPath(null);
-      setMixNodeId(null);
-    })
-      .then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      })
-      .catch(() => undefined);
-    // Initial fetch. The backend reopens the default project at every
-    // launch and restores its `HEAD`, so a returning user's tracks are
-    // already there; a fresh project has no head yet and answers
-    // `NoSession`, which leaves the list empty.
-    void refreshTracks().catch(() => undefined);
+    // The tracks are read by `useSession`: the backend reopens the default
+    // project at every launch and restores its `HEAD`, so a returning
+    // user's tracks are already there; a fresh project has no head yet and
+    // answers `NoSession`, which leaves the list empty. And the assistant's
+    // nodes (`agent://node-created`) are heard there too, as moves.
+    //
     // Then the view they left. Saving stays off until this has been
     // read, whether or not there was anything to read.
     //
@@ -1419,10 +1181,6 @@ function AppSession() {
       .finally(() => {
         viewRestoredRef.current = true;
       });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
   }, [applyView]);
 
   const handleExportSelection = useCallback(async () => {
@@ -1481,11 +1239,7 @@ function AppSession() {
     // The head of the take is adopted by `loadInOrder`, inside its turn.
     // Adopting it again here would be outside any turn, and could put the
     // head back to a node a later edit has left.
-    if (outcome.kind === "loaded") {
-      void refreshTracks().catch((err) => setRenderError(String(err)));
-    } else {
-      setRenderError(outcome.message);
-    }
+    if (outcome.kind !== "loaded") setRenderError(outcome.message);
   }, [loadInOrder]);
 
   /**
@@ -1512,9 +1266,7 @@ function AppSession() {
         setIsRecording(false);
         setTimerArmed(false);
         // Its head is adopted by `loadInOrder`, in its turn.
-        if (outcome.kind === "loaded") {
-          void refreshTracks().catch((err) => setRenderError(String(err)));
-        } else if (outcome.kind !== "cancelled") {
+        if (outcome.kind !== "loaded" && outcome.kind !== "cancelled") {
           // Cancelling is the user's own doing and needs no banner.
           setRenderError(outcome.message);
         }
@@ -1531,7 +1283,7 @@ function AppSession() {
    * the speakers, on a clock it shares with the microphone, and a second
    * player from the webview would be in the take. `punch_record` resolves
    * when the take is placed, tens of seconds later at most, and is not
-   * inside the edit line (`inOrder`): that would hold every other edit for
+   * inside the edit line: that would hold every other edit for
    * its length. Only adopting the head is in the line, as for any command
    * that changes the session. The backend refuses a take if its project or
    * head changed before application. A later edit or project switch can
@@ -1553,22 +1305,19 @@ function AppSession() {
         );
         if (outcome.kind === "applied") {
           applied = true;
-          await inOrder(async () => {
-            // The response may arrive after a later edit or project switch.
-            // Read the current head inside the line; never adopt the old
-            // response when that read fails or names a newer head.
-            const currentHead = await reconcileHead();
-            if (currentHead !== null) {
-              setMixPath(null);
-              setMixNodeId(null);
-            }
-            const sameProject = projectGenerationRef.current === projectGeneration;
-            if (sameProject && currentHead !== null) owned.clear();
-            await refreshTracks();
-            // Even if an agent event won the head read, the punch was applied
-            // in this project. Keep newer lane input but report the success.
-            if (sameProject) setPunchNotice(appliedText(outcome));
+          // In line, and read when it is its turn. The response may arrive
+          // after a later edit or project switch: the head is read in the
+          // line and never adopted over a newer one, and the lane controls
+          // of another project are not let go of.
+          await move({
+            kind: "reconcile",
+            isCurrent: () => projectGenerationRef.current === projectGeneration,
           });
+          // Even if an agent event won the head read, the punch was applied
+          // in this project. Keep newer lane input but report the success.
+          if (projectGenerationRef.current === projectGeneration) {
+            setPunchNotice(appliedText(outcome));
+          }
         } else if (outcome.kind === "failed") {
           // A refused take can be saved in the project the user just left;
           // the backend's message is the only place its recovery path appears.
@@ -1587,7 +1336,7 @@ function AppSession() {
         setPunching(false);
       }
     },
-    [selection, punching, inOrder, reconcileHead, owned, refreshTracks],
+    [selection, punching, move],
   );
 
   // Renders what is shown: the previewed node when the graph has one, else
@@ -1602,8 +1351,7 @@ function AppSession() {
     setRenderError(null);
     try {
       const path = previewId ? await bridgeRenderPreview(previewId) : await renderHead();
-      setMixPath(path);
-      setMixNodeId(shownNode);
+      setMix(path, shownNode);
       return path;
     } catch (err) {
       setRenderError(String(err));
@@ -1611,7 +1359,7 @@ function AppSession() {
     } finally {
       setRendering(false);
     }
-  }, [shownNode, previewId, rendering, renderHead]);
+  }, [shownNode, previewId, rendering, renderHead, setMix]);
 
   /**
    * A click on a bubble in the history graph (#522): look at that node, do
@@ -1626,15 +1374,14 @@ function AppSession() {
       setRenderError(null);
       try {
         const path = await bridgeRenderPreview(nodeId);
-        setMixPath(path);
-        setMixNodeId(nodeId);
+        setMix(path, nodeId);
       } catch (err) {
         setRenderError(String(err));
       } finally {
         setRendering(false);
       }
     },
-    [previewNode],
+    [previewNode, setMix],
   );
 
   /**
@@ -1643,8 +1390,8 @@ function AppSession() {
    * next undo comes back from it. Errors propagate to GraphView's
    * banner, as before.
    *
-   * `setHeadLocal` runs only once `setHeadTo` has resolved, so a refused
-   * move is not recorded. It is a no-op when the head already is
+   * The move records the step on the path only once `set_head_to` has
+   * resolved, so a refused move is not recorded. It is a no-op when the head already is
    * `nodeId`, which is right. This is the only way the graph moves the
    * head: a click on a bubble is a preview (`handleSelectGraphNode`, #522),
    * and the head move ends it. The mix needs no clearing: `mixIsCurrent` /
@@ -1654,12 +1401,7 @@ function AppSession() {
     async (nodeId: string): Promise<void> => {
       const moved = await runHeadMove(async () => {
         // In line, like undo: it moves the head the edits before it made.
-        await inOrder(async () => {
-          await setHeadTo(nodeId);
-          setHeadLocal(nodeId);
-        });
-        owned.clear();
-        await refreshTracks();
+        await move({ kind: "setHead", node: nodeId });
         return true;
       });
       // One head move at a time: an undo or redo that is still waiting its
@@ -1672,7 +1414,7 @@ function AppSession() {
         );
       }
     },
-    [runHeadMove, setHeadLocal, refreshTracks, inOrder, owned],
+    [runHeadMove, move],
   );
 
   /**
@@ -1682,40 +1424,26 @@ function AppSession() {
    */
   const handleGraphRenameNode = useCallback(
     (nodeId: string, label: string): Promise<void> =>
-      inOrder(() => renameNode(nodeId, label)),
-    [inOrder],
+      edit("renameNode", [nodeId, label]),
+    [edit],
   );
 
   /**
-   * A/B compare's "Accept B" moves the session head, so it is in line too,
-   * and the head it names is adopted inside the turn like any edit's. The
-   * bar calls `onAcceptB` only after the turn has ended, which is too late
-   * to adopt anything (#498).
+   * A/B compare's "Accept B" moves the session head, so it is a move in the
+   * line, and the head it names is adopted inside the turn. The bar calls
+   * `onAcceptB` only after the turn has ended, which is too late to adopt
+   * anything (#498).
    *
-   * It is also a head move the session makes by itself, so it ends as
-   * Set as head does: the controls the user holds are let go of and the
-   * tracks are read again (#596). Nothing else reads them on a head move,
-   * so the lanes went on showing side A's tracks, with the user's values
-   * over them. The head is already adopted when the read is asked for, and
-   * a read that fails after the move is reported, not taken for a refused
-   * accept.
+   * It ends as Set as head does: the controls the user holds are let go of
+   * and every read is made again (#596). Nothing else reads the tracks on a
+   * head move, so the lanes went on showing side A's tracks, with the user's
+   * values over them.
    */
   const handleCompareAcceptB = useCallback(
-    async (b: string): Promise<string> => {
-      const accepted = await inOrder(async () => {
-        const head = await bridgeAcceptB(b);
-        setHeadLocal(head);
-        return head;
-      });
-      owned.clear();
-      try {
-        await refreshTracks();
-      } catch (err) {
-        setRenderError(String(err));
-      }
-      return accepted;
-    },
-    [inOrder, setHeadLocal, refreshTracks, owned],
+    // A read that fails after the move is reported (`onReadError`), not
+    // taken for a refused accept.
+    (b: string): Promise<string> => move({ kind: "acceptB", b }),
+    [move],
   );
 
   const handleCompareNodes = useCallback(
@@ -1872,7 +1600,7 @@ function AppSession() {
             <ABCompareBar
               aNodeId={compareMode.a}
               bNodeId={compareMode.b}
-              onAudioPathChange={setMixPath}
+              onAudioPathChange={setMix}
               acceptB={handleCompareAcceptB}
               onAcceptB={handleAcceptB}
               onClose={() => setCompareMode(null)}
@@ -1976,7 +1704,6 @@ function AppSession() {
                 onCompareNodes={handleCompareNodes}
                 onSetHead={handleGraphSetHead}
                 onRenameNode={handleGraphRenameNode}
-                refreshKey={graphVersion}
                 path={historyPath}
               />
             )}

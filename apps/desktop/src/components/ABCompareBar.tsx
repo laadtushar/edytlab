@@ -27,7 +27,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { compareNotice } from "../lib/renderWarnings";
 import {
-  acceptB as bridgeAcceptB,
   endCompare,
   prepareCompare,
   type RenderWarning,
@@ -43,11 +42,10 @@ export interface ABCompareBarProps {
   /** Called whenever the user switches sides; receives the WAV path. */
   onAudioPathChange: (path: string) => void;
   /**
-   * Move the session head to the B node. The parent puts it in line with
-   * the session's other edits (#498); without it the bridge is called
-   * directly.
+   * Move the session head to the B node. It is the parent's: a move in the
+   * session's line, with the head adopted inside it (#498).
    */
-  acceptB?: (bNodeId: string) => Promise<string>;
+  acceptB: (bNodeId: string) => Promise<string>;
   /** Called after `acceptB` resolves successfully. */
   onAcceptB: () => void;
   /** Dismiss the compare bar without accepting. */
@@ -69,7 +67,7 @@ export function ABCompareBar({
   aNodeId,
   bNodeId,
   onAudioPathChange,
-  acceptB = bridgeAcceptB,
+  acceptB,
   onAcceptB,
   onClose,
 }: ABCompareBarProps) {

@@ -54,9 +54,38 @@ beforeEach(() => {
   setHeadToMock.mockReset();
 });
 
-import { GraphView } from "../GraphView";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import type { ComponentProps } from "react";
 
-const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+import { createSessionQueryClient } from "../../lib/sessionQueries";
+import { READS } from "../../lib/sessionReads";
+import { GraphView as SessionGraphView } from "../GraphView";
+
+/**
+ * The graph as the app mounts it: under the session's query client, which
+ * `client` lets a test reach (the session invalidates the graph's read when
+ * it may have changed, `useSession`).
+ */
+let client: QueryClient;
+beforeEach(() => {
+  client = createSessionQueryClient();
+});
+function GraphView(
+  props: Omit<ComponentProps<typeof SessionGraphView>, "onRenameNode"> &
+    Partial<Pick<ComponentProps<typeof SessionGraphView>, "onRenameNode">>,
+) {
+  return (
+    <QueryClientProvider client={client}>
+      <SessionGraphView onRenameNode={async () => undefined} {...props} />
+    </QueryClientProvider>
+  );
+}
+
+/** Two turns of the event loop: the query hands its answer to React on the second. */
+const flush = async () => {
+  await new Promise<void>((r) => setTimeout(r, 0));
+  await new Promise<void>((r) => setTimeout(r, 0));
+};
 
 const hex = (seed: number): string => seed.toString(16).padStart(64, "0");
 
@@ -94,7 +123,6 @@ describe("GraphView", () => {
         head={null}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -111,7 +139,6 @@ describe("GraphView", () => {
         head={summary.head}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -146,7 +173,6 @@ describe("GraphView", () => {
         head={summary.head}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -169,7 +195,6 @@ describe("GraphView", () => {
         head={null}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -187,7 +212,6 @@ describe("GraphView", () => {
         head={summary.head}
         onSelectNode={onSelect}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -208,7 +232,7 @@ describe("GraphView", () => {
     expect(onSelect).toHaveBeenCalledWith(bubbles[0].dataset.nodeId);
   });
 
-  it("reads the graph again when refreshKey changes, and draws what it now holds (#602)", async () => {
+  it("reads the graph again when the session invalidates it, and draws what it now holds (#602)", async () => {
     const before = makeGraph(4);
     const [first, second, third] = before.nodes.map((n) => n.id);
     getGraphMock.mockResolvedValue(before);
@@ -217,7 +241,7 @@ describe("GraphView", () => {
       onSelectNode: vi.fn(),
       onSetHead: vi.fn(async () => undefined),
     };
-    const { rerender } = render(<GraphView {...props} refreshKey={0} />);
+    render(<GraphView {...props} />);
     await act(async () => {
       await flush();
     });
@@ -231,8 +255,8 @@ describe("GraphView", () => {
         .map((n) => (n.id === third ? { ...n, label: "chorus" } : n)),
     };
     getGraphMock.mockResolvedValue(after);
-    rerender(<GraphView {...props} refreshKey={1} />);
     await act(async () => {
+      await client.invalidateQueries({ queryKey: READS.graph });
       await flush();
     });
 
@@ -244,11 +268,11 @@ describe("GraphView", () => {
   });
 
   it("does not read again for a preview, a head ring or a path that moved (#522, #602)", async () => {
-    // These are drawn from the graph already held. Only refreshKey reads.
+    // These are drawn from the graph already held. Only the session invalidating its read reads.
     const summary = makeGraph(4);
     const [first, second, , last] = summary.nodes.map((n) => n.id);
     getGraphMock.mockResolvedValue(summary);
-    const props = { onSelectNode: vi.fn(), onSetHead: vi.fn(async () => undefined), refreshKey: 0 };
+    const props = { onSelectNode: vi.fn(), onSetHead: vi.fn(async () => undefined) };
     const { rerender } = render(<GraphView {...props} head={last} />);
     await act(async () => {
       await flush();
@@ -276,7 +300,6 @@ describe("GraphView", () => {
         preview={first}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -308,7 +331,6 @@ describe("GraphView", () => {
         preview={head}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -329,7 +351,6 @@ describe("GraphView", () => {
         head={summary.head}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -361,7 +382,6 @@ describe("GraphView", () => {
         head={summary.head}
         onSelectNode={vi.fn()}
         onSetHead={onSetHead}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -378,7 +398,7 @@ describe("GraphView", () => {
     expect(onSetHead).toHaveBeenCalledWith(bubbles[1].dataset.nodeId);
     expect(setHeadToMock).not.toHaveBeenCalled();
     // Not read again here. The move is the parent's, and it counts the
-    // head move in `refreshKey` (#602): a read of its own would be a
+    // head move for the graph to be read again (#602): a read of its own would be a
     // second one for the click.
     expect(getGraphMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("graph-context-menu")).not.toBeInTheDocument();
@@ -393,7 +413,6 @@ describe("GraphView", () => {
         head={summary.head}
         onSelectNode={vi.fn()}
         onSetHead={onSetHead}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -421,7 +440,6 @@ describe("GraphView", () => {
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
         onRenameNode={onRenameNode}
-        refreshKey={0}
       />,
     );
     await act(async () => {
@@ -439,8 +457,9 @@ describe("GraphView", () => {
     });
 
     expect(onRenameNode).toHaveBeenCalledWith(bubbles[1].dataset.nodeId, "chorus");
-    // The graph is read again once the rename is done.
-    expect(getGraphMock).toHaveBeenCalledTimes(2);
+    // The rename is the parent's edit, which reads the graph again when it
+    // settles (`useSession`): the view reads nothing of its own.
+    expect(getGraphMock).toHaveBeenCalledTimes(1);
   });
 
   it("computes layout + colours for a 200-node graph in under 500ms", async () => {
@@ -504,7 +523,6 @@ describe("GraphView", () => {
         head={summary.head}
         onSelectNode={vi.fn()}
         onSetHead={vi.fn(async () => undefined)}
-        refreshKey={0}
       />,
     );
     await act(async () => {

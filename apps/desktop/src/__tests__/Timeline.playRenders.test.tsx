@@ -62,7 +62,7 @@ const holding = (path: string) => instances.find((i) => i.url === `asset://${pat
 const playButton = () => screen.getByTestId("play-pause-button");
 
 interface Controls {
-  /** An edit lands: the head moves and the mix is cleared, as `applyNewHead` does. */
+  /** An edit lands: the head moves and the mix is no longer the session's (a new `edition`). */
   edit(): void;
   /** Preview, pressed in the chat panel. */
   preview(): void;

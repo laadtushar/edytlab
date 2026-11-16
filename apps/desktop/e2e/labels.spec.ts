@@ -8,9 +8,10 @@
  * store back to it — the label survived as a node in the graph and was
  * gone from the lane, and Ctrl+Z undid the edit before it.
  *
- * These were source greps (`headIsApplied.test.ts`), because `App.tsx`
- * could not be rendered in a test. It can here: the real app, in a real
- * browser, with only the IPC boundary replaced.
+ * These were source greps, because `App.tsx` could not be rendered in a
+ * test. It can here: the real app, in a real browser, with only the IPC
+ * boundary replaced. The rule is now held by `useSession`'s `edit`, whose table
+ * says what head each command returns (`lib/sessionCommands.ts`).
  */
 
 import { fixturePath } from "./audio-fixtures";
