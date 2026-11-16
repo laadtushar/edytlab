@@ -17,6 +17,7 @@ import {
   CHATGPT_SIGNED_IN,
   CHATGPT_SIGNED_OUT,
   DURABLE_SAVE,
+  providerSave,
   chatgptCommands,
   chatgptModelList,
   deferred,
@@ -41,9 +42,7 @@ async function openChatGptCard(app: App) {
     ...chatgptCommands(CHATGPT_SIGNED_OUT),
     // Held open for as long as the person is in the browser.
     chatgpt_sign_in: deferred("sign-in"),
-    set_active_provider: ok(DURABLE_SAVE),
-    set_active_model: ok(DURABLE_SAVE),
-    set_effort_for: ok(DURABLE_SAVE),
+    save_provider_settings: ok(DURABLE_SAVE),
   });
   const page = app.page;
   await expect(page.getByTestId("empty-state")).toBeVisible();
@@ -70,7 +69,7 @@ test("the card goes Signed out, Signing in, Signed in, and Sign out returns it t
   await expect(page.getByTestId("settings-base-url-input")).toHaveCount(0);
   await shot(app, "1-signed-out");
   // Choosing the plan while signed out activates nothing.
-  expect(await app.requestsFor("set_active_provider")).toEqual([]);
+  expect(await app.requestsFor("save_provider_settings")).toEqual([]);
 
   // Signing in: the backend opens the browser, and says so on the event.
   await page.getByTestId("chatgpt-continue").click();
@@ -92,16 +91,18 @@ test("the card goes Signed out, Signing in, Signed in, and Sign out returns it t
   await expect(page.getByTestId("chatgpt-account")).toHaveText("Signed in as person@example.com");
   await expect(page.getByTestId("chatgpt-using-plan")).toHaveText("Using ChatGPT plan");
   // The sign-in made the plan the active provider.
-  await expect.poll(() => app.requestsFor("set_active_provider")).toEqual([{ provider: "chatgpt" }]);
+  await expect
+    .poll(() => app.requestsFor("save_provider_settings"))
+    .toContainEqual(providerSave({ provider: "chatgpt" }));
   // The account's models, and the first saved for a person who chose none.
   const models = page.getByTestId("chatgpt-model-select");
   await expect(models.locator("option")).toHaveText([
     "GPT-6.1 Sol (gpt-6.1-sol)",
     "GPT-6 Luna (gpt-6-luna)",
   ]);
-  await expect.poll(() => app.requestsFor("set_active_model")).toEqual([
-    { provider: "chatgpt", model: "gpt-6.1-sol" },
-  ]);
+  await expect
+    .poll(() => app.requestsFor("save_provider_settings"))
+    .toContainEqual(providerSave({ provider: "chatgpt", model: "gpt-6.1-sol" }));
   // The chosen model lists low, medium and high, so those are offered.
   const effort = page.getByTestId("chatgpt-effort-select");
   await expect(effort.locator("option")).toHaveText(["Default (model's own)", "Low", "Medium", "High"]);
@@ -112,9 +113,9 @@ test("the card goes Signed out, Signing in, Signed in, and Sign out returns it t
   await expect(effort).toHaveCount(0);
   await models.selectOption("gpt-6.1-sol");
   await effort.selectOption("high");
-  await expect.poll(() => app.requestsFor("set_effort_for")).toEqual([
-    { provider: "chatgpt", effort: "high" },
-  ]);
+  await expect
+    .poll(() => app.requestsFor("save_provider_settings"))
+    .toContainEqual(providerSave({ provider: "chatgpt", effort: "high" }));
 
   // Manage usage asks the backend to open the page and gives it no address.
   await page.getByTestId("chatgpt-manage-usage").click();

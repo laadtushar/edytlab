@@ -158,8 +158,8 @@ for (const win of WINDOWS) {
       await save.click();
 
       await expect(dialog).toHaveCount(0);
-      expect(await app.requestsFor("set_api_key_for")).toEqual([
-        { provider: "anthropic", key: KEY },
+      expect(await app.requestsFor("save_provider_settings")).toEqual([
+        expect.objectContaining({ provider: "anthropic", key: KEY }),
       ]);
     });
 
@@ -232,8 +232,8 @@ for (const win of WINDOWS) {
 
       await page.keyboard.press("Enter");
       await expect(dialog).toHaveCount(0);
-      expect(await app.requestsFor("set_api_key_for")).toEqual([
-        { provider: "anthropic", key: KEY },
+      expect(await app.requestsFor("save_provider_settings")).toEqual([
+        expect.objectContaining({ provider: "anthropic", key: KEY }),
       ]);
     });
 
@@ -270,8 +270,8 @@ for (const win of WINDOWS) {
       await page.getByTestId("settings-key-input").fill(KEY);
       await save.click();
       await expect(dialog).toHaveCount(0);
-      expect(await app.requestsFor("set_api_key_for")).toEqual([
-        { provider: "anthropic", key: KEY },
+      expect(await app.requestsFor("save_provider_settings")).toEqual([
+        expect.objectContaining({ provider: "anthropic", key: KEY }),
       ]);
     });
 

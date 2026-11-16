@@ -81,9 +81,7 @@ async function openSettingsCard(app: App, status: Record<string, unknown>) {
     ...readyToLoad(),
     ...chatgptCommands(status),
     list_models_for: ok(chatgptModelList()),
-    set_active_provider: ok(DURABLE_SAVE),
-    set_active_model: ok(DURABLE_SAVE),
-    set_effort_for: ok(DURABLE_SAVE),
+    save_provider_settings: ok(DURABLE_SAVE),
   });
   const page = app.page;
   await expect(page.getByTestId("empty-state")).toBeVisible();

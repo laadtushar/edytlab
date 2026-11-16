@@ -250,12 +250,12 @@ test.describe("at three times the pixels", () => {
     // What the backend answers once Ollama is picked. `has_api_key_for`
     // is `provider_is_configured` (`commands.rs`): `true` for a provider
     // that `requires_api_key()` is false for, with no keychain read.
-    // `set_active_provider` answers where the choice landed, as the save
-    // commands do (`DURABLE_SAVE`). `default_base_url_for` is Ollama's
+    // `save_provider_settings` answers where the choice landed
+    // (`DURABLE_SAVE`). `default_base_url_for` is Ollama's
     // own address.
     await app.become({
       has_api_key_for: ok(true),
-      set_active_provider: ok(DURABLE_SAVE),
+      save_provider_settings: ok(DURABLE_SAVE),
       default_base_url_for: ok("http://localhost:11434"),
     });
     await page.getByText("Ollama (local)", { exact: true }).click();

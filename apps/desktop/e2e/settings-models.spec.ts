@@ -11,7 +11,7 @@
  * with the notice "no API key saved" (see `providerCommands`).
  */
 
-import { DURABLE_SAVE, ok, readyToLoad } from "./backend";
+import { DURABLE_SAVE, ok, providerSave, readyToLoad } from "./backend";
 import { expect, test, type App } from "./fixtures";
 
 /** The built-in list, in the order `anthropic_fallback_models()` has it. */
@@ -102,7 +102,7 @@ test("a saved model missing from Anthropic's list is flagged, and the default is
   await app.boot({
     ...readyToLoad(),
     get_active_model: ok("claude-opus-4-1-20250805"),
-    set_active_model: ok(DURABLE_SAVE),
+    save_provider_settings: ok(DURABLE_SAVE),
     list_models_for: ok({
       models: [
         {
@@ -132,13 +132,13 @@ test("a saved model missing from Anthropic's list is flagged, and the default is
   await expect(warning).toBeVisible();
   await expect(warning).toContainText("claude-opus-4-1-20250805");
   await expect(warning).toContainText("claude-sonnet-5-5");
-  expect(await app.requestsFor("set_active_model")).toEqual([]);
+  expect(await app.requestsFor("save_provider_settings")).toEqual([]);
 
   await page.getByTestId("settings-model-use-default").click();
 
   await expect(page.getByTestId("settings-model-input")).toHaveValue("claude-sonnet-5-5");
   await expect(warning).toHaveCount(0);
-  expect(await app.requestsFor("set_active_model")).toEqual([
-    { provider: "anthropic", model: "claude-sonnet-5-5" },
+  expect(await app.requestsFor("save_provider_settings")).toEqual([
+    providerSave({ provider: "anthropic", model: "claude-sonnet-5-5" }),
   ]);
 });
