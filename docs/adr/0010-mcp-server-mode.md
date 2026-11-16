@@ -81,7 +81,7 @@ Options:
 - **A. The MCP client's confirmation only.** Nothing to build. The server is as safe as the
   user's most permissive host setting: `claude -p`, Cursor auto-run and a blanket allow rule all
   skip the prompt, and annotations are untrusted by the spec. A prompt-injected model in an
-  unattended run can call all 102 mutating tools.
+  unattended run can call every mutating tool (102 of the registry today).
 - **B. An allow-list in the server's own config.** The server enforces it, through the `allowed`
   set that `Shared::dispatch` already takes (nested dispatchers in `batch_apply`, `apply_recipe`
   and `rederive` carry it too, #238). It does not depend on any host. A flat list of 115 names is
@@ -244,7 +244,7 @@ process.
 ### Reads: tools for the model, resources for the person
 
 A model must be able to do everything it needs with tools, because a host may not let it read a
-resource unprompted. So the 13 read-only tools are served as tools, `list_session` first among them
+resource unprompted. So the read-only ones (13 today) are served as tools, `list_session` first among them
 (it is paged and byte-capped, #618).
 
 Resources are an addition for the user, and are read-only:
@@ -353,7 +353,7 @@ Each stage is one PR that leaves `main` working.
 8. ~~**Live editing.**~~ Decided 2026-11-16: yes, as the planned target after ADR 0006, in its
    own record (section 2).
 9. ~~**The SDK.**~~ Decided 2026-11-16: `rmcp`, an exact 3.x pin at least two weeks old.
-10. **The cost of the schemas.** `read` is 13 tools. `edit` and `full` send about a hundred schemas to
+10. **The cost of the schemas.** `read` serves 13 schemas. `edit` and `full` send about a hundred schemas to
     the host's model every turn, and the slim set that Ollama gets (`tool_selection.rs`) is not
     applied. Is `--tools` enough, or should the server offer a profile?
 
