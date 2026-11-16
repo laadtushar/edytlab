@@ -43,6 +43,7 @@ pub mod chatgpt;
 mod context_window;
 mod conversation;
 mod credential;
+pub mod exchange;
 pub mod keychain;
 pub mod models;
 pub mod oauth;
@@ -505,6 +506,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Agent {
     cfg: LlmConfig,
     http: reqwest::Client,
+    /// The model the turn talks to, when it is not the provider over HTTP
+    /// (a scripted one in tests).
+    exchange: Option<Arc<dyn exchange::ModelExchange>>,
     dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
     store: Arc<Mutex<session::Store>>,
     engine: Arc<Mutex<audio_engine::Engine>>,
@@ -580,6 +584,7 @@ impl Agent {
         Self {
             cfg,
             http: reqwest::Client::new(),
+            exchange: None,
             dispatcher,
             store,
             engine,
@@ -598,6 +603,16 @@ impl Agent {
     /// between the base prompt and the matched skills.
     pub fn with_profile_body(mut self, body: String) -> Self {
         self.profile_body = Some(body);
+        self
+    }
+
+    /// Builder — take the model's steps from `exchange` instead of the
+    /// provider over HTTP. The classifier and the plan request still go to
+    /// the provider, so a test that scripts the steps also picks a provider
+    /// that [skips the classifier](LlmProvider::skips_classifier) and leaves
+    /// Plan first off.
+    pub fn with_exchange(mut self, exchange: Arc<dyn exchange::ModelExchange>) -> Self {
+        self.exchange = Some(exchange);
         self
     }
 
@@ -657,9 +672,15 @@ impl Agent {
         F: FnMut(AgentEvent),
     {
         let sent = user_message.clone();
+        let http_exchange = exchange::HttpExchange::new(&self.cfg, &self.http);
+        let exchange: &dyn exchange::ModelExchange = match &self.exchange {
+            Some(scripted) => scripted.as_ref(),
+            None => &http_exchange,
+        };
         let result = agent_loop::run_turn(
             &self.cfg,
             &self.http,
+            exchange,
             &self.dispatcher,
             &self.store,
             &self.engine,

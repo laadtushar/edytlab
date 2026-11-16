@@ -28,6 +28,20 @@ use crate::tool::util::{
 };
 use crate::{Tool, ToolContext, ToolResult};
 
+/// What `set_send` and `remove_send` both start from: the bus id read from
+/// the call, the head's state and a check that `track` exists. A bad id is
+/// refused before the head is read, as each tool always did.
+fn send_target(
+    ctx: &ToolContext,
+    track: usize,
+    bus_id: &str,
+) -> Result<(session::SessionState, Uuid), String> {
+    let bus_id = Uuid::parse_str(bus_id).map_err(|e| format!("invalid bus_id: {e}"))?;
+    let state = load_head_state(ctx)?;
+    check_track_index(&state.tracks, track)?;
+    Ok((state, bus_id))
+}
+
 // ---------------------------------------------------------------------------
 // create_bus
 // ---------------------------------------------------------------------------
@@ -141,19 +155,10 @@ impl Tool for SetSendTool {
             Err(r) => return Ok(r),
         };
 
-        let bus_id = match Uuid::parse_str(&args.bus_id) {
-            Ok(id) => id,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid bus_id: {e}"))),
-        };
-
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
+        let (mut state, bus_id) = match send_target(ctx, args.track, &args.bus_id) {
+            Ok(v) => v,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(msg));
-        }
 
         // Reject a dangling bus here rather than at render time. The
         // render does check — a send to a missing bus fails the whole
@@ -247,19 +252,10 @@ impl Tool for RemoveSendTool {
             Err(r) => return Ok(r),
         };
 
-        let bus_id = match Uuid::parse_str(&args.bus_id) {
-            Ok(id) => id,
-            Err(e) => return Ok(ToolResult::Error(format!("invalid bus_id: {e}"))),
-        };
-
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
+        let (mut state, bus_id) = match send_target(ctx, args.track, &args.bus_id) {
+            Ok(v) => v,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(msg));
-        }
 
         let track = &mut state.tracks[args.track];
         let before = track.sends.len();
